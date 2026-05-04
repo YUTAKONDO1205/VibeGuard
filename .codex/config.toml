@@ -1,0 +1,20 @@
+project_doc_fallback_filenames = ["CLAUDE.md"]
+project_root_markers = [".git", "package.json", "pnpm-workspace.yaml", "turbo.json", "nx.json"]
+
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+model_reasoning_effort = "medium"
+web_search = "live"
+
+[sandbox_workspace_write]
+network_access = true
+
+[agents]
+max_threads = 4
+max_depth = 1
+job_max_runtime_seconds = 1800
+
+[mcp_servers.playwright]
+command = "npx"
+args = ["@playwright/mcp@latest"]
+startup_timeout_sec = 20

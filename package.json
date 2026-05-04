@@ -1,0 +1,24 @@
+{
+  "name": "vibeguard",
+  "private": true,
+  "version": "0.1.0",
+  "description": "VibeGuard - security diagnostics for AI-generated code",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @vibeguard/findings-schema && npm run build -w @vibeguard/rules && npm run build -w @vibeguard/remediation-engine && npm run build -w @vibeguard/sarif-adapter && npm run build -w @vibeguard/analyzer-core && npm run build -w @vibeguard/cli",
+    "test": "npm run test --workspaces --if-present",
+    "clean": "npm run clean --workspaces --if-present",
+    "scan": "node apps/cli/dist/index.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0",
+    "@types/node": "^20.12.7"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

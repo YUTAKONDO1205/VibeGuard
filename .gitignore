@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.log
+*.tsbuildinfo
+.DS_Store
+coverage/
+.env
+.env.local
+.vscode/settings.json
