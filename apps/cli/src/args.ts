@@ -2,7 +2,7 @@ import type { ScanMode } from '@vibeguard/findings-schema';
 
 export interface CliArgs {
   target: string;
-  format: 'human' | 'json' | 'sarif';
+  format: 'human' | 'json' | 'sarif' | 'markdown';
   outFile?: string;
   mode: ScanMode;
   failOn: 'critical' | 'high' | 'medium' | 'low' | 'never';
@@ -20,7 +20,8 @@ Usage:
   vibeguard <path> [options]
 
 Options:
-  --format <human|json|sarif>   Output format (default: human)
+  --format <human|json|sarif|markdown>
+                                Output format (default: human)
   --out <file>                  Write output to file instead of stdout
   --mode <fast|standard|deep>   Scan depth (default: standard)
   --fail-on <level>             Exit non-zero when a finding meets this severity (default: high).
@@ -59,8 +60,8 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { version:
     if (a === '-v' || a === '--version') return { version: true };
     if (a === '--format') {
       const v = argv[++i];
-      if (v !== 'human' && v !== 'json' && v !== 'sarif') {
-        return { error: `--format must be human|json|sarif (got ${v})` };
+      if (v !== 'human' && v !== 'json' && v !== 'sarif' && v !== 'markdown') {
+        return { error: `--format must be human|json|sarif|markdown (got ${v})` };
       }
       args.format = v;
       continue;

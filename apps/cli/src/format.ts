@@ -1,4 +1,4 @@
-import type { Finding, ScanResponse, Severity } from '@vibeguard/findings-schema';
+import { compareSeverity, type Finding, type ScanResponse, type Severity } from '@vibeguard/findings-schema';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -54,6 +54,84 @@ export function formatHuman(scan: ScanResponse, useColor: boolean): string {
   );
   lines.push(`  total: ${summary.total}    elapsed: ${scan.executionTimeMs}ms`);
   return lines.join('\n');
+}
+
+const SEVERITY_EMOJI: Record<Severity, string> = {
+  critical: '🟣',
+  high: '🔴',
+  medium: '🟡',
+  low: '🔵',
+  info: '⚪',
+};
+
+const MAX_MARKDOWN_FINDINGS = 30;
+
+export function formatMarkdown(scan: ScanResponse): string {
+  const { findings, summary } = scan;
+  const lines: string[] = [];
+  lines.push('## VibeGuard Security Scan');
+  lines.push('');
+
+  if (findings.length === 0) {
+    lines.push('No findings detected. ✅');
+    lines.push('');
+    lines.push(`_Scanned in ${scan.executionTimeMs}ms._`);
+    return lines.join('\n');
+  }
+
+  lines.push(
+    `- **critical**: ${summary.critical}  **high**: ${summary.high}` +
+      `  **medium**: ${summary.medium}  **low**: ${summary.low}  **info**: ${summary.info}`,
+  );
+  lines.push(`- total: ${summary.total} / scanned in ${scan.executionTimeMs}ms`);
+  lines.push('');
+  lines.push('### Findings');
+  lines.push('');
+
+  const sorted = [...findings].sort((a, b) => {
+    const sev = compareSeverity(a.severity, b.severity);
+    if (sev !== 0) return sev;
+    const pathA = a.filePath ?? '';
+    const pathB = b.filePath ?? '';
+    if (pathA !== pathB) return pathA < pathB ? -1 : 1;
+    return (a.startLine ?? 0) - (b.startLine ?? 0);
+  });
+
+  const shown = sorted.slice(0, MAX_MARKDOWN_FINDINGS);
+  for (const f of shown) {
+    lines.push(formatFindingMarkdown(f));
+    lines.push('');
+  }
+
+  const omitted = sorted.length - shown.length;
+  if (omitted > 0) {
+    lines.push(`_… +${omitted} more, see SARIF report._`);
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+function formatFindingMarkdown(f: Finding): string {
+  const out: string[] = [];
+  const sev = f.severity.toUpperCase();
+  out.push(`#### ${SEVERITY_EMOJI[f.severity]} ${sev} — ${f.title} (\`${f.ruleId}\`)`);
+  const location = f.filePath
+    ? `\`${f.filePath}:${f.startLine ?? '?'}${f.startColumn ? `:${f.startColumn}` : ''}\``
+    : `\`<inline>:${f.startLine ?? '?'}\``;
+  out.push(`- ${location}`);
+  out.push(`- _confidence_: ${f.confidence}`);
+  if (f.remediation) {
+    out.push(`- _why_: ${f.remediation.why}`);
+    out.push(`- _fix_: ${f.remediation.how}`);
+    if (f.remediation.exampleFix) {
+      out.push('');
+      out.push('  ```');
+      for (const line of f.remediation.exampleFix.split('\n')) out.push(`  ${line}`);
+      out.push('  ```');
+    }
+  }
+  return out.join('\n');
 }
 
 function formatFinding(f: Finding, useColor: boolean): string {

@@ -24,6 +24,11 @@ describe('parseArgs', () => {
     expect(r).toMatchObject({ format: 'sarif', outFile: 'out.sarif' });
   });
 
+  it('accepts markdown format', () => {
+    const r = parseArgs(['./src', '--format', 'markdown']);
+    expect(r).toMatchObject({ format: 'markdown' });
+  });
+
   it('rejects invalid format', () => {
     expect(parseArgs(['./src', '--format', 'xml'])).toHaveProperty('error');
   });

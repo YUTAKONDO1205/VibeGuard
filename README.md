@@ -1,5 +1,8 @@
 # VibeGuard
 
+[![CI](https://github.com/YUTAKONDO1205/VibeGuard/actions/workflows/ci.yml/badge.svg)](https://github.com/YUTAKONDO1205/VibeGuard/actions/workflows/ci.yml)
+[![Security Scan](https://github.com/YUTAKONDO1205/VibeGuard/actions/workflows/security-scan.yml/badge.svg)](https://github.com/YUTAKONDO1205/VibeGuard/actions/workflows/security-scan.yml)
+
 開発者: 近藤悠太 (Kondo Yuta)
 
 AI生成コードに特化したセキュリティ診断基盤。**開発中（VS Code）**・**閲覧中（Chrome）**・**マージ前（GitHub Actions / CLI）** の3段階で同一の解析コアを使ってコードを検査し、危険箇所と修正方針を提示する。
@@ -60,7 +63,7 @@ node apps/cli/dist/index.js suspicious.py --fail-on critical
 
 | オプション | 説明 |
 |---|---|
-| `--format <human\|json\|sarif>` | 出力形式（デフォルト: human） |
+| `--format <human\|json\|sarif\|markdown>` | 出力形式（デフォルト: human）。`markdown` は PR コメント向け |
 | `--out <file>` | 結果をファイルへ書き出す |
 | `--mode <fast\|standard\|deep>` | スキャン深度（デフォルト: standard） |
 | `--fail-on <level>` | 指定 severity 以上で終了コードを非ゼロにする |
@@ -75,6 +78,27 @@ npm test
 ```
 
 各パッケージの `*.test.ts` を vitest で実行する。
+
+## GitHub Actions
+
+リポジトリには 2 本のワークフローを同梱している。
+
+| Workflow | 役割 |
+|---|---|
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | `npm ci` → `npm run build` → `npm test` の基本ゲート |
+| [`.github/workflows/security-scan.yml`](.github/workflows/security-scan.yml) | self-scan で SARIF を Code Scanning にアップロードし、PR には sticky コメントを投稿。品質ゲートは samples ジョブで担保 |
+
+### self-scan ジョブ
+VibeGuard 自身を `--fail-on never` でスキャンし、結果を SARIF として Security タブへ、Markdown として PR コメントへ反映する。**情報提示のみで build は止めない**：ルール定義ファイル ([packages/rules/src/rules/](packages/rules/src/rules/)) には `eval()` や dummy credential など検出対象のリテラルが正規表現の例として含まれ、テストファイルには意図的な脆弱コードが入っているため、self-scan で 0 件を要求するのは構造上無理がある。
+
+### samples ジョブ
+ルール正当性の真の品質ゲート。
+
+- [`samples/safe`](samples/safe) → 0 findings であること（false positive 検出）
+- [`samples/vulnerable`](samples/vulnerable) → 15 件以上検出されること（regression 検出）
+
+### 注意
+fork からの PR ではコメント投稿はスキップされる（`pull-requests: write` 権限の制約）。初回 main push の後は GitHub の Security タブに結果が集約される。
 
 ## 開発フェーズ
 

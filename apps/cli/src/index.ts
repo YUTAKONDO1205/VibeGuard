@@ -4,7 +4,7 @@ import { ENGINE_VERSION, scanPath } from '@vibeguard/analyzer-core';
 import { compareSeverity, type Severity } from '@vibeguard/findings-schema';
 import { toSarif } from '@vibeguard/sarif-adapter';
 import { parseArgs, HELP_TEXT } from './args.js';
-import { formatHuman } from './format.js';
+import { formatHuman, formatMarkdown } from './format.js';
 
 const VERSION = '0.1.0';
 
@@ -53,6 +53,8 @@ async function main(): Promise<number> {
     output = JSON.stringify(scan, null, 2);
   } else if (args.format === 'sarif') {
     output = JSON.stringify(toSarif(scan, { toolVersion: VERSION }), null, 2);
+  } else if (args.format === 'markdown') {
+    output = formatMarkdown(scan);
   } else {
     output = formatHuman(scan, useColor);
   }
