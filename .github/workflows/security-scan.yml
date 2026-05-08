@@ -1,0 +1,104 @@
+name: Security Scan
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  # Self-scan: VibeGuard runs against its own repo to populate the Security tab
+  # and PR comments. Findings here are informational only — the scanner's own
+  # rule definitions and test fixtures contain literal example payloads
+  # (eval(), dummy credentials, ...) that legitimately trip the rules. Quality
+  # gating happens in the `samples` job below.
+  self-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Run scanner (SARIF)
+        run: |
+          node apps/cli/dist/index.js . \
+            --mode standard \
+            --format sarif \
+            --out report.sarif \
+            --ignore samples \
+            --ignore dist \
+            --ignore node_modules \
+            --ignore .git \
+            --ignore .github \
+            --fail-on never
+
+      - name: Run scanner (Markdown)
+        run: |
+          node apps/cli/dist/index.js . \
+            --format markdown \
+            --out report.md \
+            --ignore samples \
+            --ignore dist \
+            --ignore node_modules \
+            --ignore .git \
+            --ignore .github \
+            --fail-on never
+
+      - name: Upload SARIF to Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: report.sarif
+          category: vibeguard
+
+      - name: Post PR comment
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: vibeguard
+          path: report.md
+
+  # Quality gate: rule correctness against curated samples.
+  # samples/safe MUST stay clean (no false positives).
+  # samples/vulnerable MUST keep tripping the expected number of rules.
+  samples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: samples/safe must produce zero findings
+        run: |
+          node apps/cli/dist/index.js samples/safe \
+            --mode standard --format json --out safe.json --fail-on never
+          COUNT=$(node -e "console.log(JSON.parse(require('fs').readFileSync('safe.json','utf8')).findings.length)")
+          echo "samples/safe findings: $COUNT"
+          test "$COUNT" -eq 0
+
+      - name: samples/vulnerable must trip the rules
+        run: |
+          node apps/cli/dist/index.js samples/vulnerable \
+            --mode standard --format json --out vuln.json --fail-on never
+          COUNT=$(node -e "console.log(JSON.parse(require('fs').readFileSync('vuln.json','utf8')).findings.length)")
+          echo "samples/vulnerable findings: $COUNT"
+          test "$COUNT" -ge 15
