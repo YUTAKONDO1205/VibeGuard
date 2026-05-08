@@ -10,3 +10,4 @@ coverage/
 AGENTS.md
 README-CODEX.md
 .codex
+.claude/
