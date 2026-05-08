@@ -44,6 +44,18 @@ describe('injection rules', () => {
     expectMatches(innerHtmlAssignment, 'el.innerHTML = userInput;');
   });
 
+  it('captures innerHTML target as variable', () => {
+    const matches = innerHtmlAssignment.match(ctx('container.innerHTML = data;'));
+    expect(matches[0]?.variables?.target).toBe('container');
+  });
+
+  it('captures SQL table name as variable', () => {
+    const matches = sqlStringConcat.match(
+      ctx('const q = "SELECT * FROM users WHERE id = " + userId;'),
+    );
+    expect(matches[0]?.variables?.table).toBe('users');
+  });
+
   it('does not flag innerHTML literal assignment', () => {
     expectNoMatch(innerHtmlAssignment, 'el.innerHTML = "<b>hello</b>";');
   });

@@ -78,6 +78,37 @@ const apiKey = "AKIAIOSFODNN7EXAMPLE";
     expect(r.findings).toBeDefined();
   });
 
+  it('finding remediation has variables interpolated', () => {
+    const r = scan({
+      targetType: 'snippet',
+      content: 'container.innerHTML = data;',
+      mode: 'standard',
+      filePath: 'a.js',
+    });
+    const html = r.findings.find((f) => f.ruleId === 'VG-INJ-006');
+    expect(html?.remediation?.exampleFix).toBe('container.textContent = userInput;');
+  });
+
+  it('fast mode runs only critical/high rules', () => {
+    const code = [
+      'fs.readFile("/tmp/" + userInput);',
+      'try { dangerous(); } catch (e) {}',
+    ].join('\n');
+    const fast = scan({ targetType: 'snippet', content: code, mode: 'fast', filePath: 'a.js' });
+    const std = scan({ targetType: 'snippet', content: code, mode: 'standard', filePath: 'a.js' });
+    expect(std.findings.length).toBeGreaterThan(fast.findings.length);
+    for (const f of fast.findings) {
+      expect(['critical', 'high']).toContain(f.severity);
+    }
+  });
+
+  it('deep mode behaves like standard for now', () => {
+    const code = 'fs.readFile("/tmp/" + userInput);';
+    const std = scan({ targetType: 'snippet', content: code, mode: 'standard', filePath: 'a.js' });
+    const deep = scan({ targetType: 'snippet', content: code, mode: 'deep', filePath: 'a.js' });
+    expect(deep.findings.length).toBe(std.findings.length);
+  });
+
   it('Analyzer instance reuses configuration', () => {
     const a = new Analyzer();
     const r1 = a.scan({ targetType: 'snippet', content: 'eval(x)', mode: 'fast', filePath: 'a.js' });
