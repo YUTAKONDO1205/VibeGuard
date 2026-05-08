@@ -1,5 +1,6 @@
 import type { Remediation } from '@vibeguard/findings-schema';
-import type { RuleDefinition } from '@vibeguard/rules';
+import type { RuleDefinition, RuleMatch } from '@vibeguard/rules';
+import { interpolate } from './interpolate.js';
 
 const DEFAULT_REFERENCES: Record<string, string[]> = {
   injection: ['https://owasp.org/Top10/A03_2021-Injection/'],
@@ -12,13 +13,11 @@ const DEFAULT_REFERENCES: Record<string, string[]> = {
   logging: ['https://owasp.org/Top10/A09_2021-Security_Logging_and_Monitoring_Failures/'],
 };
 
-/**
- * MVP remediation engine: composes a Remediation from the rule's static template plus
- * category-default references. Future versions can interpolate variables from RuleMatch
- * and tailor exampleFix per-language.
- */
-export function buildRemediation(rule: RuleDefinition): Remediation {
+export { interpolate } from './interpolate.js';
+
+export function buildRemediation(rule: RuleDefinition, match?: RuleMatch): Remediation {
   const tmpl = rule.remediation;
+  const vars = match?.variables;
   if (!tmpl) {
     return {
       why: rule.description,
@@ -31,9 +30,9 @@ export function buildRemediation(rule: RuleDefinition): Remediation {
     ...(DEFAULT_REFERENCES[rule.category] ?? []),
   ];
   return {
-    why: tmpl.why,
-    how: tmpl.how,
-    exampleFix: tmpl.exampleFix,
+    why: interpolate(tmpl.why, vars),
+    how: interpolate(tmpl.how, vars),
+    exampleFix: tmpl.exampleFix !== undefined ? interpolate(tmpl.exampleFix, vars) : undefined,
     references: refs.length ? Array.from(new Set(refs)) : undefined,
   };
 }

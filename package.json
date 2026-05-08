@@ -5,10 +5,11 @@
   "description": "VibeGuard - security diagnostics for AI-generated code",
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "apps/*",
+    "extensions/*"
   ],
   "scripts": {
-    "build": "npm run build -w @vibeguard/findings-schema && npm run build -w @vibeguard/rules && npm run build -w @vibeguard/remediation-engine && npm run build -w @vibeguard/sarif-adapter && npm run build -w @vibeguard/analyzer-core && npm run build -w @vibeguard/cli",
+    "build": "npm run build -w @vibeguard/findings-schema && npm run build -w @vibeguard/rules && npm run build -w @vibeguard/remediation-engine && npm run build -w @vibeguard/sarif-adapter && npm run build -w @vibeguard/analyzer-core && npm run build -w @vibeguard/cli && npm run build -w vibeguard-vscode",
     "test": "npm run test --workspaces --if-present",
     "clean": "npm run clean --workspaces --if-present",
     "scan": "node apps/cli/dist/index.js"

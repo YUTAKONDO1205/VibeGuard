@@ -1,0 +1,610 @@
+From f693b564b032f74f51876daaec04e35856b14bf4 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 8 May 2026 16:08:40 +0000
+Subject: [PATCH] feat: bridge Phase 1 implementation gaps
+
+Wire ScanMode through analyzer, interpolate ${var} in remediation
+templates, and add a minimal VS Code extension that runs the shared
+analyzer-core on save.
+
+- analyzer-core: filter rules by mode (fast=critical/high only, standard
+  and deep run all rules; deep reserved for future external scanners)
+- remediation-engine: new interpolate() helper expands ${name} in
+  why/how/exampleFix using RuleMatch.variables; references untouched
+- rules/injection: capture <table> in SQL concat and <target> in
+  innerHTML so their exampleFix shows the actual identifier
+- extensions/vscode: new workspace package providing on-save scanning
+  (fast by default), VibeGuard: Scan File command, and Diagnostics
+
+https://claude.ai/code/session_01KGgckdQXpbJbhRqAxkm5vg
+---
+ extensions/vscode/.vscode/launch.json         | 13 ++++
+ extensions/vscode/.vscodeignore               |  7 +++
+ extensions/vscode/README.md                   | 39 ++++++++++++
+ extensions/vscode/package.json                | 56 +++++++++++++++++
+ extensions/vscode/src/diagnostics.ts          | 23 +++++++
+ extensions/vscode/src/extension.ts            | 40 ++++++++++++
+ extensions/vscode/src/runner.ts               | 26 ++++++++
+ extensions/vscode/tsconfig.json               |  9 +++
+ package.json                                  |  5 +-
+ packages/analyzer-core/src/analyzer.test.ts   | 31 ++++++++++
+ packages/analyzer-core/src/analyzer.ts        | 16 ++++-
+ packages/remediation-engine/src/index.test.ts | 61 ++++++++++++++++++-
+ packages/remediation-engine/src/index.ts      | 19 +++---
+ .../remediation-engine/src/interpolate.ts     |  9 +++
+ packages/rules/src/rules/injection.ts         |  8 +--
+ packages/rules/src/rules/rules.test.ts        | 12 ++++
+ 16 files changed, 355 insertions(+), 19 deletions(-)
+ create mode 100644 extensions/vscode/.vscode/launch.json
+ create mode 100644 extensions/vscode/.vscodeignore
+ create mode 100644 extensions/vscode/README.md
+ create mode 100644 extensions/vscode/package.json
+ create mode 100644 extensions/vscode/src/diagnostics.ts
+ create mode 100644 extensions/vscode/src/extension.ts
+ create mode 100644 extensions/vscode/src/runner.ts
+ create mode 100644 extensions/vscode/tsconfig.json
+ create mode 100644 packages/remediation-engine/src/interpolate.ts
+
+diff --git a/extensions/vscode/.vscode/launch.json b/extensions/vscode/.vscode/launch.json
+new file mode 100644
+index 0000000..53620ce
+--- /dev/null
++++ b/extensions/vscode/.vscode/launch.json
+@@ -0,0 +1,13 @@
++{
++  "version": "0.2.0",
++  "configurations": [
++    {
++      "name": "Run VibeGuard Extension",
++      "type": "extensionHost",
++      "request": "launch",
++      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
++      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
++      "preLaunchTask": "npm: build"
++    }
++  ]
++}
+diff --git a/extensions/vscode/.vscodeignore b/extensions/vscode/.vscodeignore
+new file mode 100644
+index 0000000..e3d3645
+--- /dev/null
++++ b/extensions/vscode/.vscodeignore
+@@ -0,0 +1,7 @@
++.vscode/**
++src/**
++tsconfig.json
++**/*.ts
++**/*.map
++node_modules/**
++!dist/**
+diff --git a/extensions/vscode/README.md b/extensions/vscode/README.md
+new file mode 100644
+index 0000000..e1b0bf1
+--- /dev/null
++++ b/extensions/vscode/README.md
+@@ -0,0 +1,39 @@
++# VibeGuard VS Code 拡張（最小版）
++
++`@vibeguard/analyzer-core` を呼び出して、開いているファイルにセキュリティ Diagnostics を表示する最小拡張。
++
++## 機能
++
++- 保存時スキャン（既定 `fast` モード、設定で変更可）
++- コマンド `VibeGuard: Scan File`（`standard` モード）
++- Diagnostics 表示（Error / Warning / Info を severity から導出）
++- ファイルクローズ時に Diagnostics クリア
++
++設計書 §10.2 の最小スコープのみ。選択範囲スキャン・Code Action・サイドバー・SARIF
++出力は Phase 1.5 以降。
++
++## 開発（F5 起動）
++
++リポジトリのルートで:
++
++```bash
++npm install
++npm run build
++```
++
++その後、`extensions/vscode/` を VS Code で開き、F5 で **Run VibeGuard Extension**
++を起動すると Extension Development Host が立ち上がる。
++
++検証手順:
++
++1. 起動した新しいウィンドウで `samples/vulnerable/xss.js` 等を開く
++2. Cmd/Ctrl+S で保存 → Problems パネルに findings が並ぶ
++3. コマンドパレット → `VibeGuard: Scan File` → 結果が出る
++4. 設定 `vibeguard.scanOnSaveMode` を `fast` / `standard` で切り替えて検出数の差を確認
++
++## 設定項目
++
++| 設定 | 既定 | 説明 |
++|---|---|---|
++| `vibeguard.scanOnSave` | `true` | 保存時スキャンの ON/OFF |
++| `vibeguard.scanOnSaveMode` | `fast` | 保存時のスキャンモード（`fast` / `standard`） |
+diff --git a/extensions/vscode/package.json b/extensions/vscode/package.json
+new file mode 100644
+index 0000000..176a2f8
+--- /dev/null
++++ b/extensions/vscode/package.json
+@@ -0,0 +1,56 @@
++{
++  "name": "vibeguard-vscode",
++  "displayName": "VibeGuard",
++  "description": "Security diagnostics for AI-generated code, on save and on demand.",
++  "version": "0.1.0",
++  "private": true,
++  "publisher": "vibeguard",
++  "engines": {
++    "vscode": "^1.85.0",
++    "node": ">=18"
++  },
++  "main": "./dist/extension.js",
++  "activationEvents": [
++    "onStartupFinished"
++  ],
++  "contributes": {
++    "commands": [
++      {
++        "command": "vibeguard.scanFile",
++        "title": "VibeGuard: Scan File"
++      }
++    ],
++    "configuration": {
++      "title": "VibeGuard",
++      "properties": {
++        "vibeguard.scanOnSave": {
++          "type": "boolean",
++          "default": true,
++          "description": "Run a VibeGuard scan when a file is saved."
++        },
++        "vibeguard.scanOnSaveMode": {
++          "type": "string",
++          "enum": ["fast", "standard"],
++          "default": "fast",
++          "description": "Scan mode used for the on-save scan. Manual scans always use 'standard'."
++        }
++      }
++    }
++  },
++  "scripts": {
++    "build": "esbuild src/extension.ts --bundle --platform=node --target=node18 --external:vscode --format=cjs --outfile=dist/extension.js",
++    "watch": "esbuild src/extension.ts --bundle --platform=node --target=node18 --external:vscode --format=cjs --outfile=dist/extension.js --watch",
++    "typecheck": "tsc -p tsconfig.json --noEmit",
++    "clean": "rimraf dist"
++  },
++  "dependencies": {
++    "@vibeguard/analyzer-core": "0.1.0",
++    "@vibeguard/findings-schema": "0.1.0"
++  },
++  "devDependencies": {
++    "@types/node": "^20.12.7",
++    "@types/vscode": "^1.85.0",
++    "esbuild": "^0.20.2",
++    "typescript": "^5.4.5"
++  }
++}
+diff --git a/extensions/vscode/src/diagnostics.ts b/extensions/vscode/src/diagnostics.ts
+new file mode 100644
+index 0000000..29c5dfc
+--- /dev/null
++++ b/extensions/vscode/src/diagnostics.ts
+@@ -0,0 +1,23 @@
++import * as vscode from 'vscode';
++import type { Finding } from '@vibeguard/findings-schema';
++
++function severityToVscode(sev: Finding['severity']): vscode.DiagnosticSeverity {
++  if (sev === 'critical' || sev === 'high') return vscode.DiagnosticSeverity.Error;
++  if (sev === 'medium') return vscode.DiagnosticSeverity.Warning;
++  return vscode.DiagnosticSeverity.Information;
++}
++
++export function toDiagnostic(f: Finding, doc: vscode.TextDocument): vscode.Diagnostic {
++  const startLine = Math.max(0, (f.startLine ?? 1) - 1);
++  const endLine = Math.max(startLine, (f.endLine ?? f.startLine ?? 1) - 1);
++  const startCol = Math.max(0, (f.startColumn ?? 1) - 1);
++  const lineLen = doc.lineAt(Math.min(endLine, doc.lineCount - 1)).text.length;
++  const endCol = Math.max(startCol, (f.endColumn ?? lineLen + 1) - 1);
++
++  const range = new vscode.Range(startLine, startCol, endLine, endCol);
++  const message = `${f.title}: ${f.description}`;
++  const d = new vscode.Diagnostic(range, message, severityToVscode(f.severity));
++  d.code = f.ruleId;
++  d.source = 'VibeGuard';
++  return d;
++}
+diff --git a/extensions/vscode/src/extension.ts b/extensions/vscode/src/extension.ts
+new file mode 100644
+index 0000000..adc2eea
+--- /dev/null
++++ b/extensions/vscode/src/extension.ts
+@@ -0,0 +1,40 @@
++import * as vscode from 'vscode';
++import type { ScanMode } from '@vibeguard/findings-schema';
++import { ScanRunner } from './runner.js';
++
++export function activate(context: vscode.ExtensionContext): void {
++  const collection = vscode.languages.createDiagnosticCollection('vibeguard');
++  context.subscriptions.push(collection);
++
++  const runner = new ScanRunner(collection);
++
++  context.subscriptions.push(
++    vscode.workspace.onDidSaveTextDocument((doc) => {
++      const config = vscode.workspace.getConfiguration('vibeguard');
++      if (!config.get<boolean>('scanOnSave', true)) return;
++      const mode = (config.get<string>('scanOnSaveMode', 'fast') as ScanMode) ?? 'fast';
++      runner.scanDocument(doc, mode);
++    }),
++  );
++
++  context.subscriptions.push(
++    vscode.workspace.onDidCloseTextDocument((doc) => {
++      runner.clear(doc.uri);
++    }),
++  );
++
++  context.subscriptions.push(
++    vscode.commands.registerCommand('vibeguard.scanFile', () => {
++      const editor = vscode.window.activeTextEditor;
++      if (!editor) {
++        vscode.window.showInformationMessage('VibeGuard: no active editor.');
++        return;
++      }
++      runner.scanDocument(editor.document, 'standard');
++    }),
++  );
++}
++
++export function deactivate(): void {
++  // DiagnosticCollection is disposed via context.subscriptions.
++}
+diff --git a/extensions/vscode/src/runner.ts b/extensions/vscode/src/runner.ts
+new file mode 100644
+index 0000000..238d695
+--- /dev/null
++++ b/extensions/vscode/src/runner.ts
+@@ -0,0 +1,26 @@
++import * as vscode from 'vscode';
++import { Analyzer } from '@vibeguard/analyzer-core';
++import type { ScanMode } from '@vibeguard/findings-schema';
++import { toDiagnostic } from './diagnostics.js';
++
++export class ScanRunner {
++  private readonly analyzer = new Analyzer();
++
++  constructor(private readonly collection: vscode.DiagnosticCollection) {}
++
++  scanDocument(doc: vscode.TextDocument, mode: ScanMode): void {
++    if (doc.uri.scheme !== 'file') return;
++    const response = this.analyzer.scan({
++      targetType: 'file',
++      content: doc.getText(),
++      filePath: doc.uri.fsPath,
++      mode,
++    });
++    const diagnostics = response.findings.map((f) => toDiagnostic(f, doc));
++    this.collection.set(doc.uri, diagnostics);
++  }
++
++  clear(uri: vscode.Uri): void {
++    this.collection.delete(uri);
++  }
++}
+diff --git a/extensions/vscode/tsconfig.json b/extensions/vscode/tsconfig.json
+new file mode 100644
+index 0000000..31eeb47
+--- /dev/null
++++ b/extensions/vscode/tsconfig.json
+@@ -0,0 +1,9 @@
++{
++  "extends": "../../tsconfig.base.json",
++  "compilerOptions": {
++    "noEmit": true,
++    "rootDir": "src",
++    "types": ["node", "vscode"]
++  },
++  "include": ["src/**/*.ts"]
++}
+diff --git a/package.json b/package.json
+index 60fc6b4..5306896 100644
+--- a/package.json
++++ b/package.json
+@@ -5,10 +5,11 @@
+   "description": "VibeGuard - security diagnostics for AI-generated code",
+   "workspaces": [
+     "packages/*",
+-    "apps/*"
++    "apps/*",
++    "extensions/*"
+   ],
+   "scripts": {
+-    "build": "npm run build -w @vibeguard/findings-schema && npm run build -w @vibeguard/rules && npm run build -w @vibeguard/remediation-engine && npm run build -w @vibeguard/sarif-adapter && npm run build -w @vibeguard/analyzer-core && npm run build -w @vibeguard/cli",
++    "build": "npm run build -w @vibeguard/findings-schema && npm run build -w @vibeguard/rules && npm run build -w @vibeguard/remediation-engine && npm run build -w @vibeguard/sarif-adapter && npm run build -w @vibeguard/analyzer-core && npm run build -w @vibeguard/cli && npm run build -w vibeguard-vscode",
+     "test": "npm run test --workspaces --if-present",
+     "clean": "npm run clean --workspaces --if-present",
+     "scan": "node apps/cli/dist/index.js"
+diff --git a/packages/analyzer-core/src/analyzer.test.ts b/packages/analyzer-core/src/analyzer.test.ts
+index 12c771b..f00d2dd 100644
+--- a/packages/analyzer-core/src/analyzer.test.ts
++++ b/packages/analyzer-core/src/analyzer.test.ts
+@@ -78,6 +78,37 @@ const apiKey = "AKIAIOSFODNN7EXAMPLE";
+     expect(r.findings).toBeDefined();
+   });
+ 
++  it('finding remediation has variables interpolated', () => {
++    const r = scan({
++      targetType: 'snippet',
++      content: 'container.innerHTML = data;',
++      mode: 'standard',
++      filePath: 'a.js',
++    });
++    const html = r.findings.find((f) => f.ruleId === 'VG-INJ-006');
++    expect(html?.remediation?.exampleFix).toBe('container.textContent = userInput;');
++  });
++
++  it('fast mode runs only critical/high rules', () => {
++    const code = [
++      'fs.readFile("/tmp/" + userInput);',
++      'try { dangerous(); } catch (e) {}',
++    ].join('\n');
++    const fast = scan({ targetType: 'snippet', content: code, mode: 'fast', filePath: 'a.js' });
++    const std = scan({ targetType: 'snippet', content: code, mode: 'standard', filePath: 'a.js' });
++    expect(std.findings.length).toBeGreaterThan(fast.findings.length);
++    for (const f of fast.findings) {
++      expect(['critical', 'high']).toContain(f.severity);
++    }
++  });
++
++  it('deep mode behaves like standard for now', () => {
++    const code = 'fs.readFile("/tmp/" + userInput);';
++    const std = scan({ targetType: 'snippet', content: code, mode: 'standard', filePath: 'a.js' });
++    const deep = scan({ targetType: 'snippet', content: code, mode: 'deep', filePath: 'a.js' });
++    expect(deep.findings.length).toBe(std.findings.length);
++  });
++
+   it('Analyzer instance reuses configuration', () => {
+     const a = new Analyzer();
+     const r1 = a.scan({ targetType: 'snippet', content: 'eval(x)', mode: 'fast', filePath: 'a.js' });
+diff --git a/packages/analyzer-core/src/analyzer.ts b/packages/analyzer-core/src/analyzer.ts
+index b653e80..33f5298 100644
+--- a/packages/analyzer-core/src/analyzer.ts
++++ b/packages/analyzer-core/src/analyzer.ts
+@@ -3,6 +3,7 @@ import {
+   summarize,
+   compareSeverity,
+   type Finding,
++  type ScanMode,
+   type ScanRequest,
+   type ScanResponse,
+ } from '@vibeguard/findings-schema';
+@@ -29,6 +30,15 @@ function shouldMaskCategory(category: string): boolean {
+   return category === 'secrets';
+ }
+ 
++function filterRulesByMode(rules: RuleDefinition[], mode: ScanMode): RuleDefinition[] {
++  if (mode === 'fast') {
++    return rules.filter((r) => r.severity === 'critical' || r.severity === 'high');
++  }
++  // 'standard' and 'deep' run all rules. Future: 'deep' will also dispatch to
++  // external scanners when request.includeExternalScanners is true.
++  return rules;
++}
++
+ function buildRuleContext(content: string, language: string | undefined, filePath: string | undefined): RuleContext {
+   return {
+     content,
+@@ -71,7 +81,9 @@ export class Analyzer {
+       (request.filePath ? detectLanguageFromPath(request.filePath) : undefined) ??
+       detectLanguageFromContent(request.content);
+ 
+-    const candidateRules = language ? getRulesForLanguage(language) : this.rules;
++    const baseRules = language ? getRulesForLanguage(language) : this.rules;
++    const mode: ScanMode = request.mode ?? 'standard';
++    const candidateRules = filterRulesByMode(baseRules, mode);
+     const ctx = buildRuleContext(request.content, language, request.filePath);
+ 
+     for (const rule of candidateRules) {
+@@ -107,7 +119,7 @@ export class Analyzer {
+           endColumn: m.endColumn,
+           snippet,
+           evidence: [evidence],
+-          remediation: includeRemediation ? buildRemediation(rule) : undefined,
++          remediation: includeRemediation ? buildRemediation(rule, m) : undefined,
+           references: rule.references,
+           sourceEngine: 'core-rule',
+           tags: rule.tags,
+diff --git a/packages/remediation-engine/src/index.test.ts b/packages/remediation-engine/src/index.test.ts
+index 85d426c..4f903c1 100644
+--- a/packages/remediation-engine/src/index.test.ts
++++ b/packages/remediation-engine/src/index.test.ts
+@@ -1,7 +1,18 @@
+ import { describe, expect, it } from 'vitest';
+-import type { RuleDefinition } from '@vibeguard/rules';
++import type { RuleDefinition, RuleMatch } from '@vibeguard/rules';
+ import { buildRemediation } from './index.js';
+ 
++function makeMatch(variables?: Record<string, string>): RuleMatch {
++  return {
++    startLine: 1,
++    endLine: 1,
++    startColumn: 1,
++    endColumn: 2,
++    evidence: 'x',
++    variables,
++  };
++}
++
+ const baseRule: RuleDefinition = {
+   ruleId: 'TEST-1',
+   name: 'demo',
+@@ -41,4 +52,52 @@ describe('buildRemediation', () => {
+     expect(refs).toContain('https://example.com/extra');
+     expect(new Set(refs).size).toBe(refs.length);
+   });
++
++  it('interpolates ${var} in why/how/exampleFix when match.variables provided', () => {
++    const r = buildRemediation(
++      {
++        ...baseRule,
++        remediation: {
++          why: 'unsafe table ${table}',
++          how: 'fix ${table}',
++          exampleFix: 'SELECT * FROM ${table}',
++        },
++      },
++      makeMatch({ table: 'users' }),
++    );
++    expect(r.why).toBe('unsafe table users');
++    expect(r.how).toBe('fix users');
++    expect(r.exampleFix).toBe('SELECT * FROM users');
++  });
++
++  it('leaves unresolved ${unknown} verbatim', () => {
++    const r = buildRemediation(
++      {
++        ...baseRule,
++        remediation: { why: 'leftover ${nope}', how: 'no-op' },
++      },
++      makeMatch({ other: 'x' }),
++    );
++    expect(r.why).toBe('leftover ${nope}');
++  });
++
++  it('is a no-op when match is omitted (back-compat)', () => {
++    const r = buildRemediation({
++      ...baseRule,
++      remediation: { why: 'plain ${var}', how: 'plain' },
++    });
++    expect(r.why).toBe('plain ${var}');
++  });
++
++  it('does not interpolate references', () => {
++    const r = buildRemediation(
++      {
++        ...baseRule,
++        references: ['https://example.com/${table}'],
++        remediation: { why: 'w', how: 'h' },
++      },
++      makeMatch({ table: 'users' }),
++    );
++    expect(r.references).toContain('https://example.com/${table}');
++  });
+ });
+diff --git a/packages/remediation-engine/src/index.ts b/packages/remediation-engine/src/index.ts
+index b19777d..796f7c2 100644
+--- a/packages/remediation-engine/src/index.ts
++++ b/packages/remediation-engine/src/index.ts
+@@ -1,5 +1,6 @@
+ import type { Remediation } from '@vibeguard/findings-schema';
+-import type { RuleDefinition } from '@vibeguard/rules';
++import type { RuleDefinition, RuleMatch } from '@vibeguard/rules';
++import { interpolate } from './interpolate.js';
+ 
+ const DEFAULT_REFERENCES: Record<string, string[]> = {
+   injection: ['https://owasp.org/Top10/A03_2021-Injection/'],
+@@ -12,13 +13,11 @@ const DEFAULT_REFERENCES: Record<string, string[]> = {
+   logging: ['https://owasp.org/Top10/A09_2021-Security_Logging_and_Monitoring_Failures/'],
+ };
+ 
+-/**
+- * MVP remediation engine: composes a Remediation from the rule's static template plus
+- * category-default references. Future versions can interpolate variables from RuleMatch
+- * and tailor exampleFix per-language.
+- */
+-export function buildRemediation(rule: RuleDefinition): Remediation {
++export { interpolate } from './interpolate.js';
++
++export function buildRemediation(rule: RuleDefinition, match?: RuleMatch): Remediation {
+   const tmpl = rule.remediation;
++  const vars = match?.variables;
+   if (!tmpl) {
+     return {
+       why: rule.description,
+@@ -31,9 +30,9 @@ export function buildRemediation(rule: RuleDefinition): Remediation {
+     ...(DEFAULT_REFERENCES[rule.category] ?? []),
+   ];
+   return {
+-    why: tmpl.why,
+-    how: tmpl.how,
+-    exampleFix: tmpl.exampleFix,
++    why: interpolate(tmpl.why, vars),
++    how: interpolate(tmpl.how, vars),
++    exampleFix: tmpl.exampleFix !== undefined ? interpolate(tmpl.exampleFix, vars) : undefined,
+     references: refs.length ? Array.from(new Set(refs)) : undefined,
+   };
+ }
+diff --git a/packages/remediation-engine/src/interpolate.ts b/packages/remediation-engine/src/interpolate.ts
+new file mode 100644
+index 0000000..a89e61b
+--- /dev/null
++++ b/packages/remediation-engine/src/interpolate.ts
+@@ -0,0 +1,9 @@
++const VAR_PATTERN = /\$\{([a-zA-Z_]\w*)\}/g;
++
++export function interpolate(template: string, vars?: Record<string, unknown>): string {
++  if (!vars) return template;
++  return template.replace(VAR_PATTERN, (match, name: string) => {
++    const value = vars[name];
++    return value === undefined || value === null ? match : String(value);
++  });
++}
+diff --git a/packages/rules/src/rules/injection.ts b/packages/rules/src/rules/injection.ts
+index f0bb082..a8f42ce 100644
+--- a/packages/rules/src/rules/injection.ts
++++ b/packages/rules/src/rules/injection.ts
+@@ -16,12 +16,12 @@ export const sqlStringConcat: RuleDefinition = {
+   remediation: {
+     why: 'Concatenated SQL allows attacker-controlled input to alter the query structure and exfiltrate or corrupt data.',
+     how: 'Use parameterised queries / prepared statements. Pass user input as bound parameters, not as parts of the SQL string.',
+-    exampleFix: "db.query('SELECT * FROM users WHERE id = ?', [userId])",
++    exampleFix: "db.query('SELECT * FROM ${table} WHERE id = ?', [userId])",
+   },
+   match: (ctx) =>
+     runRegex(
+       ctx.content,
+-      /["'`][^"'`\n]*\b(?:SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\b[^"'`\n]*["'`]\s*[+%]\s*\w/gi,
++      /["'`][^"'`\n]*\b(?:FROM|INTO|UPDATE)\s+(?<table>\w+)[^"'`\n]*["'`]\s*[+%]\s*\w/gi,
+       { skipCommentLines: true },
+     ),
+ };
+@@ -125,12 +125,12 @@ export const innerHtmlAssignment: RuleDefinition = {
+   remediation: {
+     why: 'Strings written to innerHTML are parsed as HTML and can introduce script execution.',
+     how: 'Prefer textContent for plain text. For HTML, sanitise with DOMPurify or use the framework escape mechanism.',
+-    exampleFix: 'el.textContent = userInput;',
++    exampleFix: '${target}.textContent = userInput;',
+   },
+   match: (ctx) =>
+     runRegex(
+       ctx.content,
+-      /\.innerHTML\s*=\s*(?!\s*["'][^"'\n]*["']\s*;?\s*$)[^;\n]+/g,
++      /(?<target>[\w$]+)\.innerHTML\s*=\s*(?!\s*["'][^"'\n]*["']\s*;?\s*$)[^;\n]+/g,
+       { skipCommentLines: true },
+     ),
+ };
+diff --git a/packages/rules/src/rules/rules.test.ts b/packages/rules/src/rules/rules.test.ts
+index 7ae29c8..16df3ee 100644
+--- a/packages/rules/src/rules/rules.test.ts
++++ b/packages/rules/src/rules/rules.test.ts
+@@ -44,6 +44,18 @@ describe('injection rules', () => {
+     expectMatches(innerHtmlAssignment, 'el.innerHTML = userInput;');
+   });
+ 
++  it('captures innerHTML target as variable', () => {
++    const matches = innerHtmlAssignment.match(ctx('container.innerHTML = data;'));
++    expect(matches[0]?.variables?.target).toBe('container');
++  });
++
++  it('captures SQL table name as variable', () => {
++    const matches = sqlStringConcat.match(
++      ctx('const q = "SELECT * FROM users WHERE id = " + userId;'),
++    );
++    expect(matches[0]?.variables?.table).toBe('users');
++  });
++
+   it('does not flag innerHTML literal assignment', () => {
+     expectNoMatch(innerHtmlAssignment, 'el.innerHTML = "<b>hello</b>";');
+   });
+-- 
+2.43.0

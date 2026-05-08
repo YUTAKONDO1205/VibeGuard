@@ -1,0 +1,56 @@
+{
+  "name": "vibeguard-vscode",
+  "displayName": "VibeGuard",
+  "description": "Security diagnostics for AI-generated code, on save and on demand.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "vibeguard",
+  "engines": {
+    "vscode": "^1.85.0",
+    "node": ">=18"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "vibeguard.scanFile",
+        "title": "VibeGuard: Scan File"
+      }
+    ],
+    "configuration": {
+      "title": "VibeGuard",
+      "properties": {
+        "vibeguard.scanOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run a VibeGuard scan when a file is saved."
+        },
+        "vibeguard.scanOnSaveMode": {
+          "type": "string",
+          "enum": ["fast", "standard"],
+          "default": "fast",
+          "description": "Scan mode used for the on-save scan. Manual scans always use 'standard'."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --platform=node --target=node18 --external:vscode --format=cjs --outfile=dist/extension.js",
+    "watch": "esbuild src/extension.ts --bundle --platform=node --target=node18 --external:vscode --format=cjs --outfile=dist/extension.js --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@vibeguard/analyzer-core": "0.1.0",
+    "@vibeguard/findings-schema": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.2",
+    "typescript": "^5.4.5"
+  }
+}

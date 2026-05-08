@@ -16,12 +16,12 @@ export const sqlStringConcat: RuleDefinition = {
   remediation: {
     why: 'Concatenated SQL allows attacker-controlled input to alter the query structure and exfiltrate or corrupt data.',
     how: 'Use parameterised queries / prepared statements. Pass user input as bound parameters, not as parts of the SQL string.',
-    exampleFix: "db.query('SELECT * FROM users WHERE id = ?', [userId])",
+    exampleFix: "db.query('SELECT * FROM ${table} WHERE id = ?', [userId])",
   },
   match: (ctx) =>
     runRegex(
       ctx.content,
-      /["'`][^"'`\n]*\b(?:SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\b[^"'`\n]*["'`]\s*[+%]\s*\w/gi,
+      /["'`][^"'`\n]*\b(?:FROM|INTO|UPDATE)\s+(?<table>\w+)[^"'`\n]*["'`]\s*[+%]\s*\w/gi,
       { skipCommentLines: true },
     ),
 };
@@ -125,12 +125,12 @@ export const innerHtmlAssignment: RuleDefinition = {
   remediation: {
     why: 'Strings written to innerHTML are parsed as HTML and can introduce script execution.',
     how: 'Prefer textContent for plain text. For HTML, sanitise with DOMPurify or use the framework escape mechanism.',
-    exampleFix: 'el.textContent = userInput;',
+    exampleFix: '${target}.textContent = userInput;',
   },
   match: (ctx) =>
     runRegex(
       ctx.content,
-      /\.innerHTML\s*=\s*(?!\s*["'][^"'\n]*["']\s*;?\s*$)[^;\n]+/g,
+      /(?<target>[\w$]+)\.innerHTML\s*=\s*(?!\s*["'][^"'\n]*["']\s*;?\s*$)[^;\n]+/g,
       { skipCommentLines: true },
     ),
 };

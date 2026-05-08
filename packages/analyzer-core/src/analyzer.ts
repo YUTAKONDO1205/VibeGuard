@@ -3,6 +3,7 @@ import {
   summarize,
   compareSeverity,
   type Finding,
+  type ScanMode,
   type ScanRequest,
   type ScanResponse,
 } from '@vibeguard/findings-schema';
@@ -27,6 +28,15 @@ function findingId(): string {
 
 function shouldMaskCategory(category: string): boolean {
   return category === 'secrets';
+}
+
+function filterRulesByMode(rules: RuleDefinition[], mode: ScanMode): RuleDefinition[] {
+  if (mode === 'fast') {
+    return rules.filter((r) => r.severity === 'critical' || r.severity === 'high');
+  }
+  // 'standard' and 'deep' run all rules. Future: 'deep' will also dispatch to
+  // external scanners when request.includeExternalScanners is true.
+  return rules;
 }
 
 function buildRuleContext(content: string, language: string | undefined, filePath: string | undefined): RuleContext {
@@ -71,7 +81,9 @@ export class Analyzer {
       (request.filePath ? detectLanguageFromPath(request.filePath) : undefined) ??
       detectLanguageFromContent(request.content);
 
-    const candidateRules = language ? getRulesForLanguage(language) : this.rules;
+    const baseRules = language ? getRulesForLanguage(language) : this.rules;
+    const mode: ScanMode = request.mode ?? 'standard';
+    const candidateRules = filterRulesByMode(baseRules, mode);
     const ctx = buildRuleContext(request.content, language, request.filePath);
 
     for (const rule of candidateRules) {
@@ -107,7 +119,7 @@ export class Analyzer {
           endColumn: m.endColumn,
           snippet,
           evidence: [evidence],
-          remediation: includeRemediation ? buildRemediation(rule) : undefined,
+          remediation: includeRemediation ? buildRemediation(rule, m) : undefined,
           references: rule.references,
           sourceEngine: 'core-rule',
           tags: rule.tags,
