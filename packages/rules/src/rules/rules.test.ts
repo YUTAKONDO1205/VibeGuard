@@ -135,8 +135,50 @@ describe('crypto rules', () => {
     expectMatches(weakHashForSecurity, 'h = hashlib.md5(p).hexdigest()');
   });
 
+  it('flags Ruby Digest::MD5.hexdigest', () => {
+    expectMatches(weakHashForSecurity, "fingerprint = Digest::MD5.hexdigest(payload)", 'ruby');
+  });
+
+  it('flags C# MD5.Create()', () => {
+    expectMatches(weakHashForSecurity, 'using var hasher = MD5.Create();', 'csharp');
+  });
+
+  it('flags PHP md5() top-level call', () => {
+    expectMatches(weakHashForSecurity, '$hash = md5($password);', 'php');
+  });
+
+  it('does not double-flag hashlib.md5 via the bare-md5 pattern', () => {
+    // hashlib.md5( should be flagged exactly once (by the Python regex),
+    // not also by the bare md5( regex (the negative lookbehind blocks it).
+    expectMatches(weakHashForSecurity, 'h = hashlib.md5(p).hexdigest()', 'python', 1);
+  });
+
   it('flags Math.random for token', () => {
     expectMatches(weakRandomForSecurity, 'const sessionId = Math.random().toString(36);');
+  });
+
+  it('flags Java new Random() for token', () => {
+    expectMatches(weakRandomForSecurity, 'int token = new Random().nextInt();', 'java');
+  });
+
+  it('flags Go math/rand for session id', () => {
+    expectMatches(weakRandomForSecurity, 'sessionId := rand.Intn(1000000)', 'go');
+  });
+
+  it('flags PHP mt_rand for token', () => {
+    expectMatches(weakRandomForSecurity, '$token = mt_rand(0, 999999);', 'php');
+  });
+
+  it('flags Ruby Kernel#rand for nonce', () => {
+    expectMatches(weakRandomForSecurity, 'nonce = rand(2 ** 64)', 'ruby');
+  });
+
+  it('flags C# new Random() for password', () => {
+    expectMatches(
+      weakRandomForSecurity,
+      'var password = new Random().Next().ToString();',
+      'csharp',
+    );
   });
 
   it('does not flag Math.random for non-security use', () => {
