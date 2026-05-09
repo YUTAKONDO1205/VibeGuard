@@ -7,7 +7,14 @@ coverage/
 .env
 .env.local
 .vscode/settings.json
+
+# Claude / Codex
 .claude/
+.codex
+AGENTS.md
+README-CODEX.md
+
+# Security scan outputs
 scan.json
 report.sarif
 report.md
