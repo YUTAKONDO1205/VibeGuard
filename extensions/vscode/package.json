@@ -18,8 +18,41 @@
       {
         "command": "vibeguard.scanFile",
         "title": "VibeGuard: Scan File"
+      },
+      {
+        "command": "vibeguard.scanSelection",
+        "title": "VibeGuard: Scan Selection"
+      },
+      {
+        "command": "vibeguard.showRemediation",
+        "title": "VibeGuard: Show Remediation"
       }
     ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "vibeguard.scanSelection",
+          "when": "editorHasSelection",
+          "group": "vibeguard@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "vibeguard.showRemediation",
+          "when": "false"
+        }
+      ]
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "vibeguard.findings",
+          "name": "VibeGuard Findings",
+          "icon": "$(shield)",
+          "contextualTitle": "VibeGuard"
+        }
+      ]
+    },
     "configuration": {
       "title": "VibeGuard",
       "properties": {

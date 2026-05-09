@@ -107,6 +107,19 @@ PR で追加された行だけをスキャンし、別 sticky コメント（`vi
 ### 注意
 fork からの PR ではコメント投稿はスキップされる（`pull-requests: write` 権限の制約）。初回 main push の後は GitHub の Security タブに結果が集約される。
 
+## VS Code 拡張
+
+`extensions/vscode/` に最小拡張を同梱。F5 で Extension Host を起動して開発できる。
+
+| 機能 | 起動方法 |
+|---|---|
+| 保存時スキャン | デフォルト ON。`vibeguard.scanOnSave` で OFF 可、`vibeguard.scanOnSaveMode` で `fast` / `standard` を選択 |
+| 手動スキャン | コマンドパレット → `VibeGuard: Scan File` |
+| 選択範囲スキャン | エディタ右クリック → `VibeGuard: Scan Selection`（フルファイルスキャン → 選択範囲の finding のみ表示） |
+| Diagnostics | severity をエラー / 警告 / 情報にマッピング |
+| Code Action | 黄色電球 → `suppress <ruleId> on this line`（`vibeguard:disable-next-line` をコメント挿入）/ `show remediation` |
+| Findings サイドバー | エクスプローラ内の **VibeGuard Findings** ビュー。ファイル → finding 階層、クリックで該当行へジャンプ |
+
 ## 開発フェーズ
 
 | Phase | 対象 |
