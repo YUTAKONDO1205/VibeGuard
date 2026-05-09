@@ -42,6 +42,7 @@ async function main(): Promise<number> {
         range: args.diff,
         mode: args.mode,
         includeRemediation: !args.noRemediation,
+        ignore: args.ignore,
       });
     } else {
       scan = await scanPath(args.target, {
