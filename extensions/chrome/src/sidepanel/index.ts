@@ -37,15 +37,6 @@ function setOrigin(origin: string): void {
   originEl.textContent = origin;
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 function renderFindings(findings: Finding[]): void {
   findingsEl.replaceChildren();
 
@@ -102,7 +93,7 @@ function renderFindings(findings: Finding[]): void {
     if (f.snippet) {
       const pre = document.createElement('pre');
       pre.className = 'vg-snippet';
-      pre.innerHTML = escapeHtml(f.snippet);
+      pre.textContent = f.snippet;
       card.appendChild(pre);
     }
 
@@ -116,9 +107,13 @@ function renderFindings(findings: Finding[]): void {
       const body = document.createElement('div');
       body.className = 'vg-rem-body';
       const why = document.createElement('p');
-      why.innerHTML = `<strong>Why:</strong> ${escapeHtml(f.remediation.why)}`;
+      const whyLabel = document.createElement('strong');
+      whyLabel.textContent = 'Why:';
+      why.append(whyLabel, ' ', f.remediation.why);
       const how = document.createElement('p');
-      how.innerHTML = `<strong>How:</strong> ${escapeHtml(f.remediation.how)}`;
+      const howLabel = document.createElement('strong');
+      howLabel.textContent = 'How:';
+      how.append(howLabel, ' ', f.remediation.how);
       body.append(why, how);
       if (f.remediation.exampleFix) {
         const ex = document.createElement('pre');
