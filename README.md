@@ -120,6 +120,26 @@ fork からの PR ではコメント投稿はスキップされる（`pull-reque
 | Code Action | 黄色電球 → `suppress <ruleId> on this line`（`vibeguard:disable-next-line` をコメント挿入）/ `show remediation` |
 | Findings サイドバー | エクスプローラ内の **VibeGuard Findings** ビュー。ファイル → finding 階層、クリックで該当行へジャンプ |
 
+## Chrome 拡張
+
+`extensions/chrome/` に Manifest V3 ベースの最小拡張を同梱（Phase 3 着手）。analyzer-core の `./browser` サブパスを使い、`node:fs` / `node:path` を含まないバンドルを Side Panel から実行する。
+
+| 機能 | 起動方法 |
+|---|---|
+| Side Panel 表示 | ツールバーの VibeGuard アイコンをクリック |
+| 貼り付けスキャン | Side Panel のテキストエリアにコードを貼って「Scan」 |
+| ページ抽出 | Side Panel の「Extract from page」で表示中タブの `<pre><code>` を集めて自動スキャン |
+| 選択範囲スキャン | 任意ページでテキスト選択 → 右クリック → `Scan with VibeGuard`（Side Panel が開いて即スキャン） |
+| 言語指定 | `auto-detect` または js / ts / python / go / java / ruby / php / csharp |
+
+ビルド：
+
+```bash
+npm run build -w vibeguard-chrome
+```
+
+`extensions/chrome/dist/` を `chrome://extensions` の「パッケージ化されていない拡張機能を読み込む」で指定するとそのまま動作する。`npm run watch -w vibeguard-chrome` で esbuild が監視ビルドする。
+
 ## 開発フェーズ
 
 | Phase | 対象 |

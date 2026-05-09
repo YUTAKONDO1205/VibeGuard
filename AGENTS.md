@@ -118,7 +118,19 @@ exec(userInput);
 
 ---
 
-## 9. 参考
+## 9. Chrome 拡張のルール
+
+`extensions/chrome/` は Side Panel + service worker（Manifest V3）。実装時の固定ルール：
+
+- analyzer-core を使うときは **必ず `@vibeguard/analyzer-core/browser`** から import する。default export は `node:fs` / `node:path` に依存するためバンドルが壊れる
+- Side Panel UI と service worker は **同じ shared 型**（`src/shared/messages.ts`）でやり取りする。新しいメッセージを足すときはここに型を追加する
+- 外部 API への送信は禁止。スキャンは完全にローカル
+- 静的アセット（`manifest.json` / HTML / CSS / icons）は `copy-static.mjs` 経由で `dist/` にコピーする。HTML/CSS の置き場所は `src/sidepanel/` のまま動かさない
+- 拡張の動作確認は `npm run build -w vibeguard-chrome` 後に `chrome://extensions` でアンパック読み込み → Side Panel を開いて貼り付けスキャン / Extract / 右クリック選択スキャンの 3 経路を最低 1 回ずつ確認する
+
+---
+
+## 10. 参考
 
 - 設計書: [設計書.md](設計書.md)
 - 開発ロードマップ: [README.md §開発フェーズ](README.md)
