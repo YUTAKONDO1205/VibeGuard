@@ -63,7 +63,7 @@ If you cloned the monorepo and want to hack on the extension itself:
 
 ```bash
 npm install
-npm run build -w vibeguard-vscode
+npm run build -w vibeguard-aicoding
 # then open extensions/vscode/ in VS Code and press F5 to launch the
 # Extension Development Host.
 ```

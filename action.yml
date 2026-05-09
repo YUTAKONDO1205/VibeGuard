@@ -73,7 +73,7 @@ runs:
       shell: bash
       working-directory: ${{ github.action_path }}
       # Build only the packages the CLI needs. We deliberately skip the
-      # vibeguard-vscode and vibeguard-chrome workspaces — they're irrelevant
+      # vibeguard-aicoding and vibeguard-chrome workspaces — they're irrelevant
       # in CI and pulling esbuild for them just slows the action down.
       run: |
         npm run build -w @vibeguard/findings-schema

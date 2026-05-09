@@ -1,5 +1,5 @@
 {
-  "name": "vibeguard-vscode",
+  "name": "vibeguard-aicoding",
   "displayName": "VibeGuard",
   "description": "Security diagnostics for AI-generated code, on save and on demand.",
   "version": "0.1.0",
@@ -87,7 +87,10 @@
         },
         "vibeguard.scanOnSaveMode": {
           "type": "string",
-          "enum": ["fast", "standard"],
+          "enum": [
+            "fast",
+            "standard"
+          ],
           "default": "fast",
           "description": "Scan mode used for the on-save scan. Manual scans always use 'standard'."
         }
@@ -107,6 +110,7 @@
   "devDependencies": {
     "@types/node": "^20.12.7",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.9.1",
     "esbuild": "^0.20.2",
     "typescript": "^5.4.5"
   }

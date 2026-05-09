@@ -75,20 +75,27 @@
 
 ### 3.1 vsce を入れる
 ```bash
-npm i -D -w vibeguard-vscode @vscode/vsce
+npm i -D -w vibeguard-aicoding @vscode/vsce
 ```
 
 ### 3.2 ビルド + パッケージング
 ```bash
-npm run build -w vibeguard-vscode
+npm run build -w vibeguard-aicoding
 cd extensions/vscode
-npx vsce package
-# → vibeguard-vscode-0.1.0.vsix が出る
+# `--no-dependencies` 必須：これを付けないと vsce が monorepo の
+# node_modules/@vibeguard/* シンボリックリンクを辿って親ディレクトリ
+# (extensions/chrome の node_modules / packages/rules のテストフィクスチャ等)
+# まで巻き込み、サイズが 10 MB を超え、しかも secret スキャナが
+# テスト用のダミー GitHub トークンに反応して package が拒否される。
+# 解析依存はすべて esbuild で dist/extension.js にバンドル済みなので
+# vsce 側の依存解決は不要。
+npx vsce package --no-dependencies
+# → vibeguard-aicoding-0.1.0.vsix が出る（30〜50 KB）
 ```
 
 ### 3.3 .vsix の中身を確認
 ```bash
-unzip -l vibeguard-vscode-0.1.0.vsix
+unzip -l vibeguard-aicoding-0.1.0.vsix
 ```
 
 期待される内容：
@@ -115,7 +122,7 @@ extension/icon.png
 
 ```bash
 # インストール
-code --install-extension vibeguard-vscode-0.1.0.vsix
+code --install-extension vibeguard-aicoding-0.1.0.vsix
 
 # 検証
 # 1. 適当な脆弱コードを開いて保存 → Problems パネルに findings が出るか
@@ -123,7 +130,7 @@ code --install-extension vibeguard-vscode-0.1.0.vsix
 # 3. Explorer サイドバーに "VibeGuard Findings" が出るか
 
 # アンインストール
-code --uninstall-extension yutakondo.vibeguard-vscode
+code --uninstall-extension yutakondo.vibeguard-aicoding
 ```
 
 ここで OK が出るまで `vsce publish` しない（公開後の差し替えは可能だが、利用者には更新通知が飛ぶので望ましくない）。
@@ -141,12 +148,19 @@ npx vsce login yutakondo   # ← 実 publisher ID
 
 ### 5.2 公開
 ```bash
-npx vsce publish --packagePath vibeguard-vscode-0.1.0.vsix
+npx vsce publish --packagePath vibeguard-aicoding-0.1.0.vsix --no-dependencies
+```
+
+PAT を OS keychain に保存したくないときは、`vsce login` を省いて環境変数で渡してもよい：
+
+```powershell
+$env:VSCE_PAT="<PAT>"
+npx vsce publish --packagePath vibeguard-aicoding-0.1.0.vsix --no-dependencies
 ```
 
 公開直後は Marketplace のインデックスに反映されるまで 5〜30 分。URL：
 ```
-https://marketplace.visualstudio.com/items?itemName=yutakondo.vibeguard-vscode
+https://marketplace.visualstudio.com/items?itemName=yutakondo.vibeguard-aicoding
 ```
 
 ### 5.3 公開直後に確認
@@ -154,7 +168,7 @@ https://marketplace.visualstudio.com/items?itemName=yutakondo.vibeguard-vscode
 - [ ] アイコン / banner / categories / keywords が反映されている
 - [ ] README が Marketplace の説明欄に綺麗にレンダリングされている
 - [ ] CHANGELOG タブが表示されている
-- [ ] 別マシン or VS Code 別プロファイルで `ext install yutakondo.vibeguard-vscode` が通る
+- [ ] 別マシン or VS Code 別プロファイルで `ext install yutakondo.vibeguard-aicoding` が通る
 
 ---
 
@@ -165,12 +179,12 @@ VSCodium / code-server / Theia / Gitpod / Cursor の一部 利用者はここか
 ```bash
 cd extensions/vscode
 npm i -D ovsx
-npx ovsx publish vibeguard-vscode-0.1.0.vsix -p <openvsx_token>
+npx ovsx publish vibeguard-aicoding-0.1.0.vsix -p <openvsx_token>
 ```
 
 確認：
 ```
-https://open-vsx.org/extension/yutakondo/vibeguard-vscode
+https://open-vsx.org/extension/yutakondo/vibeguard-aicoding
 ```
 
 ---
@@ -179,7 +193,7 @@ https://open-vsx.org/extension/yutakondo/vibeguard-vscode
 
 ```bash
 cd extensions/vscode
-npm run build -w vibeguard-vscode
+npm run build -w vibeguard-aicoding
 
 # パッチリリース (0.1.0 → 0.1.1)
 npx vsce publish patch
@@ -209,12 +223,13 @@ npx ovsx publish -p <openvsx_token>
 | 症状 | 対処 |
 |---|---|
 | `vsce package` で `Make sure to edit the README.md` | テンプレ文（`This is the README ...`）が残っている。VibeGuard 用の README に差し替える |
-| `vsce package` で `Workspace dependencies are not supported` | `@vibeguard/*` が `node_modules` に symlink で居る状態。**`.vscodeignore` で `node_modules/**` を弾いていれば bundle が同梱されるので問題なし**。それでも怒られる場合は `--no-dependencies` を付ける |
+| `vsce package` で `Workspace dependencies are not supported` / 巨大な vsix （10 MB 超） / secret スキャナがテスト用トークンに反応 | `@vibeguard/*` が `node_modules` に symlink で居て vsce が親ディレクトリまで辿るのが原因。**必ず `--no-dependencies` を付ける**（§3.2 参照）。dist/extension.js は esbuild バンドル済みなので依存解決は不要 |
+| `vsce publish` で `The extension '<name>' already exists in the Marketplace` | VS Code Marketplace の `name` はグローバル一意（publisher 違いでも衝突する）。`package.json` の `name` を変更する必要あり。`displayName` は変えなくてよい。npm workspace 名にもなっているので、ルートの `package.json` の build スクリプトと extensions/vscode/README の `npm -w ...` 参照も同時に更新 |
 | `vsce login` で `Personal Access Token verification failed` | PAT の `Organization` が「All accessible organizations」になっていない。再発行 |
 | `vsce publish` で `ERROR Missing publisher name` | `package.json` の `publisher` が空 or プレースホルダ |
 | `vsce publish` で `It seems the README.md still contains link(s) ...` | README 中の相対リンクがあると Marketplace では辿れない。GitHub の絶対 URL に直す（README は既に絶対 URL のみ）|
 | Marketplace 上でアイコンが表示されない | `package.json` の `"icon": "icon.png"` が未指定、もしくは `.vscodeignore` で `icon.png` が弾かれている |
-| インストール後に Diagnostics が出ない | `dist/extension.js` が bundle されていない（`npm run build -w vibeguard-vscode` を流す前に publish した）。`vsce ls` で `.vsix` 中身を確認 |
+| インストール後に Diagnostics が出ない | `dist/extension.js` が bundle されていない（`npm run build -w vibeguard-aicoding` を流す前に publish した）。`vsce ls` で `.vsix` 中身を確認 |
 | Open VSX に publish が拒否される | namespace が未予約。https://open-vsx.org の自分のページから namespace を発行（publisher と同じ ID にする）|
 
 ---
