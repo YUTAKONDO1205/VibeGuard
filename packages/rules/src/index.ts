@@ -1,6 +1,7 @@
 import type { RuleDefinition } from './rule-types.js';
 import { authRules } from './rules/auth.js';
 import { cryptoRules } from './rules/crypto.js';
+import { frameworkRules } from './rules/framework.js';
 import { injectionRules } from './rules/injection.js';
 import { qualityRules } from './rules/quality.js';
 import { secretsRules } from './rules/secrets.js';
@@ -13,6 +14,7 @@ export const allRules: RuleDefinition[] = [
   ...authRules,
   ...secretsRules,
   ...cryptoRules,
+  ...frameworkRules,
   ...qualityRules,
 ];
 

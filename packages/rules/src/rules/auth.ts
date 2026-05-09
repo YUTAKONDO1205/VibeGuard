@@ -1,6 +1,7 @@
-// vibeguard:disable-file VG-AUTH-003 VG-AUTH-004
-// This file defines the auth rules; dummy-token and TLS-disable literals
-// appear inside regex patterns and prose by design.
+// vibeguard:disable-file VG-AUTH-003 VG-AUTH-004 VG-AUTH-006
+// This file defines the auth rules; dummy-token, TLS-disable, and the
+// "secure: false" / "httpOnly: false" literals appear inside regex
+// patterns and remediation prose by design.
 import type { RuleDefinition } from '../rule-types.js';
 import { runRegex } from '../matcher-utils.js';
 
@@ -91,4 +92,54 @@ export const tlsVerifyDisabled: RuleDefinition = {
   ],
 };
 
-export const authRules: RuleDefinition[] = [debugBypass, todoSecurity, dummyToken, tlsVerifyDisabled];
+export const csrfExemptDecorator: RuleDefinition = {
+  ruleId: 'VG-AUTH-005',
+  name: 'Django @csrf_exempt decorator disables CSRF protection',
+  description:
+    'Marking a Django view with @csrf_exempt opts out of CSRF token validation. Routinely added to make POST endpoints "just work" during development and forgotten.',
+  languages: ['python'],
+  category: 'auth',
+  severity: 'high',
+  defaultConfidence: 'high',
+  cwe: ['CWE-352'],
+  owasp: ['A01:2021'],
+  tags: ['django', 'ai-prone'],
+  remediation: {
+    why: 'Without CSRF validation, an attacker can trigger state-changing requests from a victim\'s browser using forged forms or fetch calls.',
+    how: 'Remove @csrf_exempt and submit a CSRF token (Django will inject {% csrf_token %} into forms / require X-CSRFToken on fetch). For pure JSON APIs, use Django REST Framework\'s SessionAuthentication or token auth which handles CSRF correctly.',
+  },
+  match: (ctx) =>
+    runRegex(ctx.content, /^\s*@csrf_exempt\b/gm, { skipCommentLines: true }),
+};
+
+export const insecureSessionCookie: RuleDefinition = {
+  ruleId: 'VG-AUTH-006',
+  name: 'Express session cookie missing secure / httpOnly flag',
+  description:
+    'express-session config with cookie.secure: false or cookie.httpOnly: false leaves session IDs readable by JavaScript or transmittable over plain HTTP.',
+  languages: ['javascript', 'typescript'],
+  category: 'auth',
+  severity: 'high',
+  defaultConfidence: 'medium',
+  cwe: ['CWE-614', 'CWE-1004'],
+  tags: ['express', 'ai-prone'],
+  remediation: {
+    why: 'cookie.secure: false sends the session ID over plain HTTP where any network observer can capture it. cookie.httpOnly: false lets injected scripts read document.cookie and exfiltrate the session.',
+    how: 'Set cookie: { secure: true, httpOnly: true, sameSite: "lax" } in the session() options. In local dev only, gate secure on NODE_ENV.',
+    exampleFix: 'session({ cookie: { secure: true, httpOnly: true, sameSite: "lax" } })',
+  },
+  match: (ctx) => [
+    ...runRegex(ctx.content, /\b(?:secure|httpOnly)\s*:\s*false\b/g, {
+      skipCommentLines: true,
+    }),
+  ],
+};
+
+export const authRules: RuleDefinition[] = [
+  debugBypass,
+  todoSecurity,
+  dummyToken,
+  tlsVerifyDisabled,
+  csrfExemptDecorator,
+  insecureSessionCookie,
+];

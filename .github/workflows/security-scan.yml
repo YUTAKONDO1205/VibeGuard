@@ -158,6 +158,7 @@ jobs:
             --mode standard \
             --format markdown \
             --out diff-report.md \
+            --ignore samples \
             --fail-on never
 
       - name: Post diff-scan PR comment
@@ -167,6 +168,10 @@ jobs:
           header: vibeguard-diff
           path: diff-report.md
 
+      # samples/ contains intentionally vulnerable fixtures that demonstrate
+      # what each rule catches; the dedicated `samples` job above already
+      # validates them. Excluding samples here keeps the PR gate focused on
+      # real source changes (mirrors --ignore samples in self-scan).
       - name: Enforce diff-scan severity gate (high)
         run: |
           node apps/cli/dist/index.js \
@@ -174,4 +179,5 @@ jobs:
             --mode standard \
             --format json \
             --out diff.json \
+            --ignore samples \
             --fail-on high

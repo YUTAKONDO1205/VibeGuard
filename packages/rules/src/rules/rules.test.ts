@@ -3,7 +3,14 @@
 import { describe, expect, it } from 'vitest';
 import type { RuleContext, RuleDefinition } from '../rule-types.js';
 import { evalUsage, sqlStringConcat, innerHtmlAssignment, dangerousDeserialization } from './injection.js';
-import { dummyToken, tlsVerifyDisabled, debugBypass } from './auth.js';
+import {
+  dummyToken,
+  tlsVerifyDisabled,
+  debugBypass,
+  csrfExemptDecorator,
+  insecureSessionCookie,
+} from './auth.js';
+import { djangoDebugTrue, flaskDebugRun, corsWildcardOrigin } from './framework.js';
 import { hardcodedAwsKey, hardcodedPrivateKey, githubToken, genericApiKey } from './secrets.js';
 import { weakHashForSecurity, weakRandomForSecurity, httpInsteadOfHttps } from './crypto.js';
 import {
@@ -371,6 +378,83 @@ describe('AI-heuristic rules (VG-QUAL-005..010)', () => {
     expectNoMatch(
       emptyValidator,
       'function validate(input) { if (!input) throw new Error("missing"); return input.trim(); }',
+    );
+  });
+});
+
+describe('framework rules', () => {
+  // VG-AUTH-005 — Django @csrf_exempt
+  it('flags @csrf_exempt at start of line', () => {
+    expectMatches(csrfExemptDecorator, '@csrf_exempt\ndef view(request):\n    pass\n', 'python');
+  });
+
+  it('flags indented @csrf_exempt (class method)', () => {
+    expectMatches(csrfExemptDecorator, '    @csrf_exempt\n    def post(self, request):\n        pass\n', 'python');
+  });
+
+  it('does not flag @csrf_exempt inside a string literal', () => {
+    expectNoMatch(csrfExemptDecorator, 'doc = "uses @csrf_exempt for testing"', 'python');
+  });
+
+  // VG-AUTH-006 — express-session insecure cookie flags
+  it('flags cookie secure: false', () => {
+    expectMatches(insecureSessionCookie, 'session({ cookie: { secure: false, httpOnly: true } })');
+  });
+
+  it('flags httpOnly: false', () => {
+    expectMatches(insecureSessionCookie, 'session({ cookie: { secure: true, httpOnly: false } })');
+  });
+
+  it('does not flag secure: true', () => {
+    expectNoMatch(insecureSessionCookie, 'session({ cookie: { secure: true, httpOnly: true } })');
+  });
+
+  // VG-FW-001 — Django DEBUG = True
+  it('flags DEBUG = True at module level', () => {
+    expectMatches(djangoDebugTrue, 'DEBUG = True\nALLOWED_HOSTS = []\n', 'python');
+  });
+
+  it('does not flag DEBUG = False', () => {
+    expectNoMatch(djangoDebugTrue, 'DEBUG = False\n', 'python');
+  });
+
+  it('does not flag DEBUG = os.environ.get(...)', () => {
+    expectNoMatch(djangoDebugTrue, 'DEBUG = os.environ.get("DJANGO_DEBUG", "0") == "1"\n', 'python');
+  });
+
+  // VG-FW-002 — Flask app.run(debug=True)
+  it('flags app.run(debug=True)', () => {
+    expectMatches(flaskDebugRun, 'app.run(debug=True)', 'python');
+  });
+
+  it('flags app.run(host="0.0.0.0", debug=True)', () => {
+    expectMatches(flaskDebugRun, 'app.run(host="0.0.0.0", debug=True)', 'python');
+  });
+
+  it('does not flag app.run() without debug', () => {
+    expectNoMatch(flaskDebugRun, 'app.run(host="127.0.0.1")', 'python');
+  });
+
+  // VG-FW-003 — CORS wildcard origin
+  it("flags cors({ origin: '*' })", () => {
+    expectMatches(corsWildcardOrigin, "app.use(cors({ origin: '*' }));");
+  });
+
+  it('flags Access-Control-Allow-Origin: * header literal', () => {
+    expectMatches(
+      corsWildcardOrigin,
+      'res.setHeader("Access-Control-Allow-Origin", "*");',
+    );
+  });
+
+  it("flags Flask-CORS origins: '*'", () => {
+    expectMatches(corsWildcardOrigin, "CORS(app, resources={r'/*': {'origins': '*'}})", 'python');
+  });
+
+  it('does not flag explicit origin list', () => {
+    expectNoMatch(
+      corsWildcardOrigin,
+      "app.use(cors({ origin: ['https://app.example.com'] }));",
     );
   });
 });

@@ -20,6 +20,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   Analyzer,
+  DEFAULT_IGNORE,
   ENGINE_VERSION,
   detectLanguageFromPath,
   type AnalyzerOptions,
@@ -119,8 +120,28 @@ export interface ScanDiffOptions extends AnalyzerOptions {
   range: string;
   mode?: ScanMode;
   includeRemediation?: boolean;
+  /**
+   * Extra directory names to ignore. Mirrors --ignore on scanPath. A diff
+   * file is skipped when any of its path segments matches the ignore set
+   * (default segments from DEFAULT_IGNORE plus these extras).
+   */
+  ignore?: string[];
   /** Pre-computed diff text instead of running git (for tests). */
   diffText?: string;
+}
+
+/**
+ * True when any segment of `relPath` matches a name in `ignore`. Mirrors
+ * the directory-name walk filter used by scanPath, applied to a flat
+ * relative path here.
+ */
+function isIgnoredPath(relPath: string, ignore: Set<string>): boolean {
+  // Normalise Windows separators so segment matching is OS-independent.
+  const segments = relPath.split(/[\\/]/);
+  for (const seg of segments) {
+    if (ignore.has(seg)) return true;
+  }
+  return false;
 }
 
 /** True when finding's [startLine, endLine] overlaps any added line. */
@@ -140,9 +161,11 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
   const diffMap = parseUnifiedDiff(diffText);
   const analyzer = new Analyzer(options);
   const findings: Finding[] = [];
+  const ignore = new Set([...DEFAULT_IGNORE, ...(options.ignore ?? [])]);
 
   for (const [relPath, added] of diffMap) {
     if (added.size === 0) continue;
+    if (isIgnoredPath(relPath, ignore)) continue;
     const language = detectLanguageFromPath(relPath);
     let content: string;
     try {

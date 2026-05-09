@@ -11,7 +11,7 @@ import {
 import { Analyzer, ENGINE_VERSION, type AnalyzerOptions } from './analyzer.js';
 import { detectLanguageFromPath } from './language-detect.js';
 
-const DEFAULT_IGNORE = new Set([
+export const DEFAULT_IGNORE = new Set([
   'node_modules',
   '.git',
   'dist',
