@@ -1,0 +1,24 @@
+{
+  "name": "vibeguard-chrome",
+  "displayName": "VibeGuard",
+  "description": "Security diagnostics for AI-generated code, in any browser tab.",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs && node copy-static.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@vibeguard/analyzer-core": "0.1.0",
+    "@vibeguard/findings-schema": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "@types/node": "^20.12.7",
+    "esbuild": "^0.20.2",
+    "typescript": "^5.4.5"
+  }
+}

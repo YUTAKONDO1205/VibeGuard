@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VibeGuard</title>
+    <link rel="stylesheet" href="index.css" />
+  </head>
+  <body>
+    <header class="vg-header">
+      <h1>VibeGuard</h1>
+      <p class="vg-origin" id="origin">paste code or extract from page</p>
+    </header>
+
+    <section class="vg-controls">
+      <label for="lang">Language</label>
+      <select id="lang">
+        <option value="">auto-detect</option>
+        <option value="javascript">javascript</option>
+        <option value="typescript">typescript</option>
+        <option value="python">python</option>
+        <option value="go">go</option>
+        <option value="java">java</option>
+        <option value="ruby">ruby</option>
+        <option value="php">php</option>
+        <option value="csharp">csharp</option>
+      </select>
+      <button id="extract" type="button">Extract from page</button>
+    </section>
+
+    <textarea
+      id="code"
+      placeholder="// paste AI-generated code here"
+      spellcheck="false"
+    ></textarea>
+
+    <div class="vg-actions">
+      <button id="scan" type="button" class="vg-primary">Scan</button>
+      <button id="clear" type="button">Clear</button>
+      <span id="status" class="vg-status"></span>
+    </div>
+
+    <section id="findings" class="vg-findings"></section>
+
+    <script type="module" src="index.js"></script>
+  </body>
+</html>

@@ -134,6 +134,25 @@ fork からの PR ではコメント投稿はスキップされる（`pull-reque
 | `VG-QUAL-005..010` | **AI 痕跡ヒューリスティクス**（`category: ai-quality`） | スタブ実装 / プレースホルダメール / mock データ / debug=true / "for now" コメント / 空 validator |
 
 VG-QUAL-005..010 は AI 生成コードに特有の「コンパイルは通るが本番には出すべきでない」パターンを検出する。誤検知が出やすい性質上 severity=medium / confidence=low~medium で出る。
+## Chrome 拡張
+
+`extensions/chrome/` に Manifest V3 ベースの最小拡張を同梱（Phase 3 着手）。analyzer-core の `./browser` サブパスを使い、`node:fs` / `node:path` を含まないバンドルを Side Panel から実行する。
+
+| 機能 | 起動方法 |
+|---|---|
+| Side Panel 表示 | ツールバーの VibeGuard アイコンをクリック |
+| 貼り付けスキャン | Side Panel のテキストエリアにコードを貼って「Scan」 |
+| ページ抽出 | Side Panel の「Extract from page」で表示中タブの `<pre><code>` を集めて自動スキャン |
+| 選択範囲スキャン | 任意ページでテキスト選択 → 右クリック → `Scan with VibeGuard`（Side Panel が開いて即スキャン） |
+| 言語指定 | `auto-detect` または js / ts / python / go / java / ruby / php / csharp |
+
+ビルド：
+
+```bash
+npm run build -w vibeguard-chrome
+```
+
+`extensions/chrome/dist/` を `chrome://extensions` の「パッケージ化されていない拡張機能を読み込む」で指定するとそのまま動作する。`npm run watch -w vibeguard-chrome` で esbuild が監視ビルドする。
 
 ## 開発フェーズ
 
