@@ -61,7 +61,7 @@
 
 ```json
 {
-  "displayName": "VibeGuard",
+  "displayName": "VibeGuard AICoding",
   "icon": "icon.png",
   ...
 }
@@ -224,7 +224,8 @@ npx ovsx publish -p <openvsx_token>
 |---|---|
 | `vsce package` で `Make sure to edit the README.md` | テンプレ文（`This is the README ...`）が残っている。VibeGuard 用の README に差し替える |
 | `vsce package` で `Workspace dependencies are not supported` / 巨大な vsix （10 MB 超） / secret スキャナがテスト用トークンに反応 | `@vibeguard/*` が `node_modules` に symlink で居て vsce が親ディレクトリまで辿るのが原因。**必ず `--no-dependencies` を付ける**（§3.2 参照）。dist/extension.js は esbuild バンドル済みなので依存解決は不要 |
-| `vsce publish` で `The extension '<name>' already exists in the Marketplace` | VS Code Marketplace の `name` はグローバル一意（publisher 違いでも衝突する）。`package.json` の `name` を変更する必要あり。`displayName` は変えなくてよい。npm workspace 名にもなっているので、ルートの `package.json` の build スクリプトと extensions/vscode/README の `npm -w ...` 参照も同時に更新 |
+| `vsce publish` で `The extension '<name>' already exists in the Marketplace` | VS Code Marketplace の `name` はグローバル一意（publisher 違いでも衝突する）。`package.json` の `name` を変更する必要あり。npm workspace 名にもなっているので、ルートの `package.json` の build スクリプトと extensions/vscode/README の `npm -w ...` 参照も同時に更新 |
+| `vsce publish` で `This extension display name is taken` | `displayName` も Marketplace 全体で一意制約あり（後出しの拡張は弾かれる）。`package.json` の `displayName` を変える。`name` は変えなくてよい（npm workspace 等に影響しない） |
 | `vsce login` で `Personal Access Token verification failed` | PAT の `Organization` が「All accessible organizations」になっていない。再発行 |
 | `vsce publish` で `ERROR Missing publisher name` | `package.json` の `publisher` が空 or プレースホルダ |
 | `vsce publish` で `It seems the README.md still contains link(s) ...` | README 中の相対リンクがあると Marketplace では辿れない。GitHub の絶対 URL に直す（README は既に絶対 URL のみ）|

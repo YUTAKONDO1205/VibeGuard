@@ -1,6 +1,6 @@
 {
   "name": "vibeguard-aicoding",
-  "displayName": "VibeGuard",
+  "displayName": "VibeGuard AICoding",
   "description": "Security diagnostics for AI-generated code, on save and on demand.",
   "version": "0.1.0",
   "publisher": "yutakondo",
