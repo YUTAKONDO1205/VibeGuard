@@ -13,10 +13,15 @@ permissions:
 
 jobs:
   # Self-scan: VibeGuard runs against its own repo to populate the Security tab
-  # and PR comments. Findings here are informational only — the scanner's own
-  # rule definitions and test fixtures contain literal example payloads
-  # (eval(), dummy credentials, ...) that legitimately trip the rules. Quality
-  # gating happens in the `samples` job below.
+  # and PR comments. Rule sources and test fixtures contain literal example
+  # payloads (eval(), dummy credentials, ...) — those are masked with
+  # `vibeguard:disable-file` / `disable-line` pragmas in the source so the
+  # severity gate below can stay strict.
+  #
+  # Severity gate:
+  #   pull_request → fail on `high` or above
+  #   push to main → fail on `critical` only (don't break main if a high slips
+  #                   in; PRs should catch it first)
   self-scan:
     runs-on: ubuntu-latest
     steps:
@@ -31,7 +36,16 @@ jobs:
 
       - run: npm run build
 
-      - name: Run scanner (SARIF)
+      - name: Pick severity gate
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "fail_on=high" >> "$GITHUB_OUTPUT"
+          else
+            echo "fail_on=critical" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run scanner (SARIF, non-failing)
         run: |
           node apps/cli/dist/index.js . \
             --mode standard \
@@ -44,7 +58,7 @@ jobs:
             --ignore .github \
             --fail-on never
 
-      - name: Run scanner (Markdown)
+      - name: Run scanner (Markdown, non-failing)
         run: |
           node apps/cli/dist/index.js . \
             --format markdown \
@@ -69,6 +83,19 @@ jobs:
         with:
           header: vibeguard
           path: report.md
+
+      - name: Enforce severity gate
+        run: |
+          node apps/cli/dist/index.js . \
+            --mode standard \
+            --format json \
+            --out gate.json \
+            --ignore samples \
+            --ignore dist \
+            --ignore node_modules \
+            --ignore .git \
+            --ignore .github \
+            --fail-on ${{ steps.gate.outputs.fail_on }}
 
   # Quality gate: rule correctness against curated samples.
   # samples/safe MUST stay clean (no false positives).

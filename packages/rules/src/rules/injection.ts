@@ -1,3 +1,6 @@
+// vibeguard:disable-file VG-INJ-004
+// This file *defines* injection rules; the literal strings "eval(" appear
+// inside rule descriptions and remediation text by design.
 import type { RuleDefinition } from '../rule-types.js';
 import { runRegex } from '../matcher-utils.js';
 

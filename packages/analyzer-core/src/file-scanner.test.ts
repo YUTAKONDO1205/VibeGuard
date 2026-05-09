@@ -1,3 +1,5 @@
+// vibeguard:disable-file
+// Test fixtures contain intentional vulnerable code to exercise the rules.
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

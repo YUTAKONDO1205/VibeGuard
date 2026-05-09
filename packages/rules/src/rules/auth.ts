@@ -1,3 +1,6 @@
+// vibeguard:disable-file VG-AUTH-003 VG-AUTH-004
+// This file defines the auth rules; dummy-token and TLS-disable literals
+// appear inside regex patterns and prose by design.
 import type { RuleDefinition } from '../rule-types.js';
 import { runRegex } from '../matcher-utils.js';
 

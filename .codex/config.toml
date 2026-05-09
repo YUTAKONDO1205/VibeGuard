@@ -1,0 +1,35 @@
+# Codex project configuration for VibeGuard.
+#
+# This file is consumed by the Codex CLI. The agents/*.toml files describe the
+# Planner / Generator / Evaluator roles defined in 設計書 §9 / AGENTS.md.
+
+[project]
+name = "vibeguard"
+description = "Security scanner for AI-generated code (VS Code + Chrome + GitHub Actions)"
+default_branch = "main"
+
+[loop]
+# Default development loop. See AGENTS.md §2.
+default_flow = ["planner", "generator", "evaluator"]
+require_evaluator_pass = true
+
+[checks]
+# Commands the Evaluator runs by default. Build + tests + samples-based gate.
+build = "npm run build"
+test = "npm test"
+samples_safe = "node apps/cli/dist/index.js samples/safe --format json --fail-on never"
+samples_vulnerable = "node apps/cli/dist/index.js samples/vulnerable --format json --fail-on never"
+
+[paths]
+analyzer_core = "packages/analyzer-core"
+rules = "packages/rules"
+schema = "packages/findings-schema"
+remediation = "packages/remediation-engine"
+sarif = "packages/sarif-adapter"
+cli = "apps/cli"
+vscode_extension = "extensions/vscode"
+
+[agents]
+planner = ".codex/agents/planner.toml"
+generator = ".codex/agents/generator.toml"
+evaluator = ".codex/agents/evaluator.toml"

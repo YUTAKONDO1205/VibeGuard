@@ -1,3 +1,5 @@
+// vibeguard:disable-file
+// Test fixtures contain intentional vulnerable code to exercise the rules.
 import { describe, expect, it } from 'vitest';
 import type { RuleContext, RuleDefinition } from '../rule-types.js';
 import { evalUsage, sqlStringConcat, innerHtmlAssignment, dangerousDeserialization } from './injection.js';

@@ -17,6 +17,7 @@ import {
 import { buildRemediation } from '@vibeguard/remediation-engine';
 import { detectLanguageFromContent, detectLanguageFromPath } from './language-detect.js';
 import { extractSnippet, maskSecret } from './snippet.js';
+import { parseSuppressions, isSuppressed } from './suppress.js';
 
 export const ENGINE_VERSION = '0.1.0';
 
@@ -85,6 +86,7 @@ export class Analyzer {
     const mode: ScanMode = request.mode ?? 'standard';
     const candidateRules = filterRulesByMode(baseRules, mode);
     const ctx = buildRuleContext(request.content, language, request.filePath);
+    const suppressions = parseSuppressions(request.content);
 
     for (const rule of candidateRules) {
       if (!languageMatches(rule.languages, language)) continue;
@@ -99,6 +101,7 @@ export class Analyzer {
       }
       const includeRemediation = request.includeRemediation !== false;
       for (const m of matches) {
+        if (isSuppressed(suppressions, rule.ruleId, m.startLine)) continue;
         const rawSnippet = extractSnippet(ctx.lines, m.startLine, m.endLine, 0);
         const snippet = shouldMaskCategory(rule.category) ? maskSecret(rawSnippet) : rawSnippet;
         const evidence = shouldMaskCategory(rule.category) ? maskSecret(m.evidence) : m.evidence;

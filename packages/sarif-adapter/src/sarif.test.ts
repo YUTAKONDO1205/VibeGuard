@@ -1,3 +1,5 @@
+// vibeguard:disable-file
+// Test fixtures contain intentional vulnerable code to exercise the rules.
 import { describe, expect, it } from 'vitest';
 import type { Finding, ScanResponse } from '@vibeguard/findings-schema';
 import { toSarif } from './index.js';
