@@ -6,7 +6,18 @@ import { evalUsage, sqlStringConcat, innerHtmlAssignment, dangerousDeserializati
 import { dummyToken, tlsVerifyDisabled, debugBypass } from './auth.js';
 import { hardcodedAwsKey, hardcodedPrivateKey, githubToken, genericApiKey } from './secrets.js';
 import { weakHashForSecurity, weakRandomForSecurity, httpInsteadOfHttps } from './crypto.js';
-import { exceptionSwallow, corsWildcardWithCredentials, debugLogOfSecret, openRedirect } from './quality.js';
+import {
+  exceptionSwallow,
+  corsWildcardWithCredentials,
+  debugLogOfSecret,
+  openRedirect,
+  stubBody,
+  placeholderEmail,
+  mockDataInProductionPath,
+  debugFlagOn,
+  notForProductionComment,
+  emptyValidator,
+} from './quality.js';
 
 function ctx(content: string, language?: string): RuleContext {
   return { content, lines: content.split('\n'), language };
@@ -163,5 +174,161 @@ describe('quality rules', () => {
 
   it('flags open redirect from req.query', () => {
     expectMatches(openRedirect, 'res.redirect(req.query.next)');
+  });
+});
+
+describe('AI-heuristic rules (VG-QUAL-005..010)', () => {
+  // VG-QUAL-005 — stub body
+  it('flags throw new Error("Not implemented")', () => {
+    expectMatches(stubBody, 'function deleteUser() { throw new Error("Not implemented"); }');
+  });
+
+  it('flags raise NotImplementedError', () => {
+    expectMatches(stubBody, 'def authorize(user):\n    raise NotImplementedError');
+  });
+
+  it('flags Go panic("not implemented")', () => {
+    expectMatches(stubBody, 'func Authorize() { panic("not implemented") }');
+  });
+
+  it('flags return null with TODO comment', () => {
+    expectMatches(stubBody, 'function getUser(id) {\n    return null; // TODO implement\n}');
+  });
+
+  it('does not flag a real return null without TODO', () => {
+    expectNoMatch(stubBody, 'function getUser(id) {\n    return null;\n}');
+  });
+
+  // VG-QUAL-006 — placeholder email
+  it('flags noreply@example.com', () => {
+    expectMatches(placeholderEmail, 'const FROM = "noreply@example.com";');
+  });
+
+  it('flags admin@test.com', () => {
+    expectMatches(placeholderEmail, 'EMAIL = "admin@test.com"');
+  });
+
+  it('flags user@foo.bar', () => {
+    expectMatches(placeholderEmail, 'to: "user@foo.bar"');
+  });
+
+  it('does not flag a normal email', () => {
+    expectNoMatch(placeholderEmail, 'const FROM = "support@stripe.com";');
+  });
+
+  it('does not flag https://example.com URL (handled elsewhere)', () => {
+    expectNoMatch(placeholderEmail, 'fetch("https://api.example.com/x")');
+  });
+
+  // VG-QUAL-007 — mock data outside test paths
+  it('flags const mockUser =', () => {
+    const matches = mockDataInProductionPath.match({
+      content: 'const mockUser = { id: 1, name: "Alice" };',
+      lines: ['const mockUser = { id: 1, name: "Alice" };'],
+      filePath: 'src/handlers.ts',
+    });
+    expect(matches.length).toBe(1);
+  });
+
+  it('flags return mockUser', () => {
+    const matches = mockDataInProductionPath.match({
+      content: 'function getUser() { return mockUser; }',
+      lines: ['function getUser() { return mockUser; }'],
+      filePath: 'src/handlers.ts',
+    });
+    expect(matches.length).toBe(1);
+  });
+
+  it('flags python dummy_data = {}', () => {
+    const matches = mockDataInProductionPath.match({
+      content: 'dummy_data = {"id": 1}',
+      lines: ['dummy_data = {"id": 1}'],
+      filePath: 'src/app.py',
+    });
+    expect(matches.length).toBe(1);
+  });
+
+  it('does not flag mock data inside __tests__ path', () => {
+    const matches = mockDataInProductionPath.match({
+      content: 'const mockUser = { id: 1 };',
+      lines: ['const mockUser = { id: 1 };'],
+      filePath: 'src/__tests__/handlers.test.ts',
+    });
+    expect(matches.length).toBe(0);
+  });
+
+  it('does not flag mock data inside .test.ts file', () => {
+    const matches = mockDataInProductionPath.match({
+      content: 'const mockUser = { id: 1 };',
+      lines: ['const mockUser = { id: 1 };'],
+      filePath: 'src/handlers.test.ts',
+    });
+    expect(matches.length).toBe(0);
+  });
+
+  // VG-QUAL-008 — debug flag on
+  it('flags debug: true in object literal', () => {
+    expectMatches(debugFlagOn, 'export const config = { debug: true };');
+  });
+
+  it('flags verbose: true', () => {
+    expectMatches(debugFlagOn, 'createLogger({ verbose: true });');
+  });
+
+  it('flags Python DEBUG = True', () => {
+    expectMatches(debugFlagOn, 'DEBUG = True', 'python');
+  });
+
+  it('flags const DEBUG = true', () => {
+    expectMatches(debugFlagOn, 'const DEBUG = true;');
+  });
+
+  it('does not flag debug: false', () => {
+    expectNoMatch(debugFlagOn, 'export const config = { debug: false };');
+  });
+
+  it('does not flag debug: true inside a comment', () => {
+    expectNoMatch(debugFlagOn, '// example: { debug: true }');
+  });
+
+  // VG-QUAL-009 — placeholder prose
+  it('flags "// Not for production"', () => {
+    expectMatches(notForProductionComment, 'const x = 1; // Not for production');
+  });
+
+  it('flags "// for now, just return the input"', () => {
+    expectMatches(notForProductionComment, '// for now, return the input');
+  });
+
+  it('flags "// replace this with real validation"', () => {
+    expectMatches(notForProductionComment, '// replace this with real validation later');
+  });
+
+  it('flags Python "# in production, you should validate"', () => {
+    expectMatches(notForProductionComment, '# in production, you should validate');
+  });
+
+  it('does not flag the literal "production" alone', () => {
+    expectNoMatch(notForProductionComment, '// production-ready impl');
+  });
+
+  // VG-QUAL-010 — empty validator
+  it('flags function validate(x) { return true; }', () => {
+    expectMatches(emptyValidator, 'function validate(input) { return true; }');
+  });
+
+  it('flags const sanitize = (x) => x;', () => {
+    expectMatches(emptyValidator, 'const sanitize = (x) => x;');
+  });
+
+  it('flags python def validate(x): return True', () => {
+    expectMatches(emptyValidator, 'def validate(x):\n    return True\n', 'python');
+  });
+
+  it('does not flag a real validator', () => {
+    expectNoMatch(
+      emptyValidator,
+      'function validate(input) { if (!input) throw new Error("missing"); return input.trim(); }',
+    );
   });
 });

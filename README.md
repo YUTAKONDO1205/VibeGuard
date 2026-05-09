@@ -120,6 +120,20 @@ fork からの PR ではコメント投稿はスキップされる（`pull-reque
 | Code Action | 黄色電球 → `suppress <ruleId> on this line`（`vibeguard:disable-next-line` をコメント挿入）/ `show remediation` |
 | Findings サイドバー | エクスプローラ内の **VibeGuard Findings** ビュー。ファイル → finding 階層、クリックで該当行へジャンプ |
 
+## ルールカテゴリ
+
+現在 30 ルール。ID プレフィックスは構造的なファイル分類、`category` はリスクの種類で別軸。
+
+| プレフィックス | 内容 | 例 |
+|---|---|---|
+| `VG-INJ-NNN` | 注入系 | eval / SQL 連結 / innerHTML / pickle 等 |
+| `VG-AUTH-NNN` | 認証 / TLS / プレースホルダ認証 | DEBUG バイパス / verify=False / dummy_token |
+| `VG-SEC-NNN` | 秘密情報の埋め込み | AWS キー / PEM / GitHub PAT / 高エントロピー文字列 |
+| `VG-CRYPTO-NNN` | 暗号関連 | MD5/SHA1 / Math.random / `http://` |
+| `VG-QUAL-001..004` | 品質系（CORS / 例外握りつぶし / open redirect 等） | |
+| `VG-QUAL-005..010` | **AI 痕跡ヒューリスティクス**（`category: ai-quality`） | スタブ実装 / プレースホルダメール / mock データ / debug=true / "for now" コメント / 空 validator |
+
+VG-QUAL-005..010 は AI 生成コードに特有の「コンパイルは通るが本番には出すべきでない」パターンを検出する。誤検知が出やすい性質上 severity=medium / confidence=low~medium で出る。
 ## Chrome 拡張
 
 `extensions/chrome/` に Manifest V3 ベースの最小拡張を同梱（Phase 3 着手）。analyzer-core の `./browser` サブパスを使い、`node:fs` / `node:path` を含まないバンドルを Side Panel から実行する。
