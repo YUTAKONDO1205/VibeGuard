@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/YUTAKONDO1205/VibeGuard/actions/workflows/ci.yml/badge.svg)](https://github.com/YUTAKONDO1205/VibeGuard/actions/workflows/ci.yml)
 [![Security Scan](https://github.com/YUTAKONDO1205/VibeGuard/actions/workflows/security-scan.yml/badge.svg)](https://github.com/YUTAKONDO1205/VibeGuard/actions/workflows/security-scan.yml)
+[![GitHub Marketplace](https://img.shields.io/badge/Marketplace-Vibe--Guard--AICoding-blue?logo=github)](https://github.com/marketplace/actions/vibe-guard-aicoding)
 
 開発者: 近藤悠太 (Kondo Yuta)
 
