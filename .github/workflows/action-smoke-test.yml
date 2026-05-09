@@ -1,0 +1,92 @@
+# Smoke test for ./action.yml so the composite action does not silently rot
+# between Marketplace releases. We invoke the action with `uses: ./` against
+# this very repository, exercising both the "scan a path" and "diff scan"
+# code paths, and verify that the action surface (inputs / outputs) still
+# matches what consumers would experience.
+name: Action Smoke Test
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'action.yml'
+      - 'apps/cli/**'
+      - 'packages/**'
+      - '.github/workflows/action-smoke-test.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'action.yml'
+      - 'apps/cli/**'
+      - 'packages/**'
+
+jobs:
+  scan-path:
+    name: scan a path (samples/vulnerable)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: VibeGuard scan
+        id: vg
+        uses: ./
+        with:
+          path: samples/vulnerable
+          mode: standard
+          format: json
+          out: vuln.json
+          fail-on: never
+
+      - name: Verify report exists and has findings
+        run: |
+          test -s vuln.json
+          COUNT=$(node -e "console.log(JSON.parse(require('fs').readFileSync('vuln.json','utf8')).findings.length)")
+          echo "vulnerable findings via action: $COUNT"
+          test "$COUNT" -ge 15
+          echo "exit-code from action: ${{ steps.vg.outputs.exit-code }}"
+          test "${{ steps.vg.outputs.exit-code }}" = "0"
+
+  scan-safe-must-pass:
+    name: scan samples/safe must report zero
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: VibeGuard scan
+        uses: ./
+        with:
+          path: samples/safe
+          mode: standard
+          format: json
+          out: safe.json
+          fail-on: never
+
+      - name: Assert zero findings
+        run: |
+          COUNT=$(node -e "console.log(JSON.parse(require('fs').readFileSync('safe.json','utf8')).findings.length)")
+          echo "safe findings via action: $COUNT"
+          test "$COUNT" -eq 0
+
+  scan-diff:
+    name: diff scan
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: VibeGuard diff scan
+        uses: ./
+        with:
+          diff: origin/${{ github.base_ref }}...HEAD
+          format: json
+          out: diff.json
+          fail-on: never
+
+      - name: Verify diff report shape
+        run: |
+          test -s diff.json
+          # diff.json may legitimately have zero findings on a doc-only PR;
+          # we only assert the JSON parses and has the summary shape.
+          node -e "const j=require('./diff.json'); if(typeof j.summary.total!=='number') throw new Error('bad shape')"
