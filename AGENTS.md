@@ -118,7 +118,22 @@ exec(userInput);
 
 ---
 
-## 9. 参考
+## 9. ルール ID と category の関係
+
+VG-`<INJ|AUTH|SEC|CRYPTO|QUAL>`-NNN の prefix は**ファイル分類**であり、`category` フィールドはリスクの種類で別軸（categories の許容集合は [registry.test.ts](packages/rules/src/registry.test.ts) を参照）。
+
+- prefix と category は 1:1 で揃わなくてよい：
+  - `VG-AUTH-003`（dummy token）の category は `secrets`
+  - `VG-QUAL-002`（CORS 広域）の category は `access-control`
+  - `VG-AUTH-002` / `VG-QUAL-005..010`（AI 痕跡ヒューリスティクス）の category は `ai-quality`
+- 新規ルールを足すときは既存ファイルの prefix を踏襲し、category だけ正しく選ぶ
+- registry test が ID 形式・重複・category enum を強制する。新 prefix を増やす場合はテストも更新する
+
+AI 痕跡系（stub body / placeholder email / mock 識別子 / debug=true / "for now" コメント / 空 validator など）は `category: 'ai-quality'` + `tags: ['ai-prone']` を必ず付け、誤検知を見越して severity=medium / confidence=low~medium を基本とする。
+
+---
+
+## 10. 参考
 
 - 設計書: [設計書.md](設計書.md)
 - 開発ロードマップ: [README.md §開発フェーズ](README.md)
