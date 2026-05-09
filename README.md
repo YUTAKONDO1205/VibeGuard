@@ -107,6 +107,63 @@ PR で追加された行だけをスキャンし、別 sticky コメント（`vi
 ### 注意
 fork からの PR ではコメント投稿はスキップされる（`pull-requests: write` 権限の制約）。初回 main push の後は GitHub の Security タブに結果が集約される。
 
+## 再利用可能 Action（GitHub Marketplace 想定）
+
+リポジトリのルートに [`action.yml`](action.yml) を同梱しており、他リポジトリのワークフローから 1 行で呼び出せる。
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0      # diff scan を使うときに必須
+- uses: YUTAKONDO1205/VibeGuard@v0
+  with:
+    path: .
+    mode: standard
+    format: sarif
+    out: vibeguard.sarif
+    fail-on: high
+- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with:
+    sarif_file: vibeguard.sarif
+    category: vibeguard
+```
+
+PR 差分だけをスキャンする例：
+
+```yaml
+- uses: YUTAKONDO1205/VibeGuard@v0
+  with:
+    diff: origin/${{ github.base_ref }}...HEAD
+    format: markdown
+    out: report.md
+    fail-on: high
+```
+
+主な inputs：
+
+| input | 既定 | 内容 |
+|---|---|---|
+| `path` | `.` | 走査対象（consumer のリポジトリルートからの相対パス） |
+| `mode` | `standard` | `fast` / `standard` / `deep` |
+| `format` | `sarif` | `human` / `json` / `sarif` / `markdown` |
+| `fail-on` | `high` | `critical` / `high` / `medium` / `low` / `never` |
+| `out` | `''` | レポート出力ファイル（未指定なら stdout） |
+| `diff` | `''` | `git diff <range>` の追加行のみ走査 |
+| `ignore` | `''` | カンマ区切り追加無視ディレクトリ名 |
+| `known-only` | `false` | 既知言語拡張子のみ走査 |
+| `no-remediation` | `false` | 修正案生成スキップ |
+| `node-version` | `20` | 走査用 Node.js のバージョン |
+
+outputs：
+
+| output | 内容 |
+|---|---|
+| `exit-code` | CLI の終了コード（fail-on を超えると非ゼロ） |
+| `output-file` | `out` を指定したときの絶対パス |
+
+Marketplace 公開手順は [`docs/runbooks/publish-action-to-marketplace.md`](docs/runbooks/publish-action-to-marketplace.md) を参照。動作テストは [`.github/workflows/action-smoke-test.yml`](.github/workflows/action-smoke-test.yml) が `uses: ./` で自前検証する。
+
 ## VS Code 拡張
 
 `extensions/vscode/` に最小拡張を同梱。F5 で Extension Host を起動して開発できる。

@@ -1,0 +1,144 @@
+name: 'VibeGuard'
+description: 'Security diagnostics for AI-generated code. Outputs SARIF / Markdown / JSON; supports PR diff scanning.'
+author: 'KONDO YUTA'
+
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  path:
+    description: 'Target file or directory to scan, relative to the consumer repository root.'
+    required: false
+    default: '.'
+  mode:
+    description: 'Scan depth: fast | standard | deep.'
+    required: false
+    default: 'standard'
+  format:
+    description: 'Output format: human | json | sarif | markdown.'
+    required: false
+    default: 'sarif'
+  fail-on:
+    description: 'Severity threshold to fail the job: critical | high | medium | low | never.'
+    required: false
+    default: 'high'
+  out:
+    description: 'Write the report to this path (relative to the consumer workspace) instead of stdout.'
+    required: false
+    default: ''
+  diff:
+    description: 'Git diff range (e.g. origin/main...HEAD). When set, only added lines are scanned. Requires fetch-depth: 0 on actions/checkout.'
+    required: false
+    default: ''
+  ignore:
+    description: 'Comma-separated list of additional directory names to ignore (e.g. "vendor,build").'
+    required: false
+    default: ''
+  known-only:
+    description: 'Restrict scanning to files with known language extensions ("true" / "false").'
+    required: false
+    default: 'false'
+  no-remediation:
+    description: 'Skip remediation generation ("true" / "false").'
+    required: false
+    default: 'false'
+  node-version:
+    description: 'Node.js version installed for running the analyzer.'
+    required: false
+    default: '20'
+
+outputs:
+  exit-code:
+    description: 'Exit code of the underlying CLI. Non-zero when the fail-on threshold is met.'
+    value: ${{ steps.scan.outputs.exit-code }}
+  output-file:
+    description: 'Absolute path of the report file (when `out` was provided).'
+    value: ${{ steps.scan.outputs.output-file }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Install VibeGuard dependencies
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm ci
+
+    - name: Build VibeGuard CLI
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      # Build only the packages the CLI needs. We deliberately skip the
+      # vibeguard-vscode and vibeguard-chrome workspaces — they're irrelevant
+      # in CI and pulling esbuild for them just slows the action down.
+      run: |
+        npm run build -w @vibeguard/findings-schema
+        npm run build -w @vibeguard/rules
+        npm run build -w @vibeguard/remediation-engine
+        npm run build -w @vibeguard/sarif-adapter
+        npm run build -w @vibeguard/analyzer-core
+        npm run build -w @vibeguard/cli
+
+    - name: Run VibeGuard
+      id: scan
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        VG_ACTION_PATH: ${{ github.action_path }}
+        VG_PATH: ${{ inputs.path }}
+        VG_MODE: ${{ inputs.mode }}
+        VG_FORMAT: ${{ inputs.format }}
+        VG_FAIL_ON: ${{ inputs.fail-on }}
+        VG_OUT: ${{ inputs.out }}
+        VG_DIFF: ${{ inputs.diff }}
+        VG_IGNORE: ${{ inputs.ignore }}
+        VG_KNOWN_ONLY: ${{ inputs.known-only }}
+        VG_NO_REM: ${{ inputs.no-remediation }}
+      run: |
+        set +e
+        args=()
+        if [ -n "$VG_DIFF" ]; then
+          args+=("--diff" "$VG_DIFF")
+        else
+          args+=("$VG_PATH")
+        fi
+        args+=("--mode" "$VG_MODE")
+        args+=("--format" "$VG_FORMAT")
+        args+=("--fail-on" "$VG_FAIL_ON")
+
+        if [ -n "$VG_OUT" ]; then
+          args+=("--out" "$VG_OUT")
+        fi
+        if [ -n "$VG_IGNORE" ]; then
+          IFS=',' read -ra ig <<< "$VG_IGNORE"
+          for x in "${ig[@]}"; do
+            x_trimmed="${x## }"
+            x_trimmed="${x_trimmed%% }"
+            [ -n "$x_trimmed" ] && args+=("--ignore" "$x_trimmed")
+          done
+        fi
+        if [ "$VG_KNOWN_ONLY" = "true" ]; then
+          args+=("--known-only")
+        fi
+        if [ "$VG_NO_REM" = "true" ]; then
+          args+=("--no-remediation")
+        fi
+
+        echo "::group::VibeGuard CLI invocation"
+        echo "node $VG_ACTION_PATH/apps/cli/dist/index.js ${args[*]}"
+        echo "::endgroup::"
+
+        node "$VG_ACTION_PATH/apps/cli/dist/index.js" "${args[@]}"
+        code=$?
+
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        if [ -n "$VG_OUT" ]; then
+          abs_out="$(realpath "$VG_OUT" 2>/dev/null || echo "$VG_OUT")"
+          echo "output-file=$abs_out" >> "$GITHUB_OUTPUT"
+        fi
+
+        exit $code
