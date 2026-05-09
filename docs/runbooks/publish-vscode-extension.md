@@ -176,9 +176,10 @@ https://marketplace.visualstudio.com/items?itemName=yutakondo.vibeguard-aicoding
 
 VSCodium / code-server / Theia / Gitpod / Cursor の一部 利用者はここから落とす。
 
+`ovsx` は `extensions/vscode/package.json` の devDep に既に入っているので、`npm install` 済みなら追加導入不要：
+
 ```bash
 cd extensions/vscode
-npm i -D ovsx
 npx ovsx publish vibeguard-aicoding-0.1.0.vsix -p <openvsx_token>
 ```
 
@@ -186,6 +187,8 @@ npx ovsx publish vibeguard-aicoding-0.1.0.vsix -p <openvsx_token>
 ```
 https://open-vsx.org/extension/yutakondo/vibeguard-aicoding
 ```
+
+> namespace `yutakondo` は GitHub ユーザー名と一致するので [open-vsx.org](https://open-vsx.org) の Settings → Namespaces で **Create Namespace** すればすぐ publish 可能（`open` 状態）。所有権を verified にしたい場合は別途 [eclipse/open-vsx.org の issue](https://github.com/EclipseFdn/open-vsx.org/issues) で Use case 1 のフォームで申請。
 
 ---
 
