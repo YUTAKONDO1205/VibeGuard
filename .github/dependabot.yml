@@ -4,8 +4,14 @@ version: 2
 # - Weekly PR opening for outdated GitHub Actions and npm packages.
 # - Grouped updates so a typescript / vitest minor bump doesn't fan out
 #   into one PR per workspace.
-# - The label makes it easy to filter Dependabot-authored PRs in CI gates
-#   if we ever want to give them a faster lane.
+# - Major-version bumps on the tooling group are excluded from automation,
+#   because TypeScript / vitest / @types/node majors routinely require
+#   code-side fixes and we don't want a giant "bump everything 3 majors"
+#   PR landing weekly. We'll do those by hand when we decide to upgrade.
+# - The labels make it easy to filter Dependabot-authored PRs in CI gates
+#   if we ever want to give them a faster lane. These labels must exist in
+#   the repo (Issues → Labels) — dependabot warns but doesn't fail when
+#   they're missing.
 
 updates:
   - package-ecosystem: github-actions
@@ -15,6 +21,9 @@ updates:
     labels:
       - dependencies
       - github-actions
+    # Keep major bumps for first-party GitHub Actions automated — those are
+    # almost always backwards-compatible reissues. For third-party actions
+    # we'd want a stricter policy, but we don't use any yet.
 
   - package-ecosystem: npm
     directory: /
@@ -30,7 +39,31 @@ updates:
           - typescript
           - '@types/*'
           - vitest
+        # Patch + minor only inside the group. Majors land via a separate,
+        # hand-driven PR so we can fix the inevitable type-system breakage
+        # in the same commit.
+        update-types:
+          - patch
+          - minor
       eslint:
         patterns:
           - eslint
           - '@typescript-eslint/*'
+        update-types:
+          - patch
+          - minor
+    ignore:
+      # Belt-and-braces: even outside the grouped patterns above, do not
+      # open a PR for major bumps on the toolchain deps. Same rationale.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+      - dependency-name: vitest
+        update-types:
+          - version-update:semver-major
+      - dependency-name: '@types/node'
+        update-types:
+          - version-update:semver-major
+      - dependency-name: '@types/chrome'
+        update-types:
+          - version-update:semver-major
