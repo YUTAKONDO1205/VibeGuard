@@ -113,7 +113,7 @@
     "@vibeguard/sarif-adapter": "0.1.0"
   },
   "devDependencies": {
-    "@types/node": "^20.12.7",
+    "@types/node": "^20.19.40",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.9.1",
     "esbuild": "^0.28.0",

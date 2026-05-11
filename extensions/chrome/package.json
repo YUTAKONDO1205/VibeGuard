@@ -16,8 +16,8 @@
     "@vibeguard/findings-schema": "0.1.0"
   },
   "devDependencies": {
-    "@types/chrome": "^0.0.268",
-    "@types/node": "^20.12.7",
+    "@types/chrome": "^0.1.42",
+    "@types/node": "^20.19.40",
     "esbuild": "^0.28.0",
     "typescript": "^5.4.5"
   }
