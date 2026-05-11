@@ -4,118 +4,125 @@
 [![Security Scan](https://github.com/YUTAKONDO1205/VibeGuard/actions/workflows/security-scan.yml/badge.svg)](https://github.com/YUTAKONDO1205/VibeGuard/actions/workflows/security-scan.yml)
 [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-Vibe--Guard--AICoding-blue?logo=github)](https://github.com/marketplace/actions/vibe-guard-aicoding)
 
-開発者: 近藤悠太 (Kondo Yuta)
+Author: Kondo Yuta
 
-AI生成コードに特化したセキュリティ診断基盤。**開発中（VS Code）**・**閲覧中（Chrome）**・**マージ前（GitHub Actions / CLI）** の3段階で同一の解析コアを使ってコードを検査し、危険箇所と修正方針を提示する。
+VibeGuard is a security scanner for AI-generated code. It catches the bugs that "looks fine, ships fine" code tends to hide: missing input checks, hard-coded passwords, skipped login checks, exceptions silently caught, and so on.
 
-## 概要
+You can run it at three places, and you'll get the same answer at every one of them:
 
-生成AIが書いたコードは「とりあえず動く」状態のまま採用されがちで、入力検証の欠落・ハードコードされた秘密情報・認証スキップ・例外握りつぶしなどの典型的な地雷を抱えやすい。VibeGuard はこれらを早期に検出するための統合診断基盤であり、解析ロジックを共通パッケージへ集約することで、エディタ・ブラウザ・CI で判定基準がズレないことを最重要原則としている。
+- **While you write** — VS Code extension. Save the file, see findings inline.
+- **While you read** — Chrome extension. Scan code snippets on any web page.
+- **Before you merge** — CLI and GitHub Action. Block a PR when something risky lands.
 
-詳細は [設計書.md](設計書.md) を参照。プライバシーに関する方針は [PRIVACY.md](PRIVACY.md)（VibeGuard はコードを外部送信しない）。
+The analysis engine is shared across all three, so a finding looks the same in your editor, in your browser, and in the PR comment.
 
-## モノレポ構成
+For more detail: the design document is in [DESIGN.ja.md](DESIGN.ja.md) (Japanese). The privacy policy is in [PRIVACY.md](PRIVACY.md) — VibeGuard never sends your code anywhere.
+
+## Monorepo layout
 
 ```text
 vibeguard-codex/
-├─ AGENTS.md                  # Codex 向けプロジェクト全体ルール
-├─ 設計書.md                   # 詳細設計書 v0.2
-├─ .codex/                    # Codex プロジェクト設定 / エージェント定義
+├─ AGENTS.md                  # Project-wide rules for Codex agents
+├─ DESIGN.ja.md                # Detailed design doc v0.2 (Japanese)
+├─ .codex/                    # Codex project config / agent definitions
 │  ├─ config.toml
 │  └─ agents/{planner,generator,evaluator}.toml
 ├─ apps/
-│  └─ cli/                    # ローカル実行・CI 向け CLI
+│  └─ cli/                    # CLI for local + CI use
 ├─ packages/
-│  ├─ analyzer-core/          # 共通診断エンジン
-│  ├─ rules/                  # ルール定義・実行ロジック
-│  ├─ findings-schema/        # 検出結果の標準スキーマ
-│  ├─ remediation-engine/     # 修正案生成
-│  └─ sarif-adapter/          # SARIF 変換
+│  ├─ analyzer-core/          # Shared analysis engine
+│  ├─ rules/                  # Rule definitions and execution logic
+│  ├─ findings-schema/        # Canonical schema for findings
+│  ├─ remediation-engine/     # Remediation generator
+│  └─ sarif-adapter/          # SARIF v2.1.0 converter
+├─ extensions/
+│  ├─ vscode/                 # VS Code extension
+│  └─ chrome/                 # Chrome extension (Manifest V3)
 └─ samples/
-   ├─ vulnerable/             # 検出されるべき危険コード
-   └─ safe/                   # 検出されてはいけない安全コード
+   ├─ vulnerable/             # Code that should be flagged
+   └─ safe/                   # Code that must NOT be flagged
 ```
 
-将来的に `extensions/vscode`・`extensions/chrome`・`packages/scanner-semgrep` などを追加予定。
+Future additions: `packages/scanner-semgrep` (deep mode), more language rule packs.
 
-## セットアップ
+## Setup
 
-前提：Node.js 18 以上。
+Requires Node.js 18+.
 
 ```bash
 npm install
 npm run build
 ```
 
-## CLI の使い方
+## CLI usage
 
 ```bash
-# ディレクトリをスキャン（人間向け出力）
+# Scan a directory (human-readable output)
 node apps/cli/dist/index.js ./samples/vulnerable
 
-# SARIF を出力して GitHub Code Scanning にアップロードできる形にする
+# Emit SARIF so GitHub Code Scanning can ingest it
 node apps/cli/dist/index.js ./src --format sarif --out report.sarif
 
-# Critical 検出時のみ非ゼロ終了
+# Exit non-zero only when something critical is found
 node apps/cli/dist/index.js suspicious.py --fail-on critical
 
-# PR で追加された行だけをスキャン（git diff <range> --unified=0 を内部で使用）
+# Scan only the lines added in a PR (uses `git diff <range> --unified=0` internally)
 node apps/cli/dist/index.js --diff origin/main...HEAD --format markdown
 ```
 
-主なオプション：
+Main options:
 
-| オプション | 説明 |
+| Option | Description |
 |---|---|
-| `--format <human\|json\|sarif\|markdown>` | 出力形式（デフォルト: human）。`markdown` は PR コメント向け |
-| `--out <file>` | 結果をファイルへ書き出す |
-| `--mode <fast\|standard\|deep>` | スキャン深度（デフォルト: standard） |
-| `--fail-on <level>` | 指定 severity 以上で終了コードを非ゼロにする |
-| `--ignore <name>` | 追加の除外ディレクトリ名（複数指定可） |
-| `--diff <range>` | `git diff <range> --unified=0` で追加された行のみスキャン |
-| `--known-only` | 既知言語の拡張子のみスキャン |
-| `--no-remediation` | 修正案生成をスキップ |
+| `--format <human\|json\|sarif\|markdown>` | Output format (default: `human`). `markdown` is meant for PR comments. |
+| `--out <file>` | Write the report to a file instead of stdout. |
+| `--mode <fast\|standard\|deep>` | Scan depth (default: `standard`). |
+| `--fail-on <level>` | Exit non-zero when a finding of this severity (or higher) appears. |
+| `--ignore <name>` | Extra directory name to skip (repeatable). |
+| `--diff <range>` | Scan only lines added in `git diff <range> --unified=0`. |
+| `--known-only` | Scan only files with known-language extensions. |
+| `--no-remediation` | Skip remediation generation. |
 
-## テスト
+## Tests
 
 ```bash
 npm test
 ```
 
-各パッケージの `*.test.ts` を vitest で実行する。
+Runs every package's `*.test.ts` under vitest.
 
 ## GitHub Actions
 
-リポジトリには 2 本のワークフローを同梱している。
+The repository ships two workflows:
 
-| Workflow | 役割 |
+| Workflow | Role |
 |---|---|
-| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | `npm ci` → `npm run build` → `npm test` の基本ゲート |
-| [`.github/workflows/security-scan.yml`](.github/workflows/security-scan.yml) | self-scan / samples / pr-diff-scan の 3 ジョブ。self-scan は SARIF を Code Scanning にアップロード + PR sticky コメント、品質ゲートは samples、PR の追加行は pr-diff-scan で別コメント |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | The base gate: `npm ci` → `npm run build` → `npm test`. |
+| [`.github/workflows/security-scan.yml`](.github/workflows/security-scan.yml) | Three jobs — self-scan, samples, pr-diff-scan. Self-scan uploads SARIF to Code Scanning and posts a sticky PR comment; samples is the rule-correctness gate; pr-diff-scan posts a separate comment for only the lines added in the PR. |
 
-### self-scan ジョブ
-VibeGuard 自身を `--fail-on never` でスキャンし、結果を SARIF として Security タブへ、Markdown として PR コメントへ反映する。**情報提示のみで build は止めない**：ルール定義ファイル ([packages/rules/src/rules/](packages/rules/src/rules/)) には `eval()` や dummy credential など検出対象のリテラルが正規表現の例として含まれ、テストファイルには意図的な脆弱コードが入っているため、self-scan で 0 件を要求するのは構造上無理がある。
+### self-scan job
+Scans VibeGuard itself with `--fail-on never`, then surfaces the result as SARIF in the Security tab and as Markdown in a sticky PR comment. **It informs but never blocks the build**: rule definition files ([packages/rules/src/rules/](packages/rules/src/rules/)) legitimately contain literals like `eval()` and dummy credentials as regex examples, and test files include intentionally vulnerable code, so requiring 0 findings on the source tree is structurally impossible.
 
-### samples ジョブ
-ルール正当性の真の品質ゲート。
+### samples job
+The real quality gate for rule correctness.
 
-- [`samples/safe`](samples/safe) → 0 findings であること（false positive 検出）
-- [`samples/vulnerable`](samples/vulnerable) → 15 件以上検出されること（regression 検出）
+- [`samples/safe`](samples/safe) → must produce 0 findings (false-positive guard).
+- [`samples/vulnerable`](samples/vulnerable) → must produce ≥ 15 findings (regression guard).
 
-### pr-diff-scan ジョブ
-PR で追加された行だけをスキャンし、別 sticky コメント（`vibeguard-diff` ヘッダ）として投稿する。`high` 以上で失敗。`origin/<base_ref>...HEAD` を `git diff --unified=0` で取得し、変更ファイルを working tree から読み込んでフルスキャン → 追加行と重なる finding のみ採用する。
+### pr-diff-scan job
+Scans only the added lines in a PR and posts a dedicated sticky comment (header `vibeguard-diff`). Fails on `high` or above. The job runs `git diff --unified=0 origin/<base_ref>...HEAD`, reads each changed file from the working tree, runs a full scan, then keeps only the findings that overlap an added line.
 
-### 注意
-fork からの PR ではコメント投稿はスキップされる（`pull-requests: write` 権限の制約）。初回 main push の後は GitHub の Security タブに結果が集約される。
+### Note
+PRs from forks don't get the comment posted (the `pull-requests: write` permission isn't granted to fork workflows). After the first push to `main`, results are aggregated in the GitHub Security tab.
 
-## 再利用可能 Action（GitHub Marketplace 想定）
+## Reusable Action (GitHub Marketplace)
 
-リポジトリのルートに [`action.yml`](action.yml) を同梱しており、他リポジトリのワークフローから 1 行で呼び出せる。
+[`action.yml`](action.yml) at the repository root lets other repos call VibeGuard from a workflow with a single step.
 
 ```yaml
 - uses: actions/checkout@v4
   with:
-    fetch-depth: 0      # diff scan を使うときに必須
+    fetch-depth: 0      # required when using diff scan
 - uses: YUTAKONDO1205/VibeGuard@v0
   with:
     path: .
@@ -130,7 +137,7 @@ fork からの PR ではコメント投稿はスキップされる（`pull-reque
     category: vibeguard
 ```
 
-PR 差分だけをスキャンする例：
+PR diff-only scan example:
 
 ```yaml
 - uses: YUTAKONDO1205/VibeGuard@v0
@@ -141,98 +148,101 @@ PR 差分だけをスキャンする例：
     fail-on: high
 ```
 
-主な inputs：
+Main inputs:
 
-| input | 既定 | 内容 |
+| input | default | description |
 |---|---|---|
-| `path` | `.` | 走査対象（consumer のリポジトリルートからの相対パス） |
-| `mode` | `standard` | `fast` / `standard` / `deep` |
-| `format` | `sarif` | `human` / `json` / `sarif` / `markdown` |
-| `fail-on` | `high` | `critical` / `high` / `medium` / `low` / `never` |
-| `out` | `''` | レポート出力ファイル（未指定なら stdout） |
-| `diff` | `''` | `git diff <range>` の追加行のみ走査 |
-| `ignore` | `''` | カンマ区切り追加無視ディレクトリ名 |
-| `known-only` | `false` | 既知言語拡張子のみ走査 |
-| `no-remediation` | `false` | 修正案生成スキップ |
-| `node-version` | `20` | 走査用 Node.js のバージョン |
+| `path` | `.` | Scan target (relative to the consumer repo root). |
+| `mode` | `standard` | `fast` / `standard` / `deep`. |
+| `format` | `sarif` | `human` / `json` / `sarif` / `markdown`. |
+| `fail-on` | `high` | `critical` / `high` / `medium` / `low` / `never`. |
+| `out` | `''` | Report output file (stdout if empty). |
+| `diff` | `''` | Scan only lines added in `git diff <range>`. |
+| `ignore` | `''` | Comma-separated extra ignore directory names. |
+| `known-only` | `false` | Scan only known-language extensions. |
+| `no-remediation` | `false` | Skip remediation generation. |
+| `node-version` | `20` | Node.js version used for the scan. |
 
-outputs：
+outputs:
 
-| output | 内容 |
+| output | description |
 |---|---|
-| `exit-code` | CLI の終了コード（fail-on を超えると非ゼロ） |
-| `output-file` | `out` を指定したときの絶対パス |
+| `exit-code` | The CLI's exit code (non-zero when `fail-on` is tripped). |
+| `output-file` | Absolute path of `out`, when set. |
 
-Marketplace 公開手順は [`docs/runbooks/publish-action-to-marketplace.md`](docs/runbooks/publish-action-to-marketplace.md) を参照。動作テストは [`.github/workflows/action-smoke-test.yml`](.github/workflows/action-smoke-test.yml) が `uses: ./` で自前検証する。
+Marketplace publishing is documented in [`docs/runbooks/publish-action-to-marketplace.md`](docs/runbooks/publish-action-to-marketplace.md). End-to-end verification runs in [`.github/workflows/action-smoke-test.yml`](.github/workflows/action-smoke-test.yml) using `uses: ./`.
 
-## VS Code 拡張
+## VS Code extension
 
-`extensions/vscode/` に最小拡張を同梱。F5 で Extension Host を起動して開発できる。
+`extensions/vscode/` hosts the extension. Press F5 to launch an Extension Host for development.
 
-| 機能 | 起動方法 |
+| Feature | How to invoke |
 |---|---|
-| 保存時スキャン | デフォルト ON。`vibeguard.scanOnSave` で OFF 可、`vibeguard.scanOnSaveMode` で `fast` / `standard` を選択 |
-| 手動スキャン | コマンドパレット → `VibeGuard: Scan File` |
-| 選択範囲スキャン | エディタ右クリック → `VibeGuard: Scan Selection`（フルファイルスキャン → 選択範囲の finding のみ表示） |
-| Diagnostics | severity をエラー / 警告 / 情報にマッピング |
-| Code Action | 黄色電球 → `suppress <ruleId> on this line`（`vibeguard:disable-next-line` をコメント挿入）/ `show remediation` |
-| Findings サイドバー | エクスプローラ内の **VibeGuard Findings** ビュー。ファイル → finding 階層、クリックで該当行へジャンプ |
+| Scan on save | On by default. Toggle with `vibeguard.scanOnSave`; pick `fast` / `standard` via `vibeguard.scanOnSaveMode`. |
+| Manual scan | Command Palette → `VibeGuard: Scan File`. |
+| Selection scan | Editor context menu → `VibeGuard: Scan Selection` (full-file scan, findings filtered to the selection). |
+| Diagnostics | Severities map to Error / Warning / Information. |
+| Code Action | Light bulb → `suppress <ruleId> on this line` (inserts a `vibeguard:disable-next-line` comment) / `show remediation`. |
+| Findings sidebar | `VibeGuard Findings` view in the Explorer. File → finding hierarchy; click to jump to the line. |
+| Export findings | Command Palette → `VibeGuard: Export Findings (SARIF / JSON)`. Format chosen by file extension in the save dialog. |
 
-## ルールカテゴリ
+## Rule catalogue
 
-現在 30 ルール。ID プレフィックスは構造的なファイル分類、`category` はリスクの種類で別軸。
+30 rules at the moment. The ID prefix groups rules by source file; the `category` field is a separate, risk-oriented axis.
 
-| プレフィックス | 内容 | 例 |
+| Prefix | Coverage | Examples |
 |---|---|---|
-| `VG-INJ-NNN` | 注入系 | eval / SQL 連結 / innerHTML / pickle 等 |
-| `VG-AUTH-NNN` | 認証 / TLS / プレースホルダ認証 | DEBUG バイパス / verify=False / dummy_token |
-| `VG-SEC-NNN` | 秘密情報の埋め込み | AWS キー / PEM / GitHub PAT / 高エントロピー文字列 |
-| `VG-CRYPTO-NNN` | 暗号関連 | MD5/SHA1 / Math.random / `http://` |
-| `VG-QUAL-001..004` | 品質系（CORS / 例外握りつぶし / open redirect 等） | |
-| `VG-QUAL-005..010` | **AI 痕跡ヒューリスティクス**（`category: ai-quality`） | スタブ実装 / プレースホルダメール / mock データ / debug=true / "for now" コメント / 空 validator |
+| `VG-INJ-NNN` | Injection | eval / SQL concatenation / innerHTML / pickle, etc. |
+| `VG-AUTH-NNN` | Auth / TLS / placeholder auth | DEBUG bypass / `verify=False` / `dummy_token`. |
+| `VG-SEC-NNN` | Hardcoded secrets | AWS keys / PEM / GitHub PAT / high-entropy strings. |
+| `VG-CRYPTO-NNN` | Crypto | MD5/SHA1 / `Math.random` / `http://`. |
+| `VG-QUAL-001..004` | General quality (CORS / swallowed exceptions / open redirect, etc.) | |
+| `VG-QUAL-005..010` | **AI-trace heuristics** (`category: ai-quality`) | Stub implementations / placeholder emails / mock data / `debug=true` / "for now" comments / empty validators. |
+| `VG-FW-NNN` | Framework misconfiguration | Django `DEBUG=True` / Flask `app.run(debug=True)` / CORS wildcard. |
 
-VG-QUAL-005..010 は AI 生成コードに特有の「コンパイルは通るが本番には出すべきでない」パターンを検出する。誤検知が出やすい性質上 severity=medium / confidence=low~medium で出る。
-## Chrome 拡張
+VG-QUAL-005..010 target the "compiles cleanly but shouldn't ship" patterns that AI-generated code produces. They run at `severity=medium` and `confidence=low~medium` because heuristics are inherently noisier than syntactic rules.
 
-`extensions/chrome/` に Manifest V3 ベースの最小拡張を同梱（Phase 3 着手）。analyzer-core の `./browser` サブパスを使い、`node:fs` / `node:path` を含まないバンドルを Side Panel から実行する。
+## Chrome extension
 
-| 機能 | 起動方法 |
+`extensions/chrome/` is a minimal Manifest V3 extension (Phase 3). It uses the analyzer-core `./browser` sub-path so the bundle contains no `node:fs` / `node:path`, and runs the analyzer from the Side Panel.
+
+| Feature | How to invoke |
 |---|---|
-| Side Panel 表示 | ツールバーの VibeGuard アイコンをクリック |
-| 貼り付けスキャン | Side Panel のテキストエリアにコードを貼って「Scan」 |
-| ページ抽出 | Side Panel の「Extract from page」で表示中タブの `<pre><code>` を集めて自動スキャン |
-| 選択範囲スキャン | 任意ページでテキスト選択 → 右クリック → `Scan with VibeGuard`（Side Panel が開いて即スキャン） |
-| 言語指定 | `auto-detect` または js / ts / python / go / java / ruby / php / csharp |
+| Show Side Panel | Click the VibeGuard icon in the toolbar. |
+| Paste-scan | Paste code into the Side Panel textarea and press **Scan**. |
+| Extract from page | Side Panel → **Extract from page** collects `<pre><code>` blocks from the active tab and scans them. |
+| Selection scan | Select text on any page → context menu → `Scan with VibeGuard` (opens the Side Panel and scans immediately). |
+| Language picker | `auto-detect` or js / ts / python / go / java / ruby / php / csharp. |
 
-ビルド：
+Build:
 
 ```bash
 npm run build -w vibeguard-chrome
 ```
 
-`extensions/chrome/dist/` を `chrome://extensions` の「パッケージ化されていない拡張機能を読み込む」で指定するとそのまま動作する。`npm run watch -w vibeguard-chrome` で esbuild が監視ビルドする。
+Point Chrome at `extensions/chrome/dist/` via `chrome://extensions` → **Load unpacked**. `npm run watch -w vibeguard-chrome` keeps esbuild rebuilding on save.
 
-## 開発フェーズ
+## Development phases
 
-| Phase | 対象 |
+| Phase | Scope |
 |---|---|
-| 1 (MVP) | analyzer-core、基本ルール 20〜30 個、findings-schema、SARIF 出力、CLI、VS Code 拡張最小版 |
-| 2 | GitHub Actions、PR コメント、fail 判定、CodeQL 共存 |
-| 3 | Chrome 拡張（コード抽出 / Side Panel / PR 差分スキャン） |
-| 4 | AI 修正提案高度化、組織ポリシー、言語追加、ダッシュボード |
+| 1 (MVP) | analyzer-core, 20–30 base rules, findings-schema, SARIF output, CLI, minimal VS Code extension. |
+| 2 | GitHub Actions, PR comments, fail gates, CodeQL co-existence. |
+| 3 | Chrome extension (code extraction / Side Panel / PR diff scan). |
+| 4 | Smarter AI-driven remediation, org policies, more languages, dashboards. |
 
-現在は Phase 1 相当の実装が中心。
+Currently around the Phase 1–3 footprint, with Phase 2 (Actions / PR comments) and parts of Phase 3 (Chrome extension scaffold) in place.
 
-## 実装運用ルール（Codex ハーネス）
+## Implementation conventions (Codex harness)
 
-本リポジトリは Codex によるマルチエージェント実装を前提としており、以下の 3 役で責務を分離する。
+This repo is built on the assumption that Codex multi-agent runs do the implementation. Responsibilities are split into three roles:
 
-- **Planner**：曖昧な要件を実装可能なタスクへ分解する
-- **Generator**：1 タスクだけを最小変更で実装する
-- **Evaluator**：テスト・静的解析・必要ならブラウザ検証を行い PASS / PASS WITH GAPS / FAIL を返す
+- **Planner** — Decomposes ambiguous requirements into implementable tasks.
+- **Generator** — Implements exactly one task with the smallest viable change.
+- **Evaluator** — Runs tests, static analysis, and (when needed) browser verification, and reports PASS / PASS WITH GAPS / FAIL.
 
-非自明な機能追加は必ず Planner を通し、1 タスク実装ごとに Evaluator で検証する。詳細は [AGENTS.md](AGENTS.md) を参照。
+Any non-trivial feature must go through Planner, and each generated task is gated by Evaluator. See [AGENTS.md](AGENTS.md) for the full protocol.
 
-## ライセンス
+## License
 
-未定（プロジェクト初期段階）。
+TBD (project is still in early stage).
