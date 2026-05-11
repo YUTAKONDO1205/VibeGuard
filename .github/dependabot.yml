@@ -1,0 +1,36 @@
+version: 2
+
+# What this gets us:
+# - Weekly PR opening for outdated GitHub Actions and npm packages.
+# - Grouped updates so a typescript / vitest minor bump doesn't fan out
+#   into one PR per workspace.
+# - The label makes it easy to filter Dependabot-authored PRs in CI gates
+#   if we ever want to give them a faster lane.
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - github-actions
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - npm
+    groups:
+      typescript-tooling:
+        patterns:
+          - typescript
+          - '@types/*'
+          - vitest
+      eslint:
+        patterns:
+          - eslint
+          - '@typescript-eslint/*'

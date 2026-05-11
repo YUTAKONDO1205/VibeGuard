@@ -211,13 +211,46 @@ npx ovsx publish -p <openvsx_token>
 
 ---
 
-## 8. 自動公開（任意・後で）
+## 8. 自動公開（[`.github/workflows/release.yml`](../../.github/workflows/release.yml)）
 
-`.github/workflows/release-vscode.yml` を作って `v*` タグで自動公開できる。Secrets に：
-- `VSCE_PAT` — Marketplace の PAT
-- `OVSX_PAT` — Open VSX の PAT
+タグを切ると **CLI / VSIX / Chrome zip を一括ビルド → GitHub Release に添付 → 各チャネルへ publish** までやる。
 
-を入れる。テンプレは Phase 4 で別途。
+### 8.1 必要な GitHub Secrets
+
+リポジトリ設定 → *Settings → Secrets and variables → Actions → New repository secret* で以下を入れる。**入っていないチャネルは publish ステップが skip される**（GitHub Release 作成までは secrets なしでも通る）。
+
+| Secret | 用途 | 取得元 |
+|---|---|---|
+| `VSCE_PAT` | VS Code Marketplace に publish | Azure DevOps PAT — Organization は "All accessible organizations" を選ぶ |
+| `OVSX_PAT` | Open VSX に publish | https://open-vsx.org/user-settings/tokens |
+| `NPM_TOKEN` | `@vibeguard/cli` を npm に publish | https://www.npmjs.com/settings/<user>/tokens — Granular Access Token、`@vibeguard` scope に publish 権限 |
+
+### 8.2 リリース手順
+
+1. **CHANGELOG.md を更新**
+2. **バージョンを上げる**（root + 全 `packages/*` + `apps/cli` + `extensions/{vscode,chrome}` の `package.json`）
+   ```bash
+   npm version <patch|minor|major> --workspaces --include-workspace-root
+   ```
+   現状 root と各 workspace を同じバージョンで揃える運用なのでまとめて bump する。
+3. **コミット & タグ**
+   ```bash
+   git add -A && git commit -m "chore: release v$(node -p "require('./package.json').version")"
+   git tag "v$(node -p "require('./package.json').version")"
+   git push && git push --tags
+   ```
+4. タグ push をトリガーに **Release** ワークフローが走る。Actions タブで進行を確認。
+5. 完了後、GitHub の *Releases* に `vX.Y.Z` が出来ていて、`vibeguard-cli-X.Y.Z.tgz` / `vibeguard-aicoding-X.Y.Z.vsix` / `vibeguard-chrome-X.Y.Z.zip` が添付されている。
+
+### 8.3 手動再実行
+
+「Release ワークフローだけ手動で走らせたい」場合は Actions → **Release** → *Run workflow*。タグ ref を選んで dispatch すると同じパイプラインが回る（既存リリースは上書き／更新される）。
+
+### 8.4 失敗時のリカバリ
+
+- **Marketplace への publish のみ失敗** — VSIX は GitHub Release に添付されているので、ローカルから `vsce publish --packagePath <vsix>` で復旧可
+- **Open VSX のみ失敗** — namespace 未承認のことが多い。issue #10219 など namespace claim の状態を確認
+- **タグだけ存在してリリースが無い** — ワークフロー失敗。Actions ログを確認後、修正コミットを乗せて同じタグを **削除 → 再 push** すると再走する
 
 ---
 

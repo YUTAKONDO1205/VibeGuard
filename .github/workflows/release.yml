@@ -1,0 +1,139 @@
+name: Release
+
+# Tag-driven release. Pushing a tag like `v0.1.1` triggers this workflow,
+# which builds everything fresh, attaches CLI tarball + VSIX + Chrome zip
+# to a GitHub release, and (when the matching secrets are set) publishes
+# to npm, the VS Code Marketplace, and Open VSX.
+#
+# To cut a release manually instead of by tag, use the workflow_dispatch
+# entry-point (Actions tab → Release → Run workflow). The job runs on
+# the dispatch ref, so create the tag first and dispatch from it.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write  # needed to create the GitHub release + upload assets
+
+jobs:
+  release:
+    name: Build, package, and publish
+    runs-on: ubuntu-latest
+    # Surfacing the secrets at job level lets the conditional `if: env.X != ''`
+    # checks below decide whether to skip a publish channel. Missing secrets
+    # resolve to empty strings (not an error) so a contributor can cut a
+    # GitHub release without having all three channels wired up.
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so the release notes can reference prior tags
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'  # required for npm publish auth
+
+      # Resolve the version from the ref. Tag pushes give us refs/tags/vX.Y.Z;
+      # workflow_dispatch falls back to the version field of the root
+      # package.json so a manual run still has a sensible label.
+      - name: Resolve release version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION=$(node -p "require('./package.json').version")
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Releasing v${VERSION}"
+
+      - run: npm ci
+
+      - run: npm run build
+
+      # Sanity-check: the package.json version in apps/cli (the published
+      # artifact) must match the tag. Catches "forgot to bump" mistakes
+      # before we create a misnamed release.
+      - name: Verify CLI version matches tag
+        run: |
+          PKG_VERSION=$(node -p "require('./apps/cli/package.json').version")
+          if [[ "$PKG_VERSION" != "${{ steps.version.outputs.version }}" ]]; then
+            echo "::error::apps/cli version $PKG_VERSION does not match release ${{ steps.version.outputs.version }}"
+            exit 1
+          fi
+
+      # ── Package CLI tarball ──────────────────────────────────────────────
+      - name: Pack CLI tarball
+        id: cli
+        run: |
+          # `npm pack -w @vibeguard/cli` writes the tarball to the workspace
+          # directory by default. Move it to repo root for the release upload.
+          npm pack --workspace @vibeguard/cli --pack-destination .
+          ls -la vibeguard-cli-*.tgz
+          echo "tarball=$(ls vibeguard-cli-*.tgz)" >> "$GITHUB_OUTPUT"
+
+      # ── Package VS Code extension ────────────────────────────────────────
+      # --no-dependencies avoids resolving workspace symlinks into the VSIX
+      # (which bloats it past 10 MB and trips Marketplace secret scanning
+      # on test fixture tokens). See docs/runbooks/publish-vscode-extension.md.
+      - name: Package VSIX
+        id: vsix
+        working-directory: extensions/vscode
+        run: |
+          npx vsce package --no-dependencies
+          ls -la *.vsix
+          echo "vsix=$(ls *.vsix)" >> "$GITHUB_OUTPUT"
+
+      # ── Package Chrome extension zip ────────────────────────────────────
+      - name: Package Chrome extension zip
+        id: chrome
+        run: |
+          ZIP_NAME="vibeguard-chrome-${{ steps.version.outputs.version }}.zip"
+          (cd extensions/chrome/dist && zip -r "../../../$ZIP_NAME" .)
+          ls -la "$ZIP_NAME"
+          echo "zip=$ZIP_NAME" >> "$GITHUB_OUTPUT"
+
+      # ── Create / update the GitHub Release with all three artifacts ─────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ steps.version.outputs.version }}
+          tag_name: v${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          files: |
+            ${{ steps.cli.outputs.tarball }}
+            extensions/vscode/${{ steps.vsix.outputs.vsix }}
+            ${{ steps.chrome.outputs.zip }}
+
+      # ── Conditional publish steps ───────────────────────────────────────
+      # Each step runs only when its secret is configured. Missing a secret
+      # is not an error — it lets a contributor cut a GitHub release without
+      # having all three publishing channels wired up.
+
+      - name: Publish CLI to npm
+        if: ${{ env.NPM_TOKEN != '' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
+        run: npm publish --workspace @vibeguard/cli --access public
+
+      - name: Publish VSIX to VS Code Marketplace
+        if: ${{ env.VSCE_PAT != '' }}
+        working-directory: extensions/vscode
+        run: |
+          npx vsce publish \
+            --packagePath "${{ steps.vsix.outputs.vsix }}" \
+            --no-dependencies \
+            --pat "$VSCE_PAT"
+
+      - name: Publish VSIX to Open VSX
+        if: ${{ env.OVSX_PAT != '' }}
+        working-directory: extensions/vscode
+        run: |
+          npx ovsx publish "${{ steps.vsix.outputs.vsix }}" -p "$OVSX_PAT"
