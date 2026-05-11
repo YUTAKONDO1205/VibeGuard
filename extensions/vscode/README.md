@@ -43,6 +43,7 @@ for the full statement.
 |---|---|
 | `VibeGuard: Scan File` | Scan the active editor (`standard` mode). |
 | `VibeGuard: Scan Selection` | Scan only the selected text (right-click menu). |
+| `VibeGuard: Export Findings (SARIF / JSON)` | Save the workspace's accumulated findings to a `.sarif` or `.json` file. Format chosen by file extension. |
 
 ## Supported languages
 
@@ -53,9 +54,8 @@ you'll still get hardcoded-secret / TODO-style findings on unfamiliar files.
 ## Roadmap
 
 Tracked in the project [README](https://github.com/YUTAKONDO1205/VibeGuard#readme).
-Near-term: Code Action quick-fixes (apply remediation in one click), workspace
-diff scan (only the lines you're about to commit), SARIF export from inside
-VS Code.
+Near-term: Code Action quick-fixes (apply remediation in one click) and
+workspace diff scan (only the lines you're about to commit).
 
 ## Development
 

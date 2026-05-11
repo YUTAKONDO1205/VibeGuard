@@ -3,6 +3,13 @@
 All notable changes to the VibeGuard VS Code extension are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- Command `VibeGuard: Export Findings (SARIF / JSON)` — exports the workspace's
+  accumulated findings to a `.sarif` (v2.1.0) or `.json` file via the standard
+  save dialog. Format is chosen by file extension.
+
 ## [0.1.0] - 2026-05-09
 
 First public release on the Visual Studio Marketplace.
@@ -24,5 +31,4 @@ First public release on the Visual Studio Marketplace.
 
 ### Notes
 - All analysis runs locally. The extension makes no network requests.
-- Selection scan, Code Action quick-fix, SARIF export from VS Code, and
-  workspace-wide diff scan are tracked for upcoming releases.
+- Workspace-wide diff scan is tracked for an upcoming release.

@@ -50,6 +50,10 @@
       {
         "command": "vibeguard.showRemediation",
         "title": "VibeGuard: Show Remediation"
+      },
+      {
+        "command": "vibeguard.exportFindings",
+        "title": "VibeGuard: Export Findings (SARIF / JSON)"
       }
     ],
     "menus": {
@@ -105,7 +109,8 @@
   },
   "dependencies": {
     "@vibeguard/analyzer-core": "0.1.0",
-    "@vibeguard/findings-schema": "0.1.0"
+    "@vibeguard/findings-schema": "0.1.0",
+    "@vibeguard/sarif-adapter": "0.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.12.7",

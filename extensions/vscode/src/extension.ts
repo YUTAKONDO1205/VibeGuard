@@ -3,6 +3,7 @@ import type { Finding, ScanMode } from '@vibeguard/findings-schema';
 import { ScanRunner } from './runner.js';
 import { FindingsTreeProvider } from './findings-tree.js';
 import { VibeGuardCodeActionProvider, showRemediation } from './code-actions.js';
+import { exportFindings } from './export.js';
 
 export function activate(context: vscode.ExtensionContext): void {
   const collection = vscode.languages.createDiagnosticCollection('vibeguard');
@@ -84,6 +85,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('vibeguard.showRemediation', (finding: Finding) => {
       showRemediation(channel, finding);
     }),
+  );
+
+  // C9: export the workspace's accumulated findings as SARIF v2.1.0 or JSON.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vibeguard.exportFindings', () => exportFindings(runner)),
   );
 }
 
