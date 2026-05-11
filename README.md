@@ -91,6 +91,16 @@ npm test
 
 Runs every package's `*.test.ts` under vitest.
 
+## Performance benchmark
+
+```bash
+npm run build
+npm run bench           # human-readable table
+npm run bench -- --json # machine-readable for CI artifacts
+```
+
+The benchmark exercises three representative workloads (single-file fast scan, samples directory, repo-wide scan) and prints a Markdown table comparing the median of 3 runs against the design targets in [DESIGN.ja.md](DESIGN.ja.md) §11.1. The benchmark exits non-zero when a workload exceeds 2× its target — the 2× headroom keeps the gate quiet on noisy CI VMs while still catching real regressions. A non-blocking `perf-bench` job uploads the JSON to a CI artifact on every push.
+
 ## GitHub Actions
 
 The repository ships two workflows:

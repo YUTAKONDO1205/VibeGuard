@@ -24,3 +24,43 @@ jobs:
       - run: npm run build
 
       - run: npm test
+
+  # Performance benchmark. Non-blocking by default — it fails only when a
+  # workload exceeds 2× its design-§11.1 target (see scripts/perf-bench.mjs).
+  # The JSON output is uploaded as an artifact so a future PR can plot trends.
+  perf-bench:
+    runs-on: ubuntu-latest
+    # Don't wedge the merge queue on a noisy CI VM. The hard 2× gate is the
+    # real guard; the soft target is just for the artifact.
+    continue-on-error: true
+    needs: build-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Run perf benchmark
+        run: npm run bench -- --json > perf-bench.json
+        # Even if a workload "fails" (exceeds 2× target), we still want the
+        # artifact so the trend is visible. The exit code is preserved via
+        # continue-on-error at the job level.
+
+      - name: Render human-readable summary
+        if: always()
+        run: |
+          echo '## VibeGuard perf bench' >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          npm run --silent bench >> "$GITHUB_STEP_SUMMARY" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-bench
+          path: perf-bench.json
+          retention-days: 30
