@@ -237,7 +237,9 @@ VG-QUAL-005..010 target the "compiles cleanly but shouldn't ship" patterns that 
 | Show Side Panel | Click the VibeGuard icon in the toolbar. |
 | Paste-scan | Paste code into the Side Panel textarea and press **Scan**. |
 | Extract from page | Side Panel → **Extract from page** collects `<pre><code>` blocks from the active tab and scans them. |
+| Scan PR diff | On a GitHub `/pull/<n>` (Files-changed) tab, Side Panel → **Scan PR diff** walks the diff table, scans each touched file as a reconstructed pseudo-content, and reports findings grouped by file. Findings are filtered to those that overlap an *added* line. Re-running the button rescans the current page. |
 | Selection scan | Select text on any page → context menu → `Scan with VibeGuard` (opens the Side Panel and scans immediately). |
+| History | The bottom **History** section persists the most recent 50 scan results (summary + finding metadata only — never the full code) in `chrome.storage.local`. Click **Clear** to wipe it. |
 | Language picker | `auto-detect` or js / ts / python / go / java / ruby / php / csharp. |
 
 Build:

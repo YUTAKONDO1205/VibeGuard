@@ -243,3 +243,187 @@ textarea#code {
   font-size: 12px;
   padding: 6px 0;
 }
+
+/* --- PR-diff file groups (multi-file scan) -------------------------- */
+
+.vg-file-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--vg-bg-elev);
+  border: 1px solid var(--vg-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.vg-file-group > header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.vg-file-group > header .vg-file-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.vg-file-group > header .vg-file-meta {
+  color: var(--vg-fg-muted);
+  font-size: 11px;
+  margin-left: auto;
+}
+
+.vg-file-group .vg-finding {
+  border: none;
+  border-left: 3px solid var(--vg-info);
+  padding: 4px 8px;
+  background: transparent;
+}
+
+/* --- History ------------------------------------------------------- */
+
+.vg-history {
+  border-top: 1px solid var(--vg-border);
+  margin-top: 8px;
+  padding-top: 6px;
+}
+
+.vg-history > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--vg-fg-muted);
+  padding: 4px 0;
+}
+
+.vg-history > summary::-webkit-details-marker {
+  display: none;
+}
+
+.vg-history > summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 10px;
+  transition: transform 120ms ease;
+}
+
+.vg-history[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.vg-history-count {
+  color: var(--vg-fg-muted);
+  font-size: 11px;
+}
+
+.vg-history-clear {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.vg-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.vg-history-entry {
+  background: var(--vg-bg-elev);
+  border: 1px solid var(--vg-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.vg-history-entry > header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.vg-history-entry .vg-h-when {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--vg-fg-muted);
+}
+
+.vg-history-entry .vg-h-source {
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--vg-border);
+  color: var(--vg-fg-muted);
+}
+
+.vg-history-entry .vg-h-origin {
+  color: var(--vg-fg-muted);
+  font-size: 11px;
+  word-break: break-all;
+  margin-left: auto;
+  max-width: 60%;
+}
+
+.vg-history-entry .vg-h-summary {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.vg-history-entry .vg-h-summary .vg-h-sev {
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+
+.vg-history-entry .vg-h-summary .vg-h-sev[data-severity="critical"] { color: var(--vg-critical); }
+.vg-history-entry .vg-h-summary .vg-h-sev[data-severity="high"]     { color: var(--vg-high); }
+.vg-history-entry .vg-h-summary .vg-h-sev[data-severity="medium"]   { color: var(--vg-medium); }
+.vg-history-entry .vg-h-summary .vg-h-sev[data-severity="low"]      { color: var(--vg-low); }
+.vg-history-entry .vg-h-summary .vg-h-sev[data-severity="info"]     { color: var(--vg-info); }
+
+.vg-history-entry .vg-h-preview {
+  margin: 4px 0 0;
+  padding: 4px 6px;
+  background: var(--vg-bg);
+  border: 1px solid var(--vg-border);
+  border-radius: 4px;
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--vg-fg-muted);
+  white-space: pre-wrap;
+  overflow: hidden;
+  max-height: 4.5em;
+}
+
+.vg-history-entry details {
+  margin-top: 4px;
+}
+
+.vg-history-entry details summary {
+  cursor: pointer;
+  color: var(--vg-accent);
+  font-size: 11px;
+}
+
+.vg-history-entry details ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 11px;
+}
+
+.vg-history-entry .vg-h-empty {
+  color: var(--vg-fg-muted);
+  font-size: 11px;
+  font-style: italic;
+}

@@ -26,6 +26,7 @@
         <option value="csharp">csharp</option>
       </select>
       <button id="extract" type="button">Extract from page</button>
+      <button id="scan-pr" type="button" title="Scan only the lines added in this GitHub PR">Scan PR diff</button>
     </section>
 
     <textarea
@@ -41,6 +42,15 @@
     </div>
 
     <section id="findings" class="vg-findings"></section>
+
+    <details id="history-panel" class="vg-history">
+      <summary>
+        <span>History</span>
+        <span class="vg-history-count" id="history-count"></span>
+        <button id="history-clear" type="button" class="vg-history-clear">Clear</button>
+      </summary>
+      <div id="history-list" class="vg-history-list"></div>
+    </details>
 
     <script type="module" src="index.js"></script>
   </body>

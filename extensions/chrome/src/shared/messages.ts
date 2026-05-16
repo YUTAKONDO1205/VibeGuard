@@ -1,7 +1,9 @@
 // Typed message contracts between the side panel and the background service
 // worker.  Keep these flat (no functions) so they survive structuredClone.
 
-export type ScanSource = 'paste' | 'page-extract' | 'context-menu';
+import type { ParsedDiffFile } from './diff-reconstruct.js';
+
+export type ScanSource = 'paste' | 'page-extract' | 'context-menu' | 'github-pr-diff';
 
 export interface PushCodeMessage {
   type: 'vibeguard.pushCode';
@@ -29,7 +31,26 @@ export interface ExtractResultMessage {
   error?: string;
 }
 
+/**
+ * Request the background worker to walk the active tab for a GitHub PR diff
+ * (Files-changed view) and return one ParsedDiffFile per touched file.
+ */
+export interface RequestGithubDiffMessage {
+  type: 'vibeguard.extractGithubDiff';
+}
+
+export interface GithubDiffResultMessage {
+  type: 'vibeguard.githubDiffResult';
+  /** PR URL the diff came from, when available. */
+  origin: string;
+  files: ParsedDiffFile[];
+  /** Soft error: nothing to scan, wrong page, etc. */
+  error?: string;
+}
+
 export type VibeGuardMessage =
   | PushCodeMessage
   | RequestExtractMessage
-  | ExtractResultMessage;
+  | ExtractResultMessage
+  | RequestGithubDiffMessage
+  | GithubDiffResultMessage;

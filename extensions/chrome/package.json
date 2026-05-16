@@ -9,6 +9,7 @@
     "build": "node build.mjs && node copy-static.mjs",
     "watch": "node build.mjs --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
     "clean": "rimraf dist"
   },
   "dependencies": {
@@ -19,6 +20,7 @@
     "@types/chrome": "^0.1.42",
     "@types/node": "^20.19.41",
     "esbuild": "^0.28.0",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
   }
 }
