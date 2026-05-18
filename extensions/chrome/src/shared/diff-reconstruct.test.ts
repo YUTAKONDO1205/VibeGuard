@@ -1,3 +1,4 @@
+// vibeguard:disable-file
 import { describe, expect, it } from 'vitest';
 import {
   addedLineSet,
