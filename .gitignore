@@ -23,3 +23,8 @@ safe.json
 vuln.json
 diff.json
 diff-report.md
+
+# Release artifacts (built locally for manual publish)
+vibeguard-chrome-*.zip
+vibeguard-aicoding-*.vsix
+vibeguard-cli-*.tgz
