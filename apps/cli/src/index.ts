@@ -43,6 +43,7 @@ async function main(): Promise<number> {
         mode: args.mode,
         includeRemediation: !args.noRemediation,
         ignore: args.ignore,
+        config: args.noConfig ? false : args.config,
       });
     } else {
       scan = await scanPath(args.target, {
@@ -50,6 +51,7 @@ async function main(): Promise<number> {
         includeRemediation: !args.noRemediation,
         ignore: args.ignore,
         knownLanguagesOnly: args.knownLanguagesOnly,
+        config: args.noConfig ? false : args.config,
       });
     }
   } catch (err) {

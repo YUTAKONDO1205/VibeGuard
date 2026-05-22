@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { join, relative, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   emptySummary,
   summarize,
@@ -10,6 +10,8 @@ import {
 } from '@vibeguard/findings-schema';
 import { Analyzer, ENGINE_VERSION, type AnalyzerOptions } from './analyzer.js';
 import { detectLanguageFromPath } from './language-detect.js';
+import { isPathSuppressed, suppressionsForPath, type VibeguardConfig } from './config.js';
+import { loadConfig } from './config-loader.js';
 
 export const DEFAULT_IGNORE = new Set([
   'node_modules',
@@ -56,6 +58,14 @@ export interface ScanPathOptions extends AnalyzerOptions {
   knownLanguagesOnly?: boolean;
   /** Optional reporter invoked for each file scanned. */
   onFile?: (filePath: string) => void;
+  /**
+   * Explicit config file path. When omitted, scanPath auto-discovers
+   * `.vibeguardrc.json` / `vibeguard.config.json` in the scan target's
+   * directory. Pass `false` to skip discovery entirely.
+   */
+  config?: string | false;
+  /** Override "now" when evaluating config `expires` dates. Primarily for tests. */
+  now?: Date;
 }
 
 export async function scanPath(target: string, options: ScanPathOptions = {}): Promise<ScanResponse> {
@@ -63,6 +73,7 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
   const ignore = new Set([...DEFAULT_IGNORE, ...(options.ignore ?? [])]);
   const analyzer = new Analyzer(options);
   const findings: Finding[] = [];
+  const now = options.now ?? new Date();
 
   const stats = await stat(target);
   const files: string[] = [];
@@ -72,6 +83,18 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
     for await (const file of walk(target, ignore)) {
       files.push(file);
     }
+  }
+
+  let config: VibeguardConfig | undefined;
+  if (options.config !== false) {
+    const configDir = stats.isFile() ? dirname(resolve(target)) : resolve(target);
+    const explicit = options.config
+      ? isAbsolute(options.config)
+        ? options.config
+        : resolve(options.config)
+      : undefined;
+    const loaded = await loadConfig(configDir, explicit);
+    config = loaded?.config;
   }
 
   for (const file of files) {
@@ -100,7 +123,11 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
       mode: options.mode ?? 'standard',
       includeRemediation: options.includeRemediation,
     });
-    findings.push(...result.findings);
+    const pathSuppressed = suppressionsForPath(config, relPath, now);
+    for (const f of result.findings) {
+      if (isPathSuppressed(pathSuppressed, f.ruleId)) continue;
+      findings.push(f);
+    }
   }
 
   findings.sort((a, b) => {

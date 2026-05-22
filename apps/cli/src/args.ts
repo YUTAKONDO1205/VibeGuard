@@ -12,6 +12,10 @@ export interface CliArgs {
   ignore: string[];
   /** Git revision range; when set, scan only added lines in `git diff <range>`. */
   diff?: string;
+  /** Explicit path to a vibeguard config file. When omitted, auto-discovers in the target dir. */
+  config?: string;
+  /** Skip config auto-discovery entirely. */
+  noConfig: boolean;
   showHelp: boolean;
   showVersion: boolean;
 }
@@ -32,6 +36,9 @@ Options:
   --diff <range>                Scan only lines added in \`git diff <range>\`
                                 (e.g. main...HEAD, origin/main..., HEAD~3..HEAD)
   --known-only                  Only scan files whose extension maps to a known language
+  --config <path>               Path to a vibeguard config file (.vibeguardrc.json)
+                                When omitted, the file is auto-discovered in the scan target.
+  --no-config                   Skip config file auto-discovery
   --no-remediation              Skip remediation generation
   --no-color                    Disable ANSI colours
   -h, --help                    Show this help
@@ -54,6 +61,7 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { version:
     noRemediation: false,
     knownLanguagesOnly: false,
     ignore: [],
+    noConfig: false,
     showHelp: false,
     showVersion: false,
   };
@@ -105,6 +113,16 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { version:
     }
     if (a === '--known-only') {
       args.knownLanguagesOnly = true;
+      continue;
+    }
+    if (a === '--config') {
+      const v = argv[++i];
+      if (!v) return { error: '--config requires a path' };
+      args.config = v;
+      continue;
+    }
+    if (a === '--no-config') {
+      args.noConfig = true;
       continue;
     }
     if (a === '--no-remediation') {

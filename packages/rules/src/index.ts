@@ -5,6 +5,10 @@ import { frameworkRules } from './rules/framework.js';
 import { injectionRules } from './rules/injection.js';
 import { qualityRules } from './rules/quality.js';
 import { secretsRules } from './rules/secrets.js';
+import { goRules } from './rules/lang-go.js';
+import { javaRules } from './rules/lang-java.js';
+import { rubyRules } from './rules/lang-ruby.js';
+import { phpRules } from './rules/lang-php.js';
 
 export type { RuleDefinition, RuleMatch, RuleContext } from './rule-types.js';
 export { runRegex, indexToPosition, languageMatches, getLineText } from './matcher-utils.js';
@@ -16,6 +20,10 @@ export const allRules: RuleDefinition[] = [
   ...cryptoRules,
   ...frameworkRules,
   ...qualityRules,
+  ...goRules,
+  ...javaRules,
+  ...rubyRules,
+  ...phpRules,
 ];
 
 export function getRule(ruleId: string): RuleDefinition | undefined {

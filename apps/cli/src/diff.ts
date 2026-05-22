@@ -23,7 +23,11 @@ import {
   DEFAULT_IGNORE,
   ENGINE_VERSION,
   detectLanguageFromPath,
+  isPathSuppressed,
+  loadConfig,
+  suppressionsForPath,
   type AnalyzerOptions,
+  type VibeguardConfig,
 } from '@vibeguard/analyzer-core';
 import {
   emptySummary,
@@ -128,6 +132,8 @@ export interface ScanDiffOptions extends AnalyzerOptions {
   ignore?: string[];
   /** Pre-computed diff text instead of running git (for tests). */
   diffText?: string;
+  /** Path to a vibeguard config file. `false` = skip discovery. */
+  config?: string | false;
 }
 
 /**
@@ -162,6 +168,14 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
   const analyzer = new Analyzer(options);
   const findings: Finding[] = [];
   const ignore = new Set([...DEFAULT_IGNORE, ...(options.ignore ?? [])]);
+  const now = new Date();
+
+  let config: VibeguardConfig | undefined;
+  if (options.config !== false) {
+    const explicit = options.config;
+    const loaded = await loadConfig(options.cwd, explicit);
+    config = loaded?.config;
+  }
 
   for (const [relPath, added] of diffMap) {
     if (added.size === 0) continue;
@@ -182,7 +196,9 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
       mode: options.mode ?? 'standard',
       includeRemediation: options.includeRemediation,
     });
+    const pathSuppressed = suppressionsForPath(config, relPath, now);
     for (const f of result.findings) {
+      if (isPathSuppressed(pathSuppressed, f.ruleId)) continue;
       if (overlapsAdded(f, added)) findings.push(f);
     }
   }

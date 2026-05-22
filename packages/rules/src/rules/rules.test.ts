@@ -25,6 +25,20 @@ import {
   notForProductionComment,
   emptyValidator,
 } from './quality.js';
+import { goSqlSprintf, goTemplateHtmlCast, goListenAllInterfacesHttp } from './lang-go.js';
+import { javaRuntimeExecConcat, javaXxeDocumentBuilder, javaObjectInputStream } from './lang-java.js';
+import {
+  rubyRailsRawOrHtmlSafe,
+  rubyEvalFamily,
+  rubyParamsPermitBang,
+  railsCsrfDisabled,
+} from './lang-ruby.js';
+import {
+  phpExtractRequest,
+  phpDynamicInclude,
+  phpUnserialize,
+  phpLegacyMysqlConcat,
+} from './lang-php.js';
 
 function ctx(content: string, language?: string): RuleContext {
   return { content, lines: content.split('\n'), language };
@@ -455,6 +469,194 @@ describe('framework rules', () => {
     expectNoMatch(
       corsWildcardOrigin,
       "app.use(cors({ origin: ['https://app.example.com'] }));",
+    );
+  });
+});
+
+describe('Go language pack', () => {
+  it('flags fmt.Sprintf with SELECT', () => {
+    expectMatches(
+      goSqlSprintf,
+      'q := fmt.Sprintf("SELECT * FROM users WHERE id = %d", userID)',
+      'go',
+    );
+  });
+
+  it('does not flag fmt.Sprintf for a non-SQL string', () => {
+    expectNoMatch(goSqlSprintf, 'msg := fmt.Sprintf("hello %s", name)', 'go');
+  });
+
+  it('flags template.HTML cast on a variable', () => {
+    expectMatches(goTemplateHtmlCast, 'safe := template.HTML(userBio)', 'go');
+  });
+
+  it('does not flag template.HTML cast on a string literal', () => {
+    expectNoMatch(goTemplateHtmlCast, 'safe := template.HTML("<b>ok</b>")', 'go');
+  });
+
+  it('flags http.ListenAndServe on all interfaces', () => {
+    expectMatches(goListenAllInterfacesHttp, 'http.ListenAndServe(":8080", mux)', 'go');
+  });
+
+  it('does not flag http.ListenAndServeTLS', () => {
+    expectNoMatch(
+      goListenAllInterfacesHttp,
+      'http.ListenAndServeTLS(":443", certFile, keyFile, mux)',
+      'go',
+    );
+  });
+});
+
+describe('Java language pack', () => {
+  it('flags Runtime.getRuntime().exec with concatenation', () => {
+    expectMatches(
+      javaRuntimeExecConcat,
+      'Runtime.getRuntime().exec("ping " + host);',
+      'java',
+    );
+  });
+
+  it('flags new ProcessBuilder with concatenation', () => {
+    expectMatches(
+      javaRuntimeExecConcat,
+      'new ProcessBuilder("sh", "-c", "ls " + dir).start();',
+      'java',
+    );
+  });
+
+  it('does not flag Runtime.exec with a String[]', () => {
+    expectNoMatch(
+      javaRuntimeExecConcat,
+      'Runtime.getRuntime().exec(new String[]{"ping", host});',
+      'java',
+    );
+  });
+
+  it('flags DocumentBuilderFactory.newInstance()', () => {
+    expectMatches(
+      javaXxeDocumentBuilder,
+      'DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();',
+      'java',
+    );
+  });
+
+  it('flags ObjectInputStream construction', () => {
+    expectMatches(
+      javaObjectInputStream,
+      'ObjectInputStream ois = new ObjectInputStream(socket.getInputStream());',
+      'java',
+    );
+  });
+
+  it('flags .readObject() invocation', () => {
+    expectMatches(javaObjectInputStream, 'Object o = ois.readObject();', 'java');
+  });
+});
+
+describe('Ruby/Rails language pack', () => {
+  it('flags raw(@user.bio)', () => {
+    expectMatches(rubyRailsRawOrHtmlSafe, '<%= raw(@user.bio) %>', 'ruby');
+  });
+
+  it('flags @user.bio.html_safe', () => {
+    expectMatches(rubyRailsRawOrHtmlSafe, '<%= @user.bio.html_safe %>', 'ruby');
+  });
+
+  it('does not flag raw("<b>ok</b>")', () => {
+    expectNoMatch(rubyRailsRawOrHtmlSafe, '<%= raw("<b>ok</b>") %>', 'ruby');
+  });
+
+  it('flags eval(user_code)', () => {
+    expectMatches(rubyEvalFamily, 'eval(user_code)', 'ruby');
+  });
+
+  it('flags obj.instance_eval(code)', () => {
+    expectMatches(rubyEvalFamily, 'thing.instance_eval(code)', 'ruby');
+  });
+
+  it('does not flag eval("1 + 1") literal', () => {
+    expectNoMatch(rubyEvalFamily, 'eval("1 + 1")', 'ruby');
+  });
+
+  it('flags params.permit!', () => {
+    expectMatches(rubyParamsPermitBang, 'user = User.new(params.permit!)', 'ruby');
+  });
+
+  it('flags skip_before_action :verify_authenticity_token', () => {
+    expectMatches(
+      railsCsrfDisabled,
+      'skip_before_action :verify_authenticity_token',
+      'ruby',
+    );
+  });
+
+  it('flags protect_from_forgery with: :null_session', () => {
+    expectMatches(
+      railsCsrfDisabled,
+      'protect_from_forgery with: :null_session',
+      'ruby',
+    );
+  });
+
+  it('does not flag protect_from_forgery with: :exception', () => {
+    expectNoMatch(
+      railsCsrfDisabled,
+      'protect_from_forgery with: :exception',
+      'ruby',
+    );
+  });
+});
+
+describe('PHP language pack', () => {
+  it('flags extract($_GET)', () => {
+    expectMatches(phpExtractRequest, '<?php extract($_GET); ?>', 'php');
+  });
+
+  it('flags extract($_POST)', () => {
+    expectMatches(phpExtractRequest, '<?php extract($_POST); ?>', 'php');
+  });
+
+  it('does not flag extract($localArray)', () => {
+    expectNoMatch(phpExtractRequest, '<?php extract($config); ?>', 'php');
+  });
+
+  it('flags include $page', () => {
+    expectMatches(phpDynamicInclude, '<?php include $page; ?>', 'php');
+  });
+
+  it('flags require_once($module)', () => {
+    expectMatches(phpDynamicInclude, '<?php require_once($module); ?>', 'php');
+  });
+
+  it('does not flag include "config.php"', () => {
+    expectNoMatch(phpDynamicInclude, '<?php include "config.php"; ?>', 'php');
+  });
+
+  it('flags unserialize($data)', () => {
+    expectMatches(phpUnserialize, '<?php $obj = unserialize($data); ?>', 'php');
+  });
+
+  it('does not flag unserialize with allowed_classes => false', () => {
+    expectNoMatch(
+      phpUnserialize,
+      '<?php $obj = unserialize($data, ["allowed_classes" => false]); ?>',
+      'php',
+    );
+  });
+
+  it('flags mysql_query with concatenation', () => {
+    expectMatches(
+      phpLegacyMysqlConcat,
+      '<?php mysql_query("SELECT * FROM users WHERE id = " . $id); ?>',
+      'php',
+    );
+  });
+
+  it('flags mysqli_query with concatenation', () => {
+    expectMatches(
+      phpLegacyMysqlConcat,
+      '<?php mysqli_query($db, "SELECT * FROM t WHERE id = " . $id); ?>',
+      'php',
     );
   });
 });

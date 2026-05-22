@@ -748,12 +748,29 @@ Semgrep を呼び出し、結果を共通形式へ変換する。
 
 ### 13.4 suppress 設計
 
-将来的には以下の suppress を導入する。
+suppress は4軸で構成する。実装は `packages/analyzer-core/src/suppress.ts`（pragma）と `packages/analyzer-core/src/config.ts`（パス単位）に分かれる。
 
-- 行コメントによる suppress
-- ファイルパス単位の suppress
-- ruleId 単位の suppress
-- 一時 suppress と恒久 suppress の区別
+- **行コメントによる suppress**：`vibeguard:disable-line` / `disable-next-line` / `disable-file` の3 pragma。
+- **ruleId 単位の suppress**：pragma 末尾に rule ID を列挙（例：`// vibeguard:disable-line VG-INJ-004 VG-AUTH-003`）。省略時はワイルドカード。
+- **ファイルパス単位の suppress**：プロジェクト直下の `.vibeguardrc.json`（または `vibeguard.config.json`）で glob ベースに指定。CLI からは `--config <path>` で明示指定／`--no-config` で抑止可能。
+- **一時 suppress と恒久 suppress の区別**：pragma に `until=YYYY-MM-DD` を付与すると、その日付を過ぎた時点で suppress は自動失効し finding が再び surface する。config の各エントリには `expires` フィールドで同じ効果。`until` 無し／`expires` 無しは恒久。
+
+config の例：
+
+```json
+{
+  "suppress": [
+    {
+      "paths": ["samples/vulnerable/**", "**/*.test.ts"],
+      "rules": ["VG-INJ-004"],
+      "reason": "Test fixtures intentionally vulnerable",
+      "expires": "2026-12-31"
+    }
+  ]
+}
+```
+
+`paths` は必須、`rules` を省略すると当該パスの全 rule を抑止する。期限切れエントリは parse 時に黙って drop されるため、見落とした古い suppress が残り続けることはない。
 
 ---
 
