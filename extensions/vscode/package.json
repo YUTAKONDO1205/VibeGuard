@@ -2,7 +2,7 @@
   "name": "vibeguard-aicoding",
   "displayName": "VibeGuard AICoding",
   "description": "Security diagnostics for AI-generated code, on save and on demand.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "yutakondo",
   "icon": "icon.png",
   "license": "MIT",
@@ -131,9 +131,9 @@
     "clean": "rimraf dist"
   },
   "dependencies": {
-    "@vibeguard/analyzer-core": "0.1.1",
-    "@vibeguard/findings-schema": "0.1.1",
-    "@vibeguard/sarif-adapter": "0.1.1"
+    "@vibeguard/analyzer-core": "0.1.2",
+    "@vibeguard/findings-schema": "0.1.2",
+    "@vibeguard/sarif-adapter": "0.1.2"
   },
   "devDependencies": {
     "@types/node": "^20.19.41",

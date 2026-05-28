@@ -9,6 +9,26 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-05-28
+
+### Added
+- **Unified OK-state UX**: every surface now shows an explicit "no findings"
+  state (previously the VS Code panel and parts of the Chrome side panel were
+  silently blank).
+  - **VS Code**: empty Findings view shows a welcome message with
+    `Scan Current File` / `Scan Selection` quick-actions; new status-bar item
+    surfaces the active file's verdict (✓ no issues / N issues / not scanned);
+    `VibeGuard: Scan File` now reports its result via a toast.
+  - **Chrome**: side panel and PR-diff file groups show `✓ No security
+    issues found.` instead of a muted "No findings." Same applies to history
+    entries.
+  - **CLI**: human-format output prints `✓ No findings.` in green when the
+    scan is clean (markdown format already had `✅`).
+- **Shared severity palette**: three custom color tokens (`vibeguard.ok` =
+  `#2e7d32`, `vibeguard.issue` = `#856404`, `vibeguard.critical` = `#c62828`)
+  align all surfaces with the project's reporting-quality color rules. The
+  tokens are user-overridable via `workbench.colorCustomizations`.
+
 ## [0.1.1] - 2026-05-18
 
 ### Added

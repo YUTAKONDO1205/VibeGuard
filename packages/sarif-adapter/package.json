@@ -1,6 +1,6 @@
 {
   "name": "@vibeguard/sarif-adapter",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -16,7 +16,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@vibeguard/findings-schema": "0.1.1"
+    "@vibeguard/findings-schema": "0.1.2"
   },
   "devDependencies": {
     "typescript": "^5.4.5",

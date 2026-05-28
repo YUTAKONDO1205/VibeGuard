@@ -7,9 +7,10 @@
   --vg-fg-muted: #5a5a66;
   --vg-accent: #4f46e5;
   --vg-accent-fg: #ffffff;
-  --vg-critical: #b91c1c;
+  --vg-ok: #2e7d32;       /* report palette: OK 判定 */
+  --vg-critical: #c62828; /* report palette: 検図対象 */
   --vg-high: #c2410c;
-  --vg-medium: #b45309;
+  --vg-medium: #856404;   /* report palette: 課題あり */
   --vg-low: #2563eb;
   --vg-info: #4b5563;
 }
@@ -23,6 +24,7 @@
     --vg-fg-muted: #9aa0aa;
     --vg-accent: #818cf8;
     --vg-accent-fg: #0a0a10;
+    --vg-ok: #4caf50;       /* lighter tint of the OK green for dark backgrounds */
     --vg-critical: #f87171;
     --vg-high: #fb923c;
     --vg-medium: #fbbf24;
@@ -238,6 +240,11 @@ textarea#code {
   padding: 6px 0;
 }
 
+.vg-empty.vg-ok {
+  color: var(--vg-ok);
+  font-weight: 600;
+}
+
 .vg-error {
   color: var(--vg-critical);
   font-size: 12px;
@@ -426,4 +433,10 @@ textarea#code {
   color: var(--vg-fg-muted);
   font-size: 11px;
   font-style: italic;
+}
+
+.vg-history-entry .vg-h-empty.vg-ok {
+  color: var(--vg-ok);
+  font-style: normal;
+  font-weight: 600;
 }

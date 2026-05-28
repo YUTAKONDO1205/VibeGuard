@@ -4,6 +4,7 @@ const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
 const RED = '\x1b[31m';
+const GREEN = '\x1b[32m';
 const YELLOW = '\x1b[33m';
 const BLUE = '\x1b[34m';
 const GRAY = '\x1b[90m';
@@ -34,7 +35,7 @@ export function formatHuman(scan: ScanResponse, useColor: boolean): string {
   const lines: string[] = [];
 
   if (findings.length === 0) {
-    lines.push(colorise('No findings.', GRAY, useColor));
+    lines.push(colorise('✓ No findings.', GREEN, useColor));
     lines.push(`Scanned in ${scan.executionTimeMs}ms.`);
     return lines.join('\n');
   }

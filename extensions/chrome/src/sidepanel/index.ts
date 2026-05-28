@@ -149,8 +149,8 @@ function renderFindings(findings: Finding[]): void {
 
   if (findings.length === 0) {
     const empty = document.createElement('div');
-    empty.className = 'vg-empty';
-    empty.textContent = 'No findings.';
+    empty.className = 'vg-empty vg-ok';
+    empty.textContent = '✓ No security issues found.';
     findingsEl.appendChild(empty);
     return;
   }
@@ -200,8 +200,8 @@ function renderFileGroups(groups: FileGroupResult[]): void {
 
     if (g.findings.length === 0) {
       const empty = document.createElement('div');
-      empty.className = 'vg-empty';
-      empty.textContent = 'No findings on the added lines.';
+      empty.className = 'vg-empty vg-ok';
+      empty.textContent = '✓ No issues on the added lines.';
       section.appendChild(empty);
     } else {
       for (const f of g.findings) {
@@ -426,8 +426,8 @@ function buildHistoryEntryNode(entry: HistoryEntry): HTMLElement {
   }
   if (!any) {
     const ok = document.createElement('span');
-    ok.className = 'vg-h-empty';
-    ok.textContent = 'no findings';
+    ok.className = 'vg-h-empty vg-ok';
+    ok.textContent = '✓ no issues';
     summaryBar.appendChild(ok);
   }
   if (entry.fileCount && entry.fileCount > 1) {
