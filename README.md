@@ -54,12 +54,15 @@ vibeguard-codex/
 ├─ extensions/
 │  ├─ vscode/                 # VS Code extension
 │  └─ chrome/                 # Chrome extension (Manifest V3)
-└─ samples/
-   ├─ vulnerable/             # Code that should be flagged
-   └─ safe/                   # Code that must NOT be flagged
+├─ samples/
+│  ├─ vulnerable/             # Code that should be flagged (CI quality gate)
+│  └─ safe/                   # Code that must NOT be flagged
+└─ test_problem/              # Single-file demo that walks every rule family in one Python file
 ```
 
 Future additions: `packages/scanner-semgrep` (deep mode), more language rule packs.
+
+`samples/` and `test_problem/` look similar but serve different audiences. `samples/` is split per-rule and is consumed by the `samples` CI job as a regression / false-positive gate. [`test_problem/`](test_problem) is the opposite shape — one Python file that intentionally trips most rule families at once, intended for humans who want to see VibeGuard react without setting up a fixture tree. Editing `test_problem/` does **not** affect the CI gate. See [test_problem/README.md](test_problem/README.md) for the mapping of each section to its rule ID.
 
 ## Setup
 
@@ -82,6 +85,9 @@ npm run build
 ```bash
 # Scan a directory (human-readable output)
 node apps/cli/dist/index.js ./samples/vulnerable
+
+# Or try the bundled single-file demo: one Python file that trips every rule family
+node apps/cli/dist/index.js ./test_problem/test_problem.py
 
 # Emit SARIF so GitHub Code Scanning can ingest it
 node apps/cli/dist/index.js ./src --format sarif --out report.sarif
