@@ -5,6 +5,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-05-28
+
+### Changed
+- `engines.vscode` raised from `^1.85.0` to `^1.120.0` to match the
+  `@types/vscode@^1.120.0` dev-dependency. Users on older VS Code releases
+  should stay on `v0.1.1` until they can update VS Code.
+
+### Fixed
+- Marketplace packaging — `v0.1.2` failed to publish because `vsce package`
+  rejected the engines/types mismatch. `v0.1.3` is the first successfully
+  shipped build of the v0.1.2 OK-state UX work (Findings welcome view,
+  status-bar indicator, scan-file toast, severity colour tokens).
+
 ## [0.1.2] - 2026-05-28
 
 ### Added

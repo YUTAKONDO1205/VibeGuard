@@ -9,6 +9,16 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-05-28
+
+### Fixed
+- **VS Code**: `engines.vscode` raised from `^1.85.0` to `^1.120.0` to match
+  the `@types/vscode@^1.120.0` dev-dependency that was bumped by Dependabot
+  after `v0.1.1`. The `v0.1.2` release tag failed in CI at the VSIX
+  packaging step (`vsce` refused to build the package because the type
+  version exceeded the declared engine minimum); `v0.1.3` is the first
+  successfully publishable release of the OK-state UX work.
+
 ## [0.1.2] - 2026-05-28
 
 ### Added

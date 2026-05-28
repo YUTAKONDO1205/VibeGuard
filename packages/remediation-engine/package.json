@@ -1,6 +1,6 @@
 {
   "name": "@vibeguard/remediation-engine",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -16,8 +16,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@vibeguard/findings-schema": "0.1.2",
-    "@vibeguard/rules": "0.1.2"
+    "@vibeguard/findings-schema": "0.1.3",
+    "@vibeguard/rules": "0.1.3"
   },
   "devDependencies": {
     "typescript": "^5.4.5",
