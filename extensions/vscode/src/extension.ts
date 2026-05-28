@@ -4,6 +4,7 @@ import { ScanRunner } from './runner.js';
 import { FindingsTreeProvider } from './findings-tree.js';
 import { VibeGuardCodeActionProvider, showRemediation } from './code-actions.js';
 import { exportFindings } from './export.js';
+import { StatusBarManager } from './status-bar.js';
 
 export function activate(context: vscode.ExtensionContext): void {
   const collection = vscode.languages.createDiagnosticCollection('vibeguard');
@@ -20,6 +21,10 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('vibeguard.findings', treeProvider),
   );
+
+  // Status-bar indicator so a clean file produces a visible "✓" instead of
+  // a silent blank panel.
+  context.subscriptions.push(new StatusBarManager(runner));
 
   // C6: Quick Fix / Code Action provider for VibeGuard diagnostics.
   context.subscriptions.push(
@@ -55,6 +60,12 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       runner.scanDocument(editor.document, 'standard');
+      const count = runner.getFindings(editor.document.uri).length;
+      vscode.window.showInformationMessage(
+        count === 0
+          ? 'VibeGuard: ✓ no issues found.'
+          : `VibeGuard: ${count} finding${count === 1 ? '' : 's'}.`,
+      );
     }),
   );
 

@@ -21,10 +21,10 @@ class FindingNode {
 }
 
 const SEVERITY_ICON: Record<string, vscode.ThemeIcon> = {
-  critical: new vscode.ThemeIcon('error', new vscode.ThemeColor('errorForeground')),
-  high: new vscode.ThemeIcon('error', new vscode.ThemeColor('errorForeground')),
-  medium: new vscode.ThemeIcon('warning', new vscode.ThemeColor('editorWarning.foreground')),
-  low: new vscode.ThemeIcon('info'),
+  critical: new vscode.ThemeIcon('error', new vscode.ThemeColor('vibeguard.critical')),
+  high: new vscode.ThemeIcon('error', new vscode.ThemeColor('vibeguard.critical')),
+  medium: new vscode.ThemeIcon('warning', new vscode.ThemeColor('vibeguard.issue')),
+  low: new vscode.ThemeIcon('info', new vscode.ThemeColor('vibeguard.issue')),
   info: new vscode.ThemeIcon('info'),
 };
 

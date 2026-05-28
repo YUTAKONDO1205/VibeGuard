@@ -81,6 +81,29 @@
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "vibeguard.findings",
+        "contents": "✓ No security findings.\nSave a file or run the command below to scan.\n[Scan Current File](command:vibeguard.scanFile)\n[Scan Selection](command:vibeguard.scanSelection)"
+      }
+    ],
+    "colors": [
+      {
+        "id": "vibeguard.ok",
+        "description": "Color for the OK / no-findings indicator.",
+        "defaults": { "dark": "#2e7d32", "light": "#2e7d32", "highContrast": "#2e7d32", "highContrastLight": "#2e7d32" }
+      },
+      {
+        "id": "vibeguard.issue",
+        "description": "Color for low / medium severity findings.",
+        "defaults": { "dark": "#856404", "light": "#856404", "highContrast": "#856404", "highContrastLight": "#856404" }
+      },
+      {
+        "id": "vibeguard.critical",
+        "description": "Color for high / critical severity findings.",
+        "defaults": { "dark": "#c62828", "light": "#c62828", "highContrast": "#c62828", "highContrastLight": "#c62828" }
+      }
+    ],
     "configuration": {
       "title": "VibeGuard",
       "properties": {
