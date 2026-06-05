@@ -19,6 +19,14 @@ import { detectLanguageFromContent, detectLanguageFromPath } from './language-de
 import { extractSnippet, maskSecret } from './snippet.js';
 import { parseSuppressions, isSuppressed } from './suppress.js';
 
+/**
+ * Detection-engine version, embedded in every scan result and SARIF report
+ * (`engineVersions.core`). This is a SEPARATE axis from the released tool /
+ * package version (package.json): bump it only when detection behavior changes
+ * (rules, analysis, finding schema) — not for packaging, UX, or docs releases.
+ * It has deliberately stayed at 0.1.0 while the tool advanced to 0.1.3 because
+ * those releases did not alter what VibeGuard detects.
+ */
 export const ENGINE_VERSION = '0.1.0';
 
 let counter = 0;

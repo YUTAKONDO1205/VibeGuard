@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { ENGINE_VERSION, scanPath } from '@vibeguard/analyzer-core';
 import { compareSeverity, type Severity } from '@vibeguard/findings-schema';
@@ -7,7 +8,15 @@ import { parseArgs, HELP_TEXT } from './args.js';
 import { formatHuman, formatMarkdown } from './format.js';
 import { scanDiff } from './diff.js';
 
-const VERSION = '0.1.0';
+// Tool version: the released CLI artifact version. Read from package.json at
+// runtime so it always matches the published package and never drifts. This is
+// distinct from ENGINE_VERSION (the detection-engine semantics version), which
+// advances only when detection behavior changes.
+const VERSION = (
+  JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+  ) as { version: string }
+).version;
 
 const FAIL_LEVEL: Record<string, Severity | null> = {
   critical: 'critical',

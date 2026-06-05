@@ -4,6 +4,7 @@
   "description": "Security diagnostics for AI-generated code, in any browser tab.",
   "version": "0.1.3",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "build": "node build.mjs && node copy-static.mjs",

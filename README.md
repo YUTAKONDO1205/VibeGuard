@@ -274,6 +274,19 @@ Point Chrome at `extensions/chrome/dist/` via `chrome://extensions` → **Load u
 
 Currently around the Phase 1–3 footprint, with Phase 2 (Actions / PR comments) and parts of Phase 3 (Chrome extension scaffold) in place.
 
+## Versioning
+
+VibeGuard tracks **two independent version numbers**. Keeping them separate is intentional — please cite the right one in papers and issues.
+
+| Version | Where | Bumps when | Current |
+| --- | --- | --- | --- |
+| **Tool version** | `package.json` of each channel; CLI `--version`; SARIF `tool.version` | Any release of the published artifact — packaging, UX, docs, or detection changes. | `0.1.3` |
+| **Engine version** | `ENGINE_VERSION` in [`analyzer-core`](packages/analyzer-core); every scan result and SARIF report as `engineVersions.core` | Only when **detection behavior** changes (rules, analysis, finding schema). | `0.1.0` |
+
+The CLI prints both, e.g. `vibeguard 0.1.3 (engine 0.1.0)`. The tool version is read from `package.json` at runtime, so it always matches the published package. The engine version has stayed at `0.1.0` while the tool advanced to `0.1.3` because releases `0.1.1`–`0.1.3` (vsce metadata fix, OK-state UX, license) did not change what VibeGuard detects.
+
+**Rule of thumb:** compare results across two runs by **engine version** (same engine ⇒ identical verdicts); report which build you installed by **tool version**.
+
 ## Implementation conventions (Codex harness)
 
 This repo is built on the assumption that Codex multi-agent runs do the implementation. Responsibilities are split into three roles:
@@ -286,4 +299,4 @@ Any non-trivial feature must go through Planner, and each generated task is gate
 
 ## License
 
-TBD (project is still in early stage).
+[MIT](LICENSE) © 2026 KONDO YUTA
