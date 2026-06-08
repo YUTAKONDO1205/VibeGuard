@@ -1,3 +1,6 @@
+// vibeguard:disable-file
+// Fixtures embed eval()/innerHTML/DEBUG/secret literals to exercise the
+// context-window confidence helper; they are not real vulnerabilities.
 import { describe, expect, it } from 'vitest';
 import {
   contextConfidence,
