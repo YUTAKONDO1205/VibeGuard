@@ -9,6 +9,7 @@ import {
 } from '@vibeguard/findings-schema';
 import {
   allRules,
+  contextConfidence,
   getRulesForLanguage,
   languageMatches,
   type RuleContext,
@@ -120,7 +121,9 @@ export class Analyzer {
           title: rule.name,
           description: rule.description,
           severity: rule.severity,
-          confidence: m.confidence ?? rule.defaultConfidence,
+          confidence:
+            m.confidence ??
+            contextConfidence(rule.defaultConfidence, ctx, m, rule.contextConfidence ?? 'auto'),
           category: rule.category,
           language,
           filePath: request.filePath,

@@ -1,0 +1,23 @@
+{
+  "_README": "Author ground-truth for the ai-quality precision benchmark (paper item ③). Each file is classified 'positive' (every VG-QUAL-005..010 finding in it is a genuine, ship-blocking AI-trace pattern → TP) or 'negative' (every such finding is a false alarm → FP). 'fpContext' on negatives records WHY it is benign and which context-window signal (item ①) — if any — should down-rank it. These author labels are cross-checked by independent multi-judge adjudication (see scripts + ai_quality_precision.md); the published precision uses the consensus labels, not these.",
+  "files": {
+    "pos_stub_handler.py": { "class": "positive", "rules": ["VG-QUAL-005"], "rationale": "A live Flask route raises NotImplementedError — a stub shipped behind a real endpoint." },
+    "pos_stub_export.js": { "class": "positive", "rules": ["VG-QUAL-005"], "rationale": "Exported function throws 'Not implemented' in its real body." },
+    "pos_receipt_mailer.js": { "class": "positive", "rules": ["VG-QUAL-006"], "rationale": "example.com address used as the real From: of outgoing receipts." },
+    "pos_admin_contact.py": { "class": "positive", "rules": ["VG-QUAL-006"], "rationale": "example.org address baked in as the production admin alert recipient." },
+    "pos_profile_handler.ts": { "class": "positive", "rules": ["VG-QUAL-007"], "rationale": "Request handler returns a hard-coded mockUser instead of fetching real data." },
+    "pos_settings.py": { "class": "positive", "rules": ["VG-QUAL-008"], "rationale": "DEBUG = True committed as a live setting." },
+    "pos_authorize.js": { "class": "positive", "rules": ["VG-QUAL-009"], "rationale": "'for now, allow everyone' above a return true that bypasses authorization." },
+    "pos_coupon_validator.js": { "class": "positive", "rules": ["VG-QUAL-010"], "rationale": "validateCoupon() unconditionally returns true; callers assume real validation." },
+
+    "neg_welcome_mailer.py": { "class": "negative", "rules": ["VG-QUAL-006"], "fpContext": "docstring", "rationale": "example.com only appears in a docstring usage example; the real recipient is user.email." },
+    "neg_mailer.test.js": { "class": "negative", "rules": ["VG-QUAL-006"], "fpContext": "test-path", "rationale": "example.com is test fixture data, never shipped." },
+    "neg_payment_gateway.py": { "class": "negative", "rules": ["VG-QUAL-005"], "fpContext": "real-code", "rationale": "raise NotImplementedError is the idiomatic body of @abstractmethod declarations; the concrete StripeGateway implements them. Item ① cannot help (executable code)." },
+    "neg_csv_export.js": { "class": "negative", "rules": ["VG-QUAL-005"], "fpContext": "comment", "rationale": "'Not implemented' appears only inside a commented-out line; the real implementation follows." },
+    "neg_configure.py": { "class": "negative", "rules": ["VG-QUAL-008"], "fpContext": "docstring", "rationale": "DEBUG = True is a docstring example; the returned config derives debug from env and defaults off." },
+    "neg_app_build.test.js": { "class": "negative", "rules": ["VG-QUAL-008"], "fpContext": "test-path", "rationale": "debug: true is test setup exercising debug mode, not a shipped default." },
+    "neg_msw_browser.ts": { "class": "negative", "rules": ["VG-QUAL-007"], "fpContext": "real-code", "rationale": "mockWorker is a Mock Service Worker started only under import.meta.env.DEV; intentional dev tooling. Item ① cannot help (executable code)." },
+    "neg_format_price.js": { "class": "negative", "rules": ["VG-QUAL-009"], "fpContext": "real-code", "rationale": "'for now' is a benign scope note about currency formatting, not a deferred safety check. VG-QUAL-009 opts out of ①, so it stays." },
+    "neg_feature_flags.js": { "class": "negative", "rules": ["VG-QUAL-010"], "fpContext": "real-code", "rationale": "checkBetaEnabled is an intentional always-on feature flag for a launched feature, not a broken validator. Item ① cannot help (executable code)." }
+  }
+}

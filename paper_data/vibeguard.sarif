@@ -1,0 +1,2165 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "VibeGuard",
+          "version": "0.1.3",
+          "informationUri": "https://github.com/vibeguard/vibeguard",
+          "rules": [
+            {
+              "id": "VG-AUTH-001",
+              "name": "Authentication bypass when DEBUG is enabled",
+              "shortDescription": {
+                "text": "Authentication bypass when DEBUG is enabled"
+              },
+              "fullDescription": {
+                "text": "Code path that skips auth when a debug or development flag is set. Easy to leave on accidentally in production."
+              },
+              "help": {
+                "text": "A debug bypass that ships to production silently disables authentication. AI-assisted code frequently leaves these in.\n\nRemove the bypass entirely, or gate it behind an explicit non-production environment check that fails closed."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "ai-prone"
+                ],
+                "category": "auth"
+              }
+            },
+            {
+              "id": "VG-INJ-005",
+              "name": "Unsafe deserialization (pickle / yaml.load)",
+              "shortDescription": {
+                "text": "Unsafe deserialization (pickle / yaml.load)"
+              },
+              "fullDescription": {
+                "text": "pickle.load / pickle.loads and yaml.load without SafeLoader can execute arbitrary Python objects from input."
+              },
+              "help": {
+                "text": "pickle and unsafe yaml load instantiate arbitrary classes during load, giving attacker-controlled input direct code execution.\n\nUse json or yaml.safe_load. If you must use pickle, only load from data you produced and signed yourself."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "category": "injection"
+              }
+            },
+            {
+              "id": "VG-FW-002",
+              "name": "Flask app.run(debug=True) — Werkzeug debugger reachable",
+              "shortDescription": {
+                "text": "Flask app.run(debug=True) — Werkzeug debugger reachable"
+              },
+              "fullDescription": {
+                "text": "Calling app.run(debug=True) enables the Werkzeug debugger, which provides an interactive Python console on uncaught exceptions. Combined with host=\"0.0.0.0\" this is remote code execution."
+              },
+              "help": {
+                "text": "The Werkzeug debugger lets anyone who can hit a 500 page execute arbitrary Python in the server process. AI-generated `if __name__ == \"__main__\": app.run(debug=True)` blocks routinely ship like this.\n\nRun Flask via a real WSGI server (gunicorn / uWSGI) in production, and never set debug=True on a public bind. For local dev, keep host=127.0.0.1."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "flask",
+                  "ai-prone"
+                ],
+                "category": "config"
+              }
+            },
+            {
+              "id": "VG-SEC-001",
+              "name": "Hard-coded AWS access key ID",
+              "shortDescription": {
+                "text": "Hard-coded AWS access key ID"
+              },
+              "fullDescription": {
+                "text": "A literal AWS access key ID was found in source. Treat as compromised the moment it lands in version control."
+              },
+              "help": {
+                "text": "Source-embedded credentials end up in git history, build artefacts, and logs forever — and AWS keys grant immediate cloud access.\n\nRotate the key, then load credentials from environment variables, AWS Secrets Manager, or your runtime IAM role."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "category": "secrets"
+              }
+            },
+            {
+              "id": "VG-INJ-004",
+              "name": "Use of eval()",
+              "shortDescription": {
+                "text": "Use of eval()"
+              },
+              "fullDescription": {
+                "text": "eval() executes arbitrary code from a string. It is rarely necessary and almost never safe with non-literal input."
+              },
+              "help": {
+                "text": "eval() runs whatever string it receives as code. Any path from user input to that string is remote code execution.\n\nReplace eval() with a structured parser (JSON.parse, ast.literal_eval) or a dispatch table for the operations you actually need."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "rce",
+                  "ai-prone"
+                ],
+                "category": "injection"
+              }
+            },
+            {
+              "id": "VG-AUTH-003",
+              "name": "Dummy or placeholder credential string",
+              "shortDescription": {
+                "text": "Dummy or placeholder credential string"
+              },
+              "fullDescription": {
+                "text": "Hard-coded placeholder values like \"dummy_token\", \"test_password\", \"changeme\" frequently survive the trip to production."
+              },
+              "help": {
+                "text": "Placeholder credentials in source are easy to forget about and disclose what the surrounding system trusts.\n\nMove the value to a configuration / secret store and fail loudly when the placeholder is detected at startup."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "ai-prone"
+                ],
+                "category": "secrets"
+              }
+            },
+            {
+              "id": "VG-AUTH-004",
+              "name": "TLS certificate verification disabled",
+              "shortDescription": {
+                "text": "TLS certificate verification disabled"
+              },
+              "fullDescription": {
+                "text": "verify=False, rejectUnauthorized: false, InsecureSkipVerify: true — all disable TLS validation, defeating MITM protection."
+              },
+              "help": {
+                "text": "Disabling certificate verification turns TLS into a bare encrypted channel with no authentication of the peer. Active MITM is trivial.\n\nRemove the flag. If a self-signed cert is needed, install it as a trusted CA for the relevant client only."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "category": "crypto"
+              }
+            },
+            {
+              "id": "VG-INJ-002",
+              "name": "subprocess with shell=True and dynamic args",
+              "shortDescription": {
+                "text": "subprocess with shell=True and dynamic args"
+              },
+              "fullDescription": {
+                "text": "subprocess.run / Popen / call invoked with shell=True passes the command through a shell, enabling injection when arguments are interpolated."
+              },
+              "help": {
+                "text": "shell=True invokes a shell that interprets metacharacters; an attacker who controls any part of the string gets command execution.\n\nPass arguments as a list and avoid shell=True. If a shell really is needed, use shlex.quote on every interpolated value."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "command-injection",
+                  "ai-prone"
+                ],
+                "category": "injection"
+              }
+            },
+            {
+              "id": "VG-INJ-003",
+              "name": "os.system / os.popen with interpolated input",
+              "shortDescription": {
+                "text": "os.system / os.popen with interpolated input"
+              },
+              "fullDescription": {
+                "text": "os.system or os.popen executes via shell. Building the command from variables is a classic injection vector."
+              },
+              "help": {
+                "text": "os.system / os.popen run a shell. Interpolated variables become shell tokens.\n\nReplace with subprocess.run([...]) using a list and no shell, or sanitise via shlex.quote."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "category": "injection"
+              }
+            },
+            {
+              "id": "VG-AUTH-005",
+              "name": "Django @csrf_exempt decorator disables CSRF protection",
+              "shortDescription": {
+                "text": "Django @csrf_exempt decorator disables CSRF protection"
+              },
+              "fullDescription": {
+                "text": "Marking a Django view with @csrf_exempt opts out of CSRF token validation. Routinely added to make POST endpoints \"just work\" during development and forgotten."
+              },
+              "help": {
+                "text": "Without CSRF validation, an attacker can trigger state-changing requests from a victim's browser using forged forms or fetch calls.\n\nRemove @csrf_exempt and submit a CSRF token (Django will inject {% csrf_token %} into forms / require X-CSRFToken on fetch). For pure JSON APIs, use Django REST Framework's SessionAuthentication or token auth which handles CSRF correctly."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "django",
+                  "ai-prone"
+                ],
+                "category": "auth"
+              }
+            },
+            {
+              "id": "VG-FW-003",
+              "name": "CORS configured with wildcard origin",
+              "shortDescription": {
+                "text": "CORS configured with wildcard origin"
+              },
+              "fullDescription": {
+                "text": "cors({ origin: \"*\" }), Access-Control-Allow-Origin: * literals, or Flask-CORS resources={\"/*\": {\"origins\": \"*\"}} disable the same-origin policy for every browser."
+              },
+              "help": {
+                "text": "A wildcard CORS origin lets any site read responses from your API in a victim's browser, including responses for authenticated users.\n\nList allowed origins explicitly. If credentials are involved, the origin must echo the request's Origin header — wildcard is rejected by browsers when withCredentials=true anyway."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "cors",
+                  "express",
+                  "flask",
+                  "ai-prone"
+                ],
+                "category": "access-control"
+              }
+            },
+            {
+              "id": "VG-AUTH-006",
+              "name": "Express session cookie missing secure / httpOnly flag",
+              "shortDescription": {
+                "text": "Express session cookie missing secure / httpOnly flag"
+              },
+              "fullDescription": {
+                "text": "express-session config with cookie.secure: false or cookie.httpOnly: false leaves session IDs readable by JavaScript or transmittable over plain HTTP."
+              },
+              "help": {
+                "text": "cookie.secure: false sends the session ID over plain HTTP where any network observer can capture it. cookie.httpOnly: false lets injected scripts read document.cookie and exfiltrate the session.\n\nSet cookie: { secure: true, httpOnly: true, sameSite: \"lax\" } in the session() options. In local dev only, gate secure on NODE_ENV."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "express",
+                  "ai-prone"
+                ],
+                "category": "auth"
+              }
+            },
+            {
+              "id": "VG-SEC-003",
+              "name": "Likely API key / secret in literal",
+              "shortDescription": {
+                "text": "Likely API key / secret in literal"
+              },
+              "fullDescription": {
+                "text": "Long high-entropy literal assigned to a variable named api_key, secret, token, or password."
+              },
+              "help": {
+                "text": "Hard-coded API keys leak through source control, screenshots, and shared notebooks.\n\nReplace with an environment variable lookup and add the placeholder to .env.example only."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "ai-prone"
+                ],
+                "category": "secrets"
+              }
+            },
+            {
+              "id": "VG-INJ-001",
+              "name": "SQL string concatenation",
+              "shortDescription": {
+                "text": "SQL string concatenation"
+              },
+              "fullDescription": {
+                "text": "SQL query is built via string concatenation or interpolation. Untrusted input concatenated into SQL is the primary vector for SQL injection."
+              },
+              "help": {
+                "text": "Concatenated SQL allows attacker-controlled input to alter the query structure and exfiltrate or corrupt data.\n\nUse parameterised queries / prepared statements. Pass user input as bound parameters, not as parts of the SQL string."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "sql-injection",
+                  "ai-prone"
+                ],
+                "category": "injection"
+              }
+            },
+            {
+              "id": "VG-INJ-006",
+              "name": "innerHTML assignment with non-literal value",
+              "shortDescription": {
+                "text": "innerHTML assignment with non-literal value"
+              },
+              "fullDescription": {
+                "text": "Assigning a non-literal string to innerHTML is a common XSS sink. AI-generated UI code often does this without sanitisation."
+              },
+              "help": {
+                "text": "Strings written to innerHTML are parsed as HTML and can introduce script execution.\n\nPrefer textContent for plain text. For HTML, sanitise with DOMPurify or use the framework escape mechanism."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "xss",
+                  "ai-prone"
+                ],
+                "category": "injection"
+              }
+            },
+            {
+              "id": "VG-QUAL-008",
+              "name": "Debug / verbose flag hardcoded ON",
+              "shortDescription": {
+                "text": "Debug / verbose flag hardcoded ON"
+              },
+              "fullDescription": {
+                "text": "A debug, verbose, or trace flag is set to true / True directly in source. Different from VG-AUTH-001 (auth bypass): this is the flag itself being flipped on by default."
+              },
+              "help": {
+                "text": "Debug-on by default leaks stack traces, internal paths, and PII. AI templates often ship with verbose: true because that is what their training examples show.\n\nDefault debug / verbose / trace flags to false, and source the override from environment configuration."
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "tags": [
+                  "ai-prone"
+                ],
+                "category": "ai-quality"
+              }
+            },
+            {
+              "id": "VG-QUAL-005",
+              "name": "Stub or not-implemented function body",
+              "shortDescription": {
+                "text": "Stub or not-implemented function body"
+              },
+              "fullDescription": {
+                "text": "Function body is a \"Not implemented\" throw / raise / panic. AI scaffolds compile but skip the actual logic — easy to ship by accident."
+              },
+              "help": {
+                "text": "A \"not implemented\" body looks like real code at the call site but performs no work — security checks, validation, or business logic that should run silently does not.\n\nImplement the function, or raise loudly *and* mark the call site as blocked (typed error / 5xx) so callers cannot silently proceed."
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "tags": [
+                  "ai-prone"
+                ],
+                "category": "ai-quality"
+              }
+            },
+            {
+              "id": "VG-AUTH-002",
+              "name": "TODO comment near security-critical code",
+              "shortDescription": {
+                "text": "TODO comment near security-critical code"
+              },
+              "fullDescription": {
+                "text": "TODO / FIXME / XXX comment that mentions auth, validation, or security. AI-generated code often emits placeholders for the dangerous parts."
+              },
+              "help": {
+                "text": "A TODO next to security-critical logic typically means the safety check was deferred and may never be implemented.\n\nImplement the missing check, or track the gap as a blocking issue before this code reaches production."
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "tags": [
+                  "ai-prone"
+                ],
+                "category": "ai-quality"
+              }
+            },
+            {
+              "id": "VG-QUAL-006",
+              "name": "Placeholder email address in source",
+              "shortDescription": {
+                "text": "Placeholder email address in source"
+              },
+              "fullDescription": {
+                "text": "Hard-coded emails on example.com / test.com / foo.bar / domain.com — left over from AI templates. They become silent send-failures or info disclosure in production."
+              },
+              "help": {
+                "text": "AI templates use these literal domains as stand-ins. Shipped, they either bounce, silently swallow notifications, or leak intent to a third party that owns the placeholder domain.\n\nMove the address to configuration, fail at startup if the value still matches a known placeholder list, and avoid baking any address into source."
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "tags": [
+                  "ai-prone"
+                ],
+                "category": "ai-quality"
+              }
+            },
+            {
+              "id": "VG-QUAL-009",
+              "name": "\"Not for production\" / \"for now\" placeholder comment",
+              "shortDescription": {
+                "text": "\"Not for production\" / \"for now\" placeholder comment"
+              },
+              "fullDescription": {
+                "text": "Comment self-labels the surrounding code as a placeholder, demo, or temporary workaround. Strong signal that AI-generated boilerplate landed without review."
+              },
+              "help": {
+                "text": "The comment is the author admitting the code should not have shipped as-is. Either the warning is correct (replace the code) or the comment is stale (delete it).\n\nReplace the placeholder with the real implementation, or remove the comment after confirming the code is in fact production-ready."
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "tags": [
+                  "ai-prone"
+                ],
+                "category": "ai-quality"
+              }
+            },
+            {
+              "id": "VG-QUAL-010",
+              "name": "Validator / sanitizer with passthrough body",
+              "shortDescription": {
+                "text": "Validator / sanitizer with passthrough body"
+              },
+              "fullDescription": {
+                "text": "Function whose name claims to validate, sanitize, or check input but whose body just returns true / returns the input unchanged."
+              },
+              "help": {
+                "text": "A validator that always returns true gives callers false confidence. Downstream code skips defensive handling because \"it has been validated\".\n\nImplement the actual checks, or rename the function so callers do not assume validation has happened."
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "tags": [
+                  "ai-prone"
+                ],
+                "category": "ai-quality"
+              }
+            },
+            {
+              "id": "VG-QUAL-001",
+              "name": "Empty except / catch block",
+              "shortDescription": {
+                "text": "Empty except / catch block"
+              },
+              "fullDescription": {
+                "text": "Catching exceptions and silently passing hides real failures, including security-relevant ones like auth or signature errors."
+              },
+              "help": {
+                "text": "Swallowing exceptions makes the system look healthy while real errors (including security failures) accumulate.\n\nLog the error with context and either re-raise, return a typed error, or take an explicit safe action."
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "tags": [
+                  "ai-prone"
+                ],
+                "category": "quality"
+              }
+            },
+            {
+              "id": "VG-CRYPTO-001",
+              "name": "Weak hash (MD5 / SHA1) used in security context",
+              "shortDescription": {
+                "text": "Weak hash (MD5 / SHA1) used in security context"
+              },
+              "fullDescription": {
+                "text": "MD5 and SHA1 are broken for collision resistance and inadequate for password or signature use."
+              },
+              "help": {
+                "text": "MD5 and SHA1 collisions are practical; using them for passwords, signatures, or integrity is insecure.\n\nUse SHA-256 or SHA-3 for integrity, and a password hash like bcrypt / argon2 / scrypt for credentials."
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "category": "crypto"
+              }
+            },
+            {
+              "id": "VG-CRYPTO-002",
+              "name": "Non-cryptographic random used for tokens / IDs",
+              "shortDescription": {
+                "text": "Non-cryptographic random used for tokens / IDs"
+              },
+              "fullDescription": {
+                "text": "Predictable PRNGs (Math.random, random.random, mt_rand, new Random, math/rand, Kernel#rand, etc.) must not be used for tokens, session IDs, or secrets."
+              },
+              "help": {
+                "text": "Standard-library random functions are seeded PRNGs; their output is predictable enough to brute force tokens.\n\nUse a CSPRNG: crypto.randomBytes / crypto.getRandomValues (Node), secrets.token_urlsafe (Python), crypto/rand (Go), SecureRandom (Java/Ruby), random_bytes / random_int (PHP), RandomNumberGenerator (C#)."
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "tags": [
+                  "ai-prone"
+                ],
+                "category": "crypto"
+              }
+            },
+            {
+              "id": "VG-QUAL-007",
+              "name": "Mock / fake / dummy identifier outside test paths",
+              "shortDescription": {
+                "text": "Mock / fake / dummy identifier outside test paths"
+              },
+              "fullDescription": {
+                "text": "Identifier prefixed mock / fake / dummy used in non-test source. AI fills incomplete branches with mock data that bypasses real logic."
+              },
+              "help": {
+                "text": "A mock value reached at runtime in production short-circuits validation, auth, or data fetches and looks indistinguishable from real flow until something downstream fails.\n\nMove the mock into a test fixture, or guard it behind an explicit non-production environment check that throws if reached otherwise."
+              },
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "tags": [
+                  "ai-prone"
+                ],
+                "category": "ai-quality"
+              }
+            },
+            {
+              "id": "VG-CRYPTO-003",
+              "name": "http:// URL used for non-localhost endpoint",
+              "shortDescription": {
+                "text": "http:// URL used for non-localhost endpoint"
+              },
+              "fullDescription": {
+                "text": "Plaintext HTTP URLs to non-localhost hosts expose traffic to interception and modification."
+              },
+              "help": {
+                "text": "Non-TLS traffic can be observed and rewritten by anyone on the network path.\n\nUse https:// for any endpoint that handles auth, secrets, or user data. Localhost traffic is typically fine to leave as http."
+              },
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "category": "crypto"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "VG-AUTH-001",
+          "level": "error",
+          "message": {
+            "text": "Code path that skips auth when a debug or development flag is set. Easy to leave on accidentally in production."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "auth_bypass.py"
+                },
+                "region": {
+                  "startLine": 5,
+                  "endLine": 6,
+                  "startColumn": 5,
+                  "endColumn": 20,
+                  "snippet": {
+                    "text": "    if DEBUG:\r\n        return True  # AI-prone: debug bypass left in\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "critical",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-INJ-005",
+          "level": "error",
+          "message": {
+            "text": "pickle.load / pickle.loads and yaml.load without SafeLoader can execute arbitrary Python objects from input."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "auth_bypass.py"
+                },
+                "region": {
+                  "startLine": 22,
+                  "endLine": 22,
+                  "startColumn": 12,
+                  "endColumn": 22,
+                  "snippet": {
+                    "text": "    return yaml.load(blob)\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "high",
+            "severity": "critical"
+          }
+        },
+        {
+          "ruleId": "VG-FW-002",
+          "level": "error",
+          "message": {
+            "text": "Calling app.run(debug=True) enables the Werkzeug debugger, which provides an interactive Python console on uncaught exceptions. Combined with host=\"0.0.0.0\" this is remote code execution."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "flask_app.py"
+                },
+                "region": {
+                  "startLine": 19,
+                  "endLine": 19,
+                  "startColumn": 5,
+                  "endColumn": 39,
+                  "snippet": {
+                    "text": "    app.run(host='0.0.0.0', debug=True)\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "high",
+            "severity": "critical",
+            "tags": [
+              "flask",
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-SEC-001",
+          "level": "error",
+          "message": {
+            "text": "A literal AWS access key ID was found in source. Treat as compromised the moment it lands in version control."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "secrets.js"
+                },
+                "region": {
+                  "startLine": 2,
+                  "endLine": 2,
+                  "startColumn": 25,
+                  "endColumn": 45,
+                  "snippet": {
+                    "text": "const AWS_ACCESS_KEY = \"AKIA***\";\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "high",
+            "severity": "critical"
+          }
+        },
+        {
+          "ruleId": "VG-INJ-004",
+          "level": "error",
+          "message": {
+            "text": "eval() executes arbitrary code from a string. It is rarely necessary and almost never safe with non-literal input."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "xss.js"
+                },
+                "region": {
+                  "startLine": 9,
+                  "endLine": 9,
+                  "startColumn": 10,
+                  "endColumn": 15,
+                  "snippet": {
+                    "text": "  return eval(input);\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "high",
+            "severity": "critical",
+            "tags": [
+              "rce",
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-AUTH-003",
+          "level": "error",
+          "message": {
+            "text": "Hard-coded placeholder values like \"dummy_token\", \"test_password\", \"changeme\" frequently survive the trip to production."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "auth_bypass.py"
+                },
+                "region": {
+                  "startLine": 7,
+                  "endLine": 7,
+                  "startColumn": 22,
+                  "endColumn": 32,
+                  "snippet": {
+                    "text": "    if user.token == \"changeme\":\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "high",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-AUTH-004",
+          "level": "error",
+          "message": {
+            "text": "verify=False, rejectUnauthorized: false, InsecureSkipVerify: true — all disable TLS validation, defeating MITM protection."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "auth_bypass.py"
+                },
+                "region": {
+                  "startLine": 16,
+                  "endLine": 16,
+                  "startColumn": 55,
+                  "endColumn": 67,
+                  "snippet": {
+                    "text": "    return requests.get(\"https://example.com/secret\", verify=False).text\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "high",
+            "severity": "high"
+          }
+        },
+        {
+          "ruleId": "VG-INJ-002",
+          "level": "error",
+          "message": {
+            "text": "subprocess.run / Popen / call invoked with shell=True passes the command through a shell, enabling injection when arguments are interpolated."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "command_injection.py"
+                },
+                "region": {
+                  "startLine": 7,
+                  "endLine": 7,
+                  "startColumn": 5,
+                  "endColumn": 54,
+                  "snippet": {
+                    "text": "    subprocess.run(f\"git log {commit_id}\", shell=True)\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "high",
+            "tags": [
+              "command-injection",
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-INJ-003",
+          "level": "error",
+          "message": {
+            "text": "os.system or os.popen executes via shell. Building the command from variables is a classic injection vector."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "command_injection.py"
+                },
+                "region": {
+                  "startLine": 12,
+                  "endLine": 12,
+                  "startColumn": 5,
+                  "endColumn": 26,
+                  "snippet": {
+                    "text": "    os.system(\"rm -rf \" + path)\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "high"
+          }
+        },
+        {
+          "ruleId": "VG-AUTH-005",
+          "level": "error",
+          "message": {
+            "text": "Marking a Django view with @csrf_exempt opts out of CSRF token validation. Routinely added to make POST endpoints \"just work\" during development and forgotten."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "django_settings.py"
+                },
+                "region": {
+                  "startLine": 14,
+                  "endLine": 16,
+                  "startColumn": 54,
+                  "endColumn": 13,
+                  "snippet": {
+                    "text": "from django.views.decorators.csrf import csrf_exempt\r\n\r\n@csrf_exempt\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "high",
+            "severity": "high",
+            "tags": [
+              "django",
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-FW-003",
+          "level": "error",
+          "message": {
+            "text": "cors({ origin: \"*\" }), Access-Control-Allow-Origin: * literals, or Flask-CORS resources={\"/*\": {\"origins\": \"*\"}} disable the same-origin policy for every browser."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "express_session.js"
+                },
+                "region": {
+                  "startLine": 10,
+                  "endLine": 10,
+                  "startColumn": 9,
+                  "endColumn": 27,
+                  "snippet": {
+                    "text": "app.use(cors({ origin: '*' }));\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "high",
+            "tags": [
+              "cors",
+              "express",
+              "flask",
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-AUTH-006",
+          "level": "error",
+          "message": {
+            "text": "express-session config with cookie.secure: false or cookie.httpOnly: false leaves session IDs readable by JavaScript or transmittable over plain HTTP."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "express_session.js"
+                },
+                "region": {
+                  "startLine": 16,
+                  "endLine": 16,
+                  "startColumn": 15,
+                  "endColumn": 28,
+                  "snippet": {
+                    "text": "    cookie: { secure: false, httpOnly: false },\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "high",
+            "tags": [
+              "express",
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-AUTH-006",
+          "level": "error",
+          "message": {
+            "text": "express-session config with cookie.secure: false or cookie.httpOnly: false leaves session IDs readable by JavaScript or transmittable over plain HTTP."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "express_session.js"
+                },
+                "region": {
+                  "startLine": 16,
+                  "endLine": 16,
+                  "startColumn": 30,
+                  "endColumn": 45,
+                  "snippet": {
+                    "text": "    cookie: { secure: false, httpOnly: false },\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "high",
+            "tags": [
+              "express",
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-FW-003",
+          "level": "error",
+          "message": {
+            "text": "cors({ origin: \"*\" }), Access-Control-Allow-Origin: * literals, or Flask-CORS resources={\"/*\": {\"origins\": \"*\"}} disable the same-origin policy for every browser."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "flask_app.py"
+                },
+                "region": {
+                  "startLine": 9,
+                  "endLine": 9,
+                  "startColumn": 30,
+                  "endColumn": 44,
+                  "snippet": {
+                    "text": "CORS(app, resources={r'/*': {'origins': '*'}})\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "high",
+            "tags": [
+              "cors",
+              "express",
+              "flask",
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-AUTH-003",
+          "level": "error",
+          "message": {
+            "text": "Hard-coded placeholder values like \"dummy_token\", \"test_password\", \"changeme\" frequently survive the trip to production."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "secrets.js"
+                },
+                "region": {
+                  "startLine": 4,
+                  "endLine": 4,
+                  "startColumn": 21,
+                  "endColumn": 31,
+                  "snippet": {
+                    "text": "const PLACEHOLDER = \"changeme\";\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "high",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-SEC-003",
+          "level": "error",
+          "message": {
+            "text": "Long high-entropy literal assigned to a variable named api_key, secret, token, or password."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "secrets.js"
+                },
+                "region": {
+                  "startLine": 7,
+                  "endLine": 7,
+                  "startColumn": 3,
+                  "endColumn": 41,
+                  "snippet": {
+                    "text": "  apiKey: \"sk_l***\",\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "high",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-SEC-003",
+          "level": "error",
+          "message": {
+            "text": "Long high-entropy literal assigned to a variable named api_key, secret, token, or password."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "secrets.js"
+                },
+                "region": {
+                  "startLine": 8,
+                  "endLine": 8,
+                  "startColumn": 3,
+                  "endColumn": 36,
+                  "snippet": {
+                    "text": "  password: \"hunt***\",\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "high",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-INJ-001",
+          "level": "error",
+          "message": {
+            "text": "SQL query is built via string concatenation or interpolation. Untrusted input concatenated into SQL is the primary vector for SQL injection."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sql_injection.py"
+                },
+                "region": {
+                  "startLine": 6,
+                  "endLine": 6,
+                  "startColumn": 13,
+                  "endColumn": 50,
+                  "snippet": {
+                    "text": "    query = \"SELECT * FROM users WHERE id = \" + str(user_id)\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "high",
+            "tags": [
+              "sql-injection",
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-INJ-001",
+          "level": "error",
+          "message": {
+            "text": "SQL query is built via string concatenation or interpolation. Untrusted input concatenated into SQL is the primary vector for SQL injection."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sql_injection.py"
+                },
+                "region": {
+                  "startLine": 14,
+                  "endLine": 14,
+                  "startColumn": 17,
+                  "endColumn": 55,
+                  "snippet": {
+                    "text": "    cur.execute(\"DELETE FROM sessions WHERE id = \" + sid)\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "high",
+            "tags": [
+              "sql-injection",
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-INJ-006",
+          "level": "error",
+          "message": {
+            "text": "Assigning a non-literal string to innerHTML is a common XSS sink. AI-generated UI code often does this without sanitisation."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "xss.js"
+                },
+                "region": {
+                  "startLine": 4,
+                  "endLine": 4,
+                  "startColumn": 3,
+                  "endColumn": 27,
+                  "snippet": {
+                    "text": "  el.innerHTML = userInput;\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "high",
+            "tags": [
+              "xss",
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-QUAL-008",
+          "level": "warning",
+          "message": {
+            "text": "A debug, verbose, or trace flag is set to true / True directly in source. Different from VG-AUTH-001 (auth bypass): this is the flag itself being flipped on by default."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ai_artifacts.js"
+                },
+                "region": {
+                  "startLine": 6,
+                  "endLine": 6,
+                  "startColumn": 3,
+                  "endColumn": 14,
+                  "snippet": {
+                    "text": "  debug: true,\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-QUAL-008",
+          "level": "warning",
+          "message": {
+            "text": "A debug, verbose, or trace flag is set to true / True directly in source. Different from VG-AUTH-001 (auth bypass): this is the flag itself being flipped on by default."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ai_artifacts.js"
+                },
+                "region": {
+                  "startLine": 7,
+                  "endLine": 7,
+                  "startColumn": 3,
+                  "endColumn": 16,
+                  "snippet": {
+                    "text": "  verbose: true,\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-QUAL-005",
+          "level": "warning",
+          "message": {
+            "text": "Function body is a \"Not implemented\" throw / raise / panic. AI scaffolds compile but skip the actual logic — easy to ship by accident."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ai_artifacts.js"
+                },
+                "region": {
+                  "startLine": 12,
+                  "endLine": 12,
+                  "startColumn": 3,
+                  "endColumn": 35,
+                  "snippet": {
+                    "text": "  throw new Error(\"Not implemented\");\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-QUAL-005",
+          "level": "warning",
+          "message": {
+            "text": "Function body is a \"Not implemented\" throw / raise / panic. AI scaffolds compile but skip the actual logic — easy to ship by accident."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ai_artifacts.js"
+                },
+                "region": {
+                  "startLine": 16,
+                  "endLine": 17,
+                  "startColumn": 46,
+                  "endColumn": 23,
+                  "snippet": {
+                    "text": "export function getUserPermissions(userId) {\r\n  return null; // TODO implement permission lookup\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-AUTH-002",
+          "level": "warning",
+          "message": {
+            "text": "TODO / FIXME / XXX comment that mentions auth, validation, or security. AI-generated code often emits placeholders for the dangerous parts."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ai_artifacts.js"
+                },
+                "region": {
+                  "startLine": 17,
+                  "endLine": 17,
+                  "startColumn": 16,
+                  "endColumn": 44,
+                  "snippet": {
+                    "text": "  return null; // TODO implement permission lookup\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-QUAL-006",
+          "level": "warning",
+          "message": {
+            "text": "Hard-coded emails on example.com / test.com / foo.bar / domain.com — left over from AI templates. They become silent send-failures or info disclosure in production."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ai_artifacts.js"
+                },
+                "region": {
+                  "startLine": 21,
+                  "endLine": 21,
+                  "startColumn": 29,
+                  "endColumn": 50,
+                  "snippet": {
+                    "text": "export const SUPPORT_FROM = \"noreply@example.com\";\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-QUAL-006",
+          "level": "warning",
+          "message": {
+            "text": "Hard-coded emails on example.com / test.com / foo.bar / domain.com — left over from AI templates. They become silent send-failures or info disclosure in production."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ai_artifacts.js"
+                },
+                "region": {
+                  "startLine": 22,
+                  "endLine": 22,
+                  "startColumn": 28,
+                  "endColumn": 44,
+                  "snippet": {
+                    "text": "export const ADMIN_EMAIL = \"admin@test.com\";\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-QUAL-009",
+          "level": "warning",
+          "message": {
+            "text": "Comment self-labels the surrounding code as a placeholder, demo, or temporary workaround. Strong signal that AI-generated boilerplate landed without review."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ai_artifacts.js"
+                },
+                "region": {
+                  "startLine": 32,
+                  "endLine": 32,
+                  "startColumn": 1,
+                  "endColumn": 11,
+                  "snippet": {
+                    "text": "// for now, just trust the request — replace this with real validation later\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-QUAL-010",
+          "level": "warning",
+          "message": {
+            "text": "Function whose name claims to validate, sanitize, or check input but whose body just returns true / returns the input unchanged."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ai_artifacts.js"
+                },
+                "region": {
+                  "startLine": 38,
+                  "endLine": 40,
+                  "startColumn": 8,
+                  "endColumn": 2,
+                  "snippet": {
+                    "text": "export function validateInput(input) {\r\n  return true;\r\n}\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "low",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-QUAL-010",
+          "level": "warning",
+          "message": {
+            "text": "Function whose name claims to validate, sanitize, or check input but whose body just returns true / returns the input unchanged."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ai_artifacts.js"
+                },
+                "region": {
+                  "startLine": 42,
+                  "endLine": 42,
+                  "startColumn": 8,
+                  "endColumn": 34,
+                  "snippet": {
+                    "text": "export const sanitize = (x) => x;\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "low",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-QUAL-005",
+          "level": "warning",
+          "message": {
+            "text": "Function body is a \"Not implemented\" throw / raise / panic. AI scaffolds compile but skip the actual logic — easy to ship by accident."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "auth_bypass.py"
+                },
+                "region": {
+                  "startLine": 7,
+                  "endLine": 9,
+                  "startColumn": 34,
+                  "endColumn": 11,
+                  "snippet": {
+                    "text": "    if user.token == \"changeme\":\r\n        return True\r\n    # TODO: add proper auth validation here\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-AUTH-002",
+          "level": "warning",
+          "message": {
+            "text": "TODO / FIXME / XXX comment that mentions auth, validation, or security. AI-generated code often emits placeholders for the dangerous parts."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "auth_bypass.py"
+                },
+                "region": {
+                  "startLine": 9,
+                  "endLine": 9,
+                  "startColumn": 5,
+                  "endColumn": 28,
+                  "snippet": {
+                    "text": "    # TODO: add proper auth validation here\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-QUAL-001",
+          "level": "warning",
+          "message": {
+            "text": "Catching exceptions and silently passing hides real failures, including security-relevant ones like auth or signature errors."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "auth_bypass.py"
+                },
+                "region": {
+                  "startLine": 28,
+                  "endLine": 29,
+                  "startColumn": 5,
+                  "endColumn": 13,
+                  "snippet": {
+                    "text": "    except Exception:\r\n        pass  # AI-prone: swallowed exception\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-QUAL-008",
+          "level": "warning",
+          "message": {
+            "text": "A debug, verbose, or trace flag is set to true / True directly in source. Different from VG-AUTH-001 (auth bypass): this is the flag itself being flipped on by default."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "django_settings.py"
+                },
+                "region": {
+                  "startLine": 5,
+                  "endLine": 6,
+                  "startColumn": 51,
+                  "endColumn": 13,
+                  "snippet": {
+                    "text": "# VG-FW-001 — DEBUG left on in a settings module.\r\nDEBUG = True\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "medium",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-CRYPTO-001",
+          "level": "warning",
+          "message": {
+            "text": "MD5 and SHA1 are broken for collision resistance and inadequate for password or signature use."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "weak_crypto.cs"
+                },
+                "region": {
+                  "startLine": 13,
+                  "endLine": 13,
+                  "startColumn": 32,
+                  "endColumn": 43,
+                  "snippet": {
+                    "text": "            using var hasher = MD5.Create();\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "low",
+            "severity": "medium"
+          }
+        },
+        {
+          "ruleId": "VG-CRYPTO-001",
+          "level": "warning",
+          "message": {
+            "text": "MD5 and SHA1 are broken for collision resistance and inadequate for password or signature use."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "weak_crypto.cs"
+                },
+                "region": {
+                  "startLine": 21,
+                  "endLine": 21,
+                  "startColumn": 32,
+                  "endColumn": 44,
+                  "snippet": {
+                    "text": "            using var hasher = SHA1.Create();\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "low",
+            "severity": "medium"
+          }
+        },
+        {
+          "ruleId": "VG-CRYPTO-002",
+          "level": "warning",
+          "message": {
+            "text": "Predictable PRNGs (Math.random, random.random, mt_rand, new Random, math/rand, Kernel#rand, etc.) must not be used for tokens, session IDs, or secrets."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "weak_crypto.cs"
+                },
+                "region": {
+                  "startLine": 28,
+                  "endLine": 28,
+                  "startColumn": 17,
+                  "endColumn": 36,
+                  "snippet": {
+                    "text": "            var token = new Random().Next();\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "low",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-CRYPTO-001",
+          "level": "warning",
+          "message": {
+            "text": "MD5 and SHA1 are broken for collision resistance and inadequate for password or signature use."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "weak_crypto.php"
+                },
+                "region": {
+                  "startLine": 6,
+                  "endLine": 6,
+                  "startColumn": 12,
+                  "endColumn": 16,
+                  "snippet": {
+                    "text": "    return md5($password);\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "low",
+            "severity": "medium"
+          }
+        },
+        {
+          "ruleId": "VG-CRYPTO-001",
+          "level": "warning",
+          "message": {
+            "text": "MD5 and SHA1 are broken for collision resistance and inadequate for password or signature use."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "weak_crypto.php"
+                },
+                "region": {
+                  "startLine": 11,
+                  "endLine": 11,
+                  "startColumn": 12,
+                  "endColumn": 17,
+                  "snippet": {
+                    "text": "    return sha1($data);\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "low",
+            "severity": "medium"
+          }
+        },
+        {
+          "ruleId": "VG-CRYPTO-002",
+          "level": "warning",
+          "message": {
+            "text": "Predictable PRNGs (Math.random, random.random, mt_rand, new Random, math/rand, Kernel#rand, etc.) must not be used for tokens, session IDs, or secrets."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "weak_crypto.php"
+                },
+                "region": {
+                  "startLine": 16,
+                  "endLine": 16,
+                  "startColumn": 6,
+                  "endColumn": 22,
+                  "snippet": {
+                    "text": "    $token = mt_rand(0, PHP_INT_MAX);\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "low",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-CRYPTO-002",
+          "level": "warning",
+          "message": {
+            "text": "Predictable PRNGs (Math.random, random.random, mt_rand, new Random, math/rand, Kernel#rand, etc.) must not be used for tokens, session IDs, or secrets."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "weak_crypto.php"
+                },
+                "region": {
+                  "startLine": 22,
+                  "endLine": 22,
+                  "startColumn": 6,
+                  "endColumn": 19,
+                  "snippet": {
+                    "text": "    $nonce = rand(100000, 999999);\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "low",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-CRYPTO-001",
+          "level": "warning",
+          "message": {
+            "text": "MD5 and SHA1 are broken for collision resistance and inadequate for password or signature use."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "weak_crypto.rb"
+                },
+                "region": {
+                  "startLine": 7,
+                  "endLine": 7,
+                  "startColumn": 3,
+                  "endColumn": 24,
+                  "snippet": {
+                    "text": "  Digest::MD5.hexdigest(payload)\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "low",
+            "severity": "medium"
+          }
+        },
+        {
+          "ruleId": "VG-CRYPTO-001",
+          "level": "warning",
+          "message": {
+            "text": "MD5 and SHA1 are broken for collision resistance and inadequate for password or signature use."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "weak_crypto.rb"
+                },
+                "region": {
+                  "startLine": 12,
+                  "endLine": 12,
+                  "startColumn": 3,
+                  "endColumn": 25,
+                  "snippet": {
+                    "text": "  Digest::SHA1.hexdigest(data)\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "low",
+            "severity": "medium"
+          }
+        },
+        {
+          "ruleId": "VG-CRYPTO-002",
+          "level": "warning",
+          "message": {
+            "text": "Predictable PRNGs (Math.random, random.random, mt_rand, new Random, math/rand, Kernel#rand, etc.) must not be used for tokens, session IDs, or secrets."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "weak_crypto.rb"
+                },
+                "region": {
+                  "startLine": 17,
+                  "endLine": 17,
+                  "startColumn": 3,
+                  "endColumn": 21,
+                  "snippet": {
+                    "text": "  session_id = rand(1_000_000)\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "low",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-CRYPTO-002",
+          "level": "warning",
+          "message": {
+            "text": "Predictable PRNGs (Math.random, random.random, mt_rand, new Random, math/rand, Kernel#rand, etc.) must not be used for tokens, session IDs, or secrets."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "weak_random.go"
+                },
+                "region": {
+                  "startLine": 11,
+                  "endLine": 11,
+                  "startColumn": 2,
+                  "endColumn": 25,
+                  "snippet": {
+                    "text": "\tsessionId := rand.Intn(1000000)\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "low",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-CRYPTO-002",
+          "level": "warning",
+          "message": {
+            "text": "Predictable PRNGs (Math.random, random.random, mt_rand, new Random, math/rand, Kernel#rand, etc.) must not be used for tokens, session IDs, or secrets."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "weak_random.go"
+                },
+                "region": {
+                  "startLine": 17,
+                  "endLine": 17,
+                  "startColumn": 2,
+                  "endColumn": 28,
+                  "snippet": {
+                    "text": "\tcsrfToken := rand.Float64()\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "low",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-CRYPTO-002",
+          "level": "warning",
+          "message": {
+            "text": "Predictable PRNGs (Math.random, random.random, mt_rand, new Random, math/rand, Kernel#rand, etc.) must not be used for tokens, session IDs, or secrets."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "xss.js"
+                },
+                "region": {
+                  "startLine": 14,
+                  "endLine": 14,
+                  "startColumn": 9,
+                  "endColumn": 33,
+                  "snippet": {
+                    "text": "  const sessionId = Math.random().toString(36).slice(2);\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "low",
+            "severity": "medium",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-QUAL-007",
+          "level": "note",
+          "message": {
+            "text": "Identifier prefixed mock / fake / dummy used in non-test source. AI fills incomplete branches with mock data that bypasses real logic."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ai_artifacts.js"
+                },
+                "region": {
+                  "startLine": 25,
+                  "endLine": 25,
+                  "startColumn": 1,
+                  "endColumn": 17,
+                  "snippet": {
+                    "text": "const mockUser = { id: 1, name: \"Alice\", role: \"admin\" };\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "low",
+            "severity": "low",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-QUAL-007",
+          "level": "note",
+          "message": {
+            "text": "Identifier prefixed mock / fake / dummy used in non-test source. AI fills incomplete branches with mock data that bypasses real logic."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ai_artifacts.js"
+                },
+                "region": {
+                  "startLine": 28,
+                  "endLine": 28,
+                  "startColumn": 3,
+                  "endColumn": 19,
+                  "snippet": {
+                    "text": "  return mockUser;\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "low",
+            "severity": "low",
+            "tags": [
+              "ai-prone"
+            ]
+          }
+        },
+        {
+          "ruleId": "VG-CRYPTO-003",
+          "level": "note",
+          "message": {
+            "text": "Plaintext HTTP URLs to non-localhost hosts expose traffic to interception and modification."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "secrets.js"
+                },
+                "region": {
+                  "startLine": 12,
+                  "endLine": 12,
+                  "startColumn": 9,
+                  "endColumn": 39,
+                  "snippet": {
+                    "text": "  fetch(\"http://api.example.com/login\");\r"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "confidence": "low",
+            "severity": "low"
+          }
+        }
+      ]
+    }
+  ]
+}

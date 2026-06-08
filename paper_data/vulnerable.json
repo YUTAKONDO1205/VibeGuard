@@ -1,0 +1,1513 @@
+{
+  "summary": {
+    "critical": 5,
+    "high": 15,
+    "medium": 27,
+    "low": 3,
+    "info": 0,
+    "total": 50
+  },
+  "findings": [
+    {
+      "findingId": "vg-mq18x5v2-e",
+      "ruleId": "VG-AUTH-001",
+      "title": "Authentication bypass when DEBUG is enabled",
+      "description": "Code path that skips auth when a debug or development flag is set. Easy to leave on accidentally in production.",
+      "severity": "critical",
+      "confidence": "medium",
+      "category": "auth",
+      "language": "python",
+      "filePath": "auth_bypass.py",
+      "startLine": 5,
+      "endLine": 6,
+      "startColumn": 5,
+      "endColumn": 20,
+      "snippet": "    if DEBUG:\r\n        return True  # AI-prone: debug bypass left in\r",
+      "evidence": [
+        "if DEBUG:\r\n        return True"
+      ],
+      "remediation": {
+        "why": "A debug bypass that ships to production silently disables authentication. AI-assisted code frequently leaves these in.",
+        "how": "Remove the bypass entirely, or gate it behind an explicit non-production environment check that fails closed.",
+        "references": [
+          "https://owasp.org/Top10/A07_2021-Identification_and_Authentication_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v2-d",
+      "ruleId": "VG-INJ-005",
+      "title": "Unsafe deserialization (pickle / yaml.load)",
+      "description": "pickle.load / pickle.loads and yaml.load without SafeLoader can execute arbitrary Python objects from input.",
+      "severity": "critical",
+      "confidence": "high",
+      "category": "injection",
+      "language": "python",
+      "filePath": "auth_bypass.py",
+      "startLine": 22,
+      "endLine": 22,
+      "startColumn": 12,
+      "endColumn": 22,
+      "snippet": "    return yaml.load(blob)\r",
+      "evidence": [
+        "yaml.load("
+      ],
+      "remediation": {
+        "why": "pickle and unsafe yaml load instantiate arbitrary classes during load, giving attacker-controlled input direct code execution.",
+        "how": "Use json or yaml.safe_load. If you must use pickle, only load from data you produced and signed yourself.",
+        "exampleFix": "yaml.safe_load(data)",
+        "references": [
+          "https://owasp.org/Top10/A03_2021-Injection/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    },
+    {
+      "findingId": "vg-mq18x5v5-r",
+      "ruleId": "VG-FW-002",
+      "title": "Flask app.run(debug=True) — Werkzeug debugger reachable",
+      "description": "Calling app.run(debug=True) enables the Werkzeug debugger, which provides an interactive Python console on uncaught exceptions. Combined with host=\"0.0.0.0\" this is remote code execution.",
+      "severity": "critical",
+      "confidence": "high",
+      "category": "config",
+      "language": "python",
+      "filePath": "flask_app.py",
+      "startLine": 19,
+      "endLine": 19,
+      "startColumn": 5,
+      "endColumn": 39,
+      "snippet": "    app.run(host='0.0.0.0', debug=True)\r",
+      "evidence": [
+        "app.run(host='0.0.0.0', debug=True"
+      ],
+      "remediation": {
+        "why": "The Werkzeug debugger lets anyone who can hit a 500 page execute arbitrary Python in the server process. AI-generated `if __name__ == \"__main__\": app.run(debug=True)` blocks routinely ship like this.",
+        "how": "Run Flask via a real WSGI server (gunicorn / uWSGI) in production, and never set debug=True on a public bind. For local dev, keep host=127.0.0.1.",
+        "exampleFix": "app.run()  # use gunicorn in production"
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "flask",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v6-u",
+      "ruleId": "VG-SEC-001",
+      "title": "Hard-coded AWS access key ID",
+      "description": "A literal AWS access key ID was found in source. Treat as compromised the moment it lands in version control.",
+      "severity": "critical",
+      "confidence": "high",
+      "category": "secrets",
+      "language": "javascript",
+      "filePath": "secrets.js",
+      "startLine": 2,
+      "endLine": 2,
+      "startColumn": 25,
+      "endColumn": 45,
+      "snippet": "const AWS_ACCESS_KEY = \"AKIA***\";\r",
+      "evidence": [
+        "AKIAIOSFODNN7EXAMPLE"
+      ],
+      "remediation": {
+        "why": "Source-embedded credentials end up in git history, build artefacts, and logs forever — and AWS keys grant immediate cloud access.",
+        "how": "Rotate the key, then load credentials from environment variables, AWS Secrets Manager, or your runtime IAM role.",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    },
+    {
+      "findingId": "vg-mq18x5vb-1c",
+      "ruleId": "VG-INJ-004",
+      "title": "Use of eval()",
+      "description": "eval() executes arbitrary code from a string. It is rarely necessary and almost never safe with non-literal input.",
+      "severity": "critical",
+      "confidence": "high",
+      "category": "injection",
+      "language": "javascript",
+      "filePath": "xss.js",
+      "startLine": 9,
+      "endLine": 9,
+      "startColumn": 10,
+      "endColumn": 15,
+      "snippet": "  return eval(input);\r",
+      "evidence": [
+        "eval("
+      ],
+      "remediation": {
+        "why": "eval() runs whatever string it receives as code. Any path from user input to that string is remote code execution.",
+        "how": "Replace eval() with a structured parser (JSON.parse, ast.literal_eval) or a dispatch table for the operations you actually need.",
+        "exampleFix": "JSON.parse(input)",
+        "references": [
+          "https://owasp.org/Top10/A03_2021-Injection/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "rce",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v2-g",
+      "ruleId": "VG-AUTH-003",
+      "title": "Dummy or placeholder credential string",
+      "description": "Hard-coded placeholder values like \"dummy_token\", \"test_password\", \"changeme\" frequently survive the trip to production.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "secrets",
+      "language": "python",
+      "filePath": "auth_bypass.py",
+      "startLine": 7,
+      "endLine": 7,
+      "startColumn": 22,
+      "endColumn": 32,
+      "snippet": "    if user.token == \"changeme\":\r",
+      "evidence": [
+        "\"changeme\""
+      ],
+      "remediation": {
+        "why": "Placeholder credentials in source are easy to forget about and disclose what the surrounding system trusts.",
+        "how": "Move the value to a configuration / secret store and fail loudly when the placeholder is detected at startup.",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v2-h",
+      "ruleId": "VG-AUTH-004",
+      "title": "TLS certificate verification disabled",
+      "description": "verify=False, rejectUnauthorized: false, InsecureSkipVerify: true — all disable TLS validation, defeating MITM protection.",
+      "severity": "high",
+      "confidence": "high",
+      "category": "crypto",
+      "language": "python",
+      "filePath": "auth_bypass.py",
+      "startLine": 16,
+      "endLine": 16,
+      "startColumn": 55,
+      "endColumn": 67,
+      "snippet": "    return requests.get(\"https://example.com/secret\", verify=False).text\r",
+      "evidence": [
+        "verify=False"
+      ],
+      "remediation": {
+        "why": "Disabling certificate verification turns TLS into a bare encrypted channel with no authentication of the peer. Active MITM is trivial.",
+        "how": "Remove the flag. If a self-signed cert is needed, install it as a trusted CA for the relevant client only.",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    },
+    {
+      "findingId": "vg-mq18x5v4-k",
+      "ruleId": "VG-INJ-002",
+      "title": "subprocess with shell=True and dynamic args",
+      "description": "subprocess.run / Popen / call invoked with shell=True passes the command through a shell, enabling injection when arguments are interpolated.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "injection",
+      "language": "python",
+      "filePath": "command_injection.py",
+      "startLine": 7,
+      "endLine": 7,
+      "startColumn": 5,
+      "endColumn": 54,
+      "snippet": "    subprocess.run(f\"git log {commit_id}\", shell=True)\r",
+      "evidence": [
+        "subprocess.run(f\"git log {commit_id}\", shell=True"
+      ],
+      "remediation": {
+        "why": "shell=True invokes a shell that interprets metacharacters; an attacker who controls any part of the string gets command execution.",
+        "how": "Pass arguments as a list and avoid shell=True. If a shell really is needed, use shlex.quote on every interpolated value.",
+        "exampleFix": "subprocess.run([\"git\", \"log\", commit_id])",
+        "references": [
+          "https://owasp.org/Top10/A03_2021-Injection/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "command-injection",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v4-l",
+      "ruleId": "VG-INJ-003",
+      "title": "os.system / os.popen with interpolated input",
+      "description": "os.system or os.popen executes via shell. Building the command from variables is a classic injection vector.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "injection",
+      "language": "python",
+      "filePath": "command_injection.py",
+      "startLine": 12,
+      "endLine": 12,
+      "startColumn": 5,
+      "endColumn": 26,
+      "snippet": "    os.system(\"rm -rf \" + path)\r",
+      "evidence": [
+        "os.system(\"rm -rf \" +"
+      ],
+      "remediation": {
+        "why": "os.system / os.popen run a shell. Interpolated variables become shell tokens.",
+        "how": "Replace with subprocess.run([...]) using a list and no shell, or sanitise via shlex.quote.",
+        "references": [
+          "https://owasp.org/Top10/A03_2021-Injection/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    },
+    {
+      "findingId": "vg-mq18x5v4-m",
+      "ruleId": "VG-AUTH-005",
+      "title": "Django @csrf_exempt decorator disables CSRF protection",
+      "description": "Marking a Django view with @csrf_exempt opts out of CSRF token validation. Routinely added to make POST endpoints \"just work\" during development and forgotten.",
+      "severity": "high",
+      "confidence": "high",
+      "category": "auth",
+      "language": "python",
+      "filePath": "django_settings.py",
+      "startLine": 14,
+      "endLine": 16,
+      "startColumn": 54,
+      "endColumn": 13,
+      "snippet": "from django.views.decorators.csrf import csrf_exempt\r\n\r\n@csrf_exempt\r",
+      "evidence": [
+        "\n\r\n@csrf_exempt"
+      ],
+      "remediation": {
+        "why": "Without CSRF validation, an attacker can trigger state-changing requests from a victim's browser using forged forms or fetch calls.",
+        "how": "Remove @csrf_exempt and submit a CSRF token (Django will inject {% csrf_token %} into forms / require X-CSRFToken on fetch). For pure JSON APIs, use Django REST Framework's SessionAuthentication or token auth which handles CSRF correctly.",
+        "references": [
+          "https://owasp.org/Top10/A07_2021-Identification_and_Authentication_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "django",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v5-q",
+      "ruleId": "VG-FW-003",
+      "title": "CORS configured with wildcard origin",
+      "description": "cors({ origin: \"*\" }), Access-Control-Allow-Origin: * literals, or Flask-CORS resources={\"/*\": {\"origins\": \"*\"}} disable the same-origin policy for every browser.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "access-control",
+      "language": "javascript",
+      "filePath": "express_session.js",
+      "startLine": 10,
+      "endLine": 10,
+      "startColumn": 9,
+      "endColumn": 27,
+      "snippet": "app.use(cors({ origin: '*' }));\r",
+      "evidence": [
+        "cors({ origin: '*'"
+      ],
+      "remediation": {
+        "why": "A wildcard CORS origin lets any site read responses from your API in a victim's browser, including responses for authenticated users.",
+        "how": "List allowed origins explicitly. If credentials are involved, the origin must echo the request's Origin header — wildcard is rejected by browsers when withCredentials=true anyway.",
+        "exampleFix": "cors({ origin: [\"https://app.example.com\"], credentials: true })",
+        "references": [
+          "https://owasp.org/Top10/A01_2021-Broken_Access_Control/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "cors",
+        "express",
+        "flask",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v5-o",
+      "ruleId": "VG-AUTH-006",
+      "title": "Express session cookie missing secure / httpOnly flag",
+      "description": "express-session config with cookie.secure: false or cookie.httpOnly: false leaves session IDs readable by JavaScript or transmittable over plain HTTP.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "auth",
+      "language": "javascript",
+      "filePath": "express_session.js",
+      "startLine": 16,
+      "endLine": 16,
+      "startColumn": 15,
+      "endColumn": 28,
+      "snippet": "    cookie: { secure: false, httpOnly: false },\r",
+      "evidence": [
+        "secure: false"
+      ],
+      "remediation": {
+        "why": "cookie.secure: false sends the session ID over plain HTTP where any network observer can capture it. cookie.httpOnly: false lets injected scripts read document.cookie and exfiltrate the session.",
+        "how": "Set cookie: { secure: true, httpOnly: true, sameSite: \"lax\" } in the session() options. In local dev only, gate secure on NODE_ENV.",
+        "exampleFix": "session({ cookie: { secure: true, httpOnly: true, sameSite: \"lax\" } })",
+        "references": [
+          "https://owasp.org/Top10/A07_2021-Identification_and_Authentication_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "express",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v5-p",
+      "ruleId": "VG-AUTH-006",
+      "title": "Express session cookie missing secure / httpOnly flag",
+      "description": "express-session config with cookie.secure: false or cookie.httpOnly: false leaves session IDs readable by JavaScript or transmittable over plain HTTP.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "auth",
+      "language": "javascript",
+      "filePath": "express_session.js",
+      "startLine": 16,
+      "endLine": 16,
+      "startColumn": 30,
+      "endColumn": 45,
+      "snippet": "    cookie: { secure: false, httpOnly: false },\r",
+      "evidence": [
+        "httpOnly: false"
+      ],
+      "remediation": {
+        "why": "cookie.secure: false sends the session ID over plain HTTP where any network observer can capture it. cookie.httpOnly: false lets injected scripts read document.cookie and exfiltrate the session.",
+        "how": "Set cookie: { secure: true, httpOnly: true, sameSite: \"lax\" } in the session() options. In local dev only, gate secure on NODE_ENV.",
+        "exampleFix": "session({ cookie: { secure: true, httpOnly: true, sameSite: \"lax\" } })",
+        "references": [
+          "https://owasp.org/Top10/A07_2021-Identification_and_Authentication_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "express",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v5-s",
+      "ruleId": "VG-FW-003",
+      "title": "CORS configured with wildcard origin",
+      "description": "cors({ origin: \"*\" }), Access-Control-Allow-Origin: * literals, or Flask-CORS resources={\"/*\": {\"origins\": \"*\"}} disable the same-origin policy for every browser.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "access-control",
+      "language": "python",
+      "filePath": "flask_app.py",
+      "startLine": 9,
+      "endLine": 9,
+      "startColumn": 30,
+      "endColumn": 44,
+      "snippet": "CORS(app, resources={r'/*': {'origins': '*'}})\r",
+      "evidence": [
+        "'origins': '*'"
+      ],
+      "remediation": {
+        "why": "A wildcard CORS origin lets any site read responses from your API in a victim's browser, including responses for authenticated users.",
+        "how": "List allowed origins explicitly. If credentials are involved, the origin must echo the request's Origin header — wildcard is rejected by browsers when withCredentials=true anyway.",
+        "exampleFix": "cors({ origin: [\"https://app.example.com\"], credentials: true })",
+        "references": [
+          "https://owasp.org/Top10/A01_2021-Broken_Access_Control/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "cors",
+        "express",
+        "flask",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v6-t",
+      "ruleId": "VG-AUTH-003",
+      "title": "Dummy or placeholder credential string",
+      "description": "Hard-coded placeholder values like \"dummy_token\", \"test_password\", \"changeme\" frequently survive the trip to production.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "secrets",
+      "language": "javascript",
+      "filePath": "secrets.js",
+      "startLine": 4,
+      "endLine": 4,
+      "startColumn": 21,
+      "endColumn": 31,
+      "snippet": "const PLACEHOLDER = \"changeme\";\r",
+      "evidence": [
+        "\"changeme\""
+      ],
+      "remediation": {
+        "why": "Placeholder credentials in source are easy to forget about and disclose what the surrounding system trusts.",
+        "how": "Move the value to a configuration / secret store and fail loudly when the placeholder is detected at startup.",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v6-v",
+      "ruleId": "VG-SEC-003",
+      "title": "Likely API key / secret in literal",
+      "description": "Long high-entropy literal assigned to a variable named api_key, secret, token, or password.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "secrets",
+      "language": "javascript",
+      "filePath": "secrets.js",
+      "startLine": 7,
+      "endLine": 7,
+      "startColumn": 3,
+      "endColumn": 41,
+      "snippet": "  apiKey: \"sk_l***\",\r",
+      "evidence": [
+        "apiKey: \"sk_l***\""
+      ],
+      "remediation": {
+        "why": "Hard-coded API keys leak through source control, screenshots, and shared notebooks.",
+        "how": "Replace with an environment variable lookup and add the placeholder to .env.example only.",
+        "exampleFix": "const apiKey = process.env.STRIPE_API_KEY;",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v6-w",
+      "ruleId": "VG-SEC-003",
+      "title": "Likely API key / secret in literal",
+      "description": "Long high-entropy literal assigned to a variable named api_key, secret, token, or password.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "secrets",
+      "language": "javascript",
+      "filePath": "secrets.js",
+      "startLine": 8,
+      "endLine": 8,
+      "startColumn": 3,
+      "endColumn": 36,
+      "snippet": "  password: \"hunt***\",\r",
+      "evidence": [
+        "password: \"hunt***\""
+      ],
+      "remediation": {
+        "why": "Hard-coded API keys leak through source control, screenshots, and shared notebooks.",
+        "how": "Replace with an environment variable lookup and add the placeholder to .env.example only.",
+        "exampleFix": "const apiKey = process.env.STRIPE_API_KEY;",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v7-y",
+      "ruleId": "VG-INJ-001",
+      "title": "SQL string concatenation",
+      "description": "SQL query is built via string concatenation or interpolation. Untrusted input concatenated into SQL is the primary vector for SQL injection.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "injection",
+      "language": "python",
+      "filePath": "sql_injection.py",
+      "startLine": 6,
+      "endLine": 6,
+      "startColumn": 13,
+      "endColumn": 50,
+      "snippet": "    query = \"SELECT * FROM users WHERE id = \" + str(user_id)\r",
+      "evidence": [
+        "\"SELECT * FROM users WHERE id = \" + s"
+      ],
+      "remediation": {
+        "why": "Concatenated SQL allows attacker-controlled input to alter the query structure and exfiltrate or corrupt data.",
+        "how": "Use parameterised queries / prepared statements. Pass user input as bound parameters, not as parts of the SQL string.",
+        "exampleFix": "db.query('SELECT * FROM users WHERE id = ?', [userId])",
+        "references": [
+          "https://owasp.org/Top10/A03_2021-Injection/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "sql-injection",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v7-z",
+      "ruleId": "VG-INJ-001",
+      "title": "SQL string concatenation",
+      "description": "SQL query is built via string concatenation or interpolation. Untrusted input concatenated into SQL is the primary vector for SQL injection.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "injection",
+      "language": "python",
+      "filePath": "sql_injection.py",
+      "startLine": 14,
+      "endLine": 14,
+      "startColumn": 17,
+      "endColumn": 55,
+      "snippet": "    cur.execute(\"DELETE FROM sessions WHERE id = \" + sid)\r",
+      "evidence": [
+        "\"DELETE FROM sessions WHERE id = \" + s"
+      ],
+      "remediation": {
+        "why": "Concatenated SQL allows attacker-controlled input to alter the query structure and exfiltrate or corrupt data.",
+        "how": "Use parameterised queries / prepared statements. Pass user input as bound parameters, not as parts of the SQL string.",
+        "exampleFix": "db.query('SELECT * FROM sessions WHERE id = ?', [userId])",
+        "references": [
+          "https://owasp.org/Top10/A03_2021-Injection/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "sql-injection",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5vb-1d",
+      "ruleId": "VG-INJ-006",
+      "title": "innerHTML assignment with non-literal value",
+      "description": "Assigning a non-literal string to innerHTML is a common XSS sink. AI-generated UI code often does this without sanitisation.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "injection",
+      "language": "javascript",
+      "filePath": "xss.js",
+      "startLine": 4,
+      "endLine": 4,
+      "startColumn": 3,
+      "endColumn": 27,
+      "snippet": "  el.innerHTML = userInput;\r",
+      "evidence": [
+        "el.innerHTML = userInput"
+      ],
+      "remediation": {
+        "why": "Strings written to innerHTML are parsed as HTML and can introduce script execution.",
+        "how": "Prefer textContent for plain text. For HTML, sanitise with DOMPurify or use the framework escape mechanism.",
+        "exampleFix": "el.textContent = userInput;",
+        "references": [
+          "https://owasp.org/Top10/A03_2021-Injection/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "xss",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v0-8",
+      "ruleId": "VG-QUAL-008",
+      "title": "Debug / verbose flag hardcoded ON",
+      "description": "A debug, verbose, or trace flag is set to true / True directly in source. Different from VG-AUTH-001 (auth bypass): this is the flag itself being flipped on by default.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "ai_artifacts.js",
+      "startLine": 6,
+      "endLine": 6,
+      "startColumn": 3,
+      "endColumn": 14,
+      "snippet": "  debug: true,\r",
+      "evidence": [
+        "debug: true"
+      ],
+      "remediation": {
+        "why": "Debug-on by default leaks stack traces, internal paths, and PII. AI templates often ship with verbose: true because that is what their training examples show.",
+        "how": "Default debug / verbose / trace flags to false, and source the override from environment configuration.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v0-9",
+      "ruleId": "VG-QUAL-008",
+      "title": "Debug / verbose flag hardcoded ON",
+      "description": "A debug, verbose, or trace flag is set to true / True directly in source. Different from VG-AUTH-001 (auth bypass): this is the flag itself being flipped on by default.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "ai_artifacts.js",
+      "startLine": 7,
+      "endLine": 7,
+      "startColumn": 3,
+      "endColumn": 16,
+      "snippet": "  verbose: true,\r",
+      "evidence": [
+        "verbose: true"
+      ],
+      "remediation": {
+        "why": "Debug-on by default leaks stack traces, internal paths, and PII. AI templates often ship with verbose: true because that is what their training examples show.",
+        "how": "Default debug / verbose / trace flags to false, and source the override from environment configuration.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5uz-2",
+      "ruleId": "VG-QUAL-005",
+      "title": "Stub or not-implemented function body",
+      "description": "Function body is a \"Not implemented\" throw / raise / panic. AI scaffolds compile but skip the actual logic — easy to ship by accident.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "ai_artifacts.js",
+      "startLine": 12,
+      "endLine": 12,
+      "startColumn": 3,
+      "endColumn": 35,
+      "snippet": "  throw new Error(\"Not implemented\");\r",
+      "evidence": [
+        "throw new Error(\"Not implemented"
+      ],
+      "remediation": {
+        "why": "A \"not implemented\" body looks like real code at the call site but performs no work — security checks, validation, or business logic that should run silently does not.",
+        "how": "Implement the function, or raise loudly *and* mark the call site as blocked (typed error / 5xx) so callers cannot silently proceed.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5uz-3",
+      "ruleId": "VG-QUAL-005",
+      "title": "Stub or not-implemented function body",
+      "description": "Function body is a \"Not implemented\" throw / raise / panic. AI scaffolds compile but skip the actual logic — easy to ship by accident.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "ai_artifacts.js",
+      "startLine": 16,
+      "endLine": 17,
+      "startColumn": 46,
+      "endColumn": 23,
+      "snippet": "export function getUserPermissions(userId) {\r\n  return null; // TODO implement permission lookup\r",
+      "evidence": [
+        "\n  return null; // TODO"
+      ],
+      "remediation": {
+        "why": "A \"not implemented\" body looks like real code at the call site but performs no work — security checks, validation, or business logic that should run silently does not.",
+        "how": "Implement the function, or raise loudly *and* mark the call site as blocked (typed error / 5xx) so callers cannot silently proceed.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5uy-1",
+      "ruleId": "VG-AUTH-002",
+      "title": "TODO comment near security-critical code",
+      "description": "TODO / FIXME / XXX comment that mentions auth, validation, or security. AI-generated code often emits placeholders for the dangerous parts.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "ai_artifacts.js",
+      "startLine": 17,
+      "endLine": 17,
+      "startColumn": 16,
+      "endColumn": 44,
+      "snippet": "  return null; // TODO implement permission lookup\r",
+      "evidence": [
+        "// TODO implement permission"
+      ],
+      "remediation": {
+        "why": "A TODO next to security-critical logic typically means the safety check was deferred and may never be implemented.",
+        "how": "Implement the missing check, or track the gap as a blocking issue before this code reaches production.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5uz-4",
+      "ruleId": "VG-QUAL-006",
+      "title": "Placeholder email address in source",
+      "description": "Hard-coded emails on example.com / test.com / foo.bar / domain.com — left over from AI templates. They become silent send-failures or info disclosure in production.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "ai_artifacts.js",
+      "startLine": 21,
+      "endLine": 21,
+      "startColumn": 29,
+      "endColumn": 50,
+      "snippet": "export const SUPPORT_FROM = \"noreply@example.com\";\r",
+      "evidence": [
+        "\"noreply@example.com\""
+      ],
+      "remediation": {
+        "why": "AI templates use these literal domains as stand-ins. Shipped, they either bounce, silently swallow notifications, or leak intent to a third party that owns the placeholder domain.",
+        "how": "Move the address to configuration, fail at startup if the value still matches a known placeholder list, and avoid baking any address into source.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5uz-5",
+      "ruleId": "VG-QUAL-006",
+      "title": "Placeholder email address in source",
+      "description": "Hard-coded emails on example.com / test.com / foo.bar / domain.com — left over from AI templates. They become silent send-failures or info disclosure in production.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "ai_artifacts.js",
+      "startLine": 22,
+      "endLine": 22,
+      "startColumn": 28,
+      "endColumn": 44,
+      "snippet": "export const ADMIN_EMAIL = \"admin@test.com\";\r",
+      "evidence": [
+        "\"admin@test.com\""
+      ],
+      "remediation": {
+        "why": "AI templates use these literal domains as stand-ins. Shipped, they either bounce, silently swallow notifications, or leak intent to a third party that owns the placeholder domain.",
+        "how": "Move the address to configuration, fail at startup if the value still matches a known placeholder list, and avoid baking any address into source.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v0-a",
+      "ruleId": "VG-QUAL-009",
+      "title": "\"Not for production\" / \"for now\" placeholder comment",
+      "description": "Comment self-labels the surrounding code as a placeholder, demo, or temporary workaround. Strong signal that AI-generated boilerplate landed without review.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "ai_artifacts.js",
+      "startLine": 32,
+      "endLine": 32,
+      "startColumn": 1,
+      "endColumn": 11,
+      "snippet": "// for now, just trust the request — replace this with real validation later\r",
+      "evidence": [
+        "// for now"
+      ],
+      "remediation": {
+        "why": "The comment is the author admitting the code should not have shipped as-is. Either the warning is correct (replace the code) or the comment is stale (delete it).",
+        "how": "Replace the placeholder with the real implementation, or remove the comment after confirming the code is in fact production-ready.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v0-b",
+      "ruleId": "VG-QUAL-010",
+      "title": "Validator / sanitizer with passthrough body",
+      "description": "Function whose name claims to validate, sanitize, or check input but whose body just returns true / returns the input unchanged.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "ai_artifacts.js",
+      "startLine": 38,
+      "endLine": 40,
+      "startColumn": 8,
+      "endColumn": 2,
+      "snippet": "export function validateInput(input) {\r\n  return true;\r\n}\r",
+      "evidence": [
+        "function validateInput(input) {\r\n  return true;\r\n}"
+      ],
+      "remediation": {
+        "why": "A validator that always returns true gives callers false confidence. Downstream code skips defensive handling because \"it has been validated\".",
+        "how": "Implement the actual checks, or rename the function so callers do not assume validation has happened.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v0-c",
+      "ruleId": "VG-QUAL-010",
+      "title": "Validator / sanitizer with passthrough body",
+      "description": "Function whose name claims to validate, sanitize, or check input but whose body just returns true / returns the input unchanged.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "ai_artifacts.js",
+      "startLine": 42,
+      "endLine": 42,
+      "startColumn": 8,
+      "endColumn": 34,
+      "snippet": "export const sanitize = (x) => x;\r",
+      "evidence": [
+        "const sanitize = (x) => x;"
+      ],
+      "remediation": {
+        "why": "A validator that always returns true gives callers false confidence. Downstream code skips defensive handling because \"it has been validated\".",
+        "how": "Implement the actual checks, or rename the function so callers do not assume validation has happened.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v3-j",
+      "ruleId": "VG-QUAL-005",
+      "title": "Stub or not-implemented function body",
+      "description": "Function body is a \"Not implemented\" throw / raise / panic. AI scaffolds compile but skip the actual logic — easy to ship by accident.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "python",
+      "filePath": "auth_bypass.py",
+      "startLine": 7,
+      "endLine": 9,
+      "startColumn": 34,
+      "endColumn": 11,
+      "snippet": "    if user.token == \"changeme\":\r\n        return True\r\n    # TODO: add proper auth validation here\r",
+      "evidence": [
+        "\n        return True\r\n    # TODO"
+      ],
+      "remediation": {
+        "why": "A \"not implemented\" body looks like real code at the call site but performs no work — security checks, validation, or business logic that should run silently does not.",
+        "how": "Implement the function, or raise loudly *and* mark the call site as blocked (typed error / 5xx) so callers cannot silently proceed.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v2-f",
+      "ruleId": "VG-AUTH-002",
+      "title": "TODO comment near security-critical code",
+      "description": "TODO / FIXME / XXX comment that mentions auth, validation, or security. AI-generated code often emits placeholders for the dangerous parts.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "python",
+      "filePath": "auth_bypass.py",
+      "startLine": 9,
+      "endLine": 9,
+      "startColumn": 5,
+      "endColumn": 28,
+      "snippet": "    # TODO: add proper auth validation here\r",
+      "evidence": [
+        "# TODO: add proper auth"
+      ],
+      "remediation": {
+        "why": "A TODO next to security-critical logic typically means the safety check was deferred and may never be implemented.",
+        "how": "Implement the missing check, or track the gap as a blocking issue before this code reaches production.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v2-i",
+      "ruleId": "VG-QUAL-001",
+      "title": "Empty except / catch block",
+      "description": "Catching exceptions and silently passing hides real failures, including security-relevant ones like auth or signature errors.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "quality",
+      "language": "python",
+      "filePath": "auth_bypass.py",
+      "startLine": 28,
+      "endLine": 29,
+      "startColumn": 5,
+      "endColumn": 13,
+      "snippet": "    except Exception:\r\n        pass  # AI-prone: swallowed exception\r",
+      "evidence": [
+        "except Exception:\r\n        pass"
+      ],
+      "remediation": {
+        "why": "Swallowing exceptions makes the system look healthy while real errors (including security failures) accumulate.",
+        "how": "Log the error with context and either re-raise, return a typed error, or take an explicit safe action."
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v5-n",
+      "ruleId": "VG-QUAL-008",
+      "title": "Debug / verbose flag hardcoded ON",
+      "description": "A debug, verbose, or trace flag is set to true / True directly in source. Different from VG-AUTH-001 (auth bypass): this is the flag itself being flipped on by default.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "python",
+      "filePath": "django_settings.py",
+      "startLine": 5,
+      "endLine": 6,
+      "startColumn": 51,
+      "endColumn": 13,
+      "snippet": "# VG-FW-001 — DEBUG left on in a settings module.\r\nDEBUG = True\r",
+      "evidence": [
+        "\nDEBUG = True"
+      ],
+      "remediation": {
+        "why": "Debug-on by default leaks stack traces, internal paths, and PII. AI templates often ship with verbose: true because that is what their training examples show.",
+        "how": "Default debug / verbose / trace flags to false, and source the override from environment configuration.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v7-10",
+      "ruleId": "VG-CRYPTO-001",
+      "title": "Weak hash (MD5 / SHA1) used in security context",
+      "description": "MD5 and SHA1 are broken for collision resistance and inadequate for password or signature use.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "crypto",
+      "language": "csharp",
+      "filePath": "weak_crypto.cs",
+      "startLine": 13,
+      "endLine": 13,
+      "startColumn": 32,
+      "endColumn": 43,
+      "snippet": "            using var hasher = MD5.Create();\r",
+      "evidence": [
+        "MD5.Create("
+      ],
+      "remediation": {
+        "why": "MD5 and SHA1 collisions are practical; using them for passwords, signatures, or integrity is insecure.",
+        "how": "Use SHA-256 or SHA-3 for integrity, and a password hash like bcrypt / argon2 / scrypt for credentials.",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    },
+    {
+      "findingId": "vg-mq18x5v7-11",
+      "ruleId": "VG-CRYPTO-001",
+      "title": "Weak hash (MD5 / SHA1) used in security context",
+      "description": "MD5 and SHA1 are broken for collision resistance and inadequate for password or signature use.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "crypto",
+      "language": "csharp",
+      "filePath": "weak_crypto.cs",
+      "startLine": 21,
+      "endLine": 21,
+      "startColumn": 32,
+      "endColumn": 44,
+      "snippet": "            using var hasher = SHA1.Create();\r",
+      "evidence": [
+        "SHA1.Create("
+      ],
+      "remediation": {
+        "why": "MD5 and SHA1 collisions are practical; using them for passwords, signatures, or integrity is insecure.",
+        "how": "Use SHA-256 or SHA-3 for integrity, and a password hash like bcrypt / argon2 / scrypt for credentials.",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    },
+    {
+      "findingId": "vg-mq18x5v7-12",
+      "ruleId": "VG-CRYPTO-002",
+      "title": "Non-cryptographic random used for tokens / IDs",
+      "description": "Predictable PRNGs (Math.random, random.random, mt_rand, new Random, math/rand, Kernel#rand, etc.) must not be used for tokens, session IDs, or secrets.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "crypto",
+      "language": "csharp",
+      "filePath": "weak_crypto.cs",
+      "startLine": 28,
+      "endLine": 28,
+      "startColumn": 17,
+      "endColumn": 36,
+      "snippet": "            var token = new Random().Next();\r",
+      "evidence": [
+        "token = new Random("
+      ],
+      "remediation": {
+        "why": "Standard-library random functions are seeded PRNGs; their output is predictable enough to brute force tokens.",
+        "how": "Use a CSPRNG: crypto.randomBytes / crypto.getRandomValues (Node), secrets.token_urlsafe (Python), crypto/rand (Go), SecureRandom (Java/Ruby), random_bytes / random_int (PHP), RandomNumberGenerator (C#).",
+        "exampleFix": "crypto.randomBytes(32).toString(\"hex\")",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v8-13",
+      "ruleId": "VG-CRYPTO-001",
+      "title": "Weak hash (MD5 / SHA1) used in security context",
+      "description": "MD5 and SHA1 are broken for collision resistance and inadequate for password or signature use.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "crypto",
+      "language": "php",
+      "filePath": "weak_crypto.php",
+      "startLine": 6,
+      "endLine": 6,
+      "startColumn": 12,
+      "endColumn": 16,
+      "snippet": "    return md5($password);\r",
+      "evidence": [
+        "md5("
+      ],
+      "remediation": {
+        "why": "MD5 and SHA1 collisions are practical; using them for passwords, signatures, or integrity is insecure.",
+        "how": "Use SHA-256 or SHA-3 for integrity, and a password hash like bcrypt / argon2 / scrypt for credentials.",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    },
+    {
+      "findingId": "vg-mq18x5v8-14",
+      "ruleId": "VG-CRYPTO-001",
+      "title": "Weak hash (MD5 / SHA1) used in security context",
+      "description": "MD5 and SHA1 are broken for collision resistance and inadequate for password or signature use.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "crypto",
+      "language": "php",
+      "filePath": "weak_crypto.php",
+      "startLine": 11,
+      "endLine": 11,
+      "startColumn": 12,
+      "endColumn": 17,
+      "snippet": "    return sha1($data);\r",
+      "evidence": [
+        "sha1("
+      ],
+      "remediation": {
+        "why": "MD5 and SHA1 collisions are practical; using them for passwords, signatures, or integrity is insecure.",
+        "how": "Use SHA-256 or SHA-3 for integrity, and a password hash like bcrypt / argon2 / scrypt for credentials.",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    },
+    {
+      "findingId": "vg-mq18x5v8-15",
+      "ruleId": "VG-CRYPTO-002",
+      "title": "Non-cryptographic random used for tokens / IDs",
+      "description": "Predictable PRNGs (Math.random, random.random, mt_rand, new Random, math/rand, Kernel#rand, etc.) must not be used for tokens, session IDs, or secrets.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "crypto",
+      "language": "php",
+      "filePath": "weak_crypto.php",
+      "startLine": 16,
+      "endLine": 16,
+      "startColumn": 6,
+      "endColumn": 22,
+      "snippet": "    $token = mt_rand(0, PHP_INT_MAX);\r",
+      "evidence": [
+        "token = mt_rand("
+      ],
+      "remediation": {
+        "why": "Standard-library random functions are seeded PRNGs; their output is predictable enough to brute force tokens.",
+        "how": "Use a CSPRNG: crypto.randomBytes / crypto.getRandomValues (Node), secrets.token_urlsafe (Python), crypto/rand (Go), SecureRandom (Java/Ruby), random_bytes / random_int (PHP), RandomNumberGenerator (C#).",
+        "exampleFix": "crypto.randomBytes(32).toString(\"hex\")",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v8-16",
+      "ruleId": "VG-CRYPTO-002",
+      "title": "Non-cryptographic random used for tokens / IDs",
+      "description": "Predictable PRNGs (Math.random, random.random, mt_rand, new Random, math/rand, Kernel#rand, etc.) must not be used for tokens, session IDs, or secrets.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "crypto",
+      "language": "php",
+      "filePath": "weak_crypto.php",
+      "startLine": 22,
+      "endLine": 22,
+      "startColumn": 6,
+      "endColumn": 19,
+      "snippet": "    $nonce = rand(100000, 999999);\r",
+      "evidence": [
+        "nonce = rand("
+      ],
+      "remediation": {
+        "why": "Standard-library random functions are seeded PRNGs; their output is predictable enough to brute force tokens.",
+        "how": "Use a CSPRNG: crypto.randomBytes / crypto.getRandomValues (Node), secrets.token_urlsafe (Python), crypto/rand (Go), SecureRandom (Java/Ruby), random_bytes / random_int (PHP), RandomNumberGenerator (C#).",
+        "exampleFix": "crypto.randomBytes(32).toString(\"hex\")",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v9-17",
+      "ruleId": "VG-CRYPTO-001",
+      "title": "Weak hash (MD5 / SHA1) used in security context",
+      "description": "MD5 and SHA1 are broken for collision resistance and inadequate for password or signature use.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "crypto",
+      "language": "ruby",
+      "filePath": "weak_crypto.rb",
+      "startLine": 7,
+      "endLine": 7,
+      "startColumn": 3,
+      "endColumn": 24,
+      "snippet": "  Digest::MD5.hexdigest(payload)\r",
+      "evidence": [
+        "Digest::MD5.hexdigest"
+      ],
+      "remediation": {
+        "why": "MD5 and SHA1 collisions are practical; using them for passwords, signatures, or integrity is insecure.",
+        "how": "Use SHA-256 or SHA-3 for integrity, and a password hash like bcrypt / argon2 / scrypt for credentials.",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    },
+    {
+      "findingId": "vg-mq18x5v9-18",
+      "ruleId": "VG-CRYPTO-001",
+      "title": "Weak hash (MD5 / SHA1) used in security context",
+      "description": "MD5 and SHA1 are broken for collision resistance and inadequate for password or signature use.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "crypto",
+      "language": "ruby",
+      "filePath": "weak_crypto.rb",
+      "startLine": 12,
+      "endLine": 12,
+      "startColumn": 3,
+      "endColumn": 25,
+      "snippet": "  Digest::SHA1.hexdigest(data)\r",
+      "evidence": [
+        "Digest::SHA1.hexdigest"
+      ],
+      "remediation": {
+        "why": "MD5 and SHA1 collisions are practical; using them for passwords, signatures, or integrity is insecure.",
+        "how": "Use SHA-256 or SHA-3 for integrity, and a password hash like bcrypt / argon2 / scrypt for credentials.",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    },
+    {
+      "findingId": "vg-mq18x5v9-19",
+      "ruleId": "VG-CRYPTO-002",
+      "title": "Non-cryptographic random used for tokens / IDs",
+      "description": "Predictable PRNGs (Math.random, random.random, mt_rand, new Random, math/rand, Kernel#rand, etc.) must not be used for tokens, session IDs, or secrets.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "crypto",
+      "language": "ruby",
+      "filePath": "weak_crypto.rb",
+      "startLine": 17,
+      "endLine": 17,
+      "startColumn": 3,
+      "endColumn": 21,
+      "snippet": "  session_id = rand(1_000_000)\r",
+      "evidence": [
+        "session_id = rand("
+      ],
+      "remediation": {
+        "why": "Standard-library random functions are seeded PRNGs; their output is predictable enough to brute force tokens.",
+        "how": "Use a CSPRNG: crypto.randomBytes / crypto.getRandomValues (Node), secrets.token_urlsafe (Python), crypto/rand (Go), SecureRandom (Java/Ruby), random_bytes / random_int (PHP), RandomNumberGenerator (C#).",
+        "exampleFix": "crypto.randomBytes(32).toString(\"hex\")",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5va-1a",
+      "ruleId": "VG-CRYPTO-002",
+      "title": "Non-cryptographic random used for tokens / IDs",
+      "description": "Predictable PRNGs (Math.random, random.random, mt_rand, new Random, math/rand, Kernel#rand, etc.) must not be used for tokens, session IDs, or secrets.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "crypto",
+      "language": "go",
+      "filePath": "weak_random.go",
+      "startLine": 11,
+      "endLine": 11,
+      "startColumn": 2,
+      "endColumn": 25,
+      "snippet": "\tsessionId := rand.Intn(1000000)\r",
+      "evidence": [
+        "sessionId := rand.Intn("
+      ],
+      "remediation": {
+        "why": "Standard-library random functions are seeded PRNGs; their output is predictable enough to brute force tokens.",
+        "how": "Use a CSPRNG: crypto.randomBytes / crypto.getRandomValues (Node), secrets.token_urlsafe (Python), crypto/rand (Go), SecureRandom (Java/Ruby), random_bytes / random_int (PHP), RandomNumberGenerator (C#).",
+        "exampleFix": "crypto.randomBytes(32).toString(\"hex\")",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5va-1b",
+      "ruleId": "VG-CRYPTO-002",
+      "title": "Non-cryptographic random used for tokens / IDs",
+      "description": "Predictable PRNGs (Math.random, random.random, mt_rand, new Random, math/rand, Kernel#rand, etc.) must not be used for tokens, session IDs, or secrets.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "crypto",
+      "language": "go",
+      "filePath": "weak_random.go",
+      "startLine": 17,
+      "endLine": 17,
+      "startColumn": 2,
+      "endColumn": 28,
+      "snippet": "\tcsrfToken := rand.Float64()\r",
+      "evidence": [
+        "csrfToken := rand.Float64("
+      ],
+      "remediation": {
+        "why": "Standard-library random functions are seeded PRNGs; their output is predictable enough to brute force tokens.",
+        "how": "Use a CSPRNG: crypto.randomBytes / crypto.getRandomValues (Node), secrets.token_urlsafe (Python), crypto/rand (Go), SecureRandom (Java/Ruby), random_bytes / random_int (PHP), RandomNumberGenerator (C#).",
+        "exampleFix": "crypto.randomBytes(32).toString(\"hex\")",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5vb-1e",
+      "ruleId": "VG-CRYPTO-002",
+      "title": "Non-cryptographic random used for tokens / IDs",
+      "description": "Predictable PRNGs (Math.random, random.random, mt_rand, new Random, math/rand, Kernel#rand, etc.) must not be used for tokens, session IDs, or secrets.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "crypto",
+      "language": "javascript",
+      "filePath": "xss.js",
+      "startLine": 14,
+      "endLine": 14,
+      "startColumn": 9,
+      "endColumn": 33,
+      "snippet": "  const sessionId = Math.random().toString(36).slice(2);\r",
+      "evidence": [
+        "sessionId = Math.random("
+      ],
+      "remediation": {
+        "why": "Standard-library random functions are seeded PRNGs; their output is predictable enough to brute force tokens.",
+        "how": "Use a CSPRNG: crypto.randomBytes / crypto.getRandomValues (Node), secrets.token_urlsafe (Python), crypto/rand (Go), SecureRandom (Java/Ruby), random_bytes / random_int (PHP), RandomNumberGenerator (C#).",
+        "exampleFix": "crypto.randomBytes(32).toString(\"hex\")",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v0-6",
+      "ruleId": "VG-QUAL-007",
+      "title": "Mock / fake / dummy identifier outside test paths",
+      "description": "Identifier prefixed mock / fake / dummy used in non-test source. AI fills incomplete branches with mock data that bypasses real logic.",
+      "severity": "low",
+      "confidence": "low",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "ai_artifacts.js",
+      "startLine": 25,
+      "endLine": 25,
+      "startColumn": 1,
+      "endColumn": 17,
+      "snippet": "const mockUser = { id: 1, name: \"Alice\", role: \"admin\" };\r",
+      "evidence": [
+        "const mockUser ="
+      ],
+      "remediation": {
+        "why": "A mock value reached at runtime in production short-circuits validation, auth, or data fetches and looks indistinguishable from real flow until something downstream fails.",
+        "how": "Move the mock into a test fixture, or guard it behind an explicit non-production environment check that throws if reached otherwise.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v0-7",
+      "ruleId": "VG-QUAL-007",
+      "title": "Mock / fake / dummy identifier outside test paths",
+      "description": "Identifier prefixed mock / fake / dummy used in non-test source. AI fills incomplete branches with mock data that bypasses real logic.",
+      "severity": "low",
+      "confidence": "low",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "ai_artifacts.js",
+      "startLine": 28,
+      "endLine": 28,
+      "startColumn": 3,
+      "endColumn": 19,
+      "snippet": "  return mockUser;\r",
+      "evidence": [
+        "return mockUser;"
+      ],
+      "remediation": {
+        "why": "A mock value reached at runtime in production short-circuits validation, auth, or data fetches and looks indistinguishable from real flow until something downstream fails.",
+        "how": "Move the mock into a test fixture, or guard it behind an explicit non-production environment check that throws if reached otherwise.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x5v6-x",
+      "ruleId": "VG-CRYPTO-003",
+      "title": "http:// URL used for non-localhost endpoint",
+      "description": "Plaintext HTTP URLs to non-localhost hosts expose traffic to interception and modification.",
+      "severity": "low",
+      "confidence": "low",
+      "category": "crypto",
+      "language": "javascript",
+      "filePath": "secrets.js",
+      "startLine": 12,
+      "endLine": 12,
+      "startColumn": 9,
+      "endColumn": 39,
+      "snippet": "  fetch(\"http://api.example.com/login\");\r",
+      "evidence": [
+        "\"http://api.example.com/login\""
+      ],
+      "remediation": {
+        "why": "Non-TLS traffic can be observed and rewritten by anyone on the network path.",
+        "how": "Use https:// for any endpoint that handles auth, secrets, or user data. Localhost traffic is typically fine to leave as http.",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    }
+  ],
+  "executionTimeMs": 23,
+  "engineVersions": {
+    "core": "0.1.0"
+  },
+  "generatedAt": "2026-06-05T18:16:41.214Z"
+}

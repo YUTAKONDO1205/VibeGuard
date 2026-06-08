@@ -24,6 +24,19 @@ export function getLineText(lines: string[], lineNumber: number): string {
 }
 
 /**
+ * True when a line is a whole-line comment, i.e. its first non-whitespace
+ * characters are `//` or `#`. This is the single comment-line predicate used by
+ * both `runRegex({ skipCommentLines })` (which drops such matches) and the
+ * context-window confidence helper (which down-ranks them) — keeping one
+ * definition so the two stay consistent. It does NOT detect trailing comments,
+ * block comments, or docstrings (see confidence.ts for multi-line awareness).
+ */
+export function isCommentLine(lineText: string): boolean {
+  const trimmed = lineText.trimStart();
+  return trimmed.startsWith('//') || trimmed.startsWith('#');
+}
+
+/**
  * Run a global regex against the source and convert each match into a RuleMatch.
  * Pattern MUST have the global flag.
  */
@@ -50,8 +63,7 @@ export function runRegex(
     const end = indexToPosition(content, m.index + m[0].length);
     if (options?.skipCommentLines) {
       const lineText = content.split('\n')[start.line - 1] ?? '';
-      const trimmed = lineText.trimStart();
-      if (trimmed.startsWith('//') || trimmed.startsWith('#')) {
+      if (isCommentLine(lineText)) {
         if (m[0].length === 0) pattern.lastIndex += 1;
         continue;
       }

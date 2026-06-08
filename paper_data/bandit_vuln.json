@@ -1,0 +1,347 @@
+{
+  "errors": [],
+  "generated_at": "2026-06-08T12:49:15Z",
+  "metrics": {
+    "_totals": {
+      "CONFIDENCE.HIGH": 6,
+      "CONFIDENCE.LOW": 2,
+      "CONFIDENCE.MEDIUM": 5,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 4,
+      "SEVERITY.LOW": 4,
+      "SEVERITY.MEDIUM": 5,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 50,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "samples/vulnerable\\auth_bypass.py": {
+      "CONFIDENCE.HIGH": 3,
+      "CONFIDENCE.LOW": 1,
+      "CONFIDENCE.MEDIUM": 1,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 1,
+      "SEVERITY.LOW": 2,
+      "SEVERITY.MEDIUM": 2,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 18,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "samples/vulnerable\\command_injection.py": {
+      "CONFIDENCE.HIGH": 3,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 2,
+      "SEVERITY.LOW": 1,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 6,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "samples/vulnerable\\django_settings.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 1,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 1,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 8,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "samples/vulnerable\\flask_app.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 2,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 1,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 1,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 9,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "samples/vulnerable\\sql_injection.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 1,
+      "CONFIDENCE.MEDIUM": 1,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 2,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 9,
+      "nosec": 0,
+      "skipped_tests": 0
+    }
+  },
+  "results": [
+    {
+      "code": "6         return True  # AI-prone: debug bypass left in\n7     if user.token == \"changeme\":\n8         return True\n",
+      "col_offset": 21,
+      "end_col_offset": 31,
+      "filename": "samples/vulnerable\\auth_bypass.py",
+      "issue_confidence": "MEDIUM",
+      "issue_cwe": {
+        "id": 259,
+        "link": "https://cwe.mitre.org/data/definitions/259.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Possible hardcoded password: 'changeme'",
+      "line_number": 7,
+      "line_range": [
+        7
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html",
+      "test_id": "B105",
+      "test_name": "hardcoded_password_string"
+    },
+    {
+      "code": "15     # AI-prone: TLS verification disabled\n16     return requests.get(\"https://example.com/secret\", verify=False).text\n17 \n",
+      "col_offset": 11,
+      "end_col_offset": 67,
+      "filename": "samples/vulnerable\\auth_bypass.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 295,
+        "link": "https://cwe.mitre.org/data/definitions/295.html"
+      },
+      "issue_severity": "HIGH",
+      "issue_text": "Call to requests with verify=False disabling SSL certificate checks, security issue.",
+      "line_number": 16,
+      "line_range": [
+        16
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b501_request_with_no_cert_validation.html",
+      "test_id": "B501",
+      "test_name": "request_with_no_cert_validation"
+    },
+    {
+      "code": "15     # AI-prone: TLS verification disabled\n16     return requests.get(\"https://example.com/secret\", verify=False).text\n17 \n",
+      "col_offset": 11,
+      "end_col_offset": 67,
+      "filename": "samples/vulnerable\\auth_bypass.py",
+      "issue_confidence": "LOW",
+      "issue_cwe": {
+        "id": 400,
+        "link": "https://cwe.mitre.org/data/definitions/400.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Call to requests without timeout",
+      "line_number": 16,
+      "line_range": [
+        16
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b113_request_without_timeout.html",
+      "test_id": "B113",
+      "test_name": "request_without_timeout"
+    },
+    {
+      "code": "21     # AI-prone: yaml.load without SafeLoader\n22     return yaml.load(blob)\n23 \n",
+      "col_offset": 11,
+      "end_col_offset": 26,
+      "filename": "samples/vulnerable\\auth_bypass.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 20,
+        "link": "https://cwe.mitre.org/data/definitions/20.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Use of unsafe yaml load. Allows instantiation of arbitrary objects. Consider yaml.safe_load().",
+      "line_number": 22,
+      "line_range": [
+        22
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b506_yaml_load.html",
+      "test_id": "B506",
+      "test_name": "yaml_load"
+    },
+    {
+      "code": "27         risky_op()\n28     except Exception:\n29         pass  # AI-prone: swallowed exception\n",
+      "col_offset": 4,
+      "end_col_offset": 12,
+      "filename": "samples/vulnerable\\auth_bypass.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 28,
+      "line_range": [
+        28,
+        29
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "1 import os\n2 import subprocess\n3 \n",
+      "col_offset": 0,
+      "end_col_offset": 17,
+      "filename": "samples/vulnerable\\command_injection.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 78,
+        "link": "https://cwe.mitre.org/data/definitions/78.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Consider possible security implications associated with the subprocess module.",
+      "line_number": 2,
+      "line_range": [
+        2
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess",
+      "test_id": "B404",
+      "test_name": "blacklist"
+    },
+    {
+      "code": "6     # AI-prone: shell=True with interpolation\n7     subprocess.run(f\"git log {commit_id}\", shell=True)\n8 \n",
+      "col_offset": 4,
+      "end_col_offset": 54,
+      "filename": "samples/vulnerable\\command_injection.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 78,
+        "link": "https://cwe.mitre.org/data/definitions/78.html"
+      },
+      "issue_severity": "HIGH",
+      "issue_text": "subprocess call with shell=True identified, security issue.",
+      "line_number": 7,
+      "line_range": [
+        7
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b602_subprocess_popen_with_shell_equals_true.html",
+      "test_id": "B602",
+      "test_name": "subprocess_popen_with_shell_equals_true"
+    },
+    {
+      "code": "11     # AI-prone: os.system + concat\n12     os.system(\"rm -rf \" + path)\n",
+      "col_offset": 4,
+      "end_col_offset": 31,
+      "filename": "samples/vulnerable\\command_injection.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 78,
+        "link": "https://cwe.mitre.org/data/definitions/78.html"
+      },
+      "issue_severity": "HIGH",
+      "issue_text": "Starting a process with a shell, possible injection detected, security issue.",
+      "line_number": 12,
+      "line_range": [
+        12
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b605_start_process_with_a_shell.html",
+      "test_id": "B605",
+      "test_name": "start_process_with_a_shell"
+    },
+    {
+      "code": "9 \n10 SECRET_KEY = 'django-insecure-replace-me'\n11 \n",
+      "col_offset": 13,
+      "end_col_offset": 41,
+      "filename": "samples/vulnerable\\django_settings.py",
+      "issue_confidence": "MEDIUM",
+      "issue_cwe": {
+        "id": 259,
+        "link": "https://cwe.mitre.org/data/definitions/259.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Possible hardcoded password: 'django-insecure-replace-me'",
+      "line_number": 10,
+      "line_range": [
+        10
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html",
+      "test_id": "B105",
+      "test_name": "hardcoded_password_string"
+    },
+    {
+      "code": "18     # VG-FW-002 \u2014 Werkzeug debugger reachable on a public bind.\n19     app.run(host='0.0.0.0', debug=True)\n",
+      "col_offset": 4,
+      "end_col_offset": 39,
+      "filename": "samples/vulnerable\\flask_app.py",
+      "issue_confidence": "MEDIUM",
+      "issue_cwe": {
+        "id": 94,
+        "link": "https://cwe.mitre.org/data/definitions/94.html"
+      },
+      "issue_severity": "HIGH",
+      "issue_text": "A Flask app appears to be run with debug=True, which exposes the Werkzeug debugger and allows the execution of arbitrary code.",
+      "line_number": 19,
+      "line_range": [
+        19
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b201_flask_debug_true.html",
+      "test_id": "B201",
+      "test_name": "flask_debug_true"
+    },
+    {
+      "code": "18     # VG-FW-002 \u2014 Werkzeug debugger reachable on a public bind.\n19     app.run(host='0.0.0.0', debug=True)\n",
+      "col_offset": 17,
+      "end_col_offset": 26,
+      "filename": "samples/vulnerable\\flask_app.py",
+      "issue_confidence": "MEDIUM",
+      "issue_cwe": {
+        "id": 605,
+        "link": "https://cwe.mitre.org/data/definitions/605.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Possible binding to all interfaces.",
+      "line_number": 19,
+      "line_range": [
+        19
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
+      "test_id": "B104",
+      "test_name": "hardcoded_bind_all_interfaces"
+    },
+    {
+      "code": "5     # AI-prone: building SQL with string concatenation\n6     query = \"SELECT * FROM users WHERE id = \" + str(user_id)\n7     cur = conn.cursor()\n",
+      "col_offset": 12,
+      "end_col_offset": 45,
+      "filename": "samples/vulnerable\\sql_injection.py",
+      "issue_confidence": "LOW",
+      "issue_cwe": {
+        "id": 89,
+        "link": "https://cwe.mitre.org/data/definitions/89.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Possible SQL injection vector through string-based query construction.",
+      "line_number": 6,
+      "line_range": [
+        6
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
+      "test_id": "B608",
+      "test_name": "hardcoded_sql_expressions"
+    },
+    {
+      "code": "13     cur = conn.cursor()\n14     cur.execute(\"DELETE FROM sessions WHERE id = \" + sid)\n",
+      "col_offset": 16,
+      "end_col_offset": 50,
+      "filename": "samples/vulnerable\\sql_injection.py",
+      "issue_confidence": "MEDIUM",
+      "issue_cwe": {
+        "id": 89,
+        "link": "https://cwe.mitre.org/data/definitions/89.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Possible SQL injection vector through string-based query construction.",
+      "line_number": 14,
+      "line_range": [
+        14
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
+      "test_id": "B608",
+      "test_name": "hardcoded_sql_expressions"
+    }
+  ]
+}

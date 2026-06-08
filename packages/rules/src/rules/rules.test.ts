@@ -250,6 +250,17 @@ describe('AI-heuristic rules (VG-QUAL-005..010)', () => {
     expectMatches(stubBody, 'def authorize(user):\n    raise NotImplementedError');
   });
 
+  it('does not flag raise NotImplementedError inside an @abstractmethod (idiomatic abstract contract)', () => {
+    expectNoMatch(
+      stubBody,
+      'import abc\n\nclass Gateway(abc.ABC):\n    @abc.abstractmethod\n    def charge(self, amount):\n        raise NotImplementedError',
+    );
+    expectNoMatch(
+      stubBody,
+      'from abc import abstractmethod\n\nclass Repo:\n    @abstractmethod\n    def save(self, x):\n        raise NotImplementedError',
+    );
+  });
+
   it('flags Go panic("not implemented")', () => {
     expectMatches(stubBody, 'func Authorize() { panic("not implemented") }');
   });

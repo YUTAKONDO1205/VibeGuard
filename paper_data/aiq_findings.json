@@ -1,0 +1,167 @@
+[
+  {
+    "id": "neg_app_build.test.js:4:VG-QUAL-008",
+    "file": "neg_app_build.test.js",
+    "line": 4,
+    "ruleId": "VG-QUAL-008",
+    "ruleName": "Debug / verbose flag hardcoded ON",
+    "ruleDescription": "A debug, verbose, or trace flag is set to true / True directly in source. Different from VG-AUTH-001 (auth bypass): this is the flag itself being flipped on by default.",
+    "before": "medium",
+    "after": "low",
+    "fileContent": "const { build } = require(\"../app\");\n\ntest(\"starts in debug mode when asked\", () => {\n  const app = build({ debug: true });\n  expect(app.debug).toBe(true);\n});\n"
+  },
+  {
+    "id": "neg_configure.py:5:VG-QUAL-008",
+    "file": "neg_configure.py",
+    "line": 5,
+    "ruleId": "VG-QUAL-008",
+    "ruleName": "Debug / verbose flag hardcoded ON",
+    "ruleDescription": "A debug, verbose, or trace flag is set to true / True directly in source. Different from VG-AUTH-001 (auth bypass): this is the flag itself being flipped on by default.",
+    "before": "medium",
+    "after": "low",
+    "fileContent": "def configure(env):\n    \"\"\"Build the runtime configuration for an environment.\n\n    In local development a contributor may temporarily set::\n\n        DEBUG = True\n\n    so that tracebacks render in the browser. The shipped value is derived\n    from the environment instead, and defaults to off.\n    \"\"\"\n    return {\"debug\": env == \"local\"}\n"
+  },
+  {
+    "id": "neg_csv_export.js:2:VG-QUAL-005",
+    "file": "neg_csv_export.js",
+    "line": 2,
+    "ruleId": "VG-QUAL-005",
+    "ruleName": "Stub or not-implemented function body",
+    "ruleDescription": "Function body is a \"Not implemented\" throw / raise / panic. AI scaffolds compile but skip the actual logic — easy to ship by accident.",
+    "before": "medium",
+    "after": "low",
+    "fileContent": "function exportToCsv(rows) {\n  // throw new Error(\"Not implemented\") -- replaced; the real path is below\n  return rows.map((r) => r.map(escape).join(\",\")).join(\"\\n\");\n}\n\nfunction escape(cell) {\n  return /[\",\\n]/.test(cell) ? `\"${cell.replace(/\"/g, '\"\"')}\"` : cell;\n}\n\nmodule.exports = { exportToCsv };\n"
+  },
+  {
+    "id": "neg_feature_flags.js:3:VG-QUAL-010",
+    "file": "neg_feature_flags.js",
+    "line": 3,
+    "ruleId": "VG-QUAL-010",
+    "ruleName": "Validator / sanitizer with passthrough body",
+    "ruleDescription": "Function whose name claims to validate, sanitize, or check input but whose body just returns true / returns the input unchanged.",
+    "before": "low",
+    "after": "low",
+    "fileContent": "// Feature flags resolved at build time. Beta is fully launched, so the gate\n// is intentionally a constant until the flag is removed in the next release.\nconst checkBetaEnabled = () => true;\n\nmodule.exports = { checkBetaEnabled };\n"
+  },
+  {
+    "id": "neg_mailer.test.js:4:VG-QUAL-006",
+    "file": "neg_mailer.test.js",
+    "line": 4,
+    "ruleId": "VG-QUAL-006",
+    "ruleName": "Placeholder email address in source",
+    "ruleDescription": "Hard-coded emails on example.com / test.com / foo.bar / domain.com — left over from AI templates. They become silent send-failures or info disclosure in production.",
+    "before": "medium",
+    "after": "low",
+    "fileContent": "const { sendReceipt } = require(\"../pos_receipt_mailer\");\n\ntest(\"sends a receipt to the customer\", async () => {\n  const order = { customerEmail: \"buyer@example.com\", items: [] };\n  await sendReceipt(order);\n});\n"
+  },
+  {
+    "id": "neg_welcome_mailer.py:5:VG-QUAL-006",
+    "file": "neg_welcome_mailer.py",
+    "line": 5,
+    "ruleId": "VG-QUAL-006",
+    "ruleName": "Placeholder email address in source",
+    "ruleDescription": "Hard-coded emails on example.com / test.com / foo.bar / domain.com — left over from AI templates. They become silent send-failures or info disclosure in production.",
+    "before": "medium",
+    "after": "low",
+    "fileContent": "def send_welcome(user, mailer):\n    \"\"\"Send the welcome email to a new user.\n\n    Example:\n        send_welcome(User(email=\"new.user@example.com\"), mailer)\n    \"\"\"\n    mailer.send(template=\"welcome\", to=user.email)\n"
+  },
+  {
+    "id": "pos_admin_contact.py:4:VG-QUAL-006",
+    "file": "pos_admin_contact.py",
+    "line": 4,
+    "ruleId": "VG-QUAL-006",
+    "ruleName": "Placeholder email address in source",
+    "ruleDescription": "Hard-coded emails on example.com / test.com / foo.bar / domain.com — left over from AI templates. They become silent send-failures or info disclosure in production.",
+    "before": "medium",
+    "after": "medium",
+    "fileContent": "import os\n\nSMTP_HOST = os.environ.get(\"SMTP_HOST\", \"localhost\")\nADMIN_CONTACT = \"admin@example.org\"\n\n\ndef alert_admin(message):\n    send_mail(to=ADMIN_CONTACT, subject=\"alert\", body=message)\n"
+  },
+  {
+    "id": "pos_authorize.js:2:VG-QUAL-009",
+    "file": "pos_authorize.js",
+    "line": 2,
+    "ruleId": "VG-QUAL-009",
+    "ruleName": "\"Not for production\" / \"for now\" placeholder comment",
+    "ruleDescription": "Comment self-labels the surrounding code as a placeholder, demo, or temporary workaround. Strong signal that AI-generated boilerplate landed without review.",
+    "before": "medium",
+    "after": "medium",
+    "fileContent": "function authorize(user, resource) {\n  // for now, allow everyone while we wire up RBAC\n  return true;\n}\n\nmodule.exports = { authorize };\n"
+  },
+  {
+    "id": "pos_coupon_validator.js:1:VG-QUAL-010",
+    "file": "pos_coupon_validator.js",
+    "line": 1,
+    "ruleId": "VG-QUAL-010",
+    "ruleName": "Validator / sanitizer with passthrough body",
+    "ruleDescription": "Function whose name claims to validate, sanitize, or check input but whose body just returns true / returns the input unchanged.",
+    "before": "low",
+    "after": "low",
+    "fileContent": "function validateCoupon(code) {\n  return true;\n}\n\nfunction applyCoupon(cart, code) {\n  if (!validateCoupon(code)) {\n    throw new Error(\"invalid coupon\");\n  }\n  return cart.withDiscount(code);\n}\n\nmodule.exports = { validateCoupon, applyCoupon };\n"
+  },
+  {
+    "id": "pos_receipt_mailer.js:6:VG-QUAL-006",
+    "file": "pos_receipt_mailer.js",
+    "line": 6,
+    "ruleId": "VG-QUAL-006",
+    "ruleName": "Placeholder email address in source",
+    "ruleDescription": "Hard-coded emails on example.com / test.com / foo.bar / domain.com — left over from AI templates. They become silent send-failures or info disclosure in production.",
+    "before": "medium",
+    "after": "medium",
+    "fileContent": "const nodemailer = require(\"nodemailer\");\n\nasync function sendReceipt(order) {\n  const transport = nodemailer.createTransport(process.env.SMTP_URL);\n  await transport.sendMail({\n    from: \"billing@example.com\",\n    to: order.customerEmail,\n    subject: \"Your receipt\",\n    text: renderReceipt(order),\n  });\n}\n\nmodule.exports = { sendReceipt };\n"
+  },
+  {
+    "id": "pos_settings.py:4:VG-QUAL-008",
+    "file": "pos_settings.py",
+    "line": 4,
+    "ruleId": "VG-QUAL-008",
+    "ruleName": "Debug / verbose flag hardcoded ON",
+    "ruleDescription": "A debug, verbose, or trace flag is set to true / True directly in source. Different from VG-AUTH-001 (auth bypass): this is the flag itself being flipped on by default.",
+    "before": "medium",
+    "after": "medium",
+    "fileContent": "import os\n\nSECRET_KEY = os.environ[\"SECRET_KEY\"]\nDEBUG = True\nALLOWED_HOSTS = [\"*\"]\nDATABASES = {\"default\": {\"ENGINE\": \"django.db.backends.postgresql\"}}\n"
+  },
+  {
+    "id": "pos_stub_export.js:2:VG-QUAL-005",
+    "file": "pos_stub_export.js",
+    "line": 2,
+    "ruleId": "VG-QUAL-005",
+    "ruleName": "Stub or not-implemented function body",
+    "ruleDescription": "Function body is a \"Not implemented\" throw / raise / panic. AI scaffolds compile but skip the actual logic — easy to ship by accident.",
+    "before": "medium",
+    "after": "medium",
+    "fileContent": "function exportToPdf(report) {\n  throw new Error(\"Not implemented\");\n}\n\nfunction exportToCsv(report) {\n  return report.rows.map((r) => r.join(\",\")).join(\"\\n\");\n}\n\nmodule.exports = { exportToPdf, exportToCsv };\n"
+  },
+  {
+    "id": "pos_stub_handler.py:8:VG-QUAL-005",
+    "file": "pos_stub_handler.py",
+    "line": 8,
+    "ruleId": "VG-QUAL-005",
+    "ruleName": "Stub or not-implemented function body",
+    "ruleDescription": "Function body is a \"Not implemented\" throw / raise / panic. AI scaffolds compile but skip the actual logic — easy to ship by accident.",
+    "before": "medium",
+    "after": "medium",
+    "fileContent": "from flask import Blueprint, jsonify\n\nbp = Blueprint(\"billing\", __name__)\n\n\n@bp.route(\"/api/v1/refunds\", methods=[\"POST\"])\ndef issue_refund():\n    raise NotImplementedError(\"refund flow\")\n\n\n@bp.route(\"/api/v1/refunds/<rid>\", methods=[\"GET\"])\ndef get_refund(rid):\n    return jsonify(status=\"pending\", id=rid)\n"
+  },
+  {
+    "id": "neg_msw_browser.ts:5:VG-QUAL-007",
+    "file": "neg_msw_browser.ts",
+    "line": 5,
+    "ruleId": "VG-QUAL-007",
+    "ruleName": "Mock / fake / dummy identifier outside test paths",
+    "ruleDescription": "Identifier prefixed mock / fake / dummy used in non-test source. AI fills incomplete branches with mock data that bypasses real logic.",
+    "before": "low",
+    "after": "low",
+    "fileContent": "import { setupWorker } from \"msw/browser\";\nimport { handlers } from \"./handlers\";\n\n// Service worker that intercepts API calls during local development only.\nexport const mockWorker = setupWorker(...handlers);\n\nif (import.meta.env.DEV) {\n  mockWorker.start({ onUnhandledRequest: \"bypass\" });\n}\n"
+  },
+  {
+    "id": "pos_profile_handler.ts:4:VG-QUAL-007",
+    "file": "pos_profile_handler.ts",
+    "line": 4,
+    "ruleId": "VG-QUAL-007",
+    "ruleName": "Mock / fake / dummy identifier outside test paths",
+    "ruleDescription": "Identifier prefixed mock / fake / dummy used in non-test source. AI fills incomplete branches with mock data that bypasses real logic.",
+    "before": "low",
+    "after": "low",
+    "fileContent": "import type { Request, Response } from \"express\";\n\nexport function getProfile(req: Request, res: Response) {\n  const mockUser = { id: req.params.id, name: \"Alice\", plan: \"pro\" };\n  return res.json(mockUser);\n}\n"
+  }
+]

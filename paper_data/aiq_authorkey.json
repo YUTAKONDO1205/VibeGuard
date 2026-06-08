@@ -1,0 +1,17 @@
+{
+  "neg_app_build.test.js:4:VG-QUAL-008": "FP",
+  "neg_configure.py:5:VG-QUAL-008": "FP",
+  "neg_csv_export.js:2:VG-QUAL-005": "FP",
+  "neg_feature_flags.js:3:VG-QUAL-010": "FP",
+  "neg_mailer.test.js:4:VG-QUAL-006": "FP",
+  "neg_welcome_mailer.py:5:VG-QUAL-006": "FP",
+  "pos_admin_contact.py:4:VG-QUAL-006": "TP",
+  "pos_authorize.js:2:VG-QUAL-009": "TP",
+  "pos_coupon_validator.js:1:VG-QUAL-010": "TP",
+  "pos_receipt_mailer.js:6:VG-QUAL-006": "TP",
+  "pos_settings.py:4:VG-QUAL-008": "TP",
+  "pos_stub_export.js:2:VG-QUAL-005": "TP",
+  "pos_stub_handler.py:8:VG-QUAL-005": "TP",
+  "neg_msw_browser.ts:5:VG-QUAL-007": "FP",
+  "pos_profile_handler.ts:4:VG-QUAL-007": "TP"
+}

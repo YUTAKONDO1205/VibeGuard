@@ -1,0 +1,81 @@
+{
+  "summary": {
+    "critical": 0,
+    "high": 2,
+    "medium": 0,
+    "low": 0,
+    "info": 0,
+    "total": 2
+  },
+  "findings": [
+    {
+      "findingId": "vg-mq190gcq-1",
+      "ruleId": "VG-INJ-001",
+      "title": "SQL string concatenation",
+      "description": "SQL query is built via string concatenation or interpolation. Untrusted input concatenated into SQL is the primary vector for SQL injection.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "injection",
+      "language": "python",
+      "filePath": "paper_data/e4repo/sql_injection.py",
+      "startLine": 6,
+      "endLine": 6,
+      "startColumn": 13,
+      "endColumn": 50,
+      "snippet": "    query = \"SELECT * FROM users WHERE id = \" + str(user_id)\r",
+      "evidence": [
+        "\"SELECT * FROM users WHERE id = \" + s"
+      ],
+      "remediation": {
+        "why": "Concatenated SQL allows attacker-controlled input to alter the query structure and exfiltrate or corrupt data.",
+        "how": "Use parameterised queries / prepared statements. Pass user input as bound parameters, not as parts of the SQL string.",
+        "exampleFix": "db.query('SELECT * FROM users WHERE id = ?', [userId])",
+        "references": [
+          "https://owasp.org/Top10/A03_2021-Injection/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "sql-injection",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq190gcq-2",
+      "ruleId": "VG-INJ-001",
+      "title": "SQL string concatenation",
+      "description": "SQL query is built via string concatenation or interpolation. Untrusted input concatenated into SQL is the primary vector for SQL injection.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "injection",
+      "language": "python",
+      "filePath": "paper_data/e4repo/sql_injection.py",
+      "startLine": 14,
+      "endLine": 14,
+      "startColumn": 17,
+      "endColumn": 55,
+      "snippet": "    cur.execute(\"DELETE FROM sessions WHERE id = \" + sid)\r",
+      "evidence": [
+        "\"DELETE FROM sessions WHERE id = \" + s"
+      ],
+      "remediation": {
+        "why": "Concatenated SQL allows attacker-controlled input to alter the query structure and exfiltrate or corrupt data.",
+        "how": "Use parameterised queries / prepared statements. Pass user input as bound parameters, not as parts of the SQL string.",
+        "exampleFix": "db.query('SELECT * FROM sessions WHERE id = ?', [userId])",
+        "references": [
+          "https://owasp.org/Top10/A03_2021-Injection/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "sql-injection",
+        "ai-prone"
+      ]
+    }
+  ],
+  "executionTimeMs": 7,
+  "engineVersions": {
+    "core": "0.1.0"
+  },
+  "generatedAt": "2026-06-05T18:19:14.766Z"
+}

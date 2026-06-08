@@ -1,0 +1,525 @@
+{
+  "summary": {
+    "critical": 0,
+    "high": 2,
+    "medium": 13,
+    "low": 2,
+    "info": 0,
+    "total": 17
+  },
+  "findings": [
+    {
+      "findingId": "vg-mq57tzp5-2",
+      "ruleId": "VG-FW-001",
+      "title": "Django DEBUG = True in settings",
+      "description": "DEBUG = True in a Django settings module exposes stack traces, environment variables, and SQL on every error page.",
+      "severity": "high",
+      "confidence": "low",
+      "category": "config",
+      "language": "python",
+      "filePath": "neg_configure.py",
+      "startLine": 5,
+      "endLine": 6,
+      "startColumn": 1,
+      "endColumn": 21,
+      "snippet": "\n        DEBUG = True",
+      "evidence": [
+        "\n        DEBUG = True"
+      ],
+      "remediation": {
+        "why": "When DEBUG is on, Django's 500 page renders local variables, settings (including SECRET_KEY), and the request's POST body. Shipping that to production is a full-disclosure leak.",
+        "how": "Read DEBUG from an environment variable defaulting to False: DEBUG = os.environ.get(\"DJANGO_DEBUG\", \"0\") == \"1\". Keep ALLOWED_HOSTS narrow alongside it.",
+        "exampleFix": "DEBUG = os.environ.get(\"DJANGO_DEBUG\", \"0\") == \"1\""
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "django",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq57tzpb-e",
+      "ruleId": "VG-FW-001",
+      "title": "Django DEBUG = True in settings",
+      "description": "DEBUG = True in a Django settings module exposes stack traces, environment variables, and SQL on every error page.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "config",
+      "language": "python",
+      "filePath": "pos_settings.py",
+      "startLine": 4,
+      "endLine": 4,
+      "startColumn": 1,
+      "endColumn": 13,
+      "snippet": "DEBUG = True",
+      "evidence": [
+        "DEBUG = True"
+      ],
+      "remediation": {
+        "why": "When DEBUG is on, Django's 500 page renders local variables, settings (including SECRET_KEY), and the request's POST body. Shipping that to production is a full-disclosure leak.",
+        "how": "Read DEBUG from an environment variable defaulting to False: DEBUG = os.environ.get(\"DJANGO_DEBUG\", \"0\") == \"1\". Keep ALLOWED_HOSTS narrow alongside it.",
+        "exampleFix": "DEBUG = os.environ.get(\"DJANGO_DEBUG\", \"0\") == \"1\""
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "django",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq57tzp3-1",
+      "ruleId": "VG-QUAL-008",
+      "title": "Debug / verbose flag hardcoded ON",
+      "description": "A debug, verbose, or trace flag is set to true / True directly in source. Different from VG-AUTH-001 (auth bypass): this is the flag itself being flipped on by default.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "neg_app_build.test.js",
+      "startLine": 4,
+      "endLine": 4,
+      "startColumn": 23,
+      "endColumn": 34,
+      "snippet": "  const app = build({ debug: true });",
+      "evidence": [
+        "debug: true"
+      ],
+      "remediation": {
+        "why": "Debug-on by default leaks stack traces, internal paths, and PII. AI templates often ship with verbose: true because that is what their training examples show.",
+        "how": "Default debug / verbose / trace flags to false, and source the override from environment configuration.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq57tzp5-3",
+      "ruleId": "VG-QUAL-008",
+      "title": "Debug / verbose flag hardcoded ON",
+      "description": "A debug, verbose, or trace flag is set to true / True directly in source. Different from VG-AUTH-001 (auth bypass): this is the flag itself being flipped on by default.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "ai-quality",
+      "language": "python",
+      "filePath": "neg_configure.py",
+      "startLine": 5,
+      "endLine": 6,
+      "startColumn": 1,
+      "endColumn": 21,
+      "snippet": "\n        DEBUG = True",
+      "evidence": [
+        "\n        DEBUG = True"
+      ],
+      "remediation": {
+        "why": "Debug-on by default leaks stack traces, internal paths, and PII. AI templates often ship with verbose: true because that is what their training examples show.",
+        "how": "Default debug / verbose / trace flags to false, and source the override from environment configuration.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq57tzp6-4",
+      "ruleId": "VG-QUAL-005",
+      "title": "Stub or not-implemented function body",
+      "description": "Function body is a \"Not implemented\" throw / raise / panic. AI scaffolds compile but skip the actual logic — easy to ship by accident.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "neg_csv_export.js",
+      "startLine": 2,
+      "endLine": 2,
+      "startColumn": 6,
+      "endColumn": 38,
+      "snippet": "  // throw new Error(\"Not implemented\") -- replaced; the real path is below",
+      "evidence": [
+        "throw new Error(\"Not implemented"
+      ],
+      "remediation": {
+        "why": "A \"not implemented\" body looks like real code at the call site but performs no work — security checks, validation, or business logic that should run silently does not.",
+        "how": "Implement the function, or raise loudly *and* mark the call site as blocked (typed error / 5xx) so callers cannot silently proceed.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq57tzp6-5",
+      "ruleId": "VG-QUAL-010",
+      "title": "Validator / sanitizer with passthrough body",
+      "description": "Function whose name claims to validate, sanitize, or check input but whose body just returns true / returns the input unchanged.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "neg_feature_flags.js",
+      "startLine": 3,
+      "endLine": 3,
+      "startColumn": 1,
+      "endColumn": 37,
+      "snippet": "const checkBetaEnabled = () => true;",
+      "evidence": [
+        "const checkBetaEnabled = () => true;"
+      ],
+      "remediation": {
+        "why": "A validator that always returns true gives callers false confidence. Downstream code skips defensive handling because \"it has been validated\".",
+        "how": "Implement the actual checks, or rename the function so callers do not assume validation has happened.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq57tzp7-6",
+      "ruleId": "VG-QUAL-006",
+      "title": "Placeholder email address in source",
+      "description": "Hard-coded emails on example.com / test.com / foo.bar / domain.com — left over from AI templates. They become silent send-failures or info disclosure in production.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "neg_mailer.test.js",
+      "startLine": 4,
+      "endLine": 4,
+      "startColumn": 34,
+      "endColumn": 53,
+      "snippet": "  const order = { customerEmail: \"buyer@example.com\", items: [] };",
+      "evidence": [
+        "\"buyer@example.com\""
+      ],
+      "remediation": {
+        "why": "AI templates use these literal domains as stand-ins. Shipped, they either bounce, silently swallow notifications, or leak intent to a third party that owns the placeholder domain.",
+        "how": "Move the address to configuration, fail at startup if the value still matches a known placeholder list, and avoid baking any address into source.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq57tzp8-8",
+      "ruleId": "VG-QUAL-006",
+      "title": "Placeholder email address in source",
+      "description": "Hard-coded emails on example.com / test.com / foo.bar / domain.com — left over from AI templates. They become silent send-failures or info disclosure in production.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "ai-quality",
+      "language": "python",
+      "filePath": "neg_welcome_mailer.py",
+      "startLine": 5,
+      "endLine": 5,
+      "startColumn": 33,
+      "endColumn": 55,
+      "snippet": "        send_welcome(User(email=\"new.user@example.com\"), mailer)",
+      "evidence": [
+        "\"new.user@example.com\""
+      ],
+      "remediation": {
+        "why": "AI templates use these literal domains as stand-ins. Shipped, they either bounce, silently swallow notifications, or leak intent to a third party that owns the placeholder domain.",
+        "how": "Move the address to configuration, fail at startup if the value still matches a known placeholder list, and avoid baking any address into source.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq57tzp9-9",
+      "ruleId": "VG-QUAL-006",
+      "title": "Placeholder email address in source",
+      "description": "Hard-coded emails on example.com / test.com / foo.bar / domain.com — left over from AI templates. They become silent send-failures or info disclosure in production.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "python",
+      "filePath": "pos_admin_contact.py",
+      "startLine": 4,
+      "endLine": 4,
+      "startColumn": 17,
+      "endColumn": 36,
+      "snippet": "ADMIN_CONTACT = \"admin@example.org\"",
+      "evidence": [
+        "\"admin@example.org\""
+      ],
+      "remediation": {
+        "why": "AI templates use these literal domains as stand-ins. Shipped, they either bounce, silently swallow notifications, or leak intent to a third party that owns the placeholder domain.",
+        "how": "Move the address to configuration, fail at startup if the value still matches a known placeholder list, and avoid baking any address into source.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq57tzp9-a",
+      "ruleId": "VG-QUAL-009",
+      "title": "\"Not for production\" / \"for now\" placeholder comment",
+      "description": "Comment self-labels the surrounding code as a placeholder, demo, or temporary workaround. Strong signal that AI-generated boilerplate landed without review.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "pos_authorize.js",
+      "startLine": 2,
+      "endLine": 2,
+      "startColumn": 3,
+      "endColumn": 13,
+      "snippet": "  // for now, allow everyone while we wire up RBAC",
+      "evidence": [
+        "// for now"
+      ],
+      "remediation": {
+        "why": "The comment is the author admitting the code should not have shipped as-is. Either the warning is correct (replace the code) or the comment is stale (delete it).",
+        "how": "Replace the placeholder with the real implementation, or remove the comment after confirming the code is in fact production-ready.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq57tzpa-b",
+      "ruleId": "VG-QUAL-010",
+      "title": "Validator / sanitizer with passthrough body",
+      "description": "Function whose name claims to validate, sanitize, or check input but whose body just returns true / returns the input unchanged.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "pos_coupon_validator.js",
+      "startLine": 1,
+      "endLine": 3,
+      "startColumn": 1,
+      "endColumn": 2,
+      "snippet": "function validateCoupon(code) {\n  return true;\n}",
+      "evidence": [
+        "function validateCoupon(code) {\n  return true;\n}"
+      ],
+      "remediation": {
+        "why": "A validator that always returns true gives callers false confidence. Downstream code skips defensive handling because \"it has been validated\".",
+        "how": "Implement the actual checks, or rename the function so callers do not assume validation has happened.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq57tzpb-d",
+      "ruleId": "VG-QUAL-006",
+      "title": "Placeholder email address in source",
+      "description": "Hard-coded emails on example.com / test.com / foo.bar / domain.com — left over from AI templates. They become silent send-failures or info disclosure in production.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "pos_receipt_mailer.js",
+      "startLine": 6,
+      "endLine": 6,
+      "startColumn": 11,
+      "endColumn": 32,
+      "snippet": "    from: \"billing@example.com\",",
+      "evidence": [
+        "\"billing@example.com\""
+      ],
+      "remediation": {
+        "why": "AI templates use these literal domains as stand-ins. Shipped, they either bounce, silently swallow notifications, or leak intent to a third party that owns the placeholder domain.",
+        "how": "Move the address to configuration, fail at startup if the value still matches a known placeholder list, and avoid baking any address into source.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq57tzpb-f",
+      "ruleId": "VG-QUAL-008",
+      "title": "Debug / verbose flag hardcoded ON",
+      "description": "A debug, verbose, or trace flag is set to true / True directly in source. Different from VG-AUTH-001 (auth bypass): this is the flag itself being flipped on by default.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "python",
+      "filePath": "pos_settings.py",
+      "startLine": 4,
+      "endLine": 4,
+      "startColumn": 1,
+      "endColumn": 13,
+      "snippet": "DEBUG = True",
+      "evidence": [
+        "DEBUG = True"
+      ],
+      "remediation": {
+        "why": "Debug-on by default leaks stack traces, internal paths, and PII. AI templates often ship with verbose: true because that is what their training examples show.",
+        "how": "Default debug / verbose / trace flags to false, and source the override from environment configuration.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq57tzpb-g",
+      "ruleId": "VG-QUAL-005",
+      "title": "Stub or not-implemented function body",
+      "description": "Function body is a \"Not implemented\" throw / raise / panic. AI scaffolds compile but skip the actual logic — easy to ship by accident.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "javascript",
+      "filePath": "pos_stub_export.js",
+      "startLine": 2,
+      "endLine": 2,
+      "startColumn": 3,
+      "endColumn": 35,
+      "snippet": "  throw new Error(\"Not implemented\");",
+      "evidence": [
+        "throw new Error(\"Not implemented"
+      ],
+      "remediation": {
+        "why": "A \"not implemented\" body looks like real code at the call site but performs no work — security checks, validation, or business logic that should run silently does not.",
+        "how": "Implement the function, or raise loudly *and* mark the call site as blocked (typed error / 5xx) so callers cannot silently proceed.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq57tzpb-h",
+      "ruleId": "VG-QUAL-005",
+      "title": "Stub or not-implemented function body",
+      "description": "Function body is a \"Not implemented\" throw / raise / panic. AI scaffolds compile but skip the actual logic — easy to ship by accident.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "python",
+      "filePath": "pos_stub_handler.py",
+      "startLine": 8,
+      "endLine": 8,
+      "startColumn": 5,
+      "endColumn": 30,
+      "snippet": "    raise NotImplementedError(\"refund flow\")",
+      "evidence": [
+        "raise NotImplementedError"
+      ],
+      "remediation": {
+        "why": "A \"not implemented\" body looks like real code at the call site but performs no work — security checks, validation, or business logic that should run silently does not.",
+        "how": "Implement the function, or raise loudly *and* mark the call site as blocked (typed error / 5xx) so callers cannot silently proceed.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq57tzp8-7",
+      "ruleId": "VG-QUAL-007",
+      "title": "Mock / fake / dummy identifier outside test paths",
+      "description": "Identifier prefixed mock / fake / dummy used in non-test source. AI fills incomplete branches with mock data that bypasses real logic.",
+      "severity": "low",
+      "confidence": "low",
+      "category": "ai-quality",
+      "language": "typescript",
+      "filePath": "neg_msw_browser.ts",
+      "startLine": 5,
+      "endLine": 5,
+      "startColumn": 8,
+      "endColumn": 26,
+      "snippet": "export const mockWorker = setupWorker(...handlers);",
+      "evidence": [
+        "const mockWorker ="
+      ],
+      "remediation": {
+        "why": "A mock value reached at runtime in production short-circuits validation, auth, or data fetches and looks indistinguishable from real flow until something downstream fails.",
+        "how": "Move the mock into a test fixture, or guard it behind an explicit non-production environment check that throws if reached otherwise.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq57tzpa-c",
+      "ruleId": "VG-QUAL-007",
+      "title": "Mock / fake / dummy identifier outside test paths",
+      "description": "Identifier prefixed mock / fake / dummy used in non-test source. AI fills incomplete branches with mock data that bypasses real logic.",
+      "severity": "low",
+      "confidence": "low",
+      "category": "ai-quality",
+      "language": "typescript",
+      "filePath": "pos_profile_handler.ts",
+      "startLine": 4,
+      "endLine": 4,
+      "startColumn": 3,
+      "endColumn": 19,
+      "snippet": "  const mockUser = { id: req.params.id, name: \"Alice\", plan: \"pro\" };",
+      "evidence": [
+        "const mockUser ="
+      ],
+      "remediation": {
+        "why": "A mock value reached at runtime in production short-circuits validation, auth, or data fetches and looks indistinguishable from real flow until something downstream fails.",
+        "how": "Move the mock into a test fixture, or guard it behind an explicit non-production environment check that throws if reached otherwise.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    }
+  ],
+  "executionTimeMs": 23,
+  "engineVersions": {
+    "core": "0.1.0"
+  },
+  "generatedAt": "2026-06-08T12:57:18.343Z"
+}

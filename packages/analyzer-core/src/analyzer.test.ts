@@ -118,4 +118,74 @@ const apiKey = "AKIAIOSFODNN7EXAMPLE";
     expect(r1.findings.length).toBeGreaterThan(0);
     expect(r2.findings.length).toBeGreaterThan(0);
   });
+
+  // --- Context-window confidence (paper item ①) ---------------------------
+
+  it('down-ranks a DEBUG=True that lives inside a docstring, not the real setting', () => {
+    const code = [
+      'def configure():',
+      '    """',
+      '    Example config:',
+      '        DEBUG = True',
+      '    """',
+      '    DEBUG = False',
+      '    return DEBUG',
+    ].join('\n');
+    const r = scan({
+      targetType: 'snippet',
+      content: code,
+      mode: 'standard',
+      filePath: 'settings.py',
+      language: 'python',
+    });
+    const fw = r.findings.find((f) => f.ruleId === 'VG-FW-001');
+    expect(fw).toBeDefined();
+    expect(fw?.confidence).toBe('low'); // medium default, docstring -2 -> low
+  });
+
+  it('keeps full confidence for a real DEBUG=True in settings', () => {
+    const r = scan({
+      targetType: 'snippet',
+      content: 'DEBUG = True\n',
+      mode: 'standard',
+      filePath: 'settings.py',
+      language: 'python',
+    });
+    const fw = r.findings.find((f) => f.ruleId === 'VG-FW-001');
+    expect(fw?.confidence).toBe('medium'); // unchanged default
+  });
+
+  it('lowers confidence by one step in a test path but still reports', () => {
+    const code = 'requests.get(url, verify=False)\n';
+    const inTest = scan({
+      targetType: 'snippet',
+      content: code,
+      mode: 'standard',
+      filePath: 'tests/test_client.py',
+      language: 'python',
+    });
+    const inSrc = scan({
+      targetType: 'snippet',
+      content: code,
+      mode: 'standard',
+      filePath: 'client.py',
+      language: 'python',
+    });
+    expect(inTest.findings.find((f) => f.ruleId === 'VG-AUTH-004')?.confidence).toBe('medium');
+    expect(inSrc.findings.find((f) => f.ruleId === 'VG-AUTH-004')?.confidence).toBe('high');
+  });
+
+  it('does not down-rank rules whose signal is the comment itself (opt-out)', () => {
+    const code = '// TODO: validate the auth token before trusting it\nconst x = 1;\n';
+    const r = scan({
+      targetType: 'snippet',
+      content: code,
+      mode: 'standard',
+      filePath: 'a.js',
+      language: 'javascript',
+    });
+    const todo = r.findings.find((f) => f.ruleId === 'VG-AUTH-002');
+    expect(todo).toBeDefined();
+    expect(todo?.confidence).toBe('medium'); // opt-out keeps the default
+  });
 });

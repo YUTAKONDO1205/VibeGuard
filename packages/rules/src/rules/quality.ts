@@ -4,8 +4,7 @@
 // in this file legitimately contain those literals.
 import type { RuleDefinition, RuleMatch } from '../rule-types.js';
 import { runRegex } from '../matcher-utils.js';
-
-const TEST_PATH_RE = /(?:^|[\\\/])(?:tests?|__tests__|__mocks__|fixtures|spec|specs)(?:[\\\/]|$)|\.(?:test|spec)\.[a-z]+$/i;
+import { isTestPath } from '../confidence.js';
 
 export const exceptionSwallow: RuleDefinition = {
   ruleId: 'VG-QUAL-001',
@@ -104,6 +103,29 @@ export const openRedirect: RuleDefinition = {
 // each one has produced real production incidents when ignored.
 // ---------------------------------------------------------------------------
 
+// A `raise NotImplementedError` whose enclosing `def` is decorated with
+// @abstractmethod (or @abc.abstractmethod) is the idiomatic Python way to
+// declare an abstract contract — the concrete subclass supplies the body. That
+// is intentional, not a shipped stub, so it must not be flagged. (Identified as
+// the dominant VG-QUAL-005 false-positive class in the ai-quality precision
+// benchmark, paper item ③.)
+function isAbstractMethod(lines: string[], matchLine: number): boolean {
+  for (let i = matchLine - 1; i >= 0; i--) {
+    if (!/^\s*def\s/.test(lines[i] ?? '')) continue;
+    for (let j = i - 1; j >= 0; j--) {
+      const deco = (lines[j] ?? '').trim();
+      if (deco === '') continue;
+      if (deco.startsWith('@')) {
+        if (/^@(?:[\w.]+\.)?abstractmethod\b/.test(deco)) return true;
+        continue; // another decorator; keep scanning upward
+      }
+      break; // first non-decorator, non-blank line above the def
+    }
+    return false;
+  }
+  return false;
+}
+
 export const stubBody: RuleDefinition = {
   ruleId: 'VG-QUAL-005',
   name: 'Stub or not-implemented function body',
@@ -123,7 +145,9 @@ export const stubBody: RuleDefinition = {
       ctx.content,
       /throw\s+new\s+Error\s*\(\s*["'`](?:Not[\s_-]?implemented|TODO\b|FIXME\b|stub\b|unimplemented)/gi,
     ),
-    ...runRegex(ctx.content, /\braise\s+NotImplementedError\b/g),
+    ...runRegex(ctx.content, /\braise\s+NotImplementedError\b/g).filter(
+      (m) => !isAbstractMethod(ctx.lines, m.startLine),
+    ),
     ...runRegex(
       ctx.content,
       /\bpanic\s*\(\s*["`](?:not\s+implemented|TODO|unimplemented)/gi,
@@ -157,7 +181,7 @@ export const placeholderEmail: RuleDefinition = {
 };
 
 function filterTestPaths(ctx: { filePath?: string }, matches: RuleMatch[]): RuleMatch[] {
-  if (ctx.filePath && TEST_PATH_RE.test(ctx.filePath)) return [];
+  if (isTestPath(ctx.filePath)) return [];
   return matches;
 }
 
@@ -237,6 +261,8 @@ export const notForProductionComment: RuleDefinition = {
   category: 'ai-quality',
   severity: 'medium',
   defaultConfidence: 'medium',
+  // The comment IS the signal; never down-rank it for being inside a comment.
+  contextConfidence: 'off',
   tags: ['ai-prone'],
   remediation: {
     why: 'The comment is the author admitting the code should not have shipped as-is. Either the warning is correct (replace the code) or the comment is stale (delete it).',

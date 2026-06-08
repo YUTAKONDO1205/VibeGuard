@@ -37,6 +37,9 @@ export const todoSecurity: RuleDefinition = {
   category: 'ai-quality',
   severity: 'medium',
   defaultConfidence: 'medium',
+  // The comment IS the signal here, so context-confidence must not down-rank a
+  // match for being inside a comment (it always is).
+  contextConfidence: 'off',
   tags: ['ai-prone'],
   remediation: {
     why: 'A TODO next to security-critical logic typically means the safety check was deferred and may never be implemented.',

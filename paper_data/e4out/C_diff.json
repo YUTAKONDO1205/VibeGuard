@@ -1,0 +1,44 @@
+{
+  "summary": {
+    "critical": 0,
+    "high": 1,
+    "medium": 0,
+    "low": 0,
+    "info": 0,
+    "total": 1
+  },
+  "findings": [
+    {
+      "findingId": "vg-mq190gyn-1",
+      "ruleId": "VG-INJ-003",
+      "title": "os.system / os.popen with interpolated input",
+      "description": "os.system or os.popen executes via shell. Building the command from variables is a classic injection vector.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "injection",
+      "language": "python",
+      "filePath": "safe_app.py",
+      "startLine": 9,
+      "endLine": 9,
+      "startColumn": 5,
+      "endColumn": 25,
+      "snippet": "    os.system(\"sh -c \" + cmd)",
+      "evidence": [
+        "os.system(\"sh -c \" +"
+      ],
+      "remediation": {
+        "why": "os.system / os.popen run a shell. Interpolated variables become shell tokens.",
+        "how": "Replace with subprocess.run([...]) using a list and no shell, or sanitise via shlex.quote.",
+        "references": [
+          "https://owasp.org/Top10/A03_2021-Injection/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    }
+  ],
+  "executionTimeMs": 30,
+  "engineVersions": {
+    "core": "0.1.0"
+  },
+  "generatedAt": "2026-06-05T18:19:15.554Z"
+}

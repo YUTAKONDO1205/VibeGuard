@@ -11,7 +11,23 @@ import { rubyRules } from './rules/lang-ruby.js';
 import { phpRules } from './rules/lang-php.js';
 
 export type { RuleDefinition, RuleMatch, RuleContext } from './rule-types.js';
-export { runRegex, indexToPosition, languageMatches, getLineText } from './matcher-utils.js';
+export {
+  runRegex,
+  indexToPosition,
+  languageMatches,
+  getLineText,
+  isCommentLine,
+} from './matcher-utils.js';
+export {
+  contextConfidence,
+  downgradeConfidence,
+  detectDowngradeSignals,
+  isInDocstringOrBlockComment,
+  isTestPath,
+  TEST_PATH_RE,
+  type ContextConfidenceMode,
+  type DowngradeSignal,
+} from './confidence.js';
 
 export const allRules: RuleDefinition[] = [
   ...injectionRules,

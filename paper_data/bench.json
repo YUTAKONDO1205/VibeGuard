@@ -1,0 +1,41 @@
+{
+  "runs": 3,
+  "results": [
+    {
+      "name": "single-file fast scan",
+      "target_ms": 3000,
+      "hard_limit_ms": 6000,
+      "samples_ms": [
+        74.28,
+        73.22,
+        72.26
+      ],
+      "median_ms": 73.22,
+      "verdict": "ok"
+    },
+    {
+      "name": "samples/vulnerable directory",
+      "target_ms": 1000,
+      "hard_limit_ms": 2000,
+      "samples_ms": [
+        89.85,
+        89.03,
+        89.83
+      ],
+      "median_ms": 89.83,
+      "verdict": "ok"
+    },
+    {
+      "name": "repo-wide scan (ignore samples/dist/node_modules)",
+      "target_ms": 300000,
+      "hard_limit_ms": 600000,
+      "samples_ms": [
+        250.1,
+        223.2,
+        224.85
+      ],
+      "median_ms": 224.85,
+      "verdict": "ok"
+    }
+  ]
+}

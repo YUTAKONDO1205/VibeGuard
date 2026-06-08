@@ -1,0 +1,598 @@
+{
+  "summary": {
+    "critical": 5,
+    "high": 5,
+    "medium": 8,
+    "low": 2,
+    "info": 0,
+    "total": 20
+  },
+  "findings": [
+    {
+      "findingId": "vg-mq18x61a-8",
+      "ruleId": "VG-SEC-001",
+      "title": "Hard-coded AWS access key ID",
+      "description": "A literal AWS access key ID was found in source. Treat as compromised the moment it lands in version control.",
+      "severity": "critical",
+      "confidence": "high",
+      "category": "secrets",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 30,
+      "endLine": 30,
+      "startColumn": 22,
+      "endColumn": 42,
+      "snippet": "AWS_ACCESS_KEY_ID = \"AKIA***\"",
+      "evidence": [
+        "AKIAIOSFODNN7EXAMPLE"
+      ],
+      "remediation": {
+        "why": "Source-embedded credentials end up in git history, build artefacts, and logs forever — and AWS keys grant immediate cloud access.",
+        "how": "Rotate the key, then load credentials from environment variables, AWS Secrets Manager, or your runtime IAM role.",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    },
+    {
+      "findingId": "vg-mq18x619-3",
+      "ruleId": "VG-INJ-004",
+      "title": "Use of eval()",
+      "description": "eval() executes arbitrary code from a string. It is rarely necessary and almost never safe with non-literal input.",
+      "severity": "critical",
+      "confidence": "high",
+      "category": "injection",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 83,
+      "endLine": 83,
+      "startColumn": 16,
+      "endColumn": 21,
+      "snippet": "    return str(eval(expr))",
+      "evidence": [
+        "eval("
+      ],
+      "remediation": {
+        "why": "eval() runs whatever string it receives as code. Any path from user input to that string is remote code execution.",
+        "how": "Replace eval() with a structured parser (JSON.parse, ast.literal_eval) or a dispatch table for the operations you actually need.",
+        "exampleFix": "JSON.parse(input)",
+        "references": [
+          "https://owasp.org/Top10/A03_2021-Injection/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "rce",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x619-4",
+      "ruleId": "VG-INJ-005",
+      "title": "Unsafe deserialization (pickle / yaml.load)",
+      "description": "pickle.load / pickle.loads and yaml.load without SafeLoader can execute arbitrary Python objects from input.",
+      "severity": "critical",
+      "confidence": "high",
+      "category": "injection",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 99,
+      "endLine": 99,
+      "startColumn": 17,
+      "endColumn": 30,
+      "snippet": "    return repr(pickle.loads(blob))",
+      "evidence": [
+        "pickle.loads("
+      ],
+      "remediation": {
+        "why": "pickle and unsafe yaml load instantiate arbitrary classes during load, giving attacker-controlled input direct code execution.",
+        "how": "Use json or yaml.safe_load. If you must use pickle, only load from data you produced and signed yourself.",
+        "exampleFix": "yaml.safe_load(data)",
+        "references": [
+          "https://owasp.org/Top10/A03_2021-Injection/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    },
+    {
+      "findingId": "vg-mq18x619-5",
+      "ruleId": "VG-INJ-005",
+      "title": "Unsafe deserialization (pickle / yaml.load)",
+      "description": "pickle.load / pickle.loads and yaml.load without SafeLoader can execute arbitrary Python objects from input.",
+      "severity": "critical",
+      "confidence": "high",
+      "category": "injection",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 103,
+      "endLine": 103,
+      "startColumn": 12,
+      "endColumn": 22,
+      "snippet": "    return yaml.load(text)  # yaml.safe_load を使うべき",
+      "evidence": [
+        "yaml.load("
+      ],
+      "remediation": {
+        "why": "pickle and unsafe yaml load instantiate arbitrary classes during load, giving attacker-controlled input direct code execution.",
+        "how": "Use json or yaml.safe_load. If you must use pickle, only load from data you produced and signed yourself.",
+        "exampleFix": "yaml.safe_load(data)",
+        "references": [
+          "https://owasp.org/Top10/A03_2021-Injection/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    },
+    {
+      "findingId": "vg-mq18x61b-c",
+      "ruleId": "VG-FW-002",
+      "title": "Flask app.run(debug=True) — Werkzeug debugger reachable",
+      "description": "Calling app.run(debug=True) enables the Werkzeug debugger, which provides an interactive Python console on uncaught exceptions. Combined with host=\"0.0.0.0\" this is remote code execution.",
+      "severity": "critical",
+      "confidence": "high",
+      "category": "config",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 164,
+      "endLine": 164,
+      "startColumn": 5,
+      "endColumn": 50,
+      "snippet": "    app.run(host=\"0.0.0.0\", port=5000, debug=True)",
+      "evidence": [
+        "app.run(host=\"0.0.0.0\", port=5000, debug=True"
+      ],
+      "remediation": {
+        "why": "The Werkzeug debugger lets anyone who can hit a 500 page execute arbitrary Python in the server process. AI-generated `if __name__ == \"__main__\": app.run(debug=True)` blocks routinely ship like this.",
+        "how": "Run Flask via a real WSGI server (gunicorn / uWSGI) in production, and never set debug=True on a public bind. For local dev, keep host=127.0.0.1.",
+        "exampleFix": "app.run()  # use gunicorn in production"
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "flask",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x61b-b",
+      "ruleId": "VG-FW-001",
+      "title": "Django DEBUG = True in settings",
+      "description": "DEBUG = True in a Django settings module exposes stack traces, environment variables, and SQL on every error page.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "config",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 47,
+      "endLine": 47,
+      "startColumn": 1,
+      "endColumn": 13,
+      "snippet": "DEBUG = True",
+      "evidence": [
+        "DEBUG = True"
+      ],
+      "remediation": {
+        "why": "When DEBUG is on, Django's 500 page renders local variables, settings (including SECRET_KEY), and the request's POST body. Shipping that to production is a full-disclosure leak.",
+        "how": "Read DEBUG from an environment variable defaulting to False: DEBUG = os.environ.get(\"DJANGO_DEBUG\", \"0\") == \"1\". Keep ALLOWED_HOSTS narrow alongside it.",
+        "exampleFix": "DEBUG = os.environ.get(\"DJANGO_DEBUG\", \"0\") == \"1\""
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "django",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x619-2",
+      "ruleId": "VG-INJ-003",
+      "title": "os.system / os.popen with interpolated input",
+      "description": "os.system or os.popen executes via shell. Building the command from variables is a classic injection vector.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "injection",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 70,
+      "endLine": 70,
+      "startColumn": 12,
+      "endColumn": 36,
+      "snippet": "    return os.system(\"ping -c 1 \" + host)",
+      "evidence": [
+        "os.system(\"ping -c 1 \" +"
+      ],
+      "remediation": {
+        "why": "os.system / os.popen run a shell. Interpolated variables become shell tokens.",
+        "how": "Replace with subprocess.run([...]) using a list and no shell, or sanitise via shlex.quote.",
+        "references": [
+          "https://owasp.org/Top10/A03_2021-Injection/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    },
+    {
+      "findingId": "vg-mq18x618-1",
+      "ruleId": "VG-INJ-002",
+      "title": "subprocess with shell=True and dynamic args",
+      "description": "subprocess.run / Popen / call invoked with shell=True passes the command through a shell, enabling injection when arguments are interpolated.",
+      "severity": "high",
+      "confidence": "medium",
+      "category": "injection",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 74,
+      "endLine": 74,
+      "startColumn": 12,
+      "endColumn": 64,
+      "snippet": "    return subprocess.check_output(f\"ls -la {path}\", shell=True)",
+      "evidence": [
+        "subprocess.check_output(f\"ls -la {path}\", shell=True"
+      ],
+      "remediation": {
+        "why": "shell=True invokes a shell that interprets metacharacters; an attacker who controls any part of the string gets command execution.",
+        "how": "Pass arguments as a list and avoid shell=True. If a shell really is needed, use shlex.quote on every interpolated value.",
+        "exampleFix": "subprocess.run([\"git\", \"log\", commit_id])",
+        "references": [
+          "https://owasp.org/Top10/A03_2021-Injection/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "command-injection",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x61a-6",
+      "ruleId": "VG-AUTH-004",
+      "title": "TLS certificate verification disabled",
+      "description": "verify=False, rejectUnauthorized: false, InsecureSkipVerify: true — all disable TLS validation, defeating MITM protection.",
+      "severity": "high",
+      "confidence": "high",
+      "category": "crypto",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 132,
+      "endLine": 132,
+      "startColumn": 30,
+      "endColumn": 42,
+      "snippet": "    return requests.get(url, verify=False).text",
+      "evidence": [
+        "verify=False"
+      ],
+      "remediation": {
+        "why": "Disabling certificate verification turns TLS into a bare encrypted channel with no authentication of the peer. Active MITM is trivial.",
+        "how": "Remove the flag. If a self-signed cert is needed, install it as a trusted CA for the relevant client only.",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    },
+    {
+      "findingId": "vg-mq18x61a-7",
+      "ruleId": "VG-AUTH-005",
+      "title": "Django @csrf_exempt decorator disables CSRF protection",
+      "description": "Marking a Django view with @csrf_exempt opts out of CSRF token validation. Routinely added to make POST endpoints \"just work\" during development and forgotten.",
+      "severity": "high",
+      "confidence": "high",
+      "category": "auth",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 151,
+      "endLine": 153,
+      "startColumn": 1,
+      "endColumn": 13,
+      "snippet": "\n\n@csrf_exempt",
+      "evidence": [
+        "\n\n@csrf_exempt"
+      ],
+      "remediation": {
+        "why": "Without CSRF validation, an attacker can trigger state-changing requests from a victim's browser using forged forms or fetch calls.",
+        "how": "Remove @csrf_exempt and submit a CSRF token (Django will inject {% csrf_token %} into forms / require X-CSRFToken on fetch). For pure JSON APIs, use Django REST Framework's SessionAuthentication or token auth which handles CSRF correctly.",
+        "references": [
+          "https://owasp.org/Top10/A07_2021-Identification_and_Authentication_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "django",
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x61c-j",
+      "ruleId": "VG-QUAL-008",
+      "title": "Debug / verbose flag hardcoded ON",
+      "description": "A debug, verbose, or trace flag is set to true / True directly in source. Different from VG-AUTH-001 (auth bypass): this is the flag itself being flipped on by default.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 47,
+      "endLine": 47,
+      "startColumn": 1,
+      "endColumn": 13,
+      "snippet": "DEBUG = True",
+      "evidence": [
+        "DEBUG = True"
+      ],
+      "remediation": {
+        "why": "Debug-on by default leaks stack traces, internal paths, and PII. AI templates often ship with verbose: true because that is what their training examples show.",
+        "how": "Default debug / verbose / trace flags to false, and source the override from environment configuration.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x61b-9",
+      "ruleId": "VG-CRYPTO-001",
+      "title": "Weak hash (MD5 / SHA1) used in security context",
+      "description": "MD5 and SHA1 are broken for collision resistance and inadequate for password or signature use.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "crypto",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 110,
+      "endLine": 110,
+      "startColumn": 12,
+      "endColumn": 24,
+      "snippet": "    return hashlib.md5(pw.encode()).hexdigest()",
+      "evidence": [
+        "hashlib.md5("
+      ],
+      "remediation": {
+        "why": "MD5 and SHA1 collisions are practical; using them for passwords, signatures, or integrity is insecure.",
+        "how": "Use SHA-256 or SHA-3 for integrity, and a password hash like bcrypt / argon2 / scrypt for credentials.",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    },
+    {
+      "findingId": "vg-mq18x61c-e",
+      "ruleId": "VG-QUAL-003",
+      "title": "Logging a secret-named variable",
+      "description": "console.log / print of a variable whose name suggests it carries credentials. Secrets should never reach logs.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "logging",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 113,
+      "endLine": 113,
+      "startColumn": 11,
+      "endColumn": 22,
+      "snippet": "def fingerprint(token: str) -> str:",
+      "evidence": [
+        "print(token"
+      ],
+      "remediation": {
+        "why": "Secrets in logs end up in log aggregation, screen recordings, and bug reports.",
+        "how": "Remove the log, or replace with a redacted form (e.g. last 4 chars).",
+        "references": [
+          "https://owasp.org/Top10/A09_2021-Security_Logging_and_Monitoring_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x61b-a",
+      "ruleId": "VG-CRYPTO-001",
+      "title": "Weak hash (MD5 / SHA1) used in security context",
+      "description": "MD5 and SHA1 are broken for collision resistance and inadequate for password or signature use.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "crypto",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 114,
+      "endLine": 114,
+      "startColumn": 12,
+      "endColumn": 25,
+      "snippet": "    return hashlib.sha1(token.encode()).hexdigest()",
+      "evidence": [
+        "hashlib.sha1("
+      ],
+      "remediation": {
+        "why": "MD5 and SHA1 collisions are practical; using them for passwords, signatures, or integrity is insecure.",
+        "how": "Use SHA-256 or SHA-3 for integrity, and a password hash like bcrypt / argon2 / scrypt for credentials.",
+        "references": [
+          "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+        ]
+      },
+      "sourceEngine": "core-rule"
+    },
+    {
+      "findingId": "vg-mq18x61d-k",
+      "ruleId": "VG-QUAL-010",
+      "title": "Validator / sanitizer with passthrough body",
+      "description": "Function whose name claims to validate, sanitize, or check input but whose body just returns true / returns the input unchanged.",
+      "severity": "medium",
+      "confidence": "low",
+      "category": "ai-quality",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 138,
+      "endLine": 141,
+      "startColumn": 1,
+      "endColumn": 1,
+      "snippet": "def validate(token):\n    return True\n\n",
+      "evidence": [
+        "def validate(token):\n    return True\n\n"
+      ],
+      "remediation": {
+        "why": "A validator that always returns true gives callers false confidence. Downstream code skips defensive handling because \"it has been validated\".",
+        "how": "Implement the actual checks, or rename the function so callers do not assume validation has happened.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x61c-g",
+      "ruleId": "VG-QUAL-006",
+      "title": "Placeholder email address in source",
+      "description": "Hard-coded emails on example.com / test.com / foo.bar / domain.com — left over from AI templates. They become silent send-failures or info disclosure in production.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 170,
+      "endLine": 170,
+      "startColumn": 33,
+      "endColumn": 51,
+      "snippet": "dummy_data = {\"id\": 1, \"email\": \"test@example.com\", \"role\": \"admin\"}",
+      "evidence": [
+        "\"test@example.com\""
+      ],
+      "remediation": {
+        "why": "AI templates use these literal domains as stand-ins. Shipped, they either bounce, silently swallow notifications, or leak intent to a third party that owns the placeholder domain.",
+        "how": "Move the address to configuration, fail at startup if the value still matches a known placeholder list, and avoid baking any address into source.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x61c-d",
+      "ruleId": "VG-QUAL-001",
+      "title": "Empty except / catch block",
+      "description": "Catching exceptions and silently passing hides real failures, including security-relevant ones like auth or signature errors.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "quality",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 182,
+      "endLine": 183,
+      "startColumn": 5,
+      "endColumn": 13,
+      "snippet": "    except Exception:\n        pass",
+      "evidence": [
+        "except Exception:\n        pass"
+      ],
+      "remediation": {
+        "why": "Swallowing exceptions makes the system look healthy while real errors (including security failures) accumulate.",
+        "how": "Log the error with context and either re-raise, return a typed error, or take an explicit safe action."
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x61c-f",
+      "ruleId": "VG-QUAL-005",
+      "title": "Stub or not-implemented function body",
+      "description": "Function body is a \"Not implemented\" throw / raise / panic. AI scaffolds compile but skip the actual logic — easy to ship by accident.",
+      "severity": "medium",
+      "confidence": "medium",
+      "category": "ai-quality",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 187,
+      "endLine": 187,
+      "startColumn": 5,
+      "endColumn": 30,
+      "snippet": "    raise NotImplementedError",
+      "evidence": [
+        "raise NotImplementedError"
+      ],
+      "remediation": {
+        "why": "A \"not implemented\" body looks like real code at the call site but performs no work — security checks, validation, or business logic that should run silently does not.",
+        "how": "Implement the function, or raise loudly *and* mark the call site as blocked (typed error / 5xx) so callers cannot silently proceed.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x61c-h",
+      "ruleId": "VG-QUAL-007",
+      "title": "Mock / fake / dummy identifier outside test paths",
+      "description": "Identifier prefixed mock / fake / dummy used in non-test source. AI fills incomplete branches with mock data that bypasses real logic.",
+      "severity": "low",
+      "confidence": "low",
+      "category": "ai-quality",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 170,
+      "endLine": 170,
+      "startColumn": 1,
+      "endColumn": 13,
+      "snippet": "dummy_data = {\"id\": 1, \"email\": \"test@example.com\", \"role\": \"admin\"}",
+      "evidence": [
+        "dummy_data ="
+      ],
+      "remediation": {
+        "why": "A mock value reached at runtime in production short-circuits validation, auth, or data fetches and looks indistinguishable from real flow until something downstream fails.",
+        "how": "Move the mock into a test fixture, or guard it behind an explicit non-production environment check that throws if reached otherwise.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    },
+    {
+      "findingId": "vg-mq18x61c-i",
+      "ruleId": "VG-QUAL-007",
+      "title": "Mock / fake / dummy identifier outside test paths",
+      "description": "Identifier prefixed mock / fake / dummy used in non-test source. AI fills incomplete branches with mock data that bypasses real logic.",
+      "severity": "low",
+      "confidence": "low",
+      "category": "ai-quality",
+      "language": "python",
+      "filePath": "./test_problem/test_problem.py",
+      "startLine": 171,
+      "endLine": 171,
+      "startColumn": 1,
+      "endColumn": 12,
+      "snippet": "mock_user = {\"name\": \"John Doe\", \"balance\": 9999999}",
+      "evidence": [
+        "mock_user ="
+      ],
+      "remediation": {
+        "why": "A mock value reached at runtime in production short-circuits validation, auth, or data fetches and looks indistinguishable from real flow until something downstream fails.",
+        "how": "Move the mock into a test fixture, or guard it behind an explicit non-production environment check that throws if reached otherwise.",
+        "references": [
+          "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "ai-prone"
+      ]
+    }
+  ],
+  "executionTimeMs": 8,
+  "engineVersions": {
+    "core": "0.1.0"
+  },
+  "generatedAt": "2026-06-05T18:16:41.426Z"
+}

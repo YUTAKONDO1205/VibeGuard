@@ -1,0 +1,49 @@
+{
+  "summary": {
+    "critical": 1,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "info": 0,
+    "total": 1
+  },
+  "findings": [
+    {
+      "findingId": "vg-mq190ftf-1",
+      "ruleId": "VG-INJ-004",
+      "title": "Use of eval()",
+      "description": "eval() executes arbitrary code from a string. It is rarely necessary and almost never safe with non-literal input.",
+      "severity": "critical",
+      "confidence": "high",
+      "category": "injection",
+      "language": "javascript",
+      "filePath": "paper_data/e4repo/new_api.js",
+      "startLine": 3,
+      "endLine": 3,
+      "startColumn": 10,
+      "endColumn": 15,
+      "snippet": "  return eval(input);",
+      "evidence": [
+        "eval("
+      ],
+      "remediation": {
+        "why": "eval() runs whatever string it receives as code. Any path from user input to that string is remote code execution.",
+        "how": "Replace eval() with a structured parser (JSON.parse, ast.literal_eval) or a dispatch table for the operations you actually need.",
+        "exampleFix": "JSON.parse(input)",
+        "references": [
+          "https://owasp.org/Top10/A03_2021-Injection/"
+        ]
+      },
+      "sourceEngine": "core-rule",
+      "tags": [
+        "rce",
+        "ai-prone"
+      ]
+    }
+  ],
+  "executionTimeMs": 5,
+  "engineVersions": {
+    "core": "0.1.0"
+  },
+  "generatedAt": "2026-06-05T18:19:14.070Z"
+}

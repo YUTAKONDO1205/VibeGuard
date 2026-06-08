@@ -1,0 +1,104 @@
+{
+  "neg_app_build.test.js:4:VG-QUAL-008": {
+    "label": "FP",
+    "tp": 0,
+    "fp": 3,
+    "unanimous": true
+  },
+  "neg_configure.py:5:VG-QUAL-008": {
+    "label": "FP",
+    "tp": 0,
+    "fp": 3,
+    "unanimous": true
+  },
+  "neg_csv_export.js:2:VG-QUAL-005": {
+    "label": "FP",
+    "tp": 0,
+    "fp": 3,
+    "unanimous": true
+  },
+  "neg_feature_flags.js:3:VG-QUAL-010": {
+    "label": "FP",
+    "tp": 0,
+    "fp": 3,
+    "unanimous": true
+  },
+  "neg_mailer.test.js:4:VG-QUAL-006": {
+    "label": "FP",
+    "tp": 0,
+    "fp": 3,
+    "unanimous": true
+  },
+  "neg_payment_gateway.py:7:VG-QUAL-005": {
+    "label": "FP",
+    "tp": 0,
+    "fp": 3,
+    "unanimous": true
+  },
+  "neg_payment_gateway.py:11:VG-QUAL-005": {
+    "label": "FP",
+    "tp": 0,
+    "fp": 3,
+    "unanimous": true
+  },
+  "neg_welcome_mailer.py:5:VG-QUAL-006": {
+    "label": "FP",
+    "tp": 0,
+    "fp": 3,
+    "unanimous": true
+  },
+  "pos_admin_contact.py:4:VG-QUAL-006": {
+    "label": "TP",
+    "tp": 3,
+    "fp": 0,
+    "unanimous": true
+  },
+  "pos_authorize.js:2:VG-QUAL-009": {
+    "label": "TP",
+    "tp": 3,
+    "fp": 0,
+    "unanimous": true
+  },
+  "pos_coupon_validator.js:1:VG-QUAL-010": {
+    "label": "TP",
+    "tp": 3,
+    "fp": 0,
+    "unanimous": true
+  },
+  "pos_receipt_mailer.js:6:VG-QUAL-006": {
+    "label": "TP",
+    "tp": 3,
+    "fp": 0,
+    "unanimous": true
+  },
+  "pos_settings.py:4:VG-QUAL-008": {
+    "label": "TP",
+    "tp": 3,
+    "fp": 0,
+    "unanimous": true
+  },
+  "pos_stub_export.js:2:VG-QUAL-005": {
+    "label": "TP",
+    "tp": 3,
+    "fp": 0,
+    "unanimous": true
+  },
+  "pos_stub_handler.py:8:VG-QUAL-005": {
+    "label": "TP",
+    "tp": 3,
+    "fp": 0,
+    "unanimous": true
+  },
+  "neg_msw_browser.ts:5:VG-QUAL-007": {
+    "label": "FP",
+    "tp": 0,
+    "fp": 3,
+    "unanimous": true
+  },
+  "pos_profile_handler.ts:4:VG-QUAL-007": {
+    "label": "TP",
+    "tp": 3,
+    "fp": 0,
+    "unanimous": true
+  }
+}
