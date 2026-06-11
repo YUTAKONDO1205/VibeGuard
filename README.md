@@ -7,7 +7,7 @@
 [![Open VSX](https://img.shields.io/badge/Open%20VSX-vibeguard--aicoding-c160ef?logo=eclipseide)](https://open-vsx.org/extension/yutakondo/vibeguard-aicoding)
 [![Chrome Web Store](https://img.shields.io/badge/Chrome%20Web%20Store-VibeGuard-4285F4?logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/ggdiodcjmdnkhncnpafcjokgonhmhbdf)
 
-Author: Kondo Yuta（近藤 悠太）
+Author : Kondo Yuta（近藤 悠太）
 
 VibeGuard is a security scanner for AI-generated code. It catches the bugs that "looks fine, ships fine" code tends to hide: missing input checks, hard-coded passwords, skipped login checks, exceptions silently caught, and so on.
 
