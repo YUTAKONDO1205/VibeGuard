@@ -746,6 +746,8 @@ Semgrep を呼び出し、結果を共通形式へ変換する。
 | Medium | パターン一致だが安全文脈の可能性あり |
 | Low | ヒューリスティクス中心で要人手確認 |
 
+【実装更新】ルールが宣言するのは**既定 confidence** であり、analyzer は検出箇所ごとに**文脈窓補正**を適用する：マッチがコメント・docstring・ブロックコメント内、またはテスト／フィクスチャ／モックのパス上にある場合、confidence を降格する（降格のみで引き上げは行わず、severity は変更しない）。実装は `packages/analyzer-core/src/confidence.ts`、動作確認は `node scripts/e6-confidence-eval.mjs`。
+
 ### 13.4 suppress 設計
 
 suppress は4軸で構成する。実装は `packages/analyzer-core/src/suppress.ts`（pragma）と `packages/analyzer-core/src/config.ts`（パス単位）に分かれる。

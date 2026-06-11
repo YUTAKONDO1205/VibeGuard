@@ -4,8 +4,8 @@
 // sit in a non-executed context (comment / docstring / block comment / test
 // path) while leaving real, executable occurrences of the *same* pattern at
 // their default confidence. Produces:
-//   1. a per-finding before -> after table over paper_data/e6repo (control vs
-//      treatment pairs);
+//   1. a per-finding before -> after table over samples/context-window
+//      (control vs treatment pairs);
 //   2. a "no collateral damage" check over samples/vulnerable (real true
 //      positives must keep their confidence);
 //   3. a false-positive guard over samples/safe (must stay 0 findings).
@@ -117,12 +117,12 @@ function pad(s, n) {
   return s.length >= n ? s : s + ' '.repeat(n - s.length);
 }
 
-// ---- 1. e6repo detail table -------------------------------------------------
-const e6 = analyze('paper_data/e6repo').sort(
+// ---- 1. context-window fixture detail table ---------------------------------
+const e6 = analyze('samples/context-window').sort(
   (a, b) => a.file.localeCompare(b.file) || a.line - b.line,
 );
 console.log('# E6 — context-window confidence (paper item ①)\n');
-console.log('## paper_data/e6repo — control vs treatment\n');
+console.log('## samples/context-window — control vs treatment\n');
 console.log(
   '| ruleId | location | sev | context signal | before → after |',
 );

@@ -130,6 +130,15 @@ npm run bench -- --json # machine-readable for CI artifacts
 
 The benchmark exercises three representative workloads (single-file fast scan, samples directory, repo-wide scan) and prints a Markdown table comparing the median of 3 runs against the design targets in [DESIGN.ja.md](DESIGN.ja.md) §11.1. The benchmark exits non-zero when a workload exceeds 2× its target — the 2× headroom keeps the gate quiet on noisy CI VMs while still catching real regressions. A non-blocking `perf-bench` job uploads the JSON to a CI artifact on every push.
 
+## Reproducing the paper evaluation
+
+VibeGuard is the research prototype evaluated in the SES2026 paper on
+multi-context security scanning for AI-generated code. Every number in the
+paper maps to a tracked script — see [docs/EVALUATION.md](docs/EVALUATION.md)
+for the full command-by-command reproduction guide (consistency check, sample
+corpora, PR-diff reduction, performance, the 11-repository OSS study with
+pinned commits, and the Bandit/Semgrep baseline comparisons).
+
 ## GitHub Actions
 
 The repository ships two workflows:
@@ -227,7 +236,7 @@ Marketplace publishing is documented in [`docs/runbooks/publish-action-to-market
 
 ## Rule catalogue
 
-30 rules at the moment. The ID prefix groups rules by source file; the `category` field is a separate, risk-oriented axis.
+47 rules at the moment, across 8 languages. The ID prefix groups rules by source file; the `category` field is a separate, risk-oriented axis.
 
 | Prefix | Coverage | Examples |
 |---|---|---|
@@ -240,6 +249,8 @@ Marketplace publishing is documented in [`docs/runbooks/publish-action-to-market
 | `VG-FW-NNN` | Framework misconfiguration | Django `DEBUG=True` / Flask `app.run(debug=True)` / CORS wildcard. |
 
 VG-QUAL-005..010 target the "compiles cleanly but shouldn't ship" patterns that AI-generated code produces. They run at `severity=medium` and `confidence=low~medium` because heuristics are inherently noisier than syntactic rules.
+
+Each rule declares a *default* confidence, and the analyzer then applies a **context-window confidence correction**: a match that sits inside a comment, docstring, or block comment, or on a test/fixture/mock path, has its confidence down-ranked (never up-ranked, and severity is untouched), so e.g. an `eval()` shown in a tutorial comment is reported at lower confidence than a live call. See `packages/analyzer-core/src/confidence.ts` and `node scripts/e6-confidence-eval.mjs` for a worked demonstration.
 
 ## Chrome extension
 

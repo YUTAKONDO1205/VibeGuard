@@ -9,6 +9,24 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Context-window confidence correction** in `analyzer-core`: a finding whose
+  match sits inside a comment, docstring, or block comment, or on a
+  test/fixture/mock path, has its `confidence` down-ranked (downgrade-only;
+  `severity` is preserved). Rules now declare a *default* confidence that the
+  analyzer corrects per occurrence
+  (`packages/analyzer-core/src/confidence.ts`).
+- **Paper-evaluation reproduction kit**: `docs/EVALUATION.md` maps every number
+  in the SES2026 paper to a tracked command; new tracked scripts
+  `scripts/e4-prdiff-eval.mjs` (PR-diff reduction scenarios) and
+  `scripts/e6-extended-eval.mjs` (11 public OSS repositories, commits pinned in
+  the output) join the existing `e1-consistency-eval` / `e6-confidence-eval` /
+  `perf-bench` / `sast-baseline-eval` scripts. The context-window fixtures now
+  live in tracked `samples/context-window/`.
+- **Semgrep baseline on Windows**: `scripts/sast-baseline-eval.mjs` was run
+  against Semgrep 1.165.0 (`p/default`), which now installs natively on
+  Windows; `scripts/run-semgrep.sh` docs updated accordingly.
+
 ## [0.1.3] - 2026-05-28
 
 ### Fixed

@@ -2,9 +2,11 @@
 # ④ — produce Semgrep --json for the SAST baseline comparison, then diff it
 # against VibeGuard with scripts/sast-baseline-eval.mjs.
 #
-# Semgrep has no Windows-native build (OCaml core), so run this on Linux/macOS/CI
-# or via Docker. The companion harness ingests the resulting JSON unchanged, so
-# the multi-language tables reproduce exactly the Bandit run's structure.
+# Recent Semgrep releases (verified with 1.165.0) install and run natively on
+# Windows via `pip install semgrep`; on Windows run the same two commands below
+# in PowerShell (or use Docker/WSL). The companion harness ingests the
+# resulting JSON unchanged, so the multi-language tables reproduce exactly the
+# Bandit run's structure.
 #
 # Usage:
 #   scripts/run-semgrep.sh <corpus-dir> <label>
