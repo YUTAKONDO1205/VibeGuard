@@ -1,3 +1,4 @@
+// vibeguard:disable-file VG-INJ-004 reason="literal eval(input) fixture payload used to exercise the scanner"
 // E4 — PR-diff scan evaluation (reproduces the paper's Table "PR差分スキャン").
 //
 // Builds a small git corpus (9 vulnerable files copied from samples/vulnerable

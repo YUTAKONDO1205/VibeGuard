@@ -53,6 +53,7 @@ jobs:
             --out report.sarif \
             --ignore samples \
             --ignore test_problem \
+            --ignore paper_data \
             --ignore dist \
             --ignore node_modules \
             --ignore .git \
@@ -66,6 +67,7 @@ jobs:
             --out report.md \
             --ignore samples \
             --ignore test_problem \
+            --ignore paper_data \
             --ignore dist \
             --ignore node_modules \
             --ignore .git \
@@ -94,6 +96,7 @@ jobs:
             --out gate.json \
             --ignore samples \
             --ignore test_problem \
+            --ignore paper_data \
             --ignore dist \
             --ignore node_modules \
             --ignore .git \
