@@ -19,7 +19,7 @@
   "devDependencies": {
     "typescript": "^5.4.5",
     "vitest": "^1.6.0",
-    "@types/node": "^20.19.42"
+    "@types/node": "^20.19.43"
   },
   "engines": {
     "node": ">=18"
