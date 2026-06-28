@@ -132,7 +132,7 @@ The benchmark exercises three representative workloads (single-file fast scan, s
 
 ## Reproducing the paper evaluation
 
-VibeGuard is the research prototype evaluated in the SES2026 paper on
+VibeGuard is the research prototype evaluated in the paper on
 multi-context security scanning for AI-generated code. Every number in the
 paper maps to a tracked script — see [docs/EVALUATION.md](docs/EVALUATION.md)
 for the full command-by-command reproduction guide (consistency check, sample

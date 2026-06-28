@@ -1,6 +1,6 @@
-# Reproducing the paper evaluation (SES2026)
+# Reproducing the paper evaluation
 
-This document maps every number reported in the SES2026 paper
+This document maps every number reported in the paper
 "AI生成コードに対するマルチコンテキスト型セキュリティ診断基盤 VibeGuard の設計と実装"
 to the exact command that produces it, so a third party can reproduce the
 evaluation from a clean clone.
