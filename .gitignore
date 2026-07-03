@@ -9,9 +9,19 @@ coverage/
 .env.local
 .vscode/settings.json
 
-# Claude / Codex
+# OS / editor cruft
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.idea/
+*~
+
+# AI coding assistants (local-only tooling / config / harness docs)
 .claude/
 .codex/
+.cursor/
+.windsurf/
+.aider*
 AGENTS.md
 README-CODEX.md
 
@@ -31,5 +41,9 @@ vibeguard-aicoding-*.vsix
 vibeguard-cli-*.tgz
 
 # Paper / research experiment data (local-only; outputs are regenerable,
-# contains machine-specific paths and a stray nested git repo)
+# contain machine-specific paths and a stray nested git repo)
 paper_data/
+
+# Security red-team research workspace (local-only; kept out of the public
+# service repo until mitigations + write-up ship — see the folder's scope doc)
+security-experiment/
