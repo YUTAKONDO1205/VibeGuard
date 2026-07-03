@@ -16,8 +16,7 @@ the project uses [Semantic Versioning](https://semver.org/).
   `severity` is preserved). Rules now declare a *default* confidence that the
   analyzer corrects per occurrence
   (`packages/analyzer-core/src/confidence.ts`).
-- **Paper-evaluation reproduction kit**: `docs/EVALUATION.md` maps every number
-  in the paper to a tracked command; new tracked scripts
+- **Evaluation scripts**: new tracked scripts
   `scripts/e4-prdiff-eval.mjs` (PR-diff reduction scenarios) and
   `scripts/e6-extended-eval.mjs` (11 public OSS repositories, commits pinned in
   the output) join the existing `e1-consistency-eval` / `e6-confidence-eval` /

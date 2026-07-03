@@ -43,6 +43,7 @@ vibeguard-cli-*.tgz
 # Paper / research experiment data (local-only; outputs are regenerable,
 # contain machine-specific paths and a stray nested git repo)
 paper_data/
+docs/EVALUATION.md
 
 # Security red-team research workspace (local-only; kept out of the public
 # service repo until mitigations + write-up ship — see the folder's scope doc)

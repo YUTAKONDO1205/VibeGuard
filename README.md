@@ -130,15 +130,6 @@ npm run bench -- --json # machine-readable for CI artifacts
 
 The benchmark exercises three representative workloads (single-file fast scan, samples directory, repo-wide scan) and prints a Markdown table comparing the median of 3 runs against the design targets in [DESIGN.ja.md](DESIGN.ja.md) §11.1. The benchmark exits non-zero when a workload exceeds 2× its target — the 2× headroom keeps the gate quiet on noisy CI VMs while still catching real regressions. A non-blocking `perf-bench` job uploads the JSON to a CI artifact on every push.
 
-## Reproducing the paper evaluation
-
-VibeGuard is the research prototype evaluated in the paper on
-multi-context security scanning for AI-generated code. Every number in the
-paper maps to a tracked script — see [docs/EVALUATION.md](docs/EVALUATION.md)
-for the full command-by-command reproduction guide (consistency check, sample
-corpora, PR-diff reduction, performance, the 11-repository OSS study with
-pinned commits, and the Bandit/Semgrep baseline comparisons).
-
 ## GitHub Actions
 
 The repository ships two workflows:
@@ -287,7 +278,7 @@ Currently around the Phase 1–3 footprint, with Phase 2 (Actions / PR comments)
 
 ## Versioning
 
-VibeGuard tracks **two independent version numbers**. Keeping them separate is intentional — please cite the right one in papers and issues.
+VibeGuard tracks **two independent version numbers**. Keeping them separate is intentional — reference the right one when reporting issues.
 
 | Version | Where | Bumps when | Current |
 | --- | --- | --- | --- |
