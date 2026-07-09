@@ -45,6 +45,10 @@ vibeguard-cli-*.tgz
 paper_data/
 docs/EVALUATION.md
 
+# Design / paper drafts exported as Office / PDF (local-only, e.g. 追加設計書案)
+docs/*.docx
+docs/*.pdf
+
 # Security red-team research workspace (local-only; kept out of the public
 # service repo until mitigations + write-up ship — see the folder's scope doc)
 security-experiment/
