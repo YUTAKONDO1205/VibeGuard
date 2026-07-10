@@ -19,7 +19,7 @@ You can run it at three places, and you'll get the same answer at every one of t
 
 The analysis engine is shared across all three, so a finding looks the same in your editor, in your browser, and in the PR comment.
 
-For more detail: the design document is in [DESIGN.ja.md](DESIGN.ja.md) (Japanese). The privacy policy is in [PRIVACY.md](PRIVACY.md) — VibeGuard never sends your code anywhere.
+For more detail: the design document is in [docs/DESIGN.ja.md](docs/DESIGN.ja.md) (Japanese). The privacy policy is in [PRIVACY.md](PRIVACY.md) — VibeGuard never sends your code anywhere.
 
 ## Install
 
@@ -39,7 +39,7 @@ Source of truth for all four channels: this repository (MIT-licensed). The CLI u
 ```text
 vibeguard-codex/
 ├─ AGENTS.md                  # Project-wide rules for Codex agents
-├─ DESIGN.ja.md                # Detailed design doc v0.2 (Japanese)
+├─ docs/                     # Design docs (DESIGN.ja.md, EVALUATION.md, …)
 ├─ .codex/                    # Codex project config / agent definitions
 │  ├─ config.toml
 │  └─ agents/{planner,generator,evaluator}.toml
@@ -128,7 +128,7 @@ npm run bench           # human-readable table
 npm run bench -- --json # machine-readable for CI artifacts
 ```
 
-The benchmark exercises three representative workloads (single-file fast scan, samples directory, repo-wide scan) and prints a Markdown table comparing the median of 3 runs against the design targets in [DESIGN.ja.md](DESIGN.ja.md) §11.1. The benchmark exits non-zero when a workload exceeds 2× its target — the 2× headroom keeps the gate quiet on noisy CI VMs while still catching real regressions. A non-blocking `perf-bench` job uploads the JSON to a CI artifact on every push.
+The benchmark exercises three representative workloads (single-file fast scan, samples directory, repo-wide scan) and prints a Markdown table comparing the median of 3 runs against the design targets in [docs/DESIGN.ja.md](docs/DESIGN.ja.md) §11.1. The benchmark exits non-zero when a workload exceeds 2× its target — the 2× headroom keeps the gate quiet on noisy CI VMs while still catching real regressions. A non-blocking `perf-bench` job uploads the JSON to a CI artifact on every push.
 
 ## GitHub Actions
 

@@ -49,6 +49,18 @@ docs/EVALUATION.md
 docs/*.docx
 docs/*.pdf
 
+# Research roadmap report + its template (local-only planning docs)
+docs/20260401_report_template.html
+docs/20260709_vibeguard_research_roadmap.html
+
+# Integrated implementation handbook (combines security-experiment attack
+# premises — local-only until mitigations ship, same reason as security-experiment/)
+docs/VibeGuard_実装設計手順書.md
+
 # Security red-team research workspace (local-only; kept out of the public
 # service repo until mitigations + write-up ship — see the folder's scope doc)
 security-experiment/
+
+# Remotion product-explainer video project (local-only; the rendered mp4 and its
+# ~500MB of Remotion/Chrome dependencies do not belong in the service repo)
+video/

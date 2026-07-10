@@ -6,7 +6,7 @@ import { isCommentLine } from './matcher-utils.js';
  * Context-window confidence adjustment (paper item ①).
  *
  * VibeGuard's findings carry two orthogonal axes: `severity` (impact if real,
- * static per rule) and `confidence` (certainty the match is real). DESIGN.ja.md
+ * static per rule) and `confidence` (certainty the match is real). docs/DESIGN.ja.md
  * §13.3 defines confidence as the false-positive control knob — Medium means
  * "pattern matched but the surrounding context may be safe", Low means
  * "heuristic, needs human review". Until now no rule ever set a per-match
