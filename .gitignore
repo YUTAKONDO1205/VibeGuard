@@ -59,6 +59,10 @@ docs/*.pdf
 docs/20260401_report_template.html
 docs/20260709_vibeguard_research_roadmap.html
 
+# Weekly ゼミ報告 (seminar) progress reports — local-only planning docs,
+# same reason as the roadmap (touch 0.2.0+ attack-surface scope)
+docs/weekly/
+
 # Integrated implementation handbook + its per-venue breakdown (combine
 # security-experiment attack premises — local-only until mitigations ship,
 # same reason as security-experiment/)
