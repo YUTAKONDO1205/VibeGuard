@@ -25,6 +25,12 @@ Desktop.ini
 AGENTS.md
 README-CODEX.md
 
+# MCP servers' scratch output (Playwright MCP drops screenshots + snapshots
+# into the cwd). These are throwaway verification artifacts — delete them, but
+# ignore them too so a stray one never lands in a commit.
+.playwright-mcp/
+.mcp-output/
+
 # Security scan outputs
 scan.json
 report.sarif
@@ -53,9 +59,13 @@ docs/*.pdf
 docs/20260401_report_template.html
 docs/20260709_vibeguard_research_roadmap.html
 
-# Integrated implementation handbook (combines security-experiment attack
-# premises — local-only until mitigations ship, same reason as security-experiment/)
+# Integrated implementation handbook + its per-venue breakdown (combine
+# security-experiment attack premises — local-only until mitigations ship,
+# same reason as security-experiment/)
 docs/VibeGuard_実装設計手順書.md
+docs/VibeGuard_学会別テーマ分解.md
+docs/VibeGuard_進捗ダッシュボード.html
+docs/vibeguard-dashboard-sync.mjs
 
 # Security red-team research workspace (local-only; kept out of the public
 # service repo until mitigations + write-up ship — see the folder's scope doc)
