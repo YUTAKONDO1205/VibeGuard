@@ -241,7 +241,7 @@ Marketplace publishing is documented in [`docs/runbooks/publish-action-to-market
 
 VG-QUAL-005..010 target the "compiles cleanly but shouldn't ship" patterns that AI-generated code produces. They run at `severity=medium` and `confidence=low~medium` because heuristics are inherently noisier than syntactic rules.
 
-Each rule declares a *default* confidence, and the analyzer then applies a **context-window confidence correction**: a match that sits inside a comment, docstring, or block comment, or on a test/fixture/mock path, has its confidence down-ranked (never up-ranked, and severity is untouched), so e.g. an `eval()` shown in a tutorial comment is reported at lower confidence than a live call. See `packages/analyzer-core/src/confidence.ts` and `node scripts/e6-confidence-eval.mjs` for a worked demonstration.
+Each rule declares a *default* confidence, and the analyzer then applies a **context-window confidence correction**: a match that sits inside a comment, docstring, or block comment, or on a test/fixture/mock path, has its confidence down-ranked (never up-ranked, and severity is untouched), so e.g. an `eval()` shown in a tutorial comment is reported at lower confidence than a live call. See `packages/rules/src/confidence.ts` and `node scripts/e6-confidence-eval.mjs` for a worked demonstration.
 
 ## Chrome extension
 

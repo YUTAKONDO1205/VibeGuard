@@ -10,12 +10,12 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- **Context-window confidence correction** in `analyzer-core`: a finding whose
+- **Context-window confidence correction**: a finding whose
   match sits inside a comment, docstring, or block comment, or on a
   test/fixture/mock path, has its `confidence` down-ranked (downgrade-only;
   `severity` is preserved). Rules now declare a *default* confidence that the
   analyzer corrects per occurrence
-  (`packages/analyzer-core/src/confidence.ts`).
+  (`packages/rules/src/confidence.ts`, applied at the analyzer-core chokepoint).
 - **Evaluation scripts**: new tracked scripts
   `scripts/e4-prdiff-eval.mjs` (PR-diff reduction scenarios) and
   `scripts/e6-extended-eval.mjs` (11 public OSS repositories, commits pinned in
