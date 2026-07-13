@@ -37,12 +37,9 @@ Source of truth for all four channels: this repository (MIT-licensed). The CLI u
 ## Monorepo layout
 
 ```text
-vibeguard-codex/
-├─ AGENTS.md                  # Project-wide rules for Codex agents
+VibeGuard/
+├─ AGENTS.md                  # Project-wide rules for AI implementation agents
 ├─ docs/                     # Design docs (DESIGN.ja.md, EVALUATION.md, …)
-├─ .codex/                    # Codex project config / agent definitions
-│  ├─ config.toml
-│  └─ agents/{planner,generator,evaluator}.toml
 ├─ apps/
 │  └─ cli/                    # CLI for local + CI use
 ├─ packages/
@@ -289,9 +286,9 @@ The CLI prints both, e.g. `vibeguard 0.1.3 (engine 0.1.0)`. The tool version is 
 
 **Rule of thumb:** compare results across two runs by **engine version** (same engine ⇒ identical verdicts); report which build you installed by **tool version**.
 
-## Implementation conventions (Codex harness)
+## Implementation conventions (agent harness)
 
-This repo is built on the assumption that Codex multi-agent runs do the implementation. Responsibilities are split into three roles:
+This repo is built on the assumption that AI implementation agents do the implementation in multi-agent runs. Responsibilities are split into three roles:
 
 - **Planner** — Decomposes ambiguous requirements into implementable tasks.
 - **Generator** — Implements exactly one task with the smallest viable change.
