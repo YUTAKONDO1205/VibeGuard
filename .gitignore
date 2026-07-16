@@ -70,6 +70,7 @@ docs/VibeGuard_実装設計手順書.md
 docs/VibeGuard_学会別テーマ分解.md
 docs/VibeGuard_進捗ダッシュボード.html
 docs/vibeguard-dashboard-sync.mjs
+docs/実装順.md
 
 # Security red-team research workspace (local-only; kept out of the public
 # service repo until mitigations + write-up ship — see the folder's scope doc)
