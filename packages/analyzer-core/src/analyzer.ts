@@ -3,6 +3,7 @@ import {
   summarize,
   compareSeverity,
   type Finding,
+  type RuleError,
   type ScanMode,
   type ScanRequest,
   type ScanResponse,
@@ -86,6 +87,7 @@ export class Analyzer {
   scan(request: ScanRequest): ScanResponse {
     const start = Date.now();
     const findings: Finding[] = [];
+    const ruleErrors: RuleError[] = [];
 
     if (!request.content) {
       return {
@@ -114,9 +116,16 @@ export class Analyzer {
       try {
         matches = rule.match(ctx);
       } catch (err) {
-        // A broken rule should never crash the scan; record nothing and continue.
+        // A broken rule should never crash the scan; skip it and continue. But
+        // skipping silently drops every finding it would have produced, so record
+        // the crash in `ruleErrors` — otherwise this is an undeclared suppression
+        // channel (the stderr line below is invisible on the browser/extension path).
         // eslint-disable-next-line no-console
         console.error(`[vibeguard] rule ${rule.ruleId} threw:`, err);
+        ruleErrors.push({
+          ruleId: rule.ruleId,
+          message: err instanceof Error ? err.message : String(err),
+        });
         continue;
       }
       const includeRemediation = request.includeRemediation !== false;
@@ -172,6 +181,7 @@ export class Analyzer {
       executionTimeMs: Date.now() - start,
       engineVersions: { core: ENGINE_VERSION, rules: String(this.rules.length) },
       generatedAt: new Date().toISOString(),
+      ...(ruleErrors.length ? { ruleErrors } : {}),
     };
   }
 }

@@ -148,6 +148,52 @@ const apiKey = "AKIAIOSFODNN7EXAMPLE";
     expect(r2.findings.length).toBeGreaterThan(0);
   });
 
+  // A rule that throws is skipped so it cannot crash the scan — but skipping it
+  // silently drops its findings, which is an undeclared way to suppress them. The
+  // crash must instead surface in `ruleErrors` (observable on every channel,
+  // including the browser path that discards stderr).
+  it('records a throwing rule in ruleErrors and keeps other rules’ findings', () => {
+    const boom: RuleDefinition = {
+      ruleId: 'VG-TEST-BOOM',
+      name: 'boom',
+      description: 'throws on match',
+      languages: ['*'],
+      category: 'quality',
+      severity: 'high',
+      defaultConfidence: 'high',
+      match: () => {
+        throw new Error('kaboom');
+      },
+    };
+    const ok: RuleDefinition = {
+      ruleId: 'VG-TEST-OK',
+      name: 'ok',
+      description: 'always matches',
+      languages: ['*'],
+      category: 'quality',
+      severity: 'high',
+      defaultConfidence: 'high',
+      match: () => [{ startLine: 1, endLine: 1, startColumn: 1, endColumn: 1, evidence: 'x' }],
+    };
+    // language unknown, so the injected rules are honoured (see the bypass fixture below).
+    const req: ScanRequest = { targetType: 'snippet', content: 'anything', mode: 'standard' };
+    const r = scan(req, { rules: [boom, ok] });
+    // The scan did not throw, and the healthy rule still reported.
+    expect(r.findings.map((f) => f.ruleId)).toContain('VG-TEST-OK');
+    // The crash is observable, not silently swallowed.
+    expect(r.ruleErrors).toEqual([{ ruleId: 'VG-TEST-BOOM', message: 'kaboom' }]);
+  });
+
+  it('omits ruleErrors entirely when no rule throws', () => {
+    const req: ScanRequest = {
+      targetType: 'snippet',
+      content: 'const v = eval(x);',
+      mode: 'standard',
+      filePath: 'a.js',
+    };
+    expect(scan(req).ruleErrors).toBeUndefined();
+  });
+
   // --- Context-window confidence (paper item ①) ---------------------------
 
   it('does not down-rank a high-severity DEBUG=True in a docstring (severity gate)', () => {
@@ -243,12 +289,21 @@ const apiKey = "AKIAIOSFODNN7EXAMPLE";
 
 describe('Analyzer: m.confidence bypass (pinned spec)', () => {
   /**
-   * Severity `critical` + `defaultConfidence: 'high'` + a comment line makes the
-   * three candidate outcomes mutually distinguishable, so the assertion below
-   * identifies which code path ran rather than merely matching a value:
+   * Severity `critical` + `defaultConfidence: 'high'` + a match inside a block
+   * comment makes the three candidate outcomes mutually distinguishable, so the
+   * assertion below identifies which code path ran rather than merely matching a
+   * value:
    *   'medium' → m.confidence honoured (the pinned spec);
    *   'high'   → the severity gate ran (m.confidence ignored, gate held);
-   *   'low'    → the un-gated context downgrade ran (comment = −2 steps).
+   *   'low'    → the un-gated context downgrade ran (block comment = −2 steps).
+   *
+   * The downgrade signal is a `/* … *\/` block, not a `//` line comment, on
+   * purpose: this fixture must keep `language` unknown (see the req comment), and
+   * once comment detection became a per-language allowlist, a leading `//`/`#`
+   * no longer counts as a comment when the language is unknown (fail-safe —
+   * the allowlist has no entry, so nothing is a comment).
+   * Block-comment detection is language-independent, so it still yields the −2
+   * `docstring` step here and keeps the three outcomes distinct.
    */
   function pinRule(over: { confidence?: Confidence; severity?: Severity } = {}): RuleDefinition {
     return {
@@ -261,8 +316,8 @@ describe('Analyzer: m.confidence bypass (pinned spec)', () => {
       defaultConfidence: 'high',
       match: () => [
         {
-          startLine: 1,
-          endLine: 1,
+          startLine: 2,
+          endLine: 2,
           startColumn: 1,
           endColumn: 1,
           evidence: 'dangerous_call()',
@@ -275,11 +330,12 @@ describe('Analyzer: m.confidence bypass (pinned spec)', () => {
   // No filePath and no `language`, and content that trips none of the
   // detectLanguageFromContent patterns: the analyzer only honours injected
   // `rules` when the language is unknown (otherwise it consults the global
-  // registry). The line is a comment, so the context layer has a signal to act
+  // registry). The match (line 2) sits inside a `/* … *\/` block opened on line
+  // 1, so the context layer has a language-independent `docstring` signal to act
   // on if it is reached.
   const req: ScanRequest = {
     targetType: 'snippet',
-    content: '// pinned = dangerous_call()',
+    content: '/* pinned\ndangerous_call()\n*/',
     mode: 'standard',
     includeRemediation: false,
   };
@@ -301,7 +357,7 @@ describe('Analyzer: m.confidence bypass (pinned spec)', () => {
     expect(confidenceOf(pinRule())).toBe('high');
   });
 
-  it('control: without m.confidence at an ungated severity the comment downgrade applies', () => {
+  it('control: without m.confidence at an ungated severity the block-comment downgrade applies', () => {
     expect(confidenceOf(pinRule({ severity: 'medium' }))).toBe('low');
   });
 

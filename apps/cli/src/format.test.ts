@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Finding, ScanResponse } from '@vibeguard/findings-schema';
-import { formatMarkdown } from './format.js';
+import { formatHuman, formatMarkdown } from './format.js';
 
 function scan(findings: Finding[], executionTimeMs = 12): ScanResponse {
   const summary = {
@@ -85,5 +85,31 @@ describe('formatMarkdown', () => {
     const md = formatMarkdown(scan(many));
     expect(md).toContain('+5 more, see SARIF');
     expect((md.match(/^#### /gm) ?? []).length).toBe(30);
+  });
+
+  it('surfaces ruleErrors in markdown, even with no findings', () => {
+    const response: ScanResponse = {
+      ...scan([]),
+      ruleErrors: [{ ruleId: 'VG-TEST-BOOM', message: 'kaboom' }],
+    };
+    const md = formatMarkdown(response);
+    expect(md).toContain('errored and were skipped');
+    expect(md).toContain('VG-TEST-BOOM');
+    expect(md).toContain('kaboom');
+  });
+
+  it('surfaces ruleErrors in human output', () => {
+    const response: ScanResponse = {
+      ...scan([]),
+      ruleErrors: [{ ruleId: 'VG-TEST-BOOM', message: 'kaboom' }],
+    };
+    const out = formatHuman(response, false);
+    expect(out).toContain('errored and were skipped');
+    expect(out).toContain('VG-TEST-BOOM: kaboom');
+  });
+
+  it('omits the ruleErrors block when there are none', () => {
+    expect(formatMarkdown(scan([]))).not.toContain('errored and were skipped');
+    expect(formatHuman(scan([]), false)).not.toContain('errored and were skipped');
   });
 });

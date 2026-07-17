@@ -1,6 +1,6 @@
 import type { Confidence, Severity } from '@vibeguard/findings-schema';
 import type { RuleContext, RuleMatch } from './rule-types.js';
-import { HASH_NOT_COMMENT, isCommentLine } from './matcher-utils.js';
+import { getLineCommentSpec, isCommentLine, lineCommentStartsAt } from './matcher-utils.js';
 
 /**
  * Context-window confidence adjustment (paper item ①).
@@ -156,8 +156,32 @@ const TRIPLE_QUOTE_LANGS = new Set(['python']);
  * machine: it scans every line strictly before the match line, toggling block
  * state. It is the complement to `isCommentLine` (which only catches whole-line
  * `//`/`#` comments) and to `runRegex({ skipCommentLines })` (same limitation).
- * Both consume the same `HASH_NOT_COMMENT` set imported from matcher-utils, so
- * "is `#` a comment in this language?" is answered identically here and there.
+ *
+ * Both answer "what opens a line comment in this language?" out of the one
+ * `LINE_COMMENT_SPECS` allowlist in matcher-utils, reached through
+ * `getLineCommentSpec`, so a language is classified identically here and there.
+ * They differ only in *where* they ask. `isCommentLine` asks at the first
+ * non-whitespace character, because it decides whether a whole line is a
+ * comment. The scan below asks `lineCommentStartsAt(line, k, spec)` at every
+ * position `k` it reaches in `normal` state, because it must also handle
+ * TRAILING comments: in `x = 1  # opens """` the `#` has to swallow the rest of
+ * the line, or the `"""` phantom-opens a docstring over the code that follows.
+ * Dropping the line-start predicate in here would break precisely that, which is
+ * why the positional form exists.
+ *
+ * The branch is map-driven for every prefix, `//` included. Hard-coding `//` as
+ * unconditional (as this scanner once did) corrupts languages where it is an
+ * operator, not a comment: Python's `x = a // 2 + "s…` would have the rest of the
+ * line skipped and the string state silently lost.
+ *
+ * A language with no allowlist entry gets the empty spec, so nothing swallows and
+ * the scan reads the whole line as code. The direction of that fallback differs
+ * from `isCommentLine`'s: there an empty spec can only cost a false positive,
+ * whereas here an unswallowed `/*` sitting inside what really was a comment can
+ * phantom-open a block and wrongly down-rank the lines after it. That residual is
+ * bounded by construction — the worst case is a `docstring` down-rank, which is
+ * applied at the analyzer chokepoint and clamped there by
+ * `SEVERITY_CONFIDENCE_FLOOR` — whereas a wrongly dropped match reaches neither.
  *
  * Two deliberate, *safe-direction* limitations (they only ever WITHHOLD a
  * down-rank, never wrongly apply one, so they cannot demote a true positive):
@@ -186,7 +210,7 @@ export function isInDocstringOrBlockComment(
   lineNumber: number,
   language?: string,
 ): boolean {
-  const hashIsComment = !(language != null && HASH_NOT_COMMENT.has(language));
+  const spec = getLineCommentSpec(language);
   const allowTripleQuote = language != null && TRIPLE_QUOTE_LANGS.has(language);
   let state: ScanState = 'normal';
   const end = Math.min(lineNumber - 1, lines.length);
@@ -209,8 +233,10 @@ export function isInDocstringOrBlockComment(
           if (allowTripleQuote && three === '"""') { state = 'triple-d'; k += 3; continue; }
           if (allowTripleQuote && three === "'''") { state = 'triple-s'; k += 3; continue; }
           if (two === '/*') { state = 'block'; k += 2; continue; }
-          if (two === '//') { state = 'line-comment'; k = line.length; continue; }
-          if (ch === '#' && hashIsComment) { k = line.length; continue; }
+          // Only in `normal`: a `#`/`//` inside a string literal is content, not
+          // a comment. Kept after `/*` and before the string openers, matching
+          // the precedence the hard-coded branches had.
+          if (lineCommentStartsAt(line, k, spec)) { state = 'line-comment'; k = line.length; continue; }
           if (ch === '"') { state = 'str-d'; k += 1; continue; }
           if (ch === "'") { state = 'str-s'; k += 1; continue; }
           if (ch === '`') { state = 'str-bt'; k += 1; continue; }

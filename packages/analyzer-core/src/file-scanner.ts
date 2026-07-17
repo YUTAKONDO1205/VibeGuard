@@ -5,6 +5,7 @@ import {
   summarize,
   compareSeverity,
   type Finding,
+  type RuleError,
   type ScanMode,
   type ScanResponse,
 } from '@vibeguard/findings-schema';
@@ -73,6 +74,10 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
   const ignore = new Set([...DEFAULT_IGNORE, ...(options.ignore ?? [])]);
   const analyzer = new Analyzer(options);
   const findings: Finding[] = [];
+  // Deduped by ruleId: a rule that throws on every file would otherwise appear
+  // once per file. Keep the first message. Without this, a rule crash is visible
+  // in a single-snippet `Analyzer.scan` but silently lost across a directory scan.
+  const ruleErrorsByRule = new Map<string, RuleError>();
   const now = options.now ?? new Date();
 
   const stats = await stat(target);
@@ -128,6 +133,9 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
       if (isPathSuppressed(pathSuppressed, f.ruleId)) continue;
       findings.push(f);
     }
+    for (const e of result.ruleErrors ?? []) {
+      if (!ruleErrorsByRule.has(e.ruleId)) ruleErrorsByRule.set(e.ruleId, e);
+    }
   }
 
   findings.sort((a, b) => {
@@ -145,5 +153,6 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
     executionTimeMs: Date.now() - start,
     engineVersions: { core: ENGINE_VERSION },
     generatedAt: new Date().toISOString(),
+    ...(ruleErrorsByRule.size ? { ruleErrors: [...ruleErrorsByRule.values()] } : {}),
   };
 }

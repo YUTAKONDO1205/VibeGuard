@@ -132,6 +132,56 @@ describe('isInDocstringOrBlockComment', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// The scanner's line-comment branch reads the per-language allowlist
+// (getLineCommentSpec / lineCommentStartsAt) instead of hard-coding `//` and a
+// `#` blocklist. These pin the branch itself — the suite above passes either
+// way, so without them a revert to the hard-coded form is invisible.
+// ---------------------------------------------------------------------------
+describe('isInDocstringOrBlockComment — line comments come from the language map', () => {
+  it('does not let Python floor-division swallow the rest of the line', () => {
+    // THE regression test for the hard-coded `//`. Python's `//` is an operator,
+    // so the `"""` after it genuinely opens a docstring and line 2 is inside it.
+    // Skipping to end-of-line on `//` loses that and reports false.
+    const lines = ['x = a // 2 + """', 'DEBUG = True', '"""'];
+    expect(isInDocstringOrBlockComment(lines, 2, 'python')).toBe(true);
+  });
+
+  it('still swallows a TRAILING # comment, so its """ cannot phantom-open a docstring', () => {
+    // The trap: `lineCommentStartsAt` is asked at position k, not at the first
+    // non-whitespace character. Swap in the line-start predicate (isCommentLine)
+    // and this line reads as code, the `"""` opens a docstring, and the real
+    // DEBUG = True below gets wrongly down-ranked.
+    const lines = ['x = 1  # opens """', 'DEBUG = True'];
+    expect(isInDocstringOrBlockComment(lines, 2, 'python')).toBe(false);
+  });
+
+  it('honours the PHP #[ exclusion: # is a comment, #[Attribute] is code', () => {
+    // `# …` swallows the /*, so nothing is open on line 2.
+    expect(isInDocstringOrBlockComment(['# opens /*', 'eval($x)'], 2, 'php')).toBe(false);
+    // `#[Route]` is executed syntax, not a comment, so the /* after it really
+    // does open a block comment that line 2 sits inside.
+    expect(isInDocstringOrBlockComment(['#[Route] /*', 'eval($x)', '*/'], 2, 'php')).toBe(true);
+  });
+
+  it('treats # as code where the map says it is not a comment', () => {
+    // JS private field (kept from the old blocklist) and, newly, Python-style `#`
+    // in languages whose spec has no `#` at all.
+    expect(isInDocstringOrBlockComment(['this.#secret = "x"; /*', 'eval(p)', '*/'], 2, 'javascript')).toBe(true);
+    expect(isInDocstringOrBlockComment(['#include <x.h> /*', 'gets(buf)', '*/'], 2, 'c')).toBe(true);
+  });
+
+  it('documents the empty-spec fallback direction (unknown language, html)', () => {
+    // With no allowlist entry nothing swallows, so a `/*` inside what was really
+    // a comment phantom-opens a block and these report true. This is the bounded
+    // residual named in the function's doc comment — worst case one confidence
+    // step, clamped by SEVERITY_CONFIDENCE_FLOOR — and is the deliberate price of
+    // never DROPPING a match for an unrecognised language.
+    expect(isInDocstringOrBlockComment(['# /*', 'eval(x)', '*/'], 2, undefined)).toBe(true);
+    expect(isInDocstringOrBlockComment(['// x /*', 'eval(y)', '*/'], 2, 'html')).toBe(true);
+  });
+});
+
 describe('detectDowngradeSignals', () => {
   it('flags a whole-line comment', () => {
     const ctx = ctxOf('// eval(userInput)', { filePath: 'a.js', language: 'javascript' });

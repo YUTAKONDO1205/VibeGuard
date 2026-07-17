@@ -34,6 +34,7 @@ import {
   summarize,
   compareSeverity,
   type Finding,
+  type RuleError,
   type ScanMode,
   type ScanResponse,
 } from '@vibeguard/findings-schema';
@@ -167,6 +168,8 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
   const diffMap = parseUnifiedDiff(diffText);
   const analyzer = new Analyzer(options);
   const findings: Finding[] = [];
+  // Deduped by ruleId across the diffed files (see scanPath for the rationale).
+  const ruleErrorsByRule = new Map<string, RuleError>();
   const ignore = new Set([...DEFAULT_IGNORE, ...(options.ignore ?? [])]);
   const now = new Date();
 
@@ -201,6 +204,9 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
       if (isPathSuppressed(pathSuppressed, f.ruleId)) continue;
       if (overlapsAdded(f, added)) findings.push(f);
     }
+    for (const e of result.ruleErrors ?? []) {
+      if (!ruleErrorsByRule.has(e.ruleId)) ruleErrorsByRule.set(e.ruleId, e);
+    }
   }
 
   findings.sort((a, b) => {
@@ -218,5 +224,6 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
     executionTimeMs: Date.now() - startedAt,
     engineVersions: { core: ENGINE_VERSION },
     generatedAt: new Date().toISOString(),
+    ...(ruleErrorsByRule.size ? { ruleErrors: [...ruleErrorsByRule.values()] } : {}),
   };
 }

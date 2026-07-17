@@ -59,4 +59,18 @@ describe('toSarif', () => {
     const region = sarif.runs[0]!.results[0]!.locations[0]!.physicalLocation.region;
     expect(region.startLine).toBe(4);
   });
+
+  it('records ruleErrors as failed-invocation notifications', () => {
+    const response = { ...wrap([]), ruleErrors: [{ ruleId: 'VG-TEST-BOOM', message: 'kaboom' }] };
+    const run = toSarif(response).runs[0]!;
+    expect(run.invocations?.[0]?.executionSuccessful).toBe(false);
+    const notif = run.invocations?.[0]?.toolExecutionNotifications[0];
+    expect(notif?.level).toBe('error');
+    expect(notif?.associatedRule?.id).toBe('VG-TEST-BOOM');
+    expect(notif?.message.text).toContain('kaboom');
+  });
+
+  it('omits invocations when no rule errored', () => {
+    expect(toSarif(wrap([fakeFinding()])).runs[0]!.invocations).toBeUndefined();
+  });
 });

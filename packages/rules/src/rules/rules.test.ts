@@ -66,8 +66,11 @@ describe('injection rules', () => {
     expectNoMatch(evalUsage, 'obj.eval(123);');
   });
 
+  // `//` opens a comment in JavaScript, so the language must be passed: comment
+  // syntax is per-language now, and an absent language means nothing is a
+  // comment (fail-safe — see LINE_COMMENT_SPECS).
   it('does not flag eval inside a comment', () => {
-    expectNoMatch(evalUsage, '// uses eval(input)');
+    expectNoMatch(evalUsage, '// uses eval(input)', 'javascript');
   });
 
   // Regression: `#` opens an ES2022 private class field, not a comment. Without
@@ -396,7 +399,7 @@ describe('AI-heuristic rules (VG-QUAL-005..010)', () => {
   });
 
   it('does not flag debug: true inside a comment', () => {
-    expectNoMatch(debugFlagOn, '// example: { debug: true }');
+    expectNoMatch(debugFlagOn, '// example: { debug: true }', 'javascript');
   });
 
   // VG-QUAL-009 — placeholder prose

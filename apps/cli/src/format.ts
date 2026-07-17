@@ -37,6 +37,7 @@ export function formatHuman(scan: ScanResponse, useColor: boolean): string {
   if (findings.length === 0) {
     lines.push(colorise('✓ No findings.', GREEN, useColor));
     lines.push(`Scanned in ${scan.executionTimeMs}ms.`);
+    appendRuleErrors(lines, scan, useColor);
     return lines.join('\n');
   }
 
@@ -54,7 +55,28 @@ export function formatHuman(scan: ScanResponse, useColor: boolean): string {
       `   ${colorise('info', SEVERITY_COLOR.info, useColor)}: ${summary.info}`,
   );
   lines.push(`  total: ${summary.total}    elapsed: ${scan.executionTimeMs}ms`);
+  appendRuleErrors(lines, scan, useColor);
   return lines.join('\n');
+}
+
+/**
+ * Surface skipped-on-crash rules. A rule that throws is dropped so it cannot
+ * crash the scan, but that silently removes its findings — so a visible warning
+ * here keeps the crash from being an invisible way to suppress findings.
+ */
+function appendRuleErrors(lines: string[], scan: ScanResponse, useColor: boolean): void {
+  if (!scan.ruleErrors?.length) return;
+  lines.push('');
+  lines.push(
+    colorise(
+      `⚠ ${scan.ruleErrors.length} rule(s) errored and were skipped — their findings, if any, are NOT reported:`,
+      YELLOW,
+      useColor,
+    ),
+  );
+  for (const e of scan.ruleErrors) {
+    lines.push(`  ${e.ruleId}: ${e.message}`);
+  }
 }
 
 const SEVERITY_EMOJI: Record<Severity, string> = {
@@ -77,6 +99,7 @@ export function formatMarkdown(scan: ScanResponse): string {
     lines.push('No findings detected. ✅');
     lines.push('');
     lines.push(`_Scanned in ${scan.executionTimeMs}ms._`);
+    appendRuleErrorsMarkdown(lines, scan);
     return lines.join('\n');
   }
 
@@ -110,7 +133,24 @@ export function formatMarkdown(scan: ScanResponse): string {
     lines.push('');
   }
 
+  appendRuleErrorsMarkdown(lines, scan);
   return lines.join('\n');
+}
+
+/**
+ * Surface skipped-on-crash rules in the PR-comment channel. A crashed rule's
+ * findings vanish; without this warning a review passes green precisely because
+ * a rule was made to throw — the self-defense-as-attack-surface case.
+ */
+function appendRuleErrorsMarkdown(lines: string[], scan: ScanResponse): void {
+  if (!scan.ruleErrors?.length) return;
+  lines.push('');
+  lines.push(
+    `> ⚠️ **${scan.ruleErrors.length} rule(s) errored and were skipped** — their findings, if any, are NOT reported:`,
+  );
+  for (const e of scan.ruleErrors) {
+    lines.push(`> - \`${e.ruleId}\`: ${e.message}`);
+  }
 }
 
 function formatFindingMarkdown(f: Finding): string {

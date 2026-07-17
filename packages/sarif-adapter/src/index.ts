@@ -16,6 +16,24 @@ export interface SarifRun {
     };
   };
   results: SarifResult[];
+  invocations?: SarifInvocation[];
+}
+
+/**
+ * SARIF 2.1.0 §3.20. Carries rules that threw and were skipped as
+ * `toolExecutionNotifications` (level "error"). Without it, a rule crash silently
+ * drops its findings and the CI scan passes green — an undeclared suppression
+ * channel. `executionSuccessful` is false when any rule was skipped this way.
+ */
+export interface SarifInvocation {
+  executionSuccessful: boolean;
+  toolExecutionNotifications: SarifNotification[];
+}
+
+export interface SarifNotification {
+  level: SarifLevel;
+  message: { text: string };
+  associatedRule?: { id: string };
 }
 
 export interface SarifRuleDescriptor {
@@ -121,21 +139,31 @@ export interface ToSarifOptions {
 export function toSarif(scan: ScanResponse, options: ToSarifOptions = {}): SarifLog {
   const rules = buildRuleDescriptors(scan.findings);
   const results = scan.findings.map(findingToResult);
-  return {
-    $schema: SCHEMA_URI,
-    version: '2.1.0',
-    runs: [
-      {
-        tool: {
-          driver: {
-            name: options.toolName ?? 'VibeGuard',
-            version: options.toolVersion ?? scan.engineVersions.core ?? '0.1.0',
-            informationUri: options.informationUri ?? 'https://github.com/vibeguard/vibeguard',
-            rules,
-          },
-        },
-        results,
+  const run: SarifRun = {
+    tool: {
+      driver: {
+        name: options.toolName ?? 'VibeGuard',
+        version: options.toolVersion ?? scan.engineVersions.core ?? '0.1.0',
+        informationUri: options.informationUri ?? 'https://github.com/vibeguard/vibeguard',
+        rules,
       },
-    ],
+    },
+    results,
   };
+  const ruleErrors = scan.ruleErrors ?? [];
+  if (ruleErrors.length) {
+    run.invocations = [
+      {
+        executionSuccessful: false,
+        toolExecutionNotifications: ruleErrors.map((e) => ({
+          level: 'error' as SarifLevel,
+          message: {
+            text: `Rule ${e.ruleId} threw and was skipped; its findings are not reported: ${e.message}`,
+          },
+          associatedRule: { id: e.ruleId },
+        })),
+      },
+    ];
+  }
+  return { $schema: SCHEMA_URI, version: '2.1.0', runs: [run] };
 }

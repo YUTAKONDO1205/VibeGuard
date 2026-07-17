@@ -26,8 +26,13 @@ the project uses [Semantic Versioning](https://semver.org/).
   Previously an ES2022 private class field (`#token = "…"`), a C/C++ preprocessor
   directive, a Rust attribute or a Swift directive read as a comment line and the
   match was dropped before analysis — a silent false negative on rules up to
-  `critical`. `HASH_NOT_COMMENT` in `packages/rules/src/matcher-utils.ts` is the
-  single source of truth for that question and is exported for consumers.
+  `critical`. Comment detection is a per-language *allowlist*
+  (`LINE_COMMENT_SPECS` in `packages/rules/src/matcher-utils.ts`): a leading
+  `//`, `#`, or `--` opens a line comment only in the languages whose syntax
+  uses it (`#[` is excluded for PHP8 attributes; an unknown language treats
+  nothing as a comment, a fail-safe toward a false positive over a silent drop).
+  It is the single source of truth for that question, consumed by both the
+  comment-line predicate and the docstring/block-comment scanner.
 - **Evaluation scripts**: new tracked scripts
   `scripts/e4-prdiff-eval.mjs` (PR-diff reduction scenarios) and
   `scripts/e6-extended-eval.mjs` (11 public OSS repositories, commits pinned in

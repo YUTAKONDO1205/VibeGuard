@@ -17,7 +17,11 @@ export {
   languageMatches,
   getLineText,
   isCommentLine,
-  HASH_NOT_COMMENT,
+  getLineCommentSpec,
+  lineCommentStartsAt,
+  hasLineCommentSpec,
+  type KnownLanguage,
+  type LineCommentSpec,
 } from './matcher-utils.js';
 export {
   contextConfidence,

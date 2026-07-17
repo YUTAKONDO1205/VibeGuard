@@ -60,12 +60,29 @@ export interface ScanRequest {
   context?: ScanContext;
 }
 
+/**
+ * A rule whose `match` threw and was skipped during a scan. The analyzer catches
+ * a throwing rule so one broken rule cannot crash the whole scan — but skipping
+ * it silently drops every finding it would have produced, an undeclared
+ * suppression channel (crash the rule, lose the findings, no signal anywhere).
+ * Carrying the crash on the response makes it observable rather than silent: the
+ * CLI surfaces it in every format (human, markdown, JSON, SARIF). The VS Code and
+ * Chrome extensions receive it on the response but do not yet render it in their
+ * UI — surfacing it there is tracked separately.
+ */
+export interface RuleError {
+  ruleId: string;
+  message: string;
+}
+
 export interface ScanResponse {
   summary: ScanSummary;
   findings: Finding[];
   executionTimeMs: number;
   engineVersions: Record<string, string>;
   generatedAt: string;
+  /** Rules that threw during `match` and were skipped. Present only when non-empty. */
+  ruleErrors?: RuleError[];
 }
 
 export function emptySummary(): ScanSummary {
