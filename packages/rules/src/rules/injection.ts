@@ -25,7 +25,7 @@ export const sqlStringConcat: RuleDefinition = {
     runRegex(
       ctx.content,
       /["'`][^"'`\n]*\b(?:FROM|INTO|UPDATE)\s+(?<table>\w+)[^"'`\n]*["'`]\s*[+%]\s*\w/gi,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
 };
 
@@ -68,6 +68,7 @@ export const osSystemUsage: RuleDefinition = {
   match: (ctx) =>
     runRegex(ctx.content, /os\.(?:system|popen)\s*\(\s*(?:f["']|["'][^"']*["']\s*[+%]|.*\{)/g, {
       skipCommentLines: true,
+      language: ctx.language,
     }),
 };
 
@@ -87,7 +88,7 @@ export const evalUsage: RuleDefinition = {
     exampleFix: 'JSON.parse(input)',
   },
   match: (ctx) =>
-    runRegex(ctx.content, /(?<![.\w])eval\s*\(/g, { skipCommentLines: true }),
+    runRegex(ctx.content, /(?<![.\w])eval\s*\(/g, { skipCommentLines: true, language: ctx.language }),
 };
 
 export const dangerousDeserialization: RuleDefinition = {
@@ -106,9 +107,10 @@ export const dangerousDeserialization: RuleDefinition = {
     exampleFix: 'yaml.safe_load(data)',
   },
   match: (ctx) => [
-    ...runRegex(ctx.content, /pickle\.(?:load|loads)\s*\(/g, { skipCommentLines: true }),
+    ...runRegex(ctx.content, /pickle\.(?:load|loads)\s*\(/g, { skipCommentLines: true, language: ctx.language }),
     ...runRegex(ctx.content, /yaml\.load\s*\((?![^)]*Loader\s*=\s*yaml\.SafeLoader)/g, {
       skipCommentLines: true,
+      language: ctx.language,
     }),
   ],
 };
@@ -134,7 +136,7 @@ export const innerHtmlAssignment: RuleDefinition = {
     runRegex(
       ctx.content,
       /(?<target>[\w$]+)\.innerHTML\s*=\s*(?!\s*["'][^"'\n]*["']\s*;?\s*$)[^;\n]+/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
 };
 
@@ -156,7 +158,7 @@ export const pathTraversalConcat: RuleDefinition = {
     runRegex(
       ctx.content,
       /(?:fs\.(?:readFile|writeFile|createReadStream|createWriteStream|open)|open|os\.path\.join)\s*\([^)]*[+,]\s*\w+/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
 };
 

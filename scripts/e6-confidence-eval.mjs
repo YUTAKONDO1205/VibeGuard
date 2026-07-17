@@ -1,29 +1,39 @@
-// E6 — context-window confidence evaluation (paper item ①).
+// E6 — context-window confidence evaluation (paper item ① + D1 A/B).
 //
 // Demonstrates that the context-window confidence layer DOWN-RANKS findings that
 // sit in a non-executed context (comment / docstring / block comment / test
 // path) while leaving real, executable occurrences of the *same* pattern at
 // their default confidence. Produces:
-//   1. a per-finding before -> after table over samples/context-window
-//      (control vs treatment pairs);
+//   1. a per-finding table over samples/context-window (control vs treatment
+//      pairs) reporting BOTH arms side by side:
+//        * "① un-gated" — what the context-window layer alone would produce;
+//        * "①+D1 gated" — after the severity gate (D1) bounds the downgrade.
+//      The two arms come from one `explainContextConfidence` call, so the A/B is
+//      measured without a "disable the gate" flag existing in shipped code.
 //   2. a "no collateral damage" check over samples/vulnerable (real true
 //      positives must keep their confidence);
 //   3. a false-positive guard over samples/safe (must stay 0 findings).
 //
+// D1 only ever *withholds* a downgrade, so the gated arm is >= the un-gated arm
+// row by row, and rows where the two differ are exactly the findings the gate
+// kept above the action threshold — the B3 defence number.
+//
 // Run from the repo root after `npm run build`:
 //   node scripts/e6-confidence-eval.mjs
+// (`npm run build` is not optional: this imports the built dist, so running it
+// against a stale dist silently reports the pre-change numbers.)
 //
 // It replicates the analyzer's confidence resolution directly from the rule
-// layer (allRules + contextConfidence) so the numbers are transparent; the
-// summary cross-checks the samples totals against the engine's published E2/E3
-// figures so the replication is self-validating.
+// layer (allRules + explainContextConfidence) so the numbers are transparent;
+// the summary cross-checks the samples totals against the engine's published
+// E2/E3 figures so the replication is self-validating.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   allRules,
   languageMatches,
-  contextConfidence,
-  detectDowngradeSignals,
+  explainContextConfidence,
+  SEVERITY_CONFIDENCE_FLOOR,
 } from '@vibeguard/rules';
 
 const LANG_BY_EXT = {
@@ -66,7 +76,25 @@ function listFiles(dir) {
 }
 
 // Replicate the analyzer's per-match confidence resolution, but also capture the
-// "before" value and the signals that fired so we can explain each row.
+// "before" value, the un-gated arm and the signals that fired so we can explain
+// each row.
+//
+// The analyzer's chokepoint is `m.confidence ?? contextConfidence(base,
+// rule.severity, ctx, m, mode)`. `explainContextConfidence` takes the same
+// arguments and `contextConfidence` is a thin wrapper over its `.confidence`,
+// so calling the explain variant here reproduces the analyzer exactly while also
+// yielding the un-gated arm and the signals — no second signal-detection pass.
+//
+// NOTE (argument order): this harness is plain .mjs, so nothing type-checks the
+// call below, and `severity` is argument 2. The pre-D1 call shape
+// `(base, ctx, m, mode)` happens to fail loudly — the arguments shift, `mode`
+// lands in the `match` slot and signal detection throws — but a `severity` that
+// merely arrives *undefined* (wrong field name, forgotten plumbing) does not:
+// the floor lookup yields undefined, the gate quietly stops existing, and this
+// table reverts to the pre-D1 numbers while looking perfectly healthy. That is
+// the failure mode `assertGateReached` exists to catch; it re-derives the
+// expected gate from the exported floor table instead of trusting this call.
+// (Verified against both variants: the undefined-severity bug is caught.)
 function analyze(dir) {
   const rows = [];
   for (const file of listFiles(dir)) {
@@ -84,8 +112,10 @@ function analyze(dir) {
       const mode = rule.contextConfidence ?? 'auto';
       for (const m of matches) {
         const before = rule.defaultConfidence;
-        const after = contextConfidence(before, ctx, m, mode);
-        const signals = mode === 'off' ? ['opt-out'] : detectDowngradeSignals(ctx, m);
+        const res = explainContextConfidence(before, rule.severity, ctx, m, mode);
+        // `mode === 'off'` short-circuits before signal detection (it returns
+        // `signals: []`), so keep the harness's explicit opt-out marker.
+        const signals = mode === 'off' ? ['opt-out'] : res.signals;
         rows.push({
           ruleId: rule.ruleId,
           file: file.replace(/\\/g, '/'),
@@ -95,10 +125,14 @@ function analyze(dir) {
           // off-by-one, independent of item ①; see notes.)
           line: displayLine(m),
           severity: rule.severity,
+          mode,
           before,
-          after,
+          ungated: res.ungated, // arm A: item ① alone
+          after: res.confidence, // arm B: item ① + D1 severity gate
+          floored: res.floored, // the gate actually held a downgrade back
           signals,
-          changed: before !== after,
+          changed: before !== res.confidence,
+          ungatedChanged: before !== res.ungated,
         });
       }
     }
@@ -106,9 +140,35 @@ function analyze(dir) {
   return rows;
 }
 
-function dist(rows) {
+// Structural self-check for the untyped call above. `SEVERITY_CONFIDENCE_FLOOR`
+// is imported rather than re-declared so this cannot drift from the policy.
+// Two invariants, both of which a dropped/misplaced `severity` argument breaks:
+//   * downgrade-only: the gated arm never exceeds the rule's declared base;
+//   * floor === 'high' is the top rung of the ladder, so min(RANK[base], 2) is
+//     RANK[base] — i.e. "clamp to high" is exactly "never downgrade at all" for
+//     critical/high. Any such row must come back at `before`.
+const RANK = { low: 0, medium: 1, high: 2 };
+function assertGateReached(rows, label) {
+  const problems = [];
+  let gateEligible = 0;
+  for (const r of rows) {
+    if (RANK[r.after] > RANK[r.before]) {
+      problems.push(`${r.ruleId} ${r.file}:${r.line} promoted ${r.before}->${r.after}`);
+    }
+    if (r.mode === 'off') continue;
+    const floor = SEVERITY_CONFIDENCE_FLOOR[r.severity];
+    if (floor !== 'high') continue;
+    gateEligible += 1;
+    if (r.after !== r.before) {
+      problems.push(`${r.ruleId} ${r.file}:${r.line} sev=${r.severity} floor=high but ${r.before}->${r.after}`);
+    }
+  }
+  return { problems, gateEligible, label };
+}
+
+function dist(rows, key = 'after') {
   const d = { high: 0, medium: 0, low: 0 };
-  for (const r of rows) d[r.after] += 1;
+  for (const r of rows) d[r[key]] += 1;
   return d;
 }
 
@@ -121,37 +181,69 @@ function pad(s, n) {
 const e6 = analyze('samples/context-window').sort(
   (a, b) => a.file.localeCompare(b.file) || a.line - b.line,
 );
-console.log('# E6 — context-window confidence (paper item ①)\n');
-console.log('## samples/context-window — control vs treatment\n');
+console.log('# E6 — context-window confidence (paper item ①) + D1 severity gate\n');
+console.log('## samples/context-window — control vs treatment, un-gated vs gated\n');
 console.log(
-  '| ruleId | location | sev | context signal | before → after |',
+  '| ruleId | location | sev | context signal | ① un-gated | ①+D1 gated | gate |',
 );
-console.log('|---|---|---|---|---|');
+console.log('|---|---|---|---|---|---|---|');
 for (const r of e6) {
   const loc = `${r.file.split('/').pop()}:${r.line}`;
   const sig = r.signals.length ? r.signals.join('+') : '— (executable)';
-  const arrow = r.changed ? `**${r.before} → ${r.after}**` : `${r.before} → ${r.after}`;
-  console.log(`| ${r.ruleId} | ${loc} | ${r.severity} | ${sig} | ${arrow} |`);
+  const armA = r.ungatedChanged ? `**${r.before} → ${r.ungated}**` : `${r.before} → ${r.ungated}`;
+  const armB = r.changed ? `**${r.before} → ${r.after}**` : `${r.before} → ${r.after}`;
+  const gate = r.floored ? `**held (${r.ungated} → ${r.after})**` : '—';
+  console.log(`| ${r.ruleId} | ${loc} | ${r.severity} | ${sig} | ${armA} | ${armB} | ${gate} |`);
 }
 const treated = e6.filter((r) => r.changed);
 const control = e6.filter((r) => !r.changed);
+const treatedUngated = e6.filter((r) => r.ungatedChanged);
+const held = e6.filter((r) => r.floored);
 console.log(
   `\n- findings: **${e6.length}**  ·  down-ranked (treatment): **${treated.length}**  ·  unchanged (control/executable): **${control.length}**`,
 );
-console.log(`- confidence after ①: ${JSON.stringify(dist(e6))}`);
+console.log(`- confidence after ① (un-gated):  ${JSON.stringify(dist(e6, 'ungated'))}  — down-ranked: **${treatedUngated.length}**`);
+console.log(`- confidence after ①+D1 (gated):  ${JSON.stringify(dist(e6, 'after'))}  — down-ranked: **${treated.length}**`);
+// The B3 defence number: findings whose downgrade the severity gate withheld.
+console.log(
+  `- **gate held (D1 A/B): ${held.length}** of ${e6.length} — critical/high findings the context signals would have down-ranked, restored to their declared confidence`,
+);
+for (const r of held) {
+  console.log(
+    `    ${r.ruleId} ${r.file.split('/').pop()}:${r.line} sev=${r.severity} [${r.signals.join('+')}] ungated=${r.ungated} → gated=${r.after}`,
+  );
+}
+const e6Check = assertGateReached(e6, 'samples/context-window');
+console.log(
+  `- gate self-check: ${e6Check.gateEligible} eligible row(s) (sev∈{critical,high}, mode≠off) · ` +
+    `${e6Check.problems.length === 0 ? 'consistent with SEVERITY_CONFIDENCE_FLOOR ✓' : `⚠ ${e6Check.problems.length} violation(s)`}`,
+);
+for (const p of e6Check.problems) console.log(`    ⚠ ${p}`);
+if (e6Check.gateEligible === 0) {
+  console.log('    ⚠ no gate-eligible rows: the fixture does not exercise D1 (or `severity` is not reaching the gate)');
+}
 
 // ---- 2. no-collateral check over samples/vulnerable -------------------------
 const vuln = analyze('samples/vulnerable');
 const vulnChanged = vuln.filter((r) => r.changed);
+const vulnChangedUngated = vuln.filter((r) => r.ungatedChanged);
 console.log('\n## samples/vulnerable — no-collateral check\n');
 console.log(`- findings: **${vuln.length}** (engine E2 baseline: 50)`);
-console.log(`- confidence after ①: ${JSON.stringify(dist(vuln))} (E2 baseline: {"high":6,"medium":26,"low":18})`);
+console.log(`- confidence after ①+D1: ${JSON.stringify(dist(vuln))} (E2 baseline: {"high":6,"medium":26,"low":18})`);
 console.log(
   `- true-positives down-ranked: **${vulnChanged.length}** ${vulnChanged.length === 0 ? '✓ (no collateral damage)' : '⚠'}`,
 );
 for (const r of vulnChanged) {
   console.log(`    ${r.ruleId} ${r.file.split('/').pop()}:${r.line} ${r.before}->${r.after} [${r.signals.join('+')}]`);
 }
+// D1 can only withhold downgrades, and this corpus has zero downgrades to
+// withhold — so the gate is provably inert here and the E2 fixed point must be
+// bit-identical to the pre-D1 run. Report both arms to make that verifiable
+// rather than asserted.
+console.log(
+  `- D1 inert here: un-gated down-ranked **${vulnChangedUngated.length}** = gated **${vulnChanged.length}**, gate held **${vuln.filter((r) => r.floored).length}** ` +
+    `${vulnChangedUngated.length === vulnChanged.length ? '✓ (E2 unchanged by D1, as the spec deduces)' : '⚠'}`,
+);
 
 // ---- 3. false-positive guard over samples/safe ------------------------------
 const safe = analyze('samples/safe');

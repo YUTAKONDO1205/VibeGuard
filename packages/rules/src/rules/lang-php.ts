@@ -24,7 +24,7 @@ export const phpExtractRequest: RuleDefinition = {
     runRegex(
       ctx.content,
       /\bextract\s*\(\s*\$_(?:GET|POST|REQUEST|COOKIE)\b/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
 };
 
@@ -47,7 +47,7 @@ export const phpDynamicInclude: RuleDefinition = {
     runRegex(
       ctx.content,
       /\b(?:include|require)(?:_once)?\s*(?:\(\s*)?\$[A-Za-z_][\w]*/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
 };
 
@@ -71,7 +71,7 @@ export const phpUnserialize: RuleDefinition = {
     runRegex(
       ctx.content,
       /\bunserialize\s*\(\s*(?![^)]*["']?allowed_classes["']?\s*=>\s*false)/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
 };
 
@@ -96,7 +96,7 @@ export const phpLegacyMysqlConcat: RuleDefinition = {
     runRegex(
       ctx.content,
       /\b(?:mysql_query|mysqli_query|pg_query)\s*\([^)]*\.\s*\$[A-Za-z_]/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
 };
 

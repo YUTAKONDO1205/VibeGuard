@@ -67,7 +67,7 @@ export const debugLogOfSecret: RuleDefinition = {
     runRegex(
       ctx.content,
       /(?:console\.log|print)\s*\([^)]*\b(?:password|secret|api[_-]?key|token|access[_-]?key|private[_-]?key)\b/gi,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
 };
 
@@ -89,7 +89,7 @@ export const openRedirect: RuleDefinition = {
     runRegex(
       ctx.content,
       /res\.redirect\s*\(\s*req\.(?:query|body|params)\.[\w$]+\s*\)/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
 };
 
@@ -204,17 +204,17 @@ export const mockDataInProductionPath: RuleDefinition = {
       ...runRegex(
         ctx.content,
         /\b(?:const|let|var)\s+(?:mock|fake|dummy)[A-Z][\w$]*\s*=/g,
-        { skipCommentLines: true },
+        { skipCommentLines: true, language: ctx.language },
       ),
       ...runRegex(
         ctx.content,
         /\b(?:mock|fake|dummy)_[a-z][\w]*\s*=/g,
-        { skipCommentLines: true },
+        { skipCommentLines: true, language: ctx.language },
       ),
       ...runRegex(
         ctx.content,
         /\breturn\s+(?:mock|fake|dummy)[A-Z_][\w$]*\s*[;)]/g,
-        { skipCommentLines: true },
+        { skipCommentLines: true, language: ctx.language },
       ),
     ];
     return filterTestPaths(ctx, matches);
@@ -239,7 +239,7 @@ export const debugFlagOn: RuleDefinition = {
     ...runRegex(
       ctx.content,
       /\b(?:debug|verbose|trace|enable[_-]?debug|enable[_-]?verbose|debug[_-]?mode)\s*:\s*true\b/gi,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
     ...runRegex(
       ctx.content,

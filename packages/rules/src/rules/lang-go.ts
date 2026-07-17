@@ -26,7 +26,7 @@ export const goSqlSprintf: RuleDefinition = {
     runRegex(
       ctx.content,
       /fmt\.Sprintf\s*\(\s*["`][^"`\n]*\b(?:SELECT|INSERT|UPDATE|DELETE|FROM|INTO|WHERE)\b/gi,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
 };
 
@@ -49,7 +49,7 @@ export const goTemplateHtmlCast: RuleDefinition = {
     runRegex(
       ctx.content,
       /\btemplate\.(?:HTML|JS|URL|HTMLAttr|CSS|Srcset)\s*\(\s*(?!["`])[\w.()\[\]]+\s*\)/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
 };
 
@@ -73,7 +73,7 @@ export const goListenAllInterfacesHttp: RuleDefinition = {
     runRegex(
       ctx.content,
       /\bhttp\.ListenAndServe\s*\(\s*["`]:\d+["`]/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
 };
 

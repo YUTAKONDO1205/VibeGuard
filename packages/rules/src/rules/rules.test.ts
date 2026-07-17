@@ -70,6 +70,32 @@ describe('injection rules', () => {
     expectNoMatch(evalUsage, '// uses eval(input)');
   });
 
+  // Regression: `#` opens an ES2022 private class field, not a comment. Without
+  // a language the comment-line predicate reads these as comments and
+  // runRegex({ skipCommentLines }) DROPS the match — a silent false negative
+  // upstream of the analyzer's confidence chokepoint, so no severity gate can
+  // catch it.
+  it('flags eval() on an ES2022 private field line', () => {
+    expectMatches(evalUsage, 'class C {\n  #q = (s) => eval(s);\n}', 'javascript');
+  });
+
+  it('flags SQL concatenation on an ES2022 private field line', () => {
+    expectMatches(
+      sqlStringConcat,
+      'class C {\n  #x = "SELECT * FROM users WHERE id = " + id;\n}',
+      'javascript',
+    );
+  });
+
+  // The other direction: where `#` really is a comment, it must stay skipped.
+  it('does not flag eval inside a Python # comment', () => {
+    expectNoMatch(evalUsage, '# eval(x)', 'python');
+  });
+
+  it('does not flag SQL concatenation inside a Python # comment', () => {
+    expectNoMatch(sqlStringConcat, '# q = "SELECT * FROM users WHERE id = " + id', 'python');
+  });
+
   it('flags SQL concatenation', () => {
     expectMatches(sqlStringConcat, 'const q = "SELECT * FROM users WHERE id = " + userId;');
   });
@@ -118,6 +144,14 @@ describe('auth rules', () => {
 
   it('flags rejectUnauthorized: false', () => {
     expectMatches(tlsVerifyDisabled, 'https.request({ rejectUnauthorized: false }, cb);');
+  });
+
+  it('flags rejectUnauthorized: false on an ES2022 private field line', () => {
+    expectMatches(
+      tlsVerifyDisabled,
+      'class C {\n  #a = { rejectUnauthorized: false };\n}',
+      'javascript',
+    );
   });
 
   it('flags debug bypass that returns true', () => {
@@ -589,6 +623,10 @@ describe('Ruby/Rails language pack', () => {
     expectNoMatch(rubyEvalFamily, 'eval("1 + 1")', 'ruby');
   });
 
+  it('does not flag eval inside a Ruby # comment', () => {
+    expectNoMatch(rubyEvalFamily, '# eval(user_code)', 'ruby');
+  });
+
   it('flags params.permit!', () => {
     expectMatches(rubyParamsPermitBang, 'user = User.new(params.permit!)', 'ruby');
   });
@@ -641,6 +679,10 @@ describe('PHP language pack', () => {
 
   it('does not flag include "config.php"', () => {
     expectNoMatch(phpDynamicInclude, '<?php include "config.php"; ?>', 'php');
+  });
+
+  it('does not flag include inside a PHP # comment', () => {
+    expectNoMatch(phpDynamicInclude, '# include $page;', 'php');
   });
 
   it('flags unserialize($data)', () => {

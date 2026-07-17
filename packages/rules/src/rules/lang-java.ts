@@ -28,12 +28,12 @@ export const javaRuntimeExecConcat: RuleDefinition = {
     ...runRegex(
       ctx.content,
       /\bRuntime\.getRuntime\s*\(\s*\)\s*\.exec\s*\([^)]*\+\s*[\w$]/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
     ...runRegex(
       ctx.content,
       /\bnew\s+ProcessBuilder\s*\([^)]*\+\s*[\w$]/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
   ],
 };
@@ -58,7 +58,7 @@ export const javaXxeDocumentBuilder: RuleDefinition = {
     runRegex(
       ctx.content,
       /\b(?:DocumentBuilderFactory|SAXParserFactory|XMLInputFactory)\.newInstance\s*\(\s*\)\s*;/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
 };
 
@@ -81,12 +81,12 @@ export const javaObjectInputStream: RuleDefinition = {
     ...runRegex(
       ctx.content,
       /\bnew\s+ObjectInputStream\s*\(/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
     ...runRegex(
       ctx.content,
       /\.readObject\s*\(\s*\)/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
   ],
 };

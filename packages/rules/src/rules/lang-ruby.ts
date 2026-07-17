@@ -29,13 +29,13 @@ export const rubyRailsRawOrHtmlSafe: RuleDefinition = {
     ...runRegex(
       ctx.content,
       /\braw\s*\(\s*(?!["'][^"']*["']\s*\))[\w@.\[\]]+/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
     // foo.html_safe (anything other than a literal string before .html_safe)
     ...runRegex(
       ctx.content,
       /(?<!["'])[\w@.\[\]]+\.html_safe\b/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
   ],
 };
@@ -59,12 +59,12 @@ export const rubyEvalFamily: RuleDefinition = {
     ...runRegex(
       ctx.content,
       /(?<![.\w])eval\s*\(\s*(?!["'][^"']*["']\s*\))[\w@.\[\]]+/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
     ...runRegex(
       ctx.content,
       /\.(?:instance_eval|class_eval|module_eval)\s*\(\s*(?!["'][^"']*["']\s*\))[\w@.\[\]]+/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
   ],
 };
@@ -86,7 +86,7 @@ export const rubyParamsPermitBang: RuleDefinition = {
     exampleFix: 'params.require(:user).permit(:name, :email)',
   },
   match: (ctx) =>
-    runRegex(ctx.content, /\bparams\.permit!\s*(?:\)|$)/gm, { skipCommentLines: true }),
+    runRegex(ctx.content, /\bparams\.permit!\s*(?:\)|$)/gm, { skipCommentLines: true, language: ctx.language }),
 };
 
 export const railsCsrfDisabled: RuleDefinition = {
@@ -109,17 +109,17 @@ export const railsCsrfDisabled: RuleDefinition = {
     ...runRegex(
       ctx.content,
       /\bskip_before_action\s+:verify_authenticity_token\b/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
     ...runRegex(
       ctx.content,
       /\bprotect_from_forgery\s+with:\s*:null_session\b/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
     ...runRegex(
       ctx.content,
       /^\s*skip_forgery_protection\b/gm,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
   ],
 };

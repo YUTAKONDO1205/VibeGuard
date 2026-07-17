@@ -27,7 +27,7 @@ export const djangoDebugTrue: RuleDefinition = {
     exampleFix: 'DEBUG = os.environ.get("DJANGO_DEBUG", "0") == "1"',
   },
   match: (ctx) =>
-    runRegex(ctx.content, /^\s*DEBUG\s*=\s*True\b/gm, { skipCommentLines: true }),
+    runRegex(ctx.content, /^\s*DEBUG\s*=\s*True\b/gm, { skipCommentLines: true, language: ctx.language }),
 };
 
 export const flaskDebugRun: RuleDefinition = {
@@ -50,7 +50,7 @@ export const flaskDebugRun: RuleDefinition = {
     ...runRegex(
       ctx.content,
       /\bapp\.run\s*\([^)]*\bdebug\s*=\s*True\b/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
   ],
 };
@@ -76,16 +76,18 @@ export const corsWildcardOrigin: RuleDefinition = {
     // Express / koa / hapi — cors({ origin: '*' })
     ...runRegex(ctx.content, /\bcors\s*\(\s*\{[^}]*\borigin\s*:\s*["'`]\*["'`]/g, {
       skipCommentLines: true,
+      language: ctx.language,
     }),
     // Raw header strings — Access-Control-Allow-Origin: *
     ...runRegex(
       ctx.content,
       /["'`]Access-Control-Allow-Origin["'`]\s*[,:]\s*["'`]\*["'`]/g,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ),
     // Flask-CORS — "origins": "*" or origins='*'
     ...runRegex(ctx.content, /["']?\borigins\b["']?\s*[:=]\s*["']\*["']/g, {
       skipCommentLines: true,
+      language: ctx.language,
     }),
   ],
 };

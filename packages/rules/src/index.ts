@@ -17,15 +17,19 @@ export {
   languageMatches,
   getLineText,
   isCommentLine,
+  HASH_NOT_COMMENT,
 } from './matcher-utils.js';
 export {
   contextConfidence,
+  explainContextConfidence,
   downgradeConfidence,
   detectDowngradeSignals,
   isInDocstringOrBlockComment,
   isTestPath,
+  SEVERITY_CONFIDENCE_FLOOR,
   TEST_PATH_RE,
   type ContextConfidenceMode,
+  type ContextConfidenceResult,
   type DowngradeSignal,
 } from './confidence.js';
 

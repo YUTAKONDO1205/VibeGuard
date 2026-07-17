@@ -1,6 +1,8 @@
 // vibeguard:disable-file
 // Test fixtures contain intentional vulnerable code to exercise the rules.
 import { describe, expect, it } from 'vitest';
+import type { Confidence, ScanRequest, Severity } from '@vibeguard/findings-schema';
+import type { RuleDefinition } from '@vibeguard/rules';
 import { Analyzer, scan } from './analyzer.js';
 
 describe('Analyzer', () => {
@@ -18,6 +20,33 @@ describe('Analyzer', () => {
       filePath: 'inline.js',
     });
     expect(r.findings.some((f) => f.ruleId === 'VG-INJ-004')).toBe(true);
+  });
+
+  // Regression: an ES2022 private class field starts with `#`, which the
+  // comment-line predicate used to read as a comment regardless of language.
+  // runRegex({ skipCommentLines }) drops such matches inside rule.match(),
+  // upstream of the confidence chokepoint — so the finding vanished entirely
+  // rather than merely being down-ranked, and the severity gate never ran.
+  it('detects findings on ES2022 private class field lines', () => {
+    const cases: Array<[string, string]> = [
+      ['class C { #q = (s) => eval(s); }', 'VG-INJ-004'],
+      ['class C { #x = "SELECT * FROM users WHERE id = " + id; }', 'VG-INJ-001'],
+      ['class C { #a = { rejectUnauthorized: false }; }', 'VG-AUTH-004'],
+    ];
+    for (const [content, ruleId] of cases) {
+      const r = scan({ targetType: 'snippet', content, mode: 'standard', filePath: 'src/a.js' });
+      expect(r.findings.map((f) => f.ruleId)).toContain(ruleId);
+    }
+  });
+
+  it('still skips a Python # comment', () => {
+    const r = scan({
+      targetType: 'snippet',
+      content: '# eval(user_input)',
+      mode: 'standard',
+      filePath: 'src/a.py',
+    });
+    expect(r.findings.map((f) => f.ruleId)).not.toContain('VG-INJ-004');
   });
 
   it('detects multiple categories in one input', () => {
@@ -121,7 +150,11 @@ const apiKey = "AKIAIOSFODNN7EXAMPLE";
 
   // --- Context-window confidence (paper item ①) ---------------------------
 
-  it('down-ranks a DEBUG=True that lives inside a docstring, not the real setting', () => {
+  it('does not down-rank a high-severity DEBUG=True in a docstring (severity gate)', () => {
+    // Pre-gate this resolved to `low` (medium default, docstring -2). VG-FW-001
+    // is severity `high`, so the gate now withholds the downgrade entirely: a
+    // docstring is exactly the disguise an attacker would use to bury a real
+    // setting, so it must not lower a severe finding.
     const code = [
       'def configure():',
       '    """',
@@ -140,7 +173,11 @@ const apiKey = "AKIAIOSFODNN7EXAMPLE";
     });
     const fw = r.findings.find((f) => f.ruleId === 'VG-FW-001');
     expect(fw).toBeDefined();
-    expect(fw?.confidence).toBe('low'); // medium default, docstring -2 -> low
+    // Held at the rule's default — NOT raised to `high`. VG-FW-001 declares
+    // defaultConfidence 'medium', and the gate is a bound on downgrading, never
+    // a promotion: reading the 'high' floor literally here would manufacture a
+    // high-confidence finding out of a docstring. Pins that clamp end-to-end.
+    expect(fw?.confidence).toBe('medium');
   });
 
   it('keeps full confidence for a real DEBUG=True in settings', () => {
@@ -155,7 +192,10 @@ const apiKey = "AKIAIOSFODNN7EXAMPLE";
     expect(fw?.confidence).toBe('medium'); // unchanged default
   });
 
-  it('lowers confidence by one step in a test path but still reports', () => {
+  it('does not lower a high-severity finding on a test path (severity gate)', () => {
+    // Pre-gate the test path cost one step (high -> medium). VG-AUTH-004 is
+    // severity `high`, so a test/ path no longer moves it: moving a real
+    // vulnerability under tests/ must not buy any confidence reduction.
     const code = 'requests.get(url, verify=False)\n';
     const inTest = scan({
       targetType: 'snippet',
@@ -171,7 +211,8 @@ const apiKey = "AKIAIOSFODNN7EXAMPLE";
       filePath: 'client.py',
       language: 'python',
     });
-    expect(inTest.findings.find((f) => f.ruleId === 'VG-AUTH-004')?.confidence).toBe('medium');
+    // Same confidence either side: the test-path disguise buys nothing here.
+    expect(inTest.findings.find((f) => f.ruleId === 'VG-AUTH-004')?.confidence).toBe('high');
     expect(inSrc.findings.find((f) => f.ruleId === 'VG-AUTH-004')?.confidence).toBe('high');
   });
 
@@ -187,5 +228,87 @@ const apiKey = "AKIAIOSFODNN7EXAMPLE";
     const todo = r.findings.find((f) => f.ruleId === 'VG-AUTH-002');
     expect(todo).toBeDefined();
     expect(todo?.confidence).toBe('medium'); // opt-out keeps the default
+  });
+});
+
+// --- m.confidence bypasses the context layer AND its severity gate ----------
+//
+// Pinning INTENDED behaviour, not an accident: `m.confidence ?? contextConfidence(…)`
+// means a rule asserting its own per-match confidence skips the downgrade
+// heuristics and the gate that bounds them. That is the design — m.confidence is
+// a rule speaking from its own domain knowledge, not a generic guess about the
+// surrounding text — but it does mean such a rule takes on the gate's
+// responsibility itself. No rule sets it today. This test exists so that the day
+// one does, the reviewer is told the security gate does not cover it.
+
+describe('Analyzer: m.confidence bypass (pinned spec)', () => {
+  /**
+   * Severity `critical` + `defaultConfidence: 'high'` + a comment line makes the
+   * three candidate outcomes mutually distinguishable, so the assertion below
+   * identifies which code path ran rather than merely matching a value:
+   *   'medium' → m.confidence honoured (the pinned spec);
+   *   'high'   → the severity gate ran (m.confidence ignored, gate held);
+   *   'low'    → the un-gated context downgrade ran (comment = −2 steps).
+   */
+  function pinRule(over: { confidence?: Confidence; severity?: Severity } = {}): RuleDefinition {
+    return {
+      ruleId: 'VG-TEST-PIN',
+      name: 'pin rule',
+      description: 'test-only rule for the m.confidence chokepoint',
+      languages: ['*'],
+      category: 'quality',
+      severity: over.severity ?? 'critical',
+      defaultConfidence: 'high',
+      match: () => [
+        {
+          startLine: 1,
+          endLine: 1,
+          startColumn: 1,
+          endColumn: 1,
+          evidence: 'dangerous_call()',
+          ...(over.confidence ? { confidence: over.confidence } : {}),
+        },
+      ],
+    };
+  }
+
+  // No filePath and no `language`, and content that trips none of the
+  // detectLanguageFromContent patterns: the analyzer only honours injected
+  // `rules` when the language is unknown (otherwise it consults the global
+  // registry). The line is a comment, so the context layer has a signal to act
+  // on if it is reached.
+  const req: ScanRequest = {
+    targetType: 'snippet',
+    content: '// pinned = dangerous_call()',
+    mode: 'standard',
+    includeRemediation: false,
+  };
+
+  function confidenceOf(rule: RuleDefinition): Confidence | undefined {
+    const r = scan(req, { rules: [rule] });
+    const f = r.findings.find((x) => x.ruleId === 'VG-TEST-PIN');
+    expect(f, 'injected rule did not run — the fixture, not the gate, is broken').toBeDefined();
+    return f?.confidence;
+  }
+
+  it('honours m.confidence verbatim, applying neither the downgrade nor the severity gate', () => {
+    // 'medium' is reachable by no other path here: the gate would say 'high',
+    // the un-gated downgrade would say 'low'.
+    expect(confidenceOf(pinRule({ confidence: 'medium' }))).toBe('medium');
+  });
+
+  it('control: without m.confidence the same critical match goes through the gate', () => {
+    expect(confidenceOf(pinRule())).toBe('high');
+  });
+
+  it('control: without m.confidence at an ungated severity the comment downgrade applies', () => {
+    expect(confidenceOf(pinRule({ severity: 'medium' }))).toBe('low');
+  });
+
+  it('m.confidence survives even where the gate would have raised it toward base', () => {
+    // The bypass is not "whichever is lower" — the rule's word is final in both
+    // directions the heuristics could have pulled.
+    expect(confidenceOf(pinRule({ confidence: 'low' }))).toBe('low');
+    expect(confidenceOf(pinRule({ confidence: 'high', severity: 'info' }))).toBe('high');
   });
 });

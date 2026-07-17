@@ -2,12 +2,17 @@
 // Fixtures embed eval()/innerHTML/DEBUG/secret literals to exercise the
 // context-window confidence helper; they are not real vulnerabilities.
 import { describe, expect, it } from 'vitest';
+import type { Confidence, Severity } from '@vibeguard/findings-schema';
 import {
   contextConfidence,
   detectDowngradeSignals,
   downgradeConfidence,
+  explainContextConfidence,
   isInDocstringOrBlockComment,
   isTestPath,
+  SEVERITY_CONFIDENCE_FLOOR,
+  type ContextConfidenceMode,
+  type DowngradeSignal,
 } from './confidence.js';
 import type { RuleContext, RuleMatch } from './rule-types.js';
 
@@ -167,35 +172,39 @@ describe('detectDowngradeSignals', () => {
 });
 
 describe('contextConfidence', () => {
+  // These cases exercise the downgrade MECHANISM (item ①), so they all pass
+  // severity 'medium' — the severity gate is `null` there, leaving the context
+  // layer's own behaviour observable. Gate behaviour is tested separately
+  // against critical/high; keep this split, or the mechanism loses its coverage.
   const codeCtx = ctxOf('const x = eval(input);', { filePath: 'src/run.js', language: 'javascript' });
   const commentCtx = ctxOf('// const x = eval(input);', { filePath: 'src/run.js', language: 'javascript' });
   const testCtx = ctxOf('const x = eval(input);', { filePath: 'src/run.test.js', language: 'javascript' });
 
   it('leaves confidence unchanged on a plain production code line', () => {
-    expect(contextConfidence('high', codeCtx, matchAtLine(1))).toBe('high');
+    expect(contextConfidence('high', 'medium', codeCtx, matchAtLine(1))).toBe('high');
   });
 
   it('drops two steps for a comment (high -> low)', () => {
-    expect(contextConfidence('high', commentCtx, matchAtLine(1))).toBe('low');
+    expect(contextConfidence('high', 'medium', commentCtx, matchAtLine(1))).toBe('low');
   });
 
   it('drops one step for a test path (high -> medium)', () => {
-    expect(contextConfidence('high', testCtx, matchAtLine(1))).toBe('medium');
-    expect(contextConfidence('medium', testCtx, matchAtLine(1))).toBe('low');
+    expect(contextConfidence('high', 'medium', testCtx, matchAtLine(1))).toBe('medium');
+    expect(contextConfidence('medium', 'medium', testCtx, matchAtLine(1))).toBe('low');
   });
 
   it('sums stacked signals and clamps at low', () => {
     const commentInTest = ctxOf('// secret', { filePath: 'a.test.js', language: 'javascript' });
-    expect(contextConfidence('high', commentInTest, matchAtLine(1))).toBe('low');
+    expect(contextConfidence('high', 'medium', commentInTest, matchAtLine(1))).toBe('low');
   });
 
   it('is a no-op when mode is off (comment-is-the-signal rules)', () => {
-    expect(contextConfidence('medium', commentCtx, matchAtLine(1), 'off')).toBe('medium');
+    expect(contextConfidence('medium', 'medium', commentCtx, matchAtLine(1), 'off')).toBe('medium');
   });
 
   it('never raises confidence (downgrade-only)', () => {
-    expect(contextConfidence('low', codeCtx, matchAtLine(1))).toBe('low');
-    expect(contextConfidence('medium', codeCtx, matchAtLine(1))).toBe('medium');
+    expect(contextConfidence('low', 'medium', codeCtx, matchAtLine(1))).toBe('low');
+    expect(contextConfidence('medium', 'medium', codeCtx, matchAtLine(1))).toBe('medium');
   });
 
   it('does not down-rank a real JS finding sitting after a """ regex literal (B1)', () => {
@@ -204,6 +213,327 @@ describe('contextConfidence', () => {
       filePath: 'src/run.js',
       language: 'javascript',
     });
-    expect(contextConfidence('high', ctx, matchAtLine(2))).toBe('high');
+    expect(contextConfidence('high', 'medium', ctx, matchAtLine(2))).toBe('high');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Severity gate (D1). Properties swept over the whole input space, because the
+// gate's guarantees are universally quantified statements about the function —
+// "result <= base, always" is not a claim a handful of examples can support,
+// and the one bug that matters here (a floor read as a promotion) only appears
+// in the corners: base below the floor, on a gated severity, with signals.
+// ---------------------------------------------------------------------------
+
+const RANK: Record<Confidence, number> = { low: 0, medium: 1, high: 2 };
+const ALL_BASES: readonly Confidence[] = ['low', 'medium', 'high'];
+const ALL_SEVERITIES: readonly Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
+const GATED_SEVERITIES: readonly Severity[] = ['critical', 'high'];
+const UNGATED_SEVERITIES: readonly Severity[] = ['medium', 'low', 'info'];
+const ALL_MODES: readonly ContextConfidenceMode[] = ['auto', 'off'];
+
+// Restated rather than imported from the module under test. SIGNAL_STEPS is
+// frozen — item ①'s published numbers are computed from these exact values — so
+// a test that re-derived the arithmetic from the implementation would ratify any
+// future edit to it instead of failing on it.
+const EXPECTED_STEPS: Record<DowngradeSignal, number> = {
+  comment: 2,
+  docstring: 2,
+  'test-path': 1,
+};
+
+interface SignalFixture {
+  name: string;
+  ctx: RuleContext;
+  match: RuleMatch;
+  signals: DowngradeSignal[];
+}
+
+/**
+ * Every reachable signal subset. The powerset of three signals has eight
+ * members, but `detectDowngradeSignals` picks comment/docstring with an
+ * if/else, so the two are mutually exclusive and only these six are reachable.
+ */
+const SIGNAL_FIXTURES: SignalFixture[] = [
+  {
+    name: 'no signals (production code)',
+    ctx: ctxOf('const x = eval(input);', { filePath: 'src/run.js', language: 'javascript' }),
+    match: matchAtLine(1),
+    signals: [],
+  },
+  {
+    name: 'comment',
+    ctx: ctxOf('// const x = eval(input);', { filePath: 'src/run.js', language: 'javascript' }),
+    match: matchAtLine(1),
+    signals: ['comment'],
+  },
+  {
+    name: 'docstring',
+    ctx: ctxOf('"""\nDEBUG = True\n"""', { filePath: 'settings.py', language: 'python' }),
+    match: matchAtLine(2),
+    signals: ['docstring'],
+  },
+  {
+    name: 'test-path',
+    ctx: ctxOf('const x = eval(input);', { filePath: 'src/run.test.js', language: 'javascript' }),
+    match: matchAtLine(1),
+    signals: ['test-path'],
+  },
+  {
+    name: 'comment + test-path',
+    ctx: ctxOf('// const x = eval(input);', { filePath: 'src/run.test.js', language: 'javascript' }),
+    match: matchAtLine(1),
+    signals: ['comment', 'test-path'],
+  },
+  {
+    name: 'docstring + test-path',
+    ctx: ctxOf('"""\nDEBUG = True\n"""', { filePath: 'tests/test_settings.py', language: 'python' }),
+    match: matchAtLine(2),
+    signals: ['docstring', 'test-path'],
+  },
+];
+
+function stepsOf(signals: DowngradeSignal[]): number {
+  return signals.reduce((sum, s) => sum + EXPECTED_STEPS[s], 0);
+}
+
+describe('severity gate — fixtures', () => {
+  // Guards every sweep below: if a fixture stopped producing the signals it
+  // claims, the properties would still pass while testing nothing.
+  it('each fixture really produces the signal set it claims', () => {
+    for (const fx of SIGNAL_FIXTURES) {
+      expect(detectDowngradeSignals(fx.ctx, fx.match), fx.name).toEqual(fx.signals);
+    }
+  });
+
+  it('covers every reachable signal subset', () => {
+    const seen = SIGNAL_FIXTURES.map((f) => [...f.signals].sort().join('+'));
+    expect(new Set(seen).size).toBe(SIGNAL_FIXTURES.length); // no duplicates
+    expect(new Set(seen)).toEqual(
+      new Set(['', 'comment', 'docstring', 'test-path', 'comment+test-path', 'docstring+test-path']),
+    );
+  });
+
+  it('SEVERITY_CONFIDENCE_FLOOR decides every severity explicitly', () => {
+    expect(SEVERITY_CONFIDENCE_FLOOR).toEqual({
+      critical: 'high',
+      high: 'high',
+      medium: null,
+      low: null,
+      info: null,
+    });
+    // Total, not partial: a severity added to the schema must not silently
+    // default to "ungated".
+    for (const severity of ALL_SEVERITIES) {
+      expect(Object.hasOwn(SEVERITY_CONFIDENCE_FLOOR, severity), severity).toBe(true);
+    }
+  });
+});
+
+describe('severity gate — properties (base × severity × signals × mode)', () => {
+  it('P1: result is never above base — downgrade-only holds for the whole space', () => {
+    // THE regression test for the trap. A floor implemented as `max(rank, floor)`
+    // without the `min(RANK[base], …)` clamp promotes here, manufacturing exactly
+    // the false high-confidence findings the module forbids.
+    const violations: string[] = [];
+    let checked = 0;
+    for (const mode of ALL_MODES) {
+      for (const base of ALL_BASES) {
+        for (const severity of ALL_SEVERITIES) {
+          for (const fx of SIGNAL_FIXTURES) {
+            const got = contextConfidence(base, severity, fx.ctx, fx.match, mode);
+            checked += 1;
+            if (RANK[got] > RANK[base]) {
+              violations.push(`${mode} | base=${base} sev=${severity} | ${fx.name} -> ${got}`);
+            }
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+    expect(checked).toBe(ALL_MODES.length * 3 * 5 * SIGNAL_FIXTURES.length);
+  });
+
+  it('P2: critical/high take no context downgrade at all (floor high === top rung)', () => {
+    const violations: string[] = [];
+    for (const base of ALL_BASES) {
+      for (const severity of GATED_SEVERITIES) {
+        for (const fx of SIGNAL_FIXTURES) {
+          const got = contextConfidence(base, severity, fx.ctx, fx.match);
+          if (got !== base) {
+            violations.push(`base=${base} sev=${severity} | ${fx.name} -> ${got}, want ${base}`);
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('P3: medium/low/info are bit-identical to the un-gated item ① behaviour', () => {
+    const violations: string[] = [];
+    for (const base of ALL_BASES) {
+      for (const severity of UNGATED_SEVERITIES) {
+        for (const fx of SIGNAL_FIXTURES) {
+          const want = downgradeConfidence(base, stepsOf(fx.signals));
+          const got = contextConfidence(base, severity, fx.ctx, fx.match);
+          if (got !== want) {
+            violations.push(`base=${base} sev=${severity} | ${fx.name} -> ${got}, want ${want}`);
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('P4: mode "off" returns base at every severity — it short-circuits before the gate', () => {
+    const violations: string[] = [];
+    for (const base of ALL_BASES) {
+      for (const severity of ALL_SEVERITIES) {
+        for (const fx of SIGNAL_FIXTURES) {
+          const got = contextConfidence(base, severity, fx.ctx, fx.match, 'off');
+          if (got !== base) {
+            violations.push(`base=${base} sev=${severity} | ${fx.name} -> ${got}`);
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('P5: no signals means no change — the floor never promotes an untouched finding', () => {
+    const quiet = SIGNAL_FIXTURES.filter((f) => f.signals.length === 0);
+    expect(quiet.length).toBeGreaterThan(0);
+    const violations: string[] = [];
+    for (const base of ALL_BASES) {
+      for (const severity of ALL_SEVERITIES) {
+        for (const fx of quiet) {
+          const got = contextConfidence(base, severity, fx.ctx, fx.match);
+          if (got !== base) {
+            violations.push(`base=${base} sev=${severity} | ${fx.name} -> ${got}, want ${base}`);
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+    // Spelled out: a low-confidence critical rule on a clean code line stays low.
+    expect(contextConfidence('low', 'critical', quiet[0]!.ctx, quiet[0]!.match)).toBe('low');
+  });
+
+  it('contextConfidence is exactly explainContextConfidence(...).confidence', () => {
+    const violations: string[] = [];
+    for (const mode of ALL_MODES) {
+      for (const base of ALL_BASES) {
+        for (const severity of ALL_SEVERITIES) {
+          for (const fx of SIGNAL_FIXTURES) {
+            const wrapper = contextConfidence(base, severity, fx.ctx, fx.match, mode);
+            const explained = explainContextConfidence(base, severity, fx.ctx, fx.match, mode);
+            if (wrapper !== explained.confidence) {
+              violations.push(`${mode} | base=${base} sev=${severity} | ${fx.name}`);
+            }
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+});
+
+describe('severity gate — the promotion trap', () => {
+  const testPathCtx = ctxOf('SECRET_KEY = "x"', {
+    filePath: 'tests/test_settings.py',
+    language: 'python',
+  });
+  const docstringCtx = ctxOf('"""\nSECRET_KEY = "x"\n"""', {
+    filePath: 'settings.py',
+    language: 'python',
+  });
+
+  it('holds a critical rule\'s "medium" default at medium on a test path — never raises it to high', () => {
+    // The exact case the naive reading of "clamp the floor to high" gets wrong.
+    // A `critical` rule declaring defaultConfidence 'medium', matched under
+    // tests/: `max(RANK[ungated], RANK['high'])` returns HIGH — inventing a
+    // high-confidence finding out of a test fixture. The `min(RANK[base], …)`
+    // clamp is what keeps this at the rule's own declared confidence.
+    const r = explainContextConfidence('medium', 'critical', testPathCtx, matchAtLine(1));
+    expect(r.confidence).toBe('medium');
+    expect(r.ungated).toBe('low'); // what item ① alone would have produced
+    expect(r.floored).toBe(true); // the gate did hold the downgrade back...
+    expect(RANK[r.confidence]).toBeLessThanOrEqual(RANK['medium']); // ...without exceeding base
+  });
+
+  it('holds a critical rule\'s "medium" default at medium inside a docstring', () => {
+    const r = explainContextConfidence('medium', 'critical', docstringCtx, matchAtLine(2));
+    expect(r.confidence).toBe('medium');
+    expect(r.ungated).toBe('low');
+    expect(r.floored).toBe(true);
+  });
+
+  it('holds a critical rule\'s "low" default at low — the floor cannot lift it two rungs either', () => {
+    const r = explainContextConfidence('low', 'critical', testPathCtx, matchAtLine(1));
+    expect(r.confidence).toBe('low');
+    expect(r.ungated).toBe('low');
+    expect(r.floored).toBe(false); // nothing to hold back: base is already the bottom
+  });
+});
+
+describe('explainContextConfidence', () => {
+  const commentInTestCtx = ctxOf('// secret = "x"', {
+    filePath: 'a.test.js',
+    language: 'javascript',
+  });
+  const codeCtx = ctxOf('const x = eval(input);', { filePath: 'src/run.js', language: 'javascript' });
+  const commentCtx = ctxOf('// const x = eval(input);', {
+    filePath: 'src/run.js',
+    language: 'javascript',
+  });
+
+  it('reports the ungated value, the signals, and floored=true when the gate changes the outcome', () => {
+    const r = explainContextConfidence('high', 'critical', commentInTestCtx, matchAtLine(1));
+    expect(r).toEqual({
+      confidence: 'high', // gate: a critical finding keeps its confidence...
+      ungated: 'low', // ...though comment (-2) + test-path (-1) would have buried it
+      signals: ['comment', 'test-path'],
+      floored: true,
+    });
+  });
+
+  it('reports floored=false at an ungated severity, exposing the downgrade itself', () => {
+    const r = explainContextConfidence('high', 'medium', commentCtx, matchAtLine(1));
+    expect(r).toEqual({
+      confidence: 'low',
+      ungated: 'low',
+      signals: ['comment'],
+      floored: false,
+    });
+  });
+
+  it('reports floored=false when a gated severity had no downgrade to hold back', () => {
+    const r = explainContextConfidence('high', 'critical', codeCtx, matchAtLine(1));
+    expect(r).toEqual({ confidence: 'high', ungated: 'high', signals: [], floored: false });
+  });
+
+  it('reports no signals when mode is off — it short-circuits before detection', () => {
+    const r = explainContextConfidence('medium', 'critical', commentInTestCtx, matchAtLine(1), 'off');
+    expect(r).toEqual({ confidence: 'medium', ungated: 'medium', signals: [], floored: false });
+  });
+
+  it('floored marks exactly the findings the gate rescued (the A/B measurement)', () => {
+    // `floored` is a number the B3 harness reports, so pin what it counts:
+    // precisely the gated severities whose signals would otherwise have moved them.
+    const rescued: string[] = [];
+    for (const base of ALL_BASES) {
+      for (const severity of ALL_SEVERITIES) {
+        for (const fx of SIGNAL_FIXTURES) {
+          const r = explainContextConfidence(base, severity, fx.ctx, fx.match);
+          const gated = GATED_SEVERITIES.includes(severity);
+          const wouldMove = downgradeConfidence(base, stepsOf(fx.signals)) !== base;
+          expect(r.floored, `base=${base} sev=${severity} | ${fx.name}`).toBe(gated && wouldMove);
+          if (r.floored) rescued.push(`${base}/${severity}/${fx.name}`);
+        }
+      }
+    }
+    // high & medium bases move under all 5 signal-bearing fixtures; low never
+    // moves (already the bottom rung) → 2 bases × 5 fixtures × 2 gated severities.
+    expect(rescued.length).toBe(20);
   });
 });

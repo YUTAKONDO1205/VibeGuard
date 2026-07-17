@@ -55,7 +55,7 @@ export const genericApiKey: RuleDefinition = {
     runRegex(
       ctx.content,
       /\b(?:api[_-]?key|secret|token|password|passwd)\s*[:=]\s*["']([A-Za-z0-9+/=_\-]{20,})["']/gi,
-      { skipCommentLines: true },
+      { skipCommentLines: true, language: ctx.language },
     ).filter((m) => {
       const literal = m.evidence.match(/["']([^"']+)["']\s*$/)?.[1] ?? '';
       // Filter obvious placeholders to reduce noise — VG-AUTH-003 already covers them.

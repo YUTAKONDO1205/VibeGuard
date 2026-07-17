@@ -16,6 +16,18 @@ the project uses [Semantic Versioning](https://semver.org/).
   `severity` is preserved). Rules now declare a *default* confidence that the
   analyzer corrects per occurrence
   (`packages/rules/src/confidence.ts`, applied at the analyzer-core chokepoint).
+  The correction is **severity-gated**: `critical` and `high` findings keep their
+  declared confidence in every one of those contexts (`SEVERITY_CONFIDENCE_FLOOR`).
+  Down-ranking quiets triage noise; it is not a security verdict, and whoever
+  writes a file also chooses where a pattern sits. The floor is clamped to the
+  declared confidence, so it never *raises* one.
+- **Language-aware comment detection**: `isCommentLine` now takes the language,
+  so a leading `#` is only treated as a comment where `#` actually starts one.
+  Previously an ES2022 private class field (`#token = "…"`), a C/C++ preprocessor
+  directive, a Rust attribute or a Swift directive read as a comment line and the
+  match was dropped before analysis — a silent false negative on rules up to
+  `critical`. `HASH_NOT_COMMENT` in `packages/rules/src/matcher-utils.ts` is the
+  single source of truth for that question and is exported for consumers.
 - **Evaluation scripts**: new tracked scripts
   `scripts/e4-prdiff-eval.mjs` (PR-diff reduction scenarios) and
   `scripts/e6-extended-eval.mjs` (11 public OSS repositories, commits pinned in

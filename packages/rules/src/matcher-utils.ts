@@ -24,16 +24,67 @@ export function getLineText(lines: string[], lineNumber: number): string {
 }
 
 /**
- * True when a line is a whole-line comment, i.e. its first non-whitespace
- * characters are `//` or `#`. This is the single comment-line predicate used by
- * both `runRegex({ skipCommentLines })` (which drops such matches) and the
- * context-window confidence helper (which down-ranks them) — keeping one
- * definition so the two stay consistent. It does NOT detect trailing comments,
- * block comments, or docstrings (see confidence.ts for multi-line awareness).
+ * Languages where a leading `#` is NOT a line comment (so we must not treat it
+ * as one). In these languages `#` opens real, executed syntax: an ES2022 private
+ * class field (`#count = 0`), a C/C++/C# preprocessor directive (`#define
+ * DB_PASSWORD "…"`, `#include`), a Rust attribute (`#[derive(…)]`), a Swift
+ * compiler directive (`#if DEBUG`). This set is the single source of truth for
+ * that question: both comment-line predicates below and
+ * `isInDocstringOrBlockComment` in confidence.ts consume it, so a language is
+ * classified once, in one place.
+ *
+ * Deliberately absent are the languages where `#` genuinely does start a comment
+ * — python, ruby, php, shell, yaml, toml, and sql (MySQL's `#`). Classifying one
+ * of those as HASH_NOT_COMMENT would surface every commented-out line as a
+ * finding.
+ *
+ * KNOWN LIMITATION — this is a blocklist, so its default for an unrecognised or
+ * absent language is "`#` starts a comment", which drops the match (see
+ * `isCommentLine` below). That default fails toward a silent false negative,
+ * which is the unsafe direction for a security scanner. It is kept only because
+ * inverting to an allowlist of `#`-comment languages would change behavior for
+ * every language-undetected file at once, and that is a bigger change than this
+ * fix. Keep this set in step with `EXT_TO_LANGUAGE` in
+ * analyzer-core/src/language-detect.ts: a new language whose `#` is executable
+ * MUST be added here, or its findings vanish before the analyzer ever sees them.
  */
-export function isCommentLine(lineText: string): boolean {
+export const HASH_NOT_COMMENT = new Set([
+  'javascript',
+  'typescript',
+  'java',
+  'go',
+  'csharp',
+  'c',
+  'cpp',
+  'rust',
+  'swift',
+  'kotlin',
+]);
+
+/**
+ * True when a line is a whole-line comment, i.e. its first non-whitespace
+ * characters are `//`, or `#` in a language where `#` starts a comment. This is
+ * the single comment-line predicate used by both
+ * `runRegex({ skipCommentLines })` (which drops such matches) and the
+ * context-window confidence helper (which down-ranks them) — keeping one
+ * definition so the two stay consistent.
+ *
+ * `language` is optional but should be passed wherever it is known. Omitted, we
+ * fall back to treating a leading `#` as a comment, which is wrong for the
+ * HASH_NOT_COMMENT languages: an ES2022 private field (`#q = (s) => eval(s);`)
+ * reads as a comment line and its match is lost. That mistake is not a
+ * down-rank — `runRegex({ skipCommentLines })` DROPS a match on a line this
+ * predicate accepts, before the analyzer's confidence chokepoint ever sees it,
+ * so the severity gate cannot bound it. A misclassification here is a silent
+ * false negative, which is strictly worse than a wrong confidence.
+ *
+ * It does NOT detect trailing comments, block comments, or docstrings (see
+ * confidence.ts for multi-line awareness).
+ */
+export function isCommentLine(lineText: string, language?: string): boolean {
+  const hashIsComment = !(language != null && HASH_NOT_COMMENT.has(language));
   const trimmed = lineText.trimStart();
-  return trimmed.startsWith('//') || trimmed.startsWith('#');
+  return trimmed.startsWith('//') || (hashIsComment && trimmed.startsWith('#'));
 }
 
 /**
@@ -48,6 +99,8 @@ export function runRegex(
     skipCommentLines?: boolean;
     /** Maximum matches to return. */
     limit?: number;
+    /** Source language, so `#` is only treated as a comment where it is one. Pass `ctx.language`. */
+    language?: string;
   },
 ): RuleMatch[] {
   if (!pattern.global) {
@@ -63,7 +116,7 @@ export function runRegex(
     const end = indexToPosition(content, m.index + m[0].length);
     if (options?.skipCommentLines) {
       const lineText = content.split('\n')[start.line - 1] ?? '';
-      if (isCommentLine(lineText)) {
+      if (isCommentLine(lineText, options.language)) {
         if (m[0].length === 0) pattern.lastIndex += 1;
         continue;
       }

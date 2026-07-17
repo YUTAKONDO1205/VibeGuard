@@ -89,9 +89,9 @@ export const tlsVerifyDisabled: RuleDefinition = {
     how: 'Remove the flag. If a self-signed cert is needed, install it as a trusted CA for the relevant client only.',
   },
   match: (ctx) => [
-    ...runRegex(ctx.content, /verify\s*=\s*False\b/g, { skipCommentLines: true }),
-    ...runRegex(ctx.content, /rejectUnauthorized\s*:\s*false\b/g, { skipCommentLines: true }),
-    ...runRegex(ctx.content, /InsecureSkipVerify\s*:\s*true\b/g, { skipCommentLines: true }),
+    ...runRegex(ctx.content, /verify\s*=\s*False\b/g, { skipCommentLines: true, language: ctx.language }),
+    ...runRegex(ctx.content, /rejectUnauthorized\s*:\s*false\b/g, { skipCommentLines: true, language: ctx.language }),
+    ...runRegex(ctx.content, /InsecureSkipVerify\s*:\s*true\b/g, { skipCommentLines: true, language: ctx.language }),
   ],
 };
 
@@ -112,7 +112,7 @@ export const csrfExemptDecorator: RuleDefinition = {
     how: 'Remove @csrf_exempt and submit a CSRF token (Django will inject {% csrf_token %} into forms / require X-CSRFToken on fetch). For pure JSON APIs, use Django REST Framework\'s SessionAuthentication or token auth which handles CSRF correctly.',
   },
   match: (ctx) =>
-    runRegex(ctx.content, /^\s*@csrf_exempt\b/gm, { skipCommentLines: true }),
+    runRegex(ctx.content, /^\s*@csrf_exempt\b/gm, { skipCommentLines: true, language: ctx.language }),
 };
 
 export const insecureSessionCookie: RuleDefinition = {
@@ -134,6 +134,7 @@ export const insecureSessionCookie: RuleDefinition = {
   match: (ctx) => [
     ...runRegex(ctx.content, /\b(?:secure|httpOnly)\s*:\s*false\b/g, {
       skipCommentLines: true,
+      language: ctx.language,
     }),
   ],
 };

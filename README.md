@@ -238,7 +238,9 @@ Marketplace publishing is documented in [`docs/runbooks/publish-action-to-market
 
 VG-QUAL-005..010 target the "compiles cleanly but shouldn't ship" patterns that AI-generated code produces. They run at `severity=medium` and `confidence=low~medium` because heuristics are inherently noisier than syntactic rules.
 
-Each rule declares a *default* confidence, and the analyzer then applies a **context-window confidence correction**: a match that sits inside a comment, docstring, or block comment, or on a test/fixture/mock path, has its confidence down-ranked (never up-ranked, and severity is untouched), so e.g. an `eval()` shown in a tutorial comment is reported at lower confidence than a live call. See `packages/rules/src/confidence.ts` and `node scripts/e6-confidence-eval.mjs` for a worked demonstration.
+Each rule declares a *default* confidence, and the analyzer then applies a **context-window confidence correction**: a match that sits inside a comment, docstring, or block comment, or on a test/fixture/mock path, has its confidence down-ranked (never up-ranked, and severity is untouched), so a pattern shown inside a docstring is reported at lower confidence than a live one.
+
+The correction is **severity-gated**: a finding whose severity is `critical` or `high` keeps its declared confidence even in those contexts. Down-ranking exists to quiet triage noise — it is a utility mechanism, not a security verdict — and anyone who can write the file can also choose where a pattern sits, so a context that lowers confidence must never lower it for a finding that matters. See `SEVERITY_CONFIDENCE_FLOOR` in `packages/rules/src/confidence.ts`, and run `node scripts/e6-confidence-eval.mjs` for a worked demonstration that reports both arms (un-gated and gated) side by side.
 
 ## Chrome extension
 

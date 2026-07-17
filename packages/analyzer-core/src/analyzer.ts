@@ -25,8 +25,20 @@ import { parseSuppressions, isSuppressed } from './suppress.js';
  * (`engineVersions.core`). This is a SEPARATE axis from the released tool /
  * package version (package.json): bump it only when detection behavior changes
  * (rules, analysis, finding schema) — not for packaging, UX, or docs releases.
- * It has deliberately stayed at 0.1.0 while the tool advanced to 0.1.3 because
- * those releases did not alter what VibeGuard detects.
+ * It deliberately stayed at 0.1.0 across tool releases 0.1.1–0.1.3, which did
+ * not alter what VibeGuard detects.
+ *
+ * KNOWN HAZARD — this value currently understates the engine. The severity gate
+ * on context-window confidence (`SEVERITY_CONFIDENCE_FLOOR` in @vibeguard/rules)
+ * DID change detection behavior: critical/high findings now keep their default
+ * confidence in contexts where they were previously down-ranked. The bump to
+ * 0.2.0 is deliberately deferred to the VER step (after D1–D4) so that 0.2.0
+ * names ONE frozen engine instead of several — D2 (canonicalizer) and D4 (audit
+ * metadata) also change behavior, and releasing each under 0.2.0 would make the
+ * version meaningless. The cost of deferring is real and is accepted knowingly:
+ * until the VER step, `engineVersions.core: 0.1.0` does NOT satisfy the "same
+ * engine ⇒ identical verdicts" contract in README.md. To compare against the
+ * pre-gate engine, use the `paper-ses-v0.1.3` tag rather than this field.
  */
 export const ENGINE_VERSION = '0.1.0';
 
@@ -123,7 +135,13 @@ export class Analyzer {
           severity: rule.severity,
           confidence:
             m.confidence ??
-            contextConfidence(rule.defaultConfidence, ctx, m, rule.contextConfidence ?? 'auto'),
+            contextConfidence(
+              rule.defaultConfidence,
+              rule.severity,
+              ctx,
+              m,
+              rule.contextConfidence ?? 'auto',
+            ),
           category: rule.category,
           language,
           filePath: request.filePath,
