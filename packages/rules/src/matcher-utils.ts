@@ -71,12 +71,13 @@ export const HASH_NOT_COMMENT = new Set([
  *
  * `language` is optional but should be passed wherever it is known. Omitted, we
  * fall back to treating a leading `#` as a comment, which is wrong for the
- * HASH_NOT_COMMENT languages: an ES2022 private field (`#q = (s) => eval(s);`)
- * reads as a comment line and its match is lost. That mistake is not a
- * down-rank — `runRegex({ skipCommentLines })` DROPS a match on a line this
- * predicate accepts, before the analyzer's confidence chokepoint ever sees it,
- * so the severity gate cannot bound it. A misclassification here is a silent
- * false negative, which is strictly worse than a wrong confidence.
+ * HASH_NOT_COMMENT languages: an ES2022 private class field whose initialiser
+ * reaches a dangerous sink (`#run = (s) => dynamicEval(s);`) reads as a comment
+ * line and its match is lost. That mistake is not a down-rank —
+ * `runRegex({ skipCommentLines })` DROPS a match on a line this predicate
+ * accepts, before the analyzer's confidence chokepoint ever sees it, so the
+ * severity gate cannot bound it. A misclassification here is a silent false
+ * negative, which is strictly worse than a wrong confidence.
  *
  * It does NOT detect trailing comments, block comments, or docstrings (see
  * confidence.ts for multi-line awareness).
