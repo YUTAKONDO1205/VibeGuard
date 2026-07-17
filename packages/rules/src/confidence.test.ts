@@ -105,7 +105,7 @@ describe('isInDocstringOrBlockComment', () => {
     expect(isInDocstringOrBlockComment(lines, 2, 'javascript')).toBe(true);
   });
 
-  it('does not treat """ as a docstring opener outside Python (B1: JS/TS regex literal)', () => {
+  it('does not treat """ as a docstring opener outside Python (JS/TS regex literal)', () => {
     // `/"""/` is a JS/TS regex literal containing three quotes, NOT a Python
     // docstring opener. Treating it as one phantom-opens a triple-quote block
     // and wrongly down-ranks the real eval() on the next line.
@@ -207,7 +207,7 @@ describe('contextConfidence', () => {
     expect(contextConfidence('medium', 'medium', codeCtx, matchAtLine(1))).toBe('medium');
   });
 
-  it('does not down-rank a real JS finding sitting after a """ regex literal (B1)', () => {
+  it('does not down-rank a real JS finding sitting after a """ regex literal', () => {
     // Regression: the phantom-docstring bug silently demoted this real eval().
     const ctx = ctxOf('const re = /"""/;\neval(userInput)', {
       filePath: 'src/run.js',
@@ -518,7 +518,7 @@ describe('explainContextConfidence', () => {
   });
 
   it('floored marks exactly the findings the gate rescued (the A/B measurement)', () => {
-    // `floored` is a number the B3 harness reports, so pin what it counts:
+    // `floored` is a number the A/B harness reports, so pin what it counts:
     // precisely the gated severities whose signals would otherwise have moved them.
     const rescued: string[] = [];
     for (const base of ALL_BASES) {

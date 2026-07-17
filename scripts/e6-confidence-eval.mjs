@@ -14,9 +14,9 @@
 //      positives must keep their confidence);
 //   3. a false-positive guard over samples/safe (must stay 0 findings).
 //
-// D1 only ever *withholds* a downgrade, so the gated arm is >= the un-gated arm
-// row by row, and rows where the two differ are exactly the findings the gate
-// kept above the action threshold — the B3 defence number.
+// The gate only ever *withholds* a downgrade, so the gated arm is >= the un-gated
+// arm row by row, and rows where the two differ are exactly the findings the gate
+// kept above the action threshold — the gate-held count.
 //
 // Run from the repo root after `npm run build`:
 //   node scripts/e6-confidence-eval.mjs
@@ -204,7 +204,7 @@ console.log(
 );
 console.log(`- confidence after ① (un-gated):  ${JSON.stringify(dist(e6, 'ungated'))}  — down-ranked: **${treatedUngated.length}**`);
 console.log(`- confidence after ①+D1 (gated):  ${JSON.stringify(dist(e6, 'after'))}  — down-ranked: **${treated.length}**`);
-// The B3 defence number: findings whose downgrade the severity gate withheld.
+// The gate-held count: findings whose downgrade the severity gate withheld.
 console.log(
   `- **gate held (D1 A/B): ${held.length}** of ${e6.length} — critical/high findings the context signals would have down-ranked, restored to their declared confidence`,
 );

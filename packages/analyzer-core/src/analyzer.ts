@@ -32,11 +32,10 @@ import { parseSuppressions, isSuppressed } from './suppress.js';
  * on context-window confidence (`SEVERITY_CONFIDENCE_FLOOR` in @vibeguard/rules)
  * DID change detection behavior: critical/high findings now keep their default
  * confidence in contexts where they were previously down-ranked. The bump to
- * 0.2.0 is deliberately deferred to the VER step (after D1–D4) so that 0.2.0
- * names ONE frozen engine instead of several — D2 (canonicalizer) and D4 (audit
- * metadata) also change behavior, and releasing each under 0.2.0 would make the
- * version meaningless. The cost of deferring is real and is accepted knowingly:
- * until the VER step, `engineVersions.core: 0.1.0` does NOT satisfy the "same
+ * 0.2.0 is deliberately deferred until the current round of detection changes is
+ * finished, so that 0.2.0 names ONE settled engine rather than several
+ * successive ones. The cost of deferring is real and is accepted knowingly:
+ * until that bump lands, `engineVersions.core: 0.1.0` does NOT satisfy the "same
  * engine ⇒ identical verdicts" contract in README.md. To compare against the
  * pre-gate engine, use the `paper-ses-v0.1.3` tag rather than this field.
  */
