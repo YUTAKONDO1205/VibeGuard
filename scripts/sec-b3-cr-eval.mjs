@@ -588,8 +588,24 @@ function dist(rows, key) {
   for (const r of rows) d[r[key]] += 1;
   return d;
 }
-const EXPECT_VULN_TOTAL = 50;
-const EXPECT_VULN_DIST = { high: 6, medium: 26, low: 18 };
+// Re-baselined 2026-07-19, from 50 / {high:6, medium:26, low:18}.
+//
+// The +1 is a RECOVERED TRUE POSITIVE, not drift. `runRegex` used to resolve a
+// match's line from wherever the pattern started, and `^\s*` under /m routinely
+// starts on the blank tail of an earlier line — with a lone `\r` counting as a
+// line terminator to the regex engine but not to `indexToPosition`, so CRLF
+// input disagreed by a full line. `skipCommentLines` then looked up that wrong
+// line and DELETED the match whenever it was a comment. `VG-FW-001` was
+// therefore absent from `samples/vulnerable/django_settings.py` — a fixture
+// whose own comment labels it as a VG-FW-001 case — and from every other CRLF
+// file shaped that way. Matches now anchor at their first non-whitespace
+// character, so `VG-FW-001@6:1` is reported where the payload actually is.
+//
+// The recovered finding is severity=high, confidence=medium, which is why the
+// medium bucket moved and high did not. `samples/safe` stays at 0, so nothing
+// here trades a false negative for a false positive.
+const EXPECT_VULN_TOTAL = 51;
+const EXPECT_VULN_DIST = { high: 6, medium: 27, low: 18 };
 const actualVulnDist = dist(vulnRows, 'gated');
 const sideConstraints = {
   safeFindings: safeRows.length,

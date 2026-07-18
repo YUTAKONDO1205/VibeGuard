@@ -280,8 +280,8 @@ const vuln = analyze('samples/vulnerable');
 const vulnChanged = vuln.filter((r) => r.changed);
 const vulnChangedUngated = vuln.filter((r) => r.ungatedChanged);
 console.log('\n## samples/vulnerable — no-collateral check\n');
-console.log(`- findings: **${vuln.length}** (engine E2 baseline: 50)`);
-console.log(`- confidence after ①+D1: ${JSON.stringify(dist(vuln))} (E2 baseline: {"high":6,"medium":26,"low":18})`);
+console.log(`- findings: **${vuln.length}** (engine E2 baseline: 51 — re-baselined 2026-07-19 by the runRegex CRLF fix; the +1 is a recovered VG-FW-001 true positive)`);
+console.log(`- confidence after ①+D1: ${JSON.stringify(dist(vuln))} (E2 baseline: {"high":6,"medium":27,"low":18})`);
 console.log(
   `- true-positives down-ranked: **${vulnChanged.length}** ${vulnChanged.length === 0 ? '✓ (no collateral damage)' : '⚠'}`,
 );

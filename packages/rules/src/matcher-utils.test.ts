@@ -323,3 +323,85 @@ describe('comment-classifier concealment vectors (regression)', () => {
     ).toBe(1);
   });
 });
+
+/**
+ * Match anchoring — `runRegex` resolves a match's position from its first
+ * non-whitespace character.
+ *
+ * These live here, in the package that owns `runRegex`, on purpose. The
+ * behaviour is also covered end-to-end from analyzer-core, but a refactor of
+ * this function has to fail in ITS OWN package's suite, not only downstream.
+ *
+ * The bug this closes was a silent false negative. Many rules open with `^\s*`
+ * under the `m` flag and `\s` matches line terminators, so a match routinely
+ * begins on the blank tail of an earlier line. `^` additionally treats a lone
+ * `\r` as a line terminator while `indexToPosition` counts lines by `\n` alone,
+ * so CRLF input disagreed by a whole line — and `skipCommentLines` then looked
+ * up that wrong line and DELETED the match when it happened to be a comment.
+ */
+describe('runRegex — match anchoring (LF/CRLF parity)', () => {
+  const DEBUG_PATTERN = () => /^\s*DEBUG\s*=\s*True\b/gm;
+  const body = (eol: string) => ['import os', '', '# a comment', 'DEBUG = True', ''].join(eol);
+
+  it('reports the payload line, not the line the pattern started on', () => {
+    for (const eol of ['\n', '\r\n']) {
+      const matches = runRegex(body(eol), DEBUG_PATTERN());
+      expect(matches).toHaveLength(1);
+      expect(matches[0]!.startLine).toBe(4);
+      expect(matches[0]!.startColumn).toBe(1);
+    }
+  });
+
+  it('does not drop the match when the PREVIOUS line is a comment', () => {
+    // The regression itself. Before anchoring, the CRLF case returned [].
+    for (const eol of ['\n', '\r\n']) {
+      const matches = runRegex(body(eol), DEBUG_PATTERN(), {
+        skipCommentLines: true,
+        language: 'python',
+      });
+      expect(matches).toHaveLength(1);
+      expect(matches[0]!.startLine).toBe(4);
+    }
+  });
+
+  it('still drops a match whose OWN line is a comment', () => {
+    // Anchoring must not weaken skipCommentLines — it only redirects it at the
+    // right line. Here the payload really is inside the comment.
+    const content = '# DEBUG = True\n';
+    expect(runRegex(content, /DEBUG\s*=\s*True\b/gm, { skipCommentLines: true, language: 'python' })).toEqual([]);
+  });
+
+  it('trims leading whitespace off the evidence and keeps named groups', () => {
+    const content = 'a\n   KEY = "v"\n';
+    const matches = runRegex(content, /^\s*(?<name>KEY)\s*=\s*"(?<val>[^"]*)"/gm);
+    expect(matches).toHaveLength(1);
+    // Evidence starts at the payload, so `confidence.ts:inspectedLine` finds
+    // firstNonWs === 0 and its own correction becomes a no-op rather than
+    // double-applying.
+    expect(matches[0]!.evidence.startsWith('KEY')).toBe(true);
+    expect(matches[0]!.variables).toEqual({ name: 'KEY', val: 'v' });
+  });
+
+  it('leaves an all-whitespace match untouched', () => {
+    // No payload to anchor to; position and evidence stay as found.
+    const matches = runRegex('a\n   \nb', /^[ \t]+$/gm);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.evidence).toBe('   ');
+    expect(matches[0]!.startLine).toBe(2);
+  });
+
+  it('terminates on a zero-length match, including on a skipped comment line', () => {
+    // Both the skip branch and the push branch must advance lastIndex, or the
+    // scan spins forever.
+    expect(runRegex('# c\nx\n', /(?:)/g, { skipCommentLines: true, language: 'python' }).length).toBeGreaterThan(0);
+    expect(runRegex('ab', /(?:)/g).length).toBeGreaterThan(0);
+  });
+
+  it('never reports a start position after its end position', () => {
+    const content = 'x\n\n  foo(\n    bar)\n';
+    for (const m of runRegex(content, /^\s*foo\([^)]*\)/gm)) {
+      expect(m.startLine).toBeLessThanOrEqual(m.endLine);
+      if (m.startLine === m.endLine) expect(m.startColumn!).toBeLessThanOrEqual(m.endColumn!);
+    }
+  });
+});

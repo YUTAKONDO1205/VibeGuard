@@ -10,6 +10,11 @@
  */
 
 export { Analyzer, scan, ENGINE_VERSION, type AnalyzerOptions } from './analyzer.js';
+export {
+  canonicalize,
+  type CanonicalizeResult,
+  type CanonicalizeStats,
+} from './canonicalizer.js';
 export { detectLanguageFromContent, detectLanguageFromPath } from './language-detect.js';
 export { extractSnippet, maskSecret } from './snippet.js';
 export {

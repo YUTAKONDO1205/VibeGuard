@@ -235,7 +235,31 @@ export function runRegex(
   pattern.lastIndex = 0;
   while ((m = pattern.exec(content)) !== null) {
     if (matches.length >= limit) break;
-    const start = indexToPosition(content, m.index);
+    // Anchor the match at its first non-whitespace character, not at wherever
+    // the pattern happened to start.
+    //
+    // Many rules begin `^\s*` under the `m` flag, and `\s` matches line
+    // terminators, so a match routinely opens on the blank tail of an EARLIER
+    // line. That is not merely cosmetic: `^` treats a lone `\r` as a line
+    // terminator while `indexToPosition` counts lines by `\n` alone, so on
+    // CRLF input the two disagree by a whole line. The consequences were a
+    // wrong `startLine` on every such finding and — far worse — a SILENT FALSE
+    // NEGATIVE, because the `skipCommentLines` test below looked up that wrong
+    // line, and if the previous line was a comment the match was DELETED. A
+    // `DEBUG = True` preceded by a comment therefore vanished from every CRLF
+    // file, with nothing anywhere to indicate a rule had fired at all.
+    //
+    // Resolving from the payload makes both the position and the comment test
+    // describe the line the user would point at. `confidence.ts` already
+    // applies exactly this correction internally (`inspectedLine`), and
+    // `anchorMatch` in analyzer-core applies it to canonical-pass matches, so
+    // this brings the three into agreement rather than inventing a fourth rule.
+    const leading = m[0].length - m[0].replace(/^\s+/, '').length;
+    // An all-whitespace match has no payload to anchor to; leave it as found.
+    const payloadIndex = leading < m[0].length ? m.index + leading : m.index;
+    const evidence = leading < m[0].length ? m[0].slice(leading) : m[0];
+
+    const start = indexToPosition(content, payloadIndex);
     const end = indexToPosition(content, m.index + m[0].length);
     if (options?.skipCommentLines) {
       const lineText = content.split('\n')[start.line - 1] ?? '';
@@ -249,7 +273,7 @@ export function runRegex(
       endLine: end.line,
       startColumn: start.column,
       endColumn: end.column,
-      evidence: m[0],
+      evidence,
       variables: m.groups ? { ...m.groups } : undefined,
     });
     if (m[0].length === 0) pattern.lastIndex += 1;

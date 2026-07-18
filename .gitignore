@@ -71,6 +71,9 @@ docs/VibeGuard_学会別テーマ分解.md
 docs/VibeGuard_進捗ダッシュボード.html
 docs/vibeguard-dashboard-sync.mjs
 docs/実装順.md
+# 実装順.md の姉妹編（実装済みコードの解説）。回避手法・攻撃前提を同じく含むため
+# 同じ扱いにする。公開リポジトリに出さない。
+docs/実装順解説.md
 
 # Security red-team research workspace (local-only; kept out of the public
 # service repo until mitigations + write-up ship — see the folder's scope doc)
