@@ -1,4 +1,9 @@
-import type { Finding, ScanResponse, Severity } from '@vibeguard/findings-schema';
+import type {
+  ConfidenceAudit,
+  Finding,
+  ScanResponse,
+  Severity,
+} from '@vibeguard/findings-schema';
 
 export interface SarifLog {
   $schema: string;
@@ -62,7 +67,12 @@ export interface SarifResult {
       };
     };
   }>;
-  properties?: { confidence?: string; severity?: string; tags?: string[] };
+  properties?: {
+    confidence?: string;
+    severity?: string;
+    tags?: string[];
+    confidenceAudit?: ConfidenceAudit;
+  };
 }
 
 export type SarifLevel = 'error' | 'warning' | 'note' | 'none';
@@ -126,6 +136,11 @@ function findingToResult(f: Finding): SarifResult {
       confidence: f.confidence,
       severity: f.severity,
       tags: f.tags,
+      // Spread rather than assigned: SARIF property bags are open, but a key
+      // present with an undefined value still shows up to consumers that
+      // enumerate them, and "this finding was never context-evaluated" must not
+      // look like "it was evaluated and found nothing".
+      ...(f.confidenceAudit ? { confidenceAudit: f.confidenceAudit } : {}),
     },
   };
 }

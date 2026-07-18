@@ -367,4 +367,75 @@ describe('Analyzer: m.confidence bypass (pinned spec)', () => {
     expect(confidenceOf(pinRule({ confidence: 'low' }))).toBe('low');
     expect(confidenceOf(pinRule({ confidence: 'high', severity: 'info' }))).toBe('high');
   });
+
+  // --- confidenceAudit (D4) -------------------------------------------------
+  //
+  // The audit trail rides the same chokepoint, so it is pinned against the same
+  // fixture: whatever path `confidence` took, `confidenceAudit` has to describe
+  // that path and no other.
+
+  function auditOf(rule: RuleDefinition) {
+    const r = scan(req, { rules: [rule] });
+    const f = r.findings.find((x) => x.ruleId === 'VG-TEST-PIN');
+    expect(f, 'injected rule did not run — the fixture, not the audit, is broken').toBeDefined();
+    return f!;
+  }
+
+  it('records the downgrade the gate refused (floored) without moving confidence', () => {
+    const f = auditOf(pinRule());
+    expect(f.confidence).toBe('high'); // unchanged — the gate held
+    expect(f.confidenceAudit).toEqual({
+      signals: ['docstring'],
+      ungated: 'low', // high(2) − docstring(2) = low(0), had the gate not run
+      floored: true,
+    });
+  });
+
+  it('records a real downgrade as not floored at an ungated severity', () => {
+    const f = auditOf(pinRule({ severity: 'medium' }));
+    expect(f.confidence).toBe('low');
+    expect(f.confidenceAudit).toEqual({ signals: ['docstring'], ungated: 'low', floored: false });
+  });
+
+  it('omits the key entirely when a rule supplied its own confidence', () => {
+    // No context evaluation ran, so there is nothing to audit. Key ABSENT, not
+    // present-and-undefined — the distinction the conditional spread protects.
+    const f = auditOf(pinRule({ confidence: 'medium' }));
+    expect('confidenceAudit' in f).toBe(false);
+  });
+});
+
+describe('Analyzer: confidenceAudit on real rules', () => {
+  const AWS_KEY = 'AKIAIOSFODNN7EXAMPLE';
+
+  it('marks a critical secret hidden in a comment as floored', () => {
+    const r = scan({
+      targetType: 'snippet',
+      content: `// const key = "${AWS_KEY}";`,
+      mode: 'standard',
+      filePath: 'src/app.js',
+    });
+    const sec = r.findings.find((f) => f.ruleId === 'VG-SEC-001');
+    expect(sec, 'VG-SEC-001 did not fire — fixture broken').toBeDefined();
+    // The whole point: the comment disguise bought the attacker nothing on the
+    // confidence axis, AND the attempt is now visible on the finding.
+    expect(sec!.confidence).toBe('high');
+    expect(sec!.confidenceAudit).toEqual({
+      signals: ['comment'],
+      ungated: 'low',
+      floored: true,
+    });
+  });
+
+  it('leaves the same secret on a code line with no audit key at all', () => {
+    const r = scan({
+      targetType: 'snippet',
+      content: `const key = "${AWS_KEY}";`,
+      mode: 'standard',
+      filePath: 'src/app.js',
+    });
+    const sec = r.findings.find((f) => f.ruleId === 'VG-SEC-001');
+    expect(sec!.confidence).toBe('high');
+    expect('confidenceAudit' in sec!).toBe(false);
+  });
 });

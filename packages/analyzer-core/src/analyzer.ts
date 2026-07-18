@@ -10,7 +10,7 @@ import {
 } from '@vibeguard/findings-schema';
 import {
   allRules,
-  contextConfidence,
+  explainContextConfidence,
   getRulesForLanguage,
   languageMatches,
   type RuleContext,
@@ -135,21 +135,46 @@ export class Analyzer {
         const snippet = shouldMaskCategory(rule.category) ? maskSecret(rawSnippet) : rawSnippet;
         const evidence = shouldMaskCategory(rule.category) ? maskSecret(m.evidence) : m.evidence;
 
+        // Resolve confidence through the explaining variant, so the reasoning
+        // survives onto the finding instead of being recomputed (or lost).
+        // `contextConfidence` is a thin wrapper over `.confidence` of this same
+        // call, so routing through it here cannot move any confidence value.
+        //
+        // Guarded on `m.confidence == null` rather than run unconditionally:
+        // a rule-supplied per-match confidence bypasses the context layer
+        // entirely, and an audit trail for an evaluation that never happened
+        // would be fiction. `== null` reproduces `??` exactly (null AND
+        // undefined), so the bypass keeps its current semantics.
+        const audit =
+          m.confidence == null
+            ? explainContextConfidence(
+                rule.defaultConfidence,
+                rule.severity,
+                ctx,
+                m,
+                rule.contextConfidence ?? 'auto',
+              )
+            : undefined;
+
         findings.push({
           findingId: findingId(),
           ruleId: rule.ruleId,
           title: rule.name,
           description: rule.description,
           severity: rule.severity,
-          confidence:
-            m.confidence ??
-            contextConfidence(
-              rule.defaultConfidence,
-              rule.severity,
-              ctx,
-              m,
-              rule.contextConfidence ?? 'auto',
-            ),
+          confidence: m.confidence ?? audit!.confidence,
+          // Conditional spread, not `confidenceAudit: undefined`: absence of the
+          // key is the contract (`'confidenceAudit' in finding` is meaningful),
+          // and `toEqual` distinguishes the two even though JSON does not.
+          ...(audit && audit.signals.length > 0
+            ? {
+                confidenceAudit: {
+                  signals: audit.signals,
+                  ungated: audit.ungated,
+                  floored: audit.floored,
+                },
+              }
+            : {}),
           category: rule.category,
           language,
           filePath: request.filePath,

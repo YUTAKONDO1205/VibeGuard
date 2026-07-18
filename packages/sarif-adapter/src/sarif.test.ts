@@ -73,4 +73,15 @@ describe('toSarif', () => {
   it('omits invocations when no rule errored', () => {
     expect(toSarif(wrap([fakeFinding()])).runs[0]!.invocations).toBeUndefined();
   });
+
+  it('carries confidenceAudit into the property bag', () => {
+    const audit = { signals: ['comment' as const], ungated: 'low' as const, floored: true };
+    const sarif = toSarif(wrap([fakeFinding({ confidenceAudit: audit })]));
+    expect(sarif.runs[0]!.results[0]!.properties?.confidenceAudit).toEqual(audit);
+  });
+
+  it('omits the confidenceAudit key for findings that carry no audit', () => {
+    const props = toSarif(wrap([fakeFinding()])).runs[0]!.results[0]!.properties!;
+    expect('confidenceAudit' in props).toBe(false);
+  });
 });

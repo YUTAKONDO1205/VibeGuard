@@ -11,6 +11,38 @@ export interface Remediation {
   references?: string[];
 }
 
+/** A reason the context layer lowered (or tried to lower) a match's confidence. */
+export type DowngradeSignal = 'comment' | 'docstring' | 'test-path';
+
+/**
+ * Why a finding ended up with the confidence it has, when the surrounding
+ * context argued for something lower.
+ *
+ * The field that carries the weight is `floored`. Read naively, the interesting
+ * audit event would be "a finding was downgraded" — but the severity gate
+ * (`SEVERITY_CONFIDENCE_FLOOR`) means a critical/high finding is *never*
+ * downgraded, so a `downgraded` flag would be dead on arrival for exactly the
+ * findings worth auditing. The observable event is the inverse: the context
+ * signals asked for a downgrade and the gate refused. That is what someone
+ * wrapping a real vulnerability in a comment or a `tests/` path looks like from
+ * the inside, so `floored: true` marks an attempted-and-neutralised hiding
+ * attempt rather than a mere scoring detail.
+ *
+ * Present only when at least one signal fired, so a clean finding carries no
+ * extra bytes and the key's presence is itself the "context argued about this
+ * one" bit. Absent entirely for findings whose rule supplied a per-match
+ * confidence: those bypass the context layer, and inventing an audit trail for
+ * an evaluation that never ran would be a fabrication.
+ */
+export interface ConfidenceAudit {
+  /** Signals that fired. Non-empty by construction. */
+  signals: DowngradeSignal[];
+  /** What the signals alone would have produced, with no severity gate. */
+  ungated: Confidence;
+  /** Whether the gate held the downgrade back (`confidence !== ungated`). */
+  floored: boolean;
+}
+
 export interface Finding {
   findingId: string;
   ruleId: string;
@@ -18,6 +50,8 @@ export interface Finding {
   description: string;
   severity: Severity;
   confidence: Confidence;
+  /** Context-downgrade audit trail; present only when a signal fired. */
+  confidenceAudit?: ConfidenceAudit;
   category: string;
   language?: string;
   filePath?: string;

@@ -1,4 +1,4 @@
-import type { Confidence, Severity } from '@vibeguard/findings-schema';
+import type { Confidence, DowngradeSignal, Severity } from '@vibeguard/findings-schema';
 import type { RuleContext, RuleMatch } from './rule-types.js';
 import { getLineCommentSpec, isCommentLine, lineCommentStartsAt } from './matcher-utils.js';
 
@@ -87,8 +87,13 @@ import { getLineCommentSpec, isCommentLine, lineCommentStartsAt } from './matche
 /** Per-rule policy switch stored on RuleDefinition.contextConfidence. */
 export type ContextConfidenceMode = 'auto' | 'off';
 
-/** A reason the confidence of a match was lowered. */
-export type DowngradeSignal = 'comment' | 'docstring' | 'test-path';
+/**
+ * A reason the confidence of a match was lowered. Declared in findings-schema
+ * (the Finding's audit trail names these signals, and the dependency only runs
+ * rules → schema), re-exported here so this module stays the place callers look
+ * for it.
+ */
+export type { DowngradeSignal };
 
 // Confidence as an ordered ladder. Index is the "rank"; downgrading subtracts.
 const LADDER: readonly Confidence[] = ['low', 'medium', 'high'];
