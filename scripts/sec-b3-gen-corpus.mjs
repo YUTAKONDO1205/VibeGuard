@@ -98,16 +98,25 @@ const PHANTOM_PROPERTY = {
 //   false        — deliberately NOT executable (the negative control).
 // The evaluator counts a pair toward ASR only when the claim is not `false`, and
 // reports 'executed' vs 'unverified' separately so a reader can see the split.
+// `disclosure` splits the attack surface the way the defence goal is stated:
+//   'declared'   — the suppression leaves a grep-able trace in the diff
+//                  (`vibeguard:disable-*`). It is a FEATURE and is auditable;
+//                  a reviewer can see it was used.
+//   'undeclared' — context disguise (path naming, comment/docstring shape)
+//                  leaves NO trace. Nothing in the diff says "this was
+//                  suppressed" — the finding just quietly drops in confidence.
+// The defence target is `undeclared CR → 0`; declared CR is not a defect to
+// drive to zero, because opting out on purpose and visibly is allowed.
 const TRANSFORMS = [
-  { name: 'path-tests', payloadExecutable: 'unverified', scope: 'file', mechanism: 'confidence' },
+  { name: 'path-tests', payloadExecutable: 'unverified', scope: 'file', mechanism: 'confidence', disclosure: 'undeclared' },
   // SCOPE.md names `conftest.py` and `*_mock.*` as two SEPARATE primary vectors,
   // so they are two rows. Bundling them under one label hid the `*_mock.*`
   // result entirely — a reader could not tell it had been tested at all.
-  { name: 'path-conftest', payloadExecutable: 'unverified', scope: 'file', mechanism: 'confidence' },
-  { name: 'path-mock', payloadExecutable: 'unverified', scope: 'file', mechanism: 'confidence' },
-  { name: 'docstring-naive', payloadExecutable: false, scope: 'finding', mechanism: 'confidence' },
-  { name: 'docstring-phantom', payloadExecutable: 'unverified', scope: 'finding', mechanism: 'confidence' },
-  { name: 'suppress-wildcard', payloadExecutable: 'unverified', scope: 'file', mechanism: 'suppression' },
+  { name: 'path-conftest', payloadExecutable: 'unverified', scope: 'file', mechanism: 'confidence', disclosure: 'undeclared' },
+  { name: 'path-mock', payloadExecutable: 'unverified', scope: 'file', mechanism: 'confidence', disclosure: 'undeclared' },
+  { name: 'docstring-naive', payloadExecutable: false, scope: 'finding', mechanism: 'confidence', disclosure: 'undeclared' },
+  { name: 'docstring-phantom', payloadExecutable: 'unverified', scope: 'finding', mechanism: 'confidence', disclosure: 'undeclared' },
+  { name: 'suppress-wildcard', payloadExecutable: 'unverified', scope: 'file', mechanism: 'suppression', disclosure: 'declared' },
 ];
 
 // Recorded reasons a (transform, language) pair emits nothing. Every entry here
@@ -515,6 +524,7 @@ const manifest = {
         // dead". Only the negative control (`false`) is excluded from ASR.
         countsTowardAsr: t.payloadExecutable !== false,
         mechanism: t.mechanism,
+        disclosure: t.disclosure,
       },
     ]),
   ),

@@ -418,6 +418,7 @@ function computeArms(threshold) {
       mechanism: meta.mechanism ?? null,
       payloadExecutable: meta.payloadExecutable ?? null,
       countsTowardAsr: meta.countsTowardAsr ?? meta.payloadExecutable !== false,
+      disclosure: meta.disclosure ?? null,
     });
     const sev = (t.bySeverity[row.severity] ??= {
       pairs: 0,
@@ -530,8 +531,33 @@ function computeArms(threshold) {
       }
     }
   }
+  // CR split by DISCLOSURE — the form the defence goal is actually stated in.
+  // `declared` suppression (`vibeguard:disable-*`) leaves a grep-able trace in
+  // the diff and is an intended, auditable feature; driving it to zero would
+  // mean removing the opt-out. `undeclared` concealment leaves no trace at all,
+  // so nothing tells a reviewer the finding was suppressed — that is the number
+  // the defence must drive to 0. Reporting one pooled CR hides which of the two
+  // any improvement came from.
+  const byDisclosure = {};
+  for (const [, t] of Object.entries(sorted)) {
+    if (!t.countsTowardAsr) continue; // negative control excluded from ASR
+    const d = (byDisclosure[t.disclosure ?? 'unknown'] ??= {
+      denominatorUngated: 0, denominatorGated: 0, concealedUngated: 0, concealedGated: 0,
+    });
+    for (const k of Object.keys(d)) d[k] += t.total[k];
+  }
+  for (const d of Object.values(byDisclosure)) {
+    d.crUngated = ratio(d.concealedUngated, d.denominatorUngated);
+    d.crGated = ratio(d.concealedGated, d.denominatorGated);
+  }
+
   return {
     byTransform: sorted,
+    byDisclosure,
+    disclosureNote:
+      'declared = suppression pragma, leaves a grep-able trace and is an intended auditable opt-out. ' +
+      'undeclared = context disguise, leaves no trace. Defence target is undeclared CR -> 0; ' +
+      'declared CR is not a defect to eliminate. Negative-control transforms are excluded from both.',
     // Named so it cannot be mistaken for a mean, and carrying its own eligibility
     // rule so a reader can re-derive which rows were in scope.
     worstCase,
@@ -595,6 +621,8 @@ const result = {
     gated: 'explainContextConfidence(...).confidence — item ①+D1 severity floor (after D1)',
   },
   byTransform: primary.byTransform,
+  byDisclosure: primary.byDisclosure,
+  disclosureNote: primary.disclosureNote,
   worstCase: primary.worstCase,
   worstCaseScope: primary.worstCaseScope,
   thresholdSweep: sweep,
@@ -688,6 +716,13 @@ console.log(
     (primary.worstCaseScope.excluded.map((e) => `${e.transform} (${e.reason})`).join('; ') || 'none') +
     `\n(all excluded rows are still shown in the per-transform table above — nothing is dropped from view)`,
 );
+
+console.log('\n## CR by disclosure (defence target: undeclared → 0)\n');
+console.log('| disclosure | denom | CR ungated | CR gated |');
+console.log('|---|---|---|---|');
+for (const [d, v] of Object.entries(primary.byDisclosure).sort()) {
+  console.log(`| ${d} | ${v.denominatorUngated} | ${v.crUngated ?? 'n/a'} | ${v.crGated ?? 'n/a'} |`);
+}
 
 console.log('\n## threshold sweep (worst case per threshold)\n');
 console.log('| threshold | worst row | CR ungated | CR gated |');
