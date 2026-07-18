@@ -32,6 +32,18 @@ the project uses [Semantic Versioning](https://semver.org/).
   Down-ranking quiets triage noise; it is not a security verdict, and whoever
   writes a file also chooses where a pattern sits. The floor is clamped to the
   declared confidence, so it never *raises* one.
+- **The severity gate now covers `medium`**: a `medium`-severity finding can
+  still be down-ranked by context, but never below `medium` — the default
+  actionable threshold. Previously `medium` was ungated, so wrapping a real
+  finding in a docstring or parking it under `tests/` dropped it to `low` and out
+  of a default-threshold triage view; measurement showed that path working
+  essentially every time. `high → medium` still happens, so the noise reduction
+  the context layer exists for survives. `low` and `info` stay ungated on
+  purpose: there the false-positive reduction is worth most and the impact of
+  abusing it least. As with `high`, the floor is clamped to the declared
+  confidence, so the new rung cannot promote a `low`-confidence finding either.
+
+### Changed
 - **Language-aware comment detection**: `isCommentLine` now takes the language,
   so a leading `#` is only treated as a comment where `#` actually starts one.
   Previously an ES2022 private class field (`#token = "…"`), a C/C++ preprocessor

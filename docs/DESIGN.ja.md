@@ -742,7 +742,9 @@ Semgrep を呼び出し、結果を共通形式へ変換する。
 
 【実装更新】ルールが宣言するのは**既定 confidence** であり、analyzer は検出箇所ごとに**文脈窓補正**を適用する：マッチがコメント・docstring・ブロックコメント内、またはテスト／フィクスチャ／モックのパス上にある場合、confidence を降格する（降格のみで引き上げは行わず、severity は変更しない）。実装は `packages/rules/src/confidence.ts`、動作確認は `node scripts/e6-confidence-eval.mjs`。
 
-【実装更新・severity ゲート】降格には **severity 依存の下限**がある（`SEVERITY_CONFIDENCE_FLOOR`）。severity が `critical` / `high` の finding は、上記のどの文脈にあっても**降格しない**。降格はトリアージ騒音を減らす utility 機構であって security 判断ではなく、ファイルを書ける者はパターンの置き場所も選べる以上、「文脈で confidence が下がる」ことを重大な finding に適用してはならないため。下限は必ず `min(既定 confidence, 下限)` で既定値にクランプする — 単に「下限 high」と読むと、既定 confidence が medium の critical ルールが medium → high へ**引き上がり**、偽の high-confidence finding を製造して降格のみの原則を破る。
+【実装更新・severity ゲート】降格には **severity 依存の下限**がある（`SEVERITY_CONFIDENCE_FLOOR`）。severity が `critical` / `high` の finding は、上記のどの文脈にあっても**降格しない**（下限 `high` は梯子の最上段なので「降格しない」と厳密に等価）。severity が `medium` の finding は**降格するが `medium` を下回らない**（下限 `medium`）— `high → medium` の1段は動くので騒音削減は残るが、既定の actionable 閾値である `medium` は割らない。severity `low` / `info` は下限なし（`null`）で従来どおり全幅の降格を受ける：この帯は誤検知削減の効用が最大で、悪用されたときの影響が最小だから。なお `low` を下限に書いても `RANK['low']=0` が梯子の最下段なので `null` と数学的に等価（無意味）であり、その意味でも `null` が正直な表現。
+
+降格はトリアージ騒音を減らす utility 機構であって security 判断ではなく、ファイルを書ける者はパターンの置き場所も選べる以上、「文脈で confidence が下がる」ことを重大な finding に適用してはならない。下限は必ず `min(既定 confidence, 下限)` で既定値にクランプする — 単に「下限 high」と読むと、既定 confidence が medium の critical ルールが medium → high へ**引き上がり**、偽の high-confidence finding を製造して降格のみの原則を破る。この罠は下限 `medium` でも同型に存在する（既定 confidence が low の medium ルールが low → medium へ上がる）ため、クランプは下限値によらず必須。
 
 ### 13.4 suppress 設計
 

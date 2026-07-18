@@ -223,38 +223,40 @@ describe('detectDowngradeSignals', () => {
 
 describe('contextConfidence', () => {
   // These cases exercise the downgrade MECHANISM (item ①), so they all pass
-  // severity 'medium' — the severity gate is `null` there, leaving the context
-  // layer's own behaviour observable. Gate behaviour is tested separately
-  // against critical/high; keep this split, or the mechanism loses its coverage.
+  // severity 'low' — the severity gate is `null` there, leaving the context
+  // layer's own behaviour observable. (It used to be 'medium'; D1c gave that
+  // band a `medium` floor, so it no longer shows the un-gated mechanism.) Gate
+  // behaviour is tested separately against critical/high/medium; keep this
+  // split, or the mechanism loses its coverage.
   const codeCtx = ctxOf('const x = eval(input);', { filePath: 'src/run.js', language: 'javascript' });
   const commentCtx = ctxOf('// const x = eval(input);', { filePath: 'src/run.js', language: 'javascript' });
   const testCtx = ctxOf('const x = eval(input);', { filePath: 'src/run.test.js', language: 'javascript' });
 
   it('leaves confidence unchanged on a plain production code line', () => {
-    expect(contextConfidence('high', 'medium', codeCtx, matchAtLine(1))).toBe('high');
+    expect(contextConfidence('high', 'low', codeCtx, matchAtLine(1))).toBe('high');
   });
 
   it('drops two steps for a comment (high -> low)', () => {
-    expect(contextConfidence('high', 'medium', commentCtx, matchAtLine(1))).toBe('low');
+    expect(contextConfidence('high', 'low', commentCtx, matchAtLine(1))).toBe('low');
   });
 
   it('drops one step for a test path (high -> medium)', () => {
-    expect(contextConfidence('high', 'medium', testCtx, matchAtLine(1))).toBe('medium');
-    expect(contextConfidence('medium', 'medium', testCtx, matchAtLine(1))).toBe('low');
+    expect(contextConfidence('high', 'low', testCtx, matchAtLine(1))).toBe('medium');
+    expect(contextConfidence('medium', 'low', testCtx, matchAtLine(1))).toBe('low');
   });
 
   it('sums stacked signals and clamps at low', () => {
     const commentInTest = ctxOf('// secret', { filePath: 'a.test.js', language: 'javascript' });
-    expect(contextConfidence('high', 'medium', commentInTest, matchAtLine(1))).toBe('low');
+    expect(contextConfidence('high', 'low', commentInTest, matchAtLine(1))).toBe('low');
   });
 
   it('is a no-op when mode is off (comment-is-the-signal rules)', () => {
-    expect(contextConfidence('medium', 'medium', commentCtx, matchAtLine(1), 'off')).toBe('medium');
+    expect(contextConfidence('medium', 'low', commentCtx, matchAtLine(1), 'off')).toBe('medium');
   });
 
   it('never raises confidence (downgrade-only)', () => {
-    expect(contextConfidence('low', 'medium', codeCtx, matchAtLine(1))).toBe('low');
-    expect(contextConfidence('medium', 'medium', codeCtx, matchAtLine(1))).toBe('medium');
+    expect(contextConfidence('low', 'low', codeCtx, matchAtLine(1))).toBe('low');
+    expect(contextConfidence('medium', 'low', codeCtx, matchAtLine(1))).toBe('medium');
   });
 
   it('does not down-rank a real JS finding sitting after a """ regex literal', () => {
@@ -263,7 +265,7 @@ describe('contextConfidence', () => {
       filePath: 'src/run.js',
       language: 'javascript',
     });
-    expect(contextConfidence('high', 'medium', ctx, matchAtLine(2))).toBe('high');
+    expect(contextConfidence('high', 'low', ctx, matchAtLine(2))).toBe('high');
   });
 });
 
@@ -278,8 +280,14 @@ describe('contextConfidence', () => {
 const RANK: Record<Confidence, number> = { low: 0, medium: 1, high: 2 };
 const ALL_BASES: readonly Confidence[] = ['low', 'medium', 'high'];
 const ALL_SEVERITIES: readonly Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
-const GATED_SEVERITIES: readonly Severity[] = ['critical', 'high'];
-const UNGATED_SEVERITIES: readonly Severity[] = ['medium', 'low', 'info'];
+// Named after what the floor DOES, not after "is there a floor at all" — since
+// D1c every severity except low/info has one, and the two groups below behave
+// differently. `critical`/`high` are floored at `high`, the top rung, so the
+// clamp swallows the whole downgrade. `medium` is floored at `medium`, one rung
+// down, so it still moves; it gets its own assertions rather than a sweep.
+const NO_DOWNGRADE_SEVERITIES: readonly Severity[] = ['critical', 'high'];
+// floor === null: bit-identical to the un-gated item ① behaviour.
+const UNGATED_SEVERITIES: readonly Severity[] = ['low', 'info'];
 const ALL_MODES: readonly ContextConfidenceMode[] = ['auto', 'off'];
 
 // Restated rather than imported from the module under test. SIGNAL_STEPS is
@@ -368,7 +376,11 @@ describe('severity gate — fixtures', () => {
     expect(SEVERITY_CONFIDENCE_FLOOR).toEqual({
       critical: 'high',
       high: 'high',
-      medium: null,
+      // D1c: was `null`. `medium` is actionable at the default threshold, so a
+      // context downgrade must not be able to push it below that.
+      medium: 'medium',
+      // Deliberately left open: highest FP-reduction value, lowest abuse impact.
+      // (`'low'` here would be inert anyway — RANK['low'] === 0.)
       low: null,
       info: null,
     });
@@ -407,7 +419,7 @@ describe('severity gate — properties (base × severity × signals × mode)', (
   it('P2: critical/high take no context downgrade at all (floor high === top rung)', () => {
     const violations: string[] = [];
     for (const base of ALL_BASES) {
-      for (const severity of GATED_SEVERITIES) {
+      for (const severity of NO_DOWNGRADE_SEVERITIES) {
         for (const fx of SIGNAL_FIXTURES) {
           const got = contextConfidence(base, severity, fx.ctx, fx.match);
           if (got !== base) {
@@ -419,7 +431,7 @@ describe('severity gate — properties (base × severity × signals × mode)', (
     expect(violations).toEqual([]);
   });
 
-  it('P3: medium/low/info are bit-identical to the un-gated item ① behaviour', () => {
+  it('P3: low/info are bit-identical to the un-gated item ① behaviour', () => {
     const violations: string[] = [];
     for (const base of ALL_BASES) {
       for (const severity of UNGATED_SEVERITIES) {
@@ -429,6 +441,31 @@ describe('severity gate — properties (base × severity × signals × mode)', (
           if (got !== want) {
             violations.push(`base=${base} sev=${severity} | ${fx.name} -> ${got}, want ${want}`);
           }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('P3b: medium clamps the downgrade at medium — it moves, but never below the threshold', () => {
+    // The `medium` floor is the one that is NOT equivalent to "no downgrade":
+    // the result is the un-gated value held up at min(base, medium).
+    const violations: string[] = [];
+    for (const base of ALL_BASES) {
+      for (const fx of SIGNAL_FIXTURES) {
+        const ungated = downgradeConfidence(base, stepsOf(fx.signals));
+        const want =
+          RANK[ungated] > Math.min(RANK[base], RANK['medium'])
+            ? ungated
+            : ALL_BASES[Math.min(RANK[base], RANK['medium'])]!;
+        const got = contextConfidence(base, 'medium', fx.ctx, fx.match);
+        if (got !== want) {
+          violations.push(`base=${base} | ${fx.name} -> ${got}, want ${want}`);
+        }
+        // The property that motivates D1c: a base at or above medium can never
+        // be pushed below medium by context alone.
+        if (RANK[base] >= RANK['medium'] && RANK[got] < RANK['medium']) {
+          violations.push(`base=${base} | ${fx.name} -> ${got} fell below medium`);
         }
       }
     }
@@ -524,6 +561,84 @@ describe('severity gate — the promotion trap', () => {
     expect(r.ungated).toBe('low');
     expect(r.floored).toBe(false); // nothing to hold back: base is already the bottom
   });
+
+  // D1c added a SECOND rung at which the trap can be re-introduced. `medium` is
+  // no longer the top of the ladder, so "clamp at medium" written without the
+  // `min(RANK[base], …)` would promote a low-confidence medium-severity rule to
+  // medium. Same bug, new floor value — pinned here.
+  it('holds a medium rule\'s "low" default at low inside a docstring — the new floor does not promote', () => {
+    const r = explainContextConfidence('low', 'medium', docstringCtx, matchAtLine(2));
+    expect(r.confidence).toBe('low');
+    expect(r.ungated).toBe('low');
+    expect(r.floored).toBe(false);
+  });
+
+  it('holds a medium rule\'s "low" default at low on a test path too', () => {
+    const r = explainContextConfidence('low', 'medium', testPathCtx, matchAtLine(1));
+    expect(r.confidence).toBe('low');
+    expect(r.floored).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D1c: the `medium` floor. Unlike `high`, this floor is NOT "no downgrade" — it
+// bounds the downgrade at the default actionable threshold, so one rung of noise
+// reduction survives while the hiding place closes.
+// ---------------------------------------------------------------------------
+describe('severity gate — the medium floor', () => {
+  const docstringCtx = ctxOf('"""\nSECRET_KEY = "x"\n"""', {
+    filePath: 'settings.py',
+    language: 'python',
+  });
+  const commentCtx = ctxOf('// const x = eval(input);', {
+    filePath: 'src/run.js',
+    language: 'javascript',
+  });
+  const testPathCtx = ctxOf('SECRET_KEY = "x"', {
+    filePath: 'tests/test_settings.py',
+    language: 'python',
+  });
+
+  it('a high-confidence medium finding wrapped in a docstring lands on medium, not low', () => {
+    // THE case the b3 corpus exploited: docstring is 2 steps, so item ① alone
+    // buries the finding at `low`, below the default threshold. The floor stops
+    // it one rung down.
+    const r = explainContextConfidence('high', 'medium', docstringCtx, matchAtLine(2));
+    expect(r.ungated).toBe('low');
+    expect(r.confidence).toBe('medium');
+    expect(r.floored).toBe(true);
+  });
+
+  it('a medium-confidence medium finding in a comment stays at medium', () => {
+    const r = explainContextConfidence('medium', 'medium', commentCtx, matchAtLine(1));
+    expect(r.ungated).toBe('low');
+    expect(r.confidence).toBe('medium');
+    expect(r.floored).toBe(true);
+  });
+
+  it('still downgrades high -> medium on a test path — the floor is a bound, not an off switch', () => {
+    // One step lands exactly on the clamp, so the downgrade is applied in full
+    // and nothing was held back.
+    const r = explainContextConfidence('high', 'medium', testPathCtx, matchAtLine(1));
+    expect(r.ungated).toBe('medium');
+    expect(r.confidence).toBe('medium');
+    expect(r.floored).toBe(false);
+  });
+
+  it('low and info severities still take the FULL downgrade — deliberately left ungated', () => {
+    // Pins the other half of the D1c decision: these bands keep item ①'s
+    // behaviour because the FP reduction is worth most and the abuse impact least.
+    for (const severity of ['low', 'info'] as const) {
+      expect(SEVERITY_CONFIDENCE_FLOOR[severity]).toBeNull();
+      const r = explainContextConfidence('high', severity, docstringCtx, matchAtLine(2));
+      expect(r.confidence, severity).toBe('low');
+      expect(r.floored, severity).toBe(false);
+      expect(contextConfidence('high', severity, commentCtx, matchAtLine(1)), severity).toBe('low');
+      expect(contextConfidence('high', severity, testPathCtx, matchAtLine(1)), severity).toBe(
+        'medium',
+      );
+    }
+  });
 });
 
 describe('explainContextConfidence', () => {
@@ -548,7 +663,9 @@ describe('explainContextConfidence', () => {
   });
 
   it('reports floored=false at an ungated severity, exposing the downgrade itself', () => {
-    const r = explainContextConfidence('high', 'medium', commentCtx, matchAtLine(1));
+    // severity 'low' — floor null. ('medium' used to serve here; D1c gave it a
+    // floor, so it now reports floored=true.)
+    const r = explainContextConfidence('high', 'low', commentCtx, matchAtLine(1));
     expect(r).toEqual({
       confidence: 'low',
       ungated: 'low',
@@ -568,22 +685,47 @@ describe('explainContextConfidence', () => {
   });
 
   it('floored marks exactly the findings the gate rescued (the A/B measurement)', () => {
-    // `floored` is a number the A/B harness reports, so pin what it counts:
-    // precisely the gated severities whose signals would otherwise have moved them.
+    // `floored` is a number the A/B harness reports, so pin what it counts.
+    // The predicate is stated in terms of SEVERITY_CONFIDENCE_FLOOR rather than a
+    // hard-coded severity list: `floored` means the clamp actually bit, i.e. the
+    // un-gated value sits BELOW min(base, floor). The old "gated && wouldMove"
+    // shorthand only agreed with that while every floor was `high` (top rung,
+    // where the clamp swallows any movement); with the `medium` floor of D1c a
+    // downgrade can move AND still land on the clamp (`high` + test-path → medium
+    // == the clamp, so nothing was held back and floored is false).
     const rescued: string[] = [];
     for (const base of ALL_BASES) {
       for (const severity of ALL_SEVERITIES) {
         for (const fx of SIGNAL_FIXTURES) {
           const r = explainContextConfidence(base, severity, fx.ctx, fx.match);
-          const gated = GATED_SEVERITIES.includes(severity);
-          const wouldMove = downgradeConfidence(base, stepsOf(fx.signals)) !== base;
-          expect(r.floored, `base=${base} sev=${severity} | ${fx.name}`).toBe(gated && wouldMove);
+          const floor = SEVERITY_CONFIDENCE_FLOOR[severity];
+          const expected =
+            floor != null &&
+            RANK[downgradeConfidence(base, stepsOf(fx.signals))] <
+              Math.min(RANK[base], RANK[floor]);
+          expect(r.floored, `base=${base} sev=${severity} | ${fx.name}`).toBe(expected);
           if (r.floored) rescued.push(`${base}/${severity}/${fx.name}`);
         }
       }
     }
-    // high & medium bases move under all 5 signal-bearing fixtures; low never
-    // moves (already the bottom rung) → 2 bases × 5 fixtures × 2 gated severities.
-    expect(rescued.length).toBe(20);
+    // 29 = 20 (unchanged, floor 'high') + 9 (new, floor 'medium' from D1c).
+    //
+    // floor 'high' (critical, high): the clamp is min(base, high) === base, so
+    // every base that moves at all is rescued. Bases high & medium move under all
+    // 5 signal-bearing fixtures, base low never moves (bottom rung already)
+    //   → 2 bases × 5 fixtures × 2 severities = 20.
+    //
+    // floor 'medium' (severity medium): the clamp is min(base, medium).
+    //   base=high  → clamp medium. comment(-2), docstring(-2), comment+test(-3),
+    //                docstring+test(-3) all land on low, below the clamp → 4.
+    //                test-path(-1) lands exactly ON medium → not floored.
+    //   base=medium→ clamp medium. All 5 signal-bearing fixtures reach low → 5.
+    //   base=low   → clamp low; nothing can fall below the bottom rung → 0.
+    //   → 4 + 5 = 9.
+    //
+    // low / info keep floor null and contribute 0, which is the point of leaving
+    // them open.
+    expect(rescued.length).toBe(29);
+    expect(rescued.filter((k) => k.includes('/medium/')).length).toBe(9);
   });
 });

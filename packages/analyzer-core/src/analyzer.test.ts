@@ -358,7 +358,16 @@ describe('Analyzer: m.confidence bypass (pinned spec)', () => {
   });
 
   it('control: without m.confidence at an ungated severity the block-comment downgrade applies', () => {
-    expect(confidenceOf(pinRule({ severity: 'medium' }))).toBe('low');
+    // `low`, not `medium`: since D1c gave `medium` a floor of `medium`, the only
+    // severities the gate leaves ungated are `low` and `info`. Picking a floored
+    // severity here would silently stop testing the un-gated path.
+    expect(confidenceOf(pinRule({ severity: 'low' }))).toBe('low');
+  });
+
+  it('control: at a partially floored severity the downgrade is bounded, not refused', () => {
+    // The third outcome D1c introduced: `medium` severity is neither ungated
+    // (would be `low`) nor exempt (would be `high`) — it lands on the clamp.
+    expect(confidenceOf(pinRule({ severity: 'medium' }))).toBe('medium');
   });
 
   it('m.confidence survives even where the gate would have raised it toward base', () => {
@@ -392,9 +401,18 @@ describe('Analyzer: m.confidence bypass (pinned spec)', () => {
   });
 
   it('records a real downgrade as not floored at an ungated severity', () => {
-    const f = auditOf(pinRule({ severity: 'medium' }));
+    // `low` severity — see the control above for why `medium` no longer qualifies.
+    const f = auditOf(pinRule({ severity: 'low' }));
     expect(f.confidence).toBe('low');
     expect(f.confidenceAudit).toEqual({ signals: ['docstring'], ungated: 'low', floored: false });
+  });
+
+  it('records a bounded downgrade as floored at a partially floored severity', () => {
+    // `floored` is true whenever the gate changed the outcome — including when it
+    // only held the downgrade back part of the way, which is the case D1c added.
+    const f = auditOf(pinRule({ severity: 'medium' }));
+    expect(f.confidence).toBe('medium');
+    expect(f.confidenceAudit).toEqual({ signals: ['docstring'], ungated: 'low', floored: true });
   });
 
   it('omits the key entirely when a rule supplied its own confidence', () => {

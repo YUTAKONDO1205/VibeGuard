@@ -43,6 +43,13 @@ import { getLineCommentSpec, isCommentLine, lineCommentStartsAt } from './matche
  * surrounding context looks. Severity is static per rule and attacker-controlled
  * text cannot move it, which is exactly what makes it usable as the bound.
  *
+ * The bound covers `medium` too, and for the same reason: measurement showed the
+ * un-floored `medium` band letting a wrapped finding fall all the way to `low`,
+ * i.e. below the default actionable threshold, so the disguise worked there
+ * exactly as well as it would have on `high` without the gate. What differs is
+ * only how much room the bound leaves, not whether the bound exists — see the
+ * per-severity table below.
+ *
  * The resolved rank is:
  *
  *     effectiveRank = max( RANK[base] - Σsteps, 0, min( RANK[base], FLOOR_RANK[severity] ) )
@@ -63,6 +70,13 @@ import { getLineCommentSpec, isCommentLine, lineCommentStartsAt } from './matche
  * downgrade at all" — the two ways of stating the gate ("clamp at high" and
  * "don't downgrade") collapse into the same function. `null` means no gate, i.e.
  * the item ① behaviour above, unchanged.
+ *
+ * `floor: 'medium'` is the genuinely intermediate case, and the difference from
+ * `'high'` matters when reading the code: it is NOT "no downgrade". `medium` sits
+ * one rung below the top, so a `high`-confidence finding still loses a rung to
+ * context — the downgrade remains visible and still quiets triage — but the
+ * result cannot cross below `medium`, the default actionable threshold. The gate
+ * bounds how far the disguise carries; it does not switch the downgrade off.
  *
  * ## Precedence: `off` short-circuits before the gate
  *
@@ -111,13 +125,30 @@ const SIGNAL_STEPS: Record<DowngradeSignal, number> = {
 /**
  * The lowest confidence the context layer may downgrade a finding to, per
  * severity; `null` means ungated (plain item ① behaviour). See the header for
- * why this exists and why `high` here reads as "never downgraded".
+ * why this exists, why `high` here reads as "never downgraded", and why
+ * `medium` does not.
  *
- * `critical` and `high` are floored: when a finding would be severe if real,
- * "it looks like it's in a comment" is not evidence we are willing to act on,
- * because that is the one signal an attacker can forge for free. `medium` and
- * below keep the unmodified downgrade behaviour — there the noise reduction is
- * worth more than the hiding place it opens.
+ * `critical` and `high` are floored at `high`: when a finding would be severe if
+ * real, "it looks like it's in a comment" is not evidence we are willing to act
+ * on, because that is the one signal an attacker can forge for free. Those
+ * findings therefore take no context downgrade at all.
+ *
+ * `medium` is floored at `medium`, which is a weaker bound on purpose. A
+ * `medium`-severity finding is still something a consumer acts on at the default
+ * threshold, so letting context push it to `low` hands the same free hiding place
+ * back — a real finding wrapped in a docstring simply disappears below the line.
+ * Flooring at `medium` closes that: `high → medium` still happens (the noise
+ * reduction the context layer exists for survives, one rung of it), but the
+ * finding cannot be buried. Proportionality, not a lesser principle: the bound is
+ * set at the threshold that severity implies, not at the top of the ladder.
+ *
+ * `low` and `info` stay `null`, deliberately. These are the bands where the
+ * false-positive reduction is worth the most and the impact if the downgrade is
+ * abused is smallest, so they keep the unmodified item ① behaviour and take the
+ * full downgrade. Note also that writing `'low'` here would be *inert*:
+ * `RANK['low'] = 0` is the bottom rung, so `max(rank, min(RANK[base], 0)) ===
+ * rank` for every input — a `'low'` floor and `null` are the same function.
+ * `null` says so honestly instead of implying a gate that does nothing.
  *
  * Deliberately a total `Record` rather than a `Partial`: a new severity in the
  * schema must break this build and force an explicit decision, instead of
@@ -126,7 +157,7 @@ const SIGNAL_STEPS: Record<DowngradeSignal, number> = {
 export const SEVERITY_CONFIDENCE_FLOOR: Record<Severity, Confidence | null> = {
   critical: 'high',
   high: 'high',
-  medium: null,
+  medium: 'medium',
   low: null,
   info: null,
 };

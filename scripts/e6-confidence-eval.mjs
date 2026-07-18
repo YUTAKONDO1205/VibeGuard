@@ -144,26 +144,49 @@ function analyze(dir) {
 // is imported rather than re-declared so this cannot drift from the policy.
 // Two invariants, both of which a dropped/misplaced `severity` argument breaks:
 //   * downgrade-only: the gated arm never exceeds the rule's declared base;
-//   * floor === 'high' is the top rung of the ladder, so min(RANK[base], 2) is
-//     RANK[base] — i.e. "clamp to high" is exactly "never downgrade at all" for
-//     critical/high. Any such row must come back at `before`.
+//   * floor bound: for ANY non-null floor the resolver computes
+//       effective = max(RANK[ungated], min(RANK[base], RANK[floor]))
+//     so the gated arm must satisfy
+//       RANK[after] >= min(RANK[before], RANK[floor]).
+//     This is checked in its general form rather than being specialised to one
+//     floor value. Backwards compatibility: when floor === 'high' (the top rung
+//     of the ladder) min(RANK[before], 2) === RANK[before], so the inequality
+//     degenerates to RANK[after] >= RANK[before], which combined with the
+//     downgrade-only check above is exactly the old `after === before` assertion
+//     for critical/high. A `medium` floor is now checked too — the previous
+//     `floor !== 'high' ? continue` form silently skipped those rows, so a
+//     regression in the medium band would still have printed "consistent ✓".
 const RANK = { low: 0, medium: 1, high: 2 };
 function assertGateReached(rows, label) {
   const problems = [];
   let gateEligible = 0;
+  const byFloor = {}; // floor value -> eligible row count
   for (const r of rows) {
     if (RANK[r.after] > RANK[r.before]) {
       problems.push(`${r.ruleId} ${r.file}:${r.line} promoted ${r.before}->${r.after}`);
     }
     if (r.mode === 'off') continue;
     const floor = SEVERITY_CONFIDENCE_FLOOR[r.severity];
-    if (floor !== 'high') continue;
+    if (floor == null) continue; // no floor declared: the gate cannot bind
     gateEligible += 1;
-    if (r.after !== r.before) {
-      problems.push(`${r.ruleId} ${r.file}:${r.line} sev=${r.severity} floor=high but ${r.before}->${r.after}`);
+    byFloor[floor] = (byFloor[floor] || 0) + 1;
+    const bound = Math.min(RANK[r.before], RANK[floor]);
+    if (RANK[r.after] < bound) {
+      problems.push(
+        `${r.ruleId} ${r.file}:${r.line} sev=${r.severity} floor=${floor} but ${r.before}->${r.after} ` +
+          `(below min(before,floor))`,
+      );
     }
   }
-  return { problems, gateEligible, label };
+  return { problems, gateEligible, byFloor, label };
+}
+
+// Severity classes that currently declare a floor, derived from the policy table
+// instead of hard-coded, so adding/removing a floor updates the report text.
+function flooredSeverities() {
+  return Object.entries(SEVERITY_CONFIDENCE_FLOOR)
+    .filter(([, v]) => v != null)
+    .map(([sev]) => sev);
 }
 
 function dist(rows, key = 'after') {
@@ -206,7 +229,8 @@ console.log(`- confidence after ① (un-gated):  ${JSON.stringify(dist(e6, 'unga
 console.log(`- confidence after ①+D1 (gated):  ${JSON.stringify(dist(e6, 'after'))}  — down-ranked: **${treated.length}**`);
 // The gate-held count: findings whose downgrade the severity gate withheld.
 console.log(
-  `- **gate held (D1 A/B): ${held.length}** of ${e6.length} — critical/high findings the context signals would have down-ranked, restored to their declared confidence`,
+  `- **gate held (D1 A/B): ${held.length}** of ${e6.length} — findings at a floored severity (${flooredSeverities().join('/')}) that the context signals would have down-ranked, held at or above their floor. ` +
+    `The hold is not always all the way back to the declared confidence: a \`medium\` severity finding stops at \`medium\`, not at \`high\`.`,
 );
 for (const r of held) {
   console.log(
@@ -214,13 +238,41 @@ for (const r of held) {
   );
 }
 const e6Check = assertGateReached(e6, 'samples/context-window');
+const flooredSevs = flooredSeverities();
+const floorTable = Object.entries(SEVERITY_CONFIDENCE_FLOOR)
+  .map(([sev, v]) => `${sev}=${v ?? 'null'}`)
+  .join(', ');
+const byFloorStr = Object.entries(e6Check.byFloor)
+  .sort((a, b) => RANK[b[0]] - RANK[a[0]])
+  .map(([f, n]) => `${f}=${n}`)
+  .join(', ');
 console.log(
-  `- gate self-check: ${e6Check.gateEligible} eligible row(s) (sev∈{critical,high}, mode≠off) · ` +
+  `- gate self-check: ${e6Check.gateEligible} eligible row(s) (sev∈{${flooredSevs.join(',')}}, mode≠off)` +
+    `${byFloorStr ? ` · by floor: ${byFloorStr}` : ''} · ` +
     `${e6Check.problems.length === 0 ? 'consistent with SEVERITY_CONFIDENCE_FLOOR ✓' : `⚠ ${e6Check.problems.length} violation(s)`}`,
 );
+console.log(`- floor policy in force: {${floorTable}}`);
 for (const p of e6Check.problems) console.log(`    ⚠ ${p}`);
 if (e6Check.gateEligible === 0) {
-  console.log('    ⚠ no gate-eligible rows: the fixture does not exercise D1 (or `severity` is not reaching the gate)');
+  console.log(
+    `    ⚠ no gate-eligible rows: the fixture has no row whose severity declares a floor (sev∈{${flooredSevs.join(',')}}) — ` +
+      'D1 is not exercised at all (or `severity` is not reaching the gate)',
+  );
+}
+// Per-floor coverage: a floor that exists in policy but has zero rows in this
+// fixture is untested — the self-check would print "consistent ✓" without having
+// looked at that band even once. Call it out explicitly.
+const floorOwners = {}; // floor value -> severities declaring it
+for (const sev of flooredSevs) {
+  const f = SEVERITY_CONFIDENCE_FLOOR[sev];
+  (floorOwners[f] ||= []).push(sev);
+}
+for (const [f, sevs] of Object.entries(floorOwners)) {
+  if (!e6Check.byFloor[f]) {
+    console.log(
+      `    ⚠ floor '${f}' (declared for sev∈{${sevs.join(',')}}) has 0 eligible row(s): this fixture does not exercise it`,
+    );
+  }
 }
 
 // ---- 2. no-collateral check over samples/vulnerable -------------------------
