@@ -1,3 +1,8 @@
+// vibeguard:disable-file
+// Fixtures embed eval(), AWS-shaped key literals and DEBUG flags — both plain
+// and in evaded form — because that is exactly what this suite has to scan to
+// prove the canonicalizer closes them. They are not real vulnerabilities. Same
+// treatment as matcher-utils.test.ts.
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

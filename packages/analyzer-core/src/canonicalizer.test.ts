@@ -1,3 +1,7 @@
+// vibeguard:disable-file
+// Fixtures embed eval(), AWS-shaped key literals and DEBUG flags so the
+// canonicalizer can be tested against the evasions it exists to defeat; they
+// are not real vulnerabilities. Same treatment as matcher-utils.test.ts.
 import { describe, expect, it } from 'vitest';
 import { canonicalize } from './canonicalizer.js';
 
