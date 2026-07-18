@@ -46,6 +46,36 @@ jobs:
           echo "exit-code from action: ${{ steps.vg.outputs.exit-code }}"
           test "${{ steps.vg.outputs.exit-code }}" = "0"
 
+  scan-min-confidence:
+    name: min-confidence narrows the report
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: VibeGuard scan (high confidence only)
+        id: vg
+        uses: ./
+        with:
+          path: samples/vulnerable
+          mode: standard
+          format: json
+          out: vuln-high.json
+          fail-on: never
+          min-confidence: high
+
+      - name: Verify the threshold reached the CLI
+        run: |
+          test -s vuln-high.json
+          COUNT=$(node -e "console.log(JSON.parse(require('fs').readFileSync('vuln-high.json','utf8')).findings.length)")
+          echo "high-confidence findings via action: $COUNT"
+          # This tree reports medium- and low-confidence findings too, so an
+          # all-high report is itself the proof that the input reached the CLI:
+          # had it been dropped, the lower-confidence ones would be here. Left as
+          # a property rather than a count so adding rules cannot break it.
+          test "$COUNT" -ge 1
+          node -e "const j=require('./vuln-high.json'); if(!j.findings.every(f=>f.confidence==='high')) throw new Error('a lower-confidence finding survived the threshold')"
+          test "${{ steps.vg.outputs.exit-code }}" = "0"
+
   scan-safe-must-pass:
     name: scan samples/safe must report zero
     runs-on: ubuntu-latest

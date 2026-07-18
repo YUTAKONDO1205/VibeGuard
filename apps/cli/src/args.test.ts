@@ -51,4 +51,33 @@ describe('parseArgs', () => {
   it('--diff requires a value', () => {
     expect(parseArgs(['./src', '--diff'])).toHaveProperty('error');
   });
+
+  it('leaves minConfidence unset by default', () => {
+    // Absent, not 'low': an unset flag must skip filtering entirely so output
+    // stays identical to a run from before the flag existed.
+    expect(parseArgs(['./src'])).not.toHaveProperty('minConfidence');
+  });
+
+  it('accepts each --min-confidence level', () => {
+    for (const level of ['high', 'medium', 'low'] as const) {
+      expect(parseArgs(['./src', '--min-confidence', level])).toMatchObject({
+        minConfidence: level,
+      });
+    }
+  });
+
+  it('rejects a severity word passed to --min-confidence', () => {
+    expect(parseArgs(['./src', '--min-confidence', 'critical'])).toMatchObject({
+      error: '--min-confidence must be high|medium|low (got critical)',
+    });
+  });
+
+  it('--min-confidence requires a value', () => {
+    expect(parseArgs(['./src', '--min-confidence'])).toHaveProperty('error');
+  });
+
+  it('--min-confidence composes with --fail-on', () => {
+    const r = parseArgs(['./src', '--fail-on', 'critical', '--min-confidence', 'medium']);
+    expect(r).toMatchObject({ failOn: 'critical', minConfidence: 'medium' });
+  });
 });

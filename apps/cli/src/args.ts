@@ -1,4 +1,4 @@
-import type { ScanMode } from '@vibeguard/findings-schema';
+import type { Confidence, ScanMode } from '@vibeguard/findings-schema';
 
 export interface CliArgs {
   target: string;
@@ -6,6 +6,12 @@ export interface CliArgs {
   outFile?: string;
   mode: ScanMode;
   failOn: 'critical' | 'high' | 'medium' | 'low' | 'never';
+  /**
+   * Drop findings below this confidence before reporting and exit-code
+   * evaluation. Undefined (the default) skips filtering entirely, so output is
+   * unchanged when the flag is absent.
+   */
+  minConfidence?: Confidence;
   noColor: boolean;
   noRemediation: boolean;
   knownLanguagesOnly: boolean;
@@ -32,6 +38,9 @@ Options:
   --mode <fast|standard|deep>   Scan depth (default: standard)
   --fail-on <level>             Exit non-zero when a finding meets this severity (default: high).
                                 One of: critical, high, medium, low, never
+  --min-confidence <level>      Hide findings below this confidence (default: show all).
+                                One of: high, medium, low
+                                Hidden findings are excluded from --fail-on too.
   --ignore <name>               Extra directory name to ignore (repeatable)
   --diff <range>                Scan only lines added in \`git diff <range>\`
                                 (e.g. main...HEAD, origin/main..., HEAD~3..HEAD)
@@ -48,6 +57,7 @@ Examples:
   vibeguard ./src
   vibeguard ./src --format sarif --out report.sarif
   vibeguard suspicious.py --fail-on critical
+  vibeguard ./src --min-confidence medium
   vibeguard . --diff origin/main...HEAD --format markdown
 `;
 
@@ -97,6 +107,14 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { version:
         return { error: `--fail-on invalid (got ${v})` };
       }
       args.failOn = v;
+      continue;
+    }
+    if (a === '--min-confidence') {
+      const v = argv[++i];
+      if (v !== 'high' && v !== 'medium' && v !== 'low') {
+        return { error: `--min-confidence must be high|medium|low (got ${v})` };
+      }
+      args.minConfidence = v;
       continue;
     }
     if (a === '--ignore') {

@@ -10,6 +10,17 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Confidence threshold**: the CLI takes `--min-confidence <high|medium|low>`
+  and the Action takes a matching `min-confidence` input, hiding findings that
+  rank below the given confidence. The threshold is applied once, before any
+  format is rendered, so all four output formats agree — and because the
+  exit-code check reads the same set, hidden findings no longer trip
+  `--fail-on`. A build can therefore pass while lower-confidence findings
+  exist; the hidden count goes to stderr, and the flag is best left unset in CI
+  gates. Unset by default, so output is unchanged without it.
+- **Confidence is visible in the VS Code extension**: each diagnostic ends with
+  `(confidence: …)` in the Problems panel and on hover, and the findings tree
+  shows it in a row's tooltip. The Chrome extension does not display it yet.
 - **Context-window confidence correction**: a finding whose
   match sits inside a comment, docstring, or block comment, or on a
   test/fixture/mock path, has its `confidence` down-ranked (downgrade-only;

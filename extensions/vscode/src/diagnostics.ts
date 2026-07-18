@@ -15,7 +15,13 @@ export function toDiagnostic(f: Finding, doc: vscode.TextDocument): vscode.Diagn
   const endCol = Math.max(startCol, (f.endColumn ?? lineLen + 1) - 1);
 
   const range = new vscode.Range(startLine, startCol, endLine, endCol);
-  const message = `${f.title}: ${f.description}`;
+  // Confidence goes at the end so the Problems panel still leads with the title.
+  // The field is required by the schema and the analyzer runs in-process, so the
+  // guard is only for findings that arrive from outside that path (imported
+  // JSON): "(confidence: undefined)" would be worse than saying nothing.
+  const message = f.confidence
+    ? `${f.title}: ${f.description} (confidence: ${f.confidence})`
+    : `${f.title}: ${f.description}`;
   const d = new vscode.Diagnostic(range, message, severityToVscode(f.severity));
   d.code = f.ruleId;
   d.source = 'VibeGuard';

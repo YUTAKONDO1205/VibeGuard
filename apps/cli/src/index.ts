@@ -2,7 +2,13 @@
 import { readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { ENGINE_VERSION, scanPath } from '@vibeguard/analyzer-core';
-import { compareSeverity, type Severity } from '@vibeguard/findings-schema';
+import {
+  compareConfidence,
+  compareSeverity,
+  emptySummary,
+  summarize,
+  type Severity,
+} from '@vibeguard/findings-schema';
 import { toSarif } from '@vibeguard/sarif-adapter';
 import { parseArgs, HELP_TEXT } from './args.js';
 import { formatHuman, formatMarkdown } from './format.js';
@@ -67,6 +73,22 @@ async function main(): Promise<number> {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`error: ${message}\n`);
     return 2;
+  }
+
+  // Confidence threshold, applied once here so every output format and the
+  // --fail-on check below see the same finding set: a finding below the
+  // threshold is absent from the report and from the exit-code decision alike.
+  // Deliberately not pushed into the analyzer: the engine keeps reporting
+  // everything, and only this reporting layer narrows it.
+  if (args.minConfidence) {
+    const min = args.minConfidence;
+    const kept = scan.findings.filter((f) => compareConfidence(f.confidence, min) <= 0);
+    const hidden = scan.findings.length - kept.length;
+    if (hidden > 0) {
+      // stderr, so stdout stays byte-identical to what the format produced.
+      process.stderr.write(`note: ${hidden} finding(s) below --min-confidence ${min} hidden\n`);
+    }
+    scan = { ...scan, findings: kept, summary: kept.length ? summarize(kept) : emptySummary() };
   }
 
   const useColor = !args.noColor && Boolean(process.stdout.isTTY) && !args.outFile;

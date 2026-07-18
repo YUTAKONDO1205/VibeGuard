@@ -143,3 +143,18 @@ export const SEVERITY_ORDER: Record<Severity, number> = {
 export function compareSeverity(a: Severity, b: Severity): number {
   return SEVERITY_ORDER[b] - SEVERITY_ORDER[a];
 }
+
+export const CONFIDENCE_ORDER: Record<Confidence, number> = {
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
+/**
+ * Mirrors `compareSeverity`: negative when `a` ranks above `b`, zero when equal.
+ * So `compareConfidence(f.confidence, threshold) <= 0` reads "at least as
+ * confident as the threshold", matching the severity idiom used for --fail-on.
+ */
+export function compareConfidence(a: Confidence, b: Confidence): number {
+  return CONFIDENCE_ORDER[b] - CONFIDENCE_ORDER[a];
+}

@@ -5,6 +5,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Each finding's confidence is now visible: diagnostics end with
+  `(confidence: …)` in the Problems panel and on hover, and the findings tree
+  shows it in the row's tooltip. Confidence reflects how sure the analyzer is
+  that a match is real — it does not change a finding's severity, and nothing
+  is filtered out of the view.
+
 ## [0.1.3] - 2026-05-28
 
 ### Changed

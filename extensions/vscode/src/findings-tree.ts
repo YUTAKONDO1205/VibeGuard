@@ -76,7 +76,9 @@ export class FindingsTreeProvider implements vscode.TreeDataProvider<Node> {
       vscode.TreeItemCollapsibleState.None,
     );
     item.description = `${f.ruleId} · line ${line}`;
-    item.tooltip = f.description;
+    // The row's description is already full (`ruleId · line N`), so confidence
+    // rides on the tooltip instead of competing for that space.
+    item.tooltip = f.confidence ? `${f.description}\n\nConfidence: ${f.confidence}` : f.description;
     item.iconPath = SEVERITY_ICON[f.severity];
     item.contextValue = 'vibeguard.findingNode';
     item.command = {

@@ -104,6 +104,7 @@ Main options:
 | `--out <file>` | Write the report to a file instead of stdout. |
 | `--mode <fast\|standard\|deep>` | Scan depth (default: `standard`). |
 | `--fail-on <level>` | Exit non-zero when a finding of this severity (or higher) appears. |
+| `--min-confidence <high\|medium\|low>` | Hide findings below this confidence (default: show all). Hidden findings are excluded from `--fail-on` too, so a build can pass even though lower-confidence findings exist — the hidden count is printed to stderr. Best left unset in CI gates; intended for local triage. |
 | `--ignore <name>` | Extra directory name to skip (repeatable). |
 | `--diff <range>` | Scan only lines added in `git diff <range> --unified=0`. |
 | `--known-only` | Scan only files with known-language extensions. |
@@ -192,6 +193,7 @@ Main inputs:
 | `mode` | `standard` | `fast` / `standard` / `deep`. |
 | `format` | `sarif` | `human` / `json` / `sarif` / `markdown`. |
 | `fail-on` | `high` | `critical` / `high` / `medium` / `low` / `never`. |
+| `min-confidence` | `''` | Hide findings below this confidence (`high` / `medium` / `low`). Hidden findings are excluded from `fail-on` too, so the job can pass even though lower-confidence findings exist. Best left unset in CI gates. |
 | `out` | `''` | Report output file (stdout if empty). |
 | `diff` | `''` | Scan only lines added in `git diff <range>`. |
 | `ignore` | `''` | Comma-separated extra ignore directory names. |

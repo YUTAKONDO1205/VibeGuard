@@ -23,6 +23,10 @@ inputs:
     description: 'Severity threshold to fail the job: critical | high | medium | low | never.'
     required: false
     default: 'high'
+  min-confidence:
+    description: 'Hide findings below this confidence: high | medium | low. Hidden findings are excluded from fail-on too, so the job can pass even though lower-confidence findings exist (the hidden count is printed to stderr). Best left unset in CI gates; intended for triage runs. Empty = show all.'
+    required: false
+    default: ''
   out:
     description: 'Write the report to this path (relative to the consumer workspace) instead of stdout.'
     required: false
@@ -93,6 +97,7 @@ runs:
         VG_MODE: ${{ inputs.mode }}
         VG_FORMAT: ${{ inputs.format }}
         VG_FAIL_ON: ${{ inputs.fail-on }}
+        VG_MIN_CONFIDENCE: ${{ inputs.min-confidence }}
         VG_OUT: ${{ inputs.out }}
         VG_DIFF: ${{ inputs.diff }}
         VG_IGNORE: ${{ inputs.ignore }}
@@ -110,6 +115,9 @@ runs:
         args+=("--format" "$VG_FORMAT")
         args+=("--fail-on" "$VG_FAIL_ON")
 
+        if [ -n "$VG_MIN_CONFIDENCE" ]; then
+          args+=("--min-confidence" "$VG_MIN_CONFIDENCE")
+        fi
         if [ -n "$VG_OUT" ]; then
           args+=("--out" "$VG_OUT")
         fi
