@@ -11,7 +11,6 @@ import {
 import {
   allRules,
   explainContextConfidence,
-  getRulesForLanguage,
   languageMatches,
   type RuleContext,
   type RuleDefinition,
@@ -210,7 +209,16 @@ export class Analyzer {
       (request.filePath ? detectLanguageFromPath(request.filePath) : undefined) ??
       detectLanguageFromContent(request.content);
 
-    const baseRules = language ? getRulesForLanguage(language) : this.rules;
+    // `this.rules`, NOT a language-filtered slice of the global registry. The
+    // per-rule `languageMatches` guard in the loop below already drops rules
+    // that do not apply to this language, so pre-filtering here was redundant —
+    // and it pre-filtered the WRONG set: `getRulesForLanguage` reads the global
+    // registry, so whenever a language was detected (i.e. almost always) a
+    // caller's `options.rules` was silently replaced by every shipped rule. The
+    // override only appeared to work on input whose language could not be
+    // detected. It also made `engineVersions.rules` a lie, since that reports
+    // `this.rules.length` while a different set actually ran.
+    const baseRules = this.rules;
     const mode: ScanMode = request.mode ?? 'standard';
     const candidateRules = filterRulesByMode(baseRules, mode);
     const ctx = buildRuleContext(request.content, language, request.filePath);

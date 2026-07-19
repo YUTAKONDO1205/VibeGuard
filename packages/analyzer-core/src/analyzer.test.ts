@@ -175,7 +175,8 @@ const apiKey = "AKIAIOSFODNN7EXAMPLE";
       defaultConfidence: 'high',
       match: () => [{ startLine: 1, endLine: 1, startColumn: 1, endColumn: 1, evidence: 'x' }],
     };
-    // language unknown, so the injected rules are honoured (see the bypass fixture below).
+    // The injected rules are honoured whether or not the language is known;
+    // the regression test below pins the case where it is.
     const req: ScanRequest = { targetType: 'snippet', content: 'anything', mode: 'standard' };
     const r = scan(req, { rules: [boom, ok] });
     // The scan did not throw, and the healthy rule still reported.
@@ -494,5 +495,51 @@ describe('Analyzer: confidenceAudit on real rules', () => {
     const sec = r.findings.find((f) => f.ruleId === 'VG-SEC-001');
     expect(sec!.confidence).toBe('high');
     expect('confidenceAudit' in sec!).toBe(false);
+  });
+});
+
+describe('Analyzer: an injected rule set is the rule set', () => {
+  const probe = (ruleId: string, languages: string[]): RuleDefinition => ({
+    ruleId,
+    name: 'probe',
+    description: 'always matches',
+    languages,
+    category: 'quality',
+    severity: 'high',
+    defaultConfidence: 'high',
+    match: () => [{ startLine: 1, endLine: 1, startColumn: 1, endColumn: 1, evidence: 'x' }],
+  });
+
+  it('honours options.rules when the language IS detected', () => {
+    // The regression: the scan used to pre-filter the GLOBAL registry by
+    // language, which threw the caller's rules away and ran every shipped rule
+    // instead. Because a language is detected for almost any real path, the
+    // override only ever appeared to work on unidentifiable input.
+    const r = scan(
+      { targetType: 'snippet', content: 'const k = 1;', filePath: 't.js', mode: 'standard' },
+      { rules: [probe('VG-TEST-ONLY', ['*'])] },
+    );
+    expect(r.findings.map((f) => f.ruleId)).toEqual(['VG-TEST-ONLY']);
+  });
+
+  it('still applies the language filter to the injected rules', () => {
+    // Fixing the override must not turn it into "run everything regardless":
+    // a rule that declares a language is still skipped for other languages.
+    const opts = { rules: [probe('VG-TEST-PY', ['python'])] };
+    const onPython = scan({ targetType: 'snippet', content: 'x = 1', filePath: 't.py', mode: 'standard' }, opts);
+    const onJs = scan({ targetType: 'snippet', content: 'x = 1', filePath: 't.js', mode: 'standard' }, opts);
+    expect(onPython.findings.map((f) => f.ruleId)).toEqual(['VG-TEST-PY']);
+    expect(onJs.findings).toEqual([]);
+  });
+
+  it('reports a rule count that matches the set that actually ran', () => {
+    // `engineVersions.rules` reads this.rules.length. While a different set was
+    // silently substituted, that number described neither set.
+    const r = scan(
+      { targetType: 'snippet', content: 'const k = 1;', filePath: 't.js', mode: 'standard' },
+      { rules: [probe('VG-TEST-A', ['*']), probe('VG-TEST-B', ['*'])] },
+    );
+    expect(r.engineVersions.rules).toBe('2');
+    expect(r.findings).toHaveLength(2);
   });
 });
