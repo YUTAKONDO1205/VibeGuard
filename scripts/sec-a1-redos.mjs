@@ -29,6 +29,19 @@
 // string at every n is the checker's witness, scaled — not this script's guess.
 // A pattern with no witness is reported as `notMeasured`, never quietly skipped.
 //
+// REUSING WITNESSES FOR THE "AFTER" HALF — a correctness point, not just speed.
+// `--witnesses <file>` takes the attack strings from an earlier run instead of
+// deriving fresh ones. For an A/B that is the RIGHT question to ask: "does the
+// string that broke the old pattern still break the fixed one?" Deriving a new
+// witness for the fixed pattern answers something else — it asks whether that
+// pattern has any worst case at all, which is what the CI invariant and the
+// static triage are for. Reusing also removes the dominant cost of the after
+// run (recheck spends its full timeout on a bounded pattern it cannot decide),
+// and makes before/after comparable point-for-point because both halves are
+// measured on the SAME input.
+// Patterns absent from the witness file still fall back to deriving one, so a
+// rule added since the before run is not silently skipped.
+//
 // SELF-BOUNDING. The harness measures a function with no time bound, from a
 // script that must not hang (the failure mode under study). It therefore climbs
 // the ladder and STOPS as soon as a point exceeds ABORT_MS, recording the
@@ -39,7 +52,8 @@
 //   npm install --no-save recheck
 //   node scripts/sec-a1-catalog.mjs
 //   node scripts/sec-a1-redos.mjs            # writes a1-before.json
-//   node scripts/sec-a1-redos.mjs --label after --out a1-after.json
+//   node scripts/sec-a1-redos.mjs --label after --out a1-after.json \
+//     --witnesses a1-before.json             # reuse the before run's attacks
 //
 // Timing is machine-dependent by nature; per SCOPE §2.3 the report leads with
 // the complexity CLASS (linear / quadratic / worse), which is not, and records
@@ -81,6 +95,7 @@ const argOf = (name, fallback) => {
 const LABEL = argOf('--label', 'before');
 const OUT_JSON = `${RESULTS}/${argOf('--out', `a1-${LABEL}.json`)}`;
 const OUT_MD = OUT_JSON.replace(/\.json$/, '.md');
+const WITNESS_FILE = argOf('--witnesses', null);
 
 // ---------------------------------------------------------------------------
 // recheck attack-witness parsing
@@ -231,6 +246,32 @@ const targets = catalog.entries.filter(
   (e) => e.reached && e.compiles && (SUPER_LINEAR(e.recheck.class) || e.recheck.class === 'unknown'),
 );
 
+// Witnesses carried over from an earlier run, keyed by rule+pattern. Loaded
+// strictly: an entry that does not parse is DROPPED rather than reused, so a
+// truncated or malformed record falls through to deriving a fresh witness
+// instead of silently measuring a broken attack string.
+const reusedWitnesses = new Map();
+if (WITNESS_FILE) {
+  const p = WITNESS_FILE.includes('/') ? WITNESS_FILE : `${RESULTS}/${WITNESS_FILE}`;
+  if (!existsSync(p)) {
+    console.error(`witness file not found at ${p}`);
+    process.exit(1);
+  }
+  const prior = JSON.parse(readFileSync(p, 'utf8'));
+  let dropped = 0;
+  for (const m of prior.measured ?? []) {
+    if (m.witness && parseAttackPattern(m.witness)) {
+      reusedWitnesses.set(`${m.ruleId}#${m.patternIndex}`, m.witness);
+    } else if (m.witness) {
+      dropped += 1;
+    }
+  }
+  console.log(
+    `[a1-redos] reusing ${reusedWitnesses.size} witness(es) from ${p}` +
+      (dropped ? `; ${dropped} unusable and will be re-derived` : ''),
+  );
+}
+
 console.log(`[a1-redos] ${targets.length} target patterns (label=${LABEL})`);
 
 const measured = [];
@@ -239,13 +280,25 @@ const notMeasured = [];
 for (const [i, t] of targets.entries()) {
   const tag = `${t.ruleId}#${t.patternIndex}`;
   let witness;
-  try {
-    const out = await recheck.check(t.source, t.flags, { timeout: 30_000 });
-    witness = out?.attack?.pattern ?? null;
-  } catch (err) {
-    witness = null;
-    notMeasured.push({ ...idOf(t), reason: `recheck threw: ${err instanceof Error ? err.message : String(err)}` });
-    continue;
+  let witnessSource;
+  const carried = reusedWitnesses.get(tag);
+  if (carried) {
+    // Attack the current pattern with the string that broke the previous one.
+    // recheck is not consulted at all here — deriving a fresh witness would
+    // change the question being asked and, on a bounded pattern it cannot
+    // decide, costs its whole timeout.
+    witness = carried;
+    witnessSource = 'reused';
+  } else {
+    witnessSource = 'derived';
+    try {
+      const out = await recheck.check(t.source, t.flags, { timeout: 30_000 });
+      witness = out?.attack?.pattern ?? null;
+    } catch (err) {
+      witness = null;
+      notMeasured.push({ ...idOf(t), reason: `recheck threw: ${err instanceof Error ? err.message : String(err)}` });
+      continue;
+    }
   }
   const segments = witness ? parseAttackPattern(witness) : null;
   if (!segments) {
@@ -296,7 +349,15 @@ for (const [i, t] of targets.entries()) {
   const breaking = points.find((p) => p.medianMs > CONTRACT.singleFileMs) ?? null;
   measured.push({
     ...idOf(t),
-    witness: String(witness).slice(0, 200),
+    // Stored whole, not truncated: a later run reuses this string, and a witness
+    // cut mid-token cannot be re-instantiated. (An earlier version sliced it to
+    // 200 chars, which happened to be long enough for every pump expression seen
+    // so far — but that was luck, not a guarantee.)
+    witness: String(witness),
+    // 'reused' means this attack came from the run named in `witnessSourceFile`
+    // — i.e. the string that broke the PREVIOUS version of this pattern, which
+    // is the comparison an A/B wants. 'derived' means recheck produced it here.
+    witnessSource,
     points,
     ladderAborted: aborted,
     ladderAbortMs: ABORT_MS,
@@ -333,6 +394,9 @@ const summary = {
   totalRules: catalog.summary.totalRules,
   targetPatterns: targets.length,
   measuredPatterns: measured.length,
+  witnessSourceFile: WITNESS_FILE ?? null,
+  witnessesReused: measured.filter((m) => m.witnessSource === 'reused').length,
+  witnessesDerived: measured.filter((m) => m.witnessSource === 'derived').length,
   notMeasuredPatterns: notMeasured.length,
   // The headline: how many RULES can be pushed past the single-file budget.
   rulesBreakingSingleFileContract: [...new Set(breaking.map((m) => m.ruleId))].sort(),
