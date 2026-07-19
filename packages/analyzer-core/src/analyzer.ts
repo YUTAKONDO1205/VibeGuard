@@ -4,14 +4,20 @@ import {
   compareSeverity,
   type Finding,
   type RuleError,
+  type ScanDegradation,
   type ScanMode,
   type ScanRequest,
   type ScanResponse,
 } from '@vibeguard/findings-schema';
 import {
   allRules,
+  captureRegexBoundaries,
+  withScanDeadline,
+  REGEX_DEADLINE_MS,
+  REGEX_INPUT_CAP,
   explainContextConfidence,
   languageMatches,
+  type RegexBoundaryEvent,
   type RuleContext,
   type RuleDefinition,
   type RuleMatch,
@@ -70,6 +76,66 @@ function filterRulesByMode(rules: RuleDefinition[], mode: ScanMode): RuleDefinit
   // 'standard' and 'deep' run all rules. Future: 'deep' will also dispatch to
   // external scanners when request.includeExternalScanners is true.
   return rules;
+}
+
+/**
+ * Turn D3's regex bounds into `degradations` — a channel SEPARATE from
+ * `ruleErrors`.
+ *
+ * The first version routed these through `ruleErrors`, and that was wrong: the
+ * CLI renders `ruleErrors` under "rule(s) errored and were skipped — findings
+ * NOT reported", which is the opposite of what a truncation is (the rule ran and
+ * DID report findings, just not past the cap). A degradation carries its own
+ * kind and its `filePath`, so a directory scan can name the file, and the
+ * renderer can use words that are true.
+ *
+ * DEDUPLICATED PER RULE AND KIND. A rule holding seven patterns (VG-CRYPTO-002)
+ * would otherwise emit seven identical truncation entries for one oversized
+ * file, burying the signal. The first event of each kind carries the report.
+ *
+ * `limitReached` is deliberately NOT surfaced. It fires on any file with more
+ * than 1000 matches of one rule — common, benign, not a security event — so
+ * surfacing it would train readers to ignore this channel and take the two
+ * bounds that matter with it. `runRegex` still emits it for tests and the A1
+ * harness; the decision to drop it is made here, once.
+ */
+function recordBoundaries(
+  degradations: ScanDegradation[],
+  ruleId: string,
+  events: RegexBoundaryEvent[],
+  filePath: string | undefined,
+  pass?: string,
+): void {
+  const reportable = events.filter((e) => e.kind !== 'limitReached');
+  if (reportable.length === 0) return;
+  const byKind = new Map<RegexBoundaryEvent['kind'], { first: RegexBoundaryEvent; count: number }>();
+  for (const e of reportable) {
+    const seen = byKind.get(e.kind);
+    if (seen) seen.count += 1;
+    else byKind.set(e.kind, { first: e, count: 1 });
+  }
+  for (const [kind, { first, count }] of byKind) {
+    const where = pass ? ` on ${pass}` : '';
+    const more = count > 1 ? ` (+${count - 1} more pattern${count > 2 ? 's' : ''} in this rule)` : '';
+    if (kind === 'truncated') {
+      degradations.push({
+        kind: 'input-truncated',
+        ruleId,
+        filePath,
+        scannedChars: REGEX_INPUT_CAP,
+        totalChars: first.inputLength,
+        detail: `ReDoS guard${where}: only the first ${REGEX_INPUT_CAP} of ${first.inputLength} chars were scanned${more}. Findings beyond that point were not searched for — this result is PARTIAL.`,
+      });
+    } else {
+      degradations.push({
+        kind: 'deadline-exceeded',
+        ruleId,
+        filePath,
+        matchCount: first.matchCount,
+        detail: `ReDoS guard${where}: matching exceeded the ${REGEX_DEADLINE_MS}ms budget after ${first.matchCount} match(es)${more}. Findings beyond that point were not searched for — this result is PARTIAL.`,
+      });
+    }
+  }
 }
 
 function buildRuleContext(content: string, language: string | undefined, filePath: string | undefined): RuleContext {
@@ -193,6 +259,7 @@ export class Analyzer {
     const start = Date.now();
     const findings: Finding[] = [];
     const ruleErrors: RuleError[] = [];
+    const degradations: ScanDegradation[] = [];
 
     if (!request.content) {
       return {
@@ -234,11 +301,24 @@ export class Analyzer {
       ? buildRuleContext(canonical.content, language, request.filePath)
       : undefined;
 
+    // D3 — one wall-clock budget for the whole rule loop. The per-rule captures
+    // inside inherit this deadline instead of restarting it, so the bound is on
+    // the scan the user waits for rather than on each of ~84 `runRegex` calls
+    // individually, which would bound nothing.
+    withScanDeadline(() => {
     for (const rule of candidateRules) {
       if (!languageMatches(rule.languages, language)) continue;
       let matches;
       try {
-        matches = rule.match(ctx);
+        // D3 — the regex bounds in `runRegex` report themselves here rather than
+        // throwing. Throwing would land in the catch below, which discards the
+        // rule entirely: a scan that merely truncated a large file would lose
+        // every finding that rule had already produced. Capturing instead keeps
+        // the partial matches AND names the bound, so "we stopped early" is
+        // never indistinguishable from "there was nothing to find".
+        const captured = captureRegexBoundaries(() => rule.match(ctx), { inheritDeadline: true });
+        matches = captured.result;
+        recordBoundaries(degradations, rule.ruleId, captured.events, request.filePath);
       } catch (err) {
         // A broken rule should never crash the scan; skip it and continue. But
         // skipping silently drops every finding it would have produced, so record
@@ -262,7 +342,11 @@ export class Analyzer {
       // base matches so the guarantee holds even when a rule is canonical-hostile.
       if (canonicalCtx) {
         try {
-          matches = mergeCanonicalMatches(matches, rule.match(canonicalCtx));
+          const capturedCanonical = captureRegexBoundaries(() => rule.match(canonicalCtx), {
+            inheritDeadline: true,
+          });
+          recordBoundaries(degradations, rule.ruleId, capturedCanonical.events, request.filePath, 'canonical text');
+          matches = mergeCanonicalMatches(matches, capturedCanonical.result);
         } catch (err) {
           // eslint-disable-next-line no-console
           console.error(`[vibeguard] rule ${rule.ruleId} threw on canonical text:`, err);
@@ -351,6 +435,7 @@ export class Analyzer {
        }
       }
     }
+    });
 
     findings.sort((a, b) => {
       const sev = compareSeverity(a.severity, b.severity);
@@ -367,6 +452,7 @@ export class Analyzer {
       engineVersions: { core: ENGINE_VERSION, rules: String(this.rules.length) },
       generatedAt: new Date().toISOString(),
       ...(ruleErrors.length ? { ruleErrors } : {}),
+      ...(degradations.length ? { degradations } : {}),
     };
   }
 }

@@ -9,7 +9,29 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+- **Rule patterns are bounded against catastrophic backtracking (ReDoS).** An
+  audit of the shipped rule set found patterns whose match time grew
+  super-linearly with input size, so a crafted file could push a single-file
+  scan far past its performance budget. The affected patterns were rewritten to
+  bound every variable-length whitespace and delimiter run. Detection is
+  unchanged: the regression corpus reports the same findings before and after,
+  and a new fixture suite pins the multi-line code shapes (Allman braces,
+  wrapped argument lists, multi-line signatures) that the rewrite must keep
+  matching. A CI check now scans adversarial inputs and fails if any rule
+  becomes super-linear again.
+
 ### Added
+- **Partial scans are reported instead of passing as clean.** `ScanResponse`
+  gains `degradations`: when a ReDoS guard stops a rule early — because a file
+  exceeded the regex input cap, or matching exceeded its time budget — the
+  response says so, naming the file and what was skipped. This is a channel
+  separate from `ruleErrors` (which means "the rule crashed and produced
+  nothing"), because a degraded rule *did* run and *did* report findings, just
+  not over the whole input. Surfaced in the CLI (human and markdown), in SARIF
+  as a `warning`-level tool notification, in VS Code as a file-level warning
+  diagnostic, and in the Chrome side panel as a banner. A scan that saw only
+  part of a file no longer displays "No security issues found".
 - **Confidence threshold**: the CLI takes `--min-confidence <high|medium|low>`
   and the Action takes a matching `min-confidence` input, hiding findings that
   rank below the given confidence. The threshold is applied once, before any

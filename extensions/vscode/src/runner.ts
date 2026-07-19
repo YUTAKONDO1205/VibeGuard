@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { Analyzer } from '@vibeguard/analyzer-core';
-import type { Finding, ScanMode } from '@vibeguard/findings-schema';
-import { toDiagnostic } from './diagnostics.js';
+import type { Finding, ScanDegradation, ScanMode } from '@vibeguard/findings-schema';
+import { toDiagnostic, degradationToDiagnostic } from './diagnostics.js';
 
 /**
  * ScanRunner wraps the analyzer and manages two pieces of per-document state:
@@ -16,6 +16,10 @@ import { toDiagnostic } from './diagnostics.js';
 export class ScanRunner {
   private readonly analyzer = new Analyzer();
   private readonly findingsByUri = new Map<string, Finding[]>();
+  // Cached alongside the findings so the SARIF/JSON export can say the scan was
+  // partial. Without this the export rebuilds a ScanResponse from findings
+  // alone, and a truncated scan is written out as a clean report.
+  private readonly degradationsByUri = new Map<string, ScanDegradation[]>();
   private readonly emitter = new vscode.EventEmitter<vscode.Uri | undefined>();
 
   /** Fires with the URI that changed, or `undefined` for "everything". */
@@ -31,7 +35,7 @@ export class ScanRunner {
       filePath: doc.uri.fsPath,
       mode,
     });
-    this.applyFindings(doc, response.findings);
+    this.applyFindings(doc, response.findings, response.degradations);
   }
 
   /**
@@ -55,19 +59,48 @@ export class ScanRunner {
       const fEnd = f.endLine ?? fStart;
       return fStart && fEnd >= startLine1 && fStart <= endLine1;
     });
-    this.applyFindings(doc, filtered);
+    // Degradations passed through here too: a selection scan runs the rules over
+    // the WHOLE document, so an oversized file is just as partial as it is on a
+    // full scan, and the user needs to know before trusting an empty result.
+    this.applyFindings(doc, filtered, response.degradations);
     return filtered.length;
   }
 
-  private applyFindings(doc: vscode.TextDocument, findings: Finding[]): void {
+  private applyFindings(
+    doc: vscode.TextDocument,
+    findings: Finding[],
+    degradations?: ScanDegradation[],
+  ): void {
     const diagnostics = findings.map((f) => toDiagnostic(f, doc));
+    // A partial scan must be visible, not silently dropped. Dedup by kind so one
+    // oversized file adds a single line-1 warning, not one per bounded rule.
+    if (degradations?.length) {
+      const seen = new Set<string>();
+      for (const d of degradations) {
+        if (seen.has(d.kind)) continue;
+        seen.add(d.kind);
+        diagnostics.push(degradationToDiagnostic(d));
+      }
+    }
     this.collection.set(doc.uri, diagnostics);
     this.findingsByUri.set(doc.uri.toString(), findings);
+    if (degradations?.length) this.degradationsByUri.set(doc.uri.toString(), degradations);
+    else this.degradationsByUri.delete(doc.uri.toString());
     this.emitter.fire(doc.uri);
   }
 
   getFindings(uri: vscode.Uri): Finding[] {
     return this.findingsByUri.get(uri.toString()) ?? [];
+  }
+
+  /** Degradations for one document, for the export path. */
+  getDegradations(uri: vscode.Uri): ScanDegradation[] {
+    return this.degradationsByUri.get(uri.toString()) ?? [];
+  }
+
+  /** Every degradation currently cached, for a whole-workspace export. */
+  getAllDegradations(): ScanDegradation[] {
+    return [...this.degradationsByUri.values()].flat();
   }
 
   getAllFindings(): ReadonlyMap<string, Finding[]> {
@@ -77,6 +110,7 @@ export class ScanRunner {
   clear(uri: vscode.Uri): void {
     this.collection.delete(uri);
     this.findingsByUri.delete(uri.toString());
+    this.degradationsByUri.delete(uri.toString());
     this.emitter.fire(uri);
   }
 

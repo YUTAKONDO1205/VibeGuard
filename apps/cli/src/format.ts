@@ -56,7 +56,36 @@ export function formatHuman(scan: ScanResponse, useColor: boolean): string {
   );
   lines.push(`  total: ${summary.total}    elapsed: ${scan.executionTimeMs}ms`);
   appendRuleErrors(lines, scan, useColor);
+  appendDegradations(lines, scan, useColor);
   return lines.join('\n');
+}
+
+/**
+ * Surface PARTIAL scans (D3 ReDoS bounds). Kept apart from rule-error rendering
+ * and worded differently on purpose: a degraded rule RAN and reported findings,
+ * it just did not finish. Saying "errored and skipped" here — as the first
+ * version did by routing these through `ruleErrors` — is a false statement that
+ * a reviewer could act on.
+ */
+function appendDegradations(lines: string[], scan: ScanResponse, useColor: boolean): void {
+  if (!scan.degradations?.length) return;
+  lines.push('');
+  // Counted in FILES, not rules. The entries are deduplicated per file+kind
+  // upstream, so "N rule(s)" would report 1 where dozens of rules were actually
+  // cut short — an undercount in a channel whose only job is honesty.
+  const files = new Set(scan.degradations.map((d) => d.filePath).filter(Boolean));
+  const scope = files.size > 0 ? `${files.size} file(s)` : `${scan.degradations.length} scan(s)`;
+  lines.push(
+    colorise(
+      `⚠ ${scope} were only PARTIALLY scanned (ReDoS guard) — results may be incomplete:`,
+      YELLOW,
+      useColor,
+    ),
+  );
+  for (const d of scan.degradations) {
+    const at = d.filePath ? `${d.filePath} — ` : '';
+    lines.push(`  ${at}${d.ruleId}: ${d.detail}`);
+  }
 }
 
 /**
@@ -134,6 +163,7 @@ export function formatMarkdown(scan: ScanResponse): string {
   }
 
   appendRuleErrorsMarkdown(lines, scan);
+  appendDegradationsMarkdown(lines, scan);
   return lines.join('\n');
 }
 
@@ -150,6 +180,21 @@ function appendRuleErrorsMarkdown(lines: string[], scan: ScanResponse): void {
   );
   for (const e of scan.ruleErrors) {
     lines.push(`> - \`${e.ruleId}\`: ${e.message}`);
+  }
+}
+
+/** Surface PARTIAL scans (D3 bounds) in the PR-comment channel — see the human
+ * renderer for why this is separate from rule errors and worded differently. */
+function appendDegradationsMarkdown(lines: string[], scan: ScanResponse): void {
+  if (!scan.degradations?.length) return;
+  lines.push('');
+  const degradedFiles = new Set(scan.degradations.map((d) => d.filePath).filter(Boolean));
+  lines.push(
+    `> ⚠️ **${degradedFiles.size || scan.degradations.length} file(s) were only partially scanned** (ReDoS guard) — results may be incomplete:`,
+  );
+  for (const d of scan.degradations) {
+    const at = d.filePath ? `\`${d.filePath}\` — ` : '';
+    lines.push(`> - ${at}\`${d.ruleId}\`: ${d.detail}`);
   }
 }
 

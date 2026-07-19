@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { Finding } from '@vibeguard/findings-schema';
+import type { Finding, ScanDegradation } from '@vibeguard/findings-schema';
 
 function severityToVscode(sev: Finding['severity']): vscode.DiagnosticSeverity {
   if (sev === 'critical' || sev === 'high') return vscode.DiagnosticSeverity.Error;
@@ -26,4 +26,18 @@ export function toDiagnostic(f: Finding, doc: vscode.TextDocument): vscode.Diagn
   d.code = f.ruleId;
   d.source = 'VibeGuard';
   return d;
+}
+
+/**
+ * A degradation (a ReDoS bound cut the scan short) becomes a Warning diagnostic
+ * on line 1, so a PARTIAL scan is visible in the Problems panel instead of being
+ * silently dropped — a bounded scan must never look like a clean one. Warning,
+ * not Error: the file was scanned, just not to the end.
+ */
+export function degradationToDiagnostic(d: ScanDegradation): vscode.Diagnostic {
+  const range = new vscode.Range(0, 0, 0, 0);
+  const diag = new vscode.Diagnostic(range, `VibeGuard: ${d.detail}`, vscode.DiagnosticSeverity.Warning);
+  diag.code = d.ruleId;
+  diag.source = 'VibeGuard';
+  return diag;
 }

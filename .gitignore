@@ -79,6 +79,11 @@ docs/実装順解説.md
 # 実装順.md と同じ計画文書の系統。公開リポジトリに出さない。
 docs/VibeGuard_物理ドック設計書.md
 
+# 可視化実験（動画リール）の設計書。gitignore 済みの paper_data/・video/・
+# security-experiment/ の実測値と、b1-evasion の攻撃フレーミングを含むため、
+# 実装順.md と同じ扱いにする。公開リポジトリに出さない。
+docs/VibeGuard_可視化実験_設計書.md
+
 # Security red-team research workspace (local-only; kept out of the public
 # service repo until mitigations + write-up ship — see the folder's scope doc)
 security-experiment/
@@ -86,3 +91,10 @@ security-experiment/
 # Remotion product-explainer video project (local-only; the rendered mp4 and its
 # ~500MB of Remotion/Chrome dependencies do not belong in the service repo)
 video/
+
+# Measurement dumpers for the visualisation experiment. They walk the b1-evasion
+# attack corpus under security-experiment/ and emit per-mutation-family recovery
+# counts, so they carry the same attack premises that keep that folder out of the
+# public repo. Their inputs and outputs are all ignored paths (paper_data/,
+# video/src/data/, security-experiment/), so they are not runnable here anyway.
+scripts/viz-*.mjs

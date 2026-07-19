@@ -22,8 +22,15 @@ export const exceptionSwallow: RuleDefinition = {
     how: 'Log the error with context and either re-raise, return a typed error, or take an explicit safe action.',
   },
   match: (ctx) => [
-    ...runRegex(ctx.content, /except[^:\n]*:\s*(?:#[^\n]*\n\s*)*pass\b/g),
-    ...runRegex(ctx.content, /catch\s*\([^)]*\)\s*\{\s*\}/g),
+    ...runRegex(ctx.content, /except[^:\n]{0,200}:(?:\s|#[^\n]*\n)*pass\b/g),
+    // `\s{0,20}`, not `[^\S\r\n]*`. Whitespace here must still cross line
+    // breaks — `catch (e)\n{\n}` (Allman) is the dominant Java/C# style and an
+    // earlier horizontal-only rewrite silently stopped matching it. What made
+    // the original catastrophic was UNBOUNDED `\s*` spanning arbitrarily many
+    // blank lines; a bounded `{0,20}` spans the one or two breaks real code uses
+    // and cannot blow up. Measured linear on the adversarial battery
+    // (scripts/sec-a1-shape-check.mjs), which asserts both obligations together.
+    ...runRegex(ctx.content, /catch\s{0,60}\([^()\r\n]{0,300}\)\s{0,60}\{\s{0,60}\}/g),
   ],
 };
 
@@ -66,7 +73,7 @@ export const debugLogOfSecret: RuleDefinition = {
   match: (ctx) =>
     runRegex(
       ctx.content,
-      /(?:console\.log|print)\s*\([^)]*\b(?:password|secret|api[_-]?key|token|access[_-]?key|private[_-]?key)\b/gi,
+      /(?:console\.log|print)[^\S\r\n]*\([^)]{0,200}\b(?:password|secret|api[_-]?key|token|access[_-]?key|private[_-]?key)\b/gi,
       { skipCommentLines: true, language: ctx.language },
     ),
 };
@@ -152,9 +159,23 @@ export const stubBody: RuleDefinition = {
       ctx.content,
       /\bpanic\s*\(\s*["`](?:not\s+implemented|TODO|unimplemented)/gi,
     ),
+    // A1: whitespace runs here are BOUNDED, not banned. The original
+    // `^\s*…\s*[;]?\s*…` was the worst case in the ReDoS audit — unbounded `\s*`
+    // spanning a file of blank lines, plus a quadratic factor from the adjacent
+    // `\s*[;]?\s*`. Bounding both fixes it while keeping multi-line matches;
+    // banning line breaks outright (an earlier attempt) fixed the timing and
+    // silently lost real detections. See multiline-shapes.test.ts.
     ...runRegex(
       ctx.content,
-      /^\s*(?:return\s+(?:null|None|nil|undefined|true|false))\s*[;]?\s*(?:#|\/\/)\s*(?:TODO|FIXME|stub|implement\b)/gim,
+      // `\s{0,40}` before the marker comment: the return and the `# TODO` are
+      // routinely on separate lines, sometimes with a blank line between them.
+      // A first rewrite banned line breaks entirely and lost a real finding
+      // (samples/vulnerable/auth_bypass.py:8); allowing exactly one newline then
+      // still missed `return True\n\n# TODO`. Bounding instead of banning covers
+      // both. It was UNBOUNDED `\s*` over arbitrarily many blank lines that made
+      // this the A1 worst case (cubic; 10 KB of newlines took 100+ s) — a bounded
+      // quantifier has a bounded number of split points and cannot do that.
+      /^[^\S\r\n]*return[^\S\r\n]+(?:null|None|nil|undefined|true|false)[^\S\r\n]*(?:;[^\S\r\n]*)?\s{0,40}(?:#|\/\/)[^\S\r\n]*(?:TODO|FIXME|stub|implement\b)/gim,
     ),
   ],
 };
@@ -243,11 +264,11 @@ export const debugFlagOn: RuleDefinition = {
     ),
     ...runRegex(
       ctx.content,
-      /^\s*(?:DEBUG|VERBOSE|TRACE)\s*=\s*True\b/gm,
+      /^[^\S\r\n]*(?:DEBUG|VERBOSE|TRACE)[^\S\r\n]*=[^\S\r\n]*True\b/gm,
     ),
     ...runRegex(
       ctx.content,
-      /^\s*(?:const|let|var)\s+(?:DEBUG|VERBOSE|TRACE)\s*=\s*true\b/gm,
+      /^[^\S\r\n]*(?:const|let|var)[^\S\r\n]+(?:DEBUG|VERBOSE|TRACE)[^\S\r\n]*=[^\S\r\n]*true\b/gm,
     ),
   ],
 };
@@ -293,15 +314,19 @@ export const emptyValidator: RuleDefinition = {
   match: (ctx) => [
     ...runRegex(
       ctx.content,
-      /function\s+(?:validate|sanitize|sanitise|check|verify)\w*\s*\([^)]*\)\s*\{\s*return\s+(?:true|input|value|val|x|data|arg|args\[0\])\s*;?\s*\}/g,
+      /function\s+(?:validate|sanitize|sanitise|check|verify)\w*\s*\([^()]*\)\s*\{\s*return\s+(?:true|input|value|val|x|data|arg|args\[0\])\s*(?:;\s*)?\}/g,
     ),
     ...runRegex(
       ctx.content,
-      /\b(?:const|let|var)\s+(?:validate|sanitize|sanitise|check|verify)\w*\s*=\s*(?:\([^)]*\)|[\w$]+)\s*=>\s*(?:true\b|input\b|value\b|val\b|x\b|data\b)\s*;?/g,
+      /\b(?:const|let|var)\s+(?:validate|sanitize|sanitise|check|verify)\w*\s*=\s*(?:\([^()]*\)|[\w$]+)\s*=>\s*(?:true\b|input\b|value\b|val\b|x\b|data\b)\s*;?/g,
     ),
     ...runRegex(
       ctx.content,
-      /^\s*def\s+(?:validate|sanitize|sanitise|check|verify)\w*\s*\([^)]*\)\s*:\s*(?:\n\s*(?:'''|""")[^\n]*(?:'''|""")\s*)?\n\s*return\s+(?:True|input|value|val|x|data|args?\[0\])\s*$/gm,
+      // Bounded `\s{0,20}` / `[^()]{0,200}` rather than horizontal-only classes:
+      // a multi-line signature (`def validate(\n    x,\n):`) is what black
+      // produces, and banning line breaks stopped matching it. Bounded
+      // quantifiers keep that while staying linear (sec-a1-shape-check.mjs).
+      /^[^\S\r\n]*def[^\S\r\n]+(?:validate|sanitize|sanitise|check|verify)\w*\s{0,20}\([^()]{0,200}\)\s{0,20}:[^\S\r\n]*(?:\n[^\S\r\n]*(?:'''|""")[^\n]{0,200}(?:'''|""")[^\S\r\n]*)?\s{0,40}return[^\S\r\n]+(?:True|input|value|val|x|data|args?\[0\])[^\S\r\n]*$/gm,
     ),
   ],
 };

@@ -245,6 +245,18 @@ textarea#code {
   font-weight: 600;
 }
 
+/* Partial-scan banner: a bounded scan must not look clean. Uses the medium/
+   warning accent so it reads as "attention", distinct from a finding card. */
+.vg-degradation {
+  color: var(--vg-medium, #b7791f);
+  background: var(--vg-medium-bg, rgba(183, 121, 31, 0.1));
+  border: 1px solid var(--vg-medium, #b7791f);
+  border-radius: 4px;
+  font-size: 12px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+}
+
 .vg-error {
   color: var(--vg-critical);
   font-size: 12px;

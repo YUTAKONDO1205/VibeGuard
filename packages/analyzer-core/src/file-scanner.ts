@@ -6,6 +6,7 @@ import {
   compareSeverity,
   type Finding,
   type RuleError,
+  type ScanDegradation,
   type ScanMode,
   type ScanResponse,
 } from '@vibeguard/findings-schema';
@@ -78,6 +79,7 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
   // once per file. Keep the first message. Without this, a rule crash is visible
   // in a single-snippet `Analyzer.scan` but silently lost across a directory scan.
   const ruleErrorsByRule = new Map<string, RuleError>();
+  const degradationsByFileKind = new Map<string, ScanDegradation>();
   const now = options.now ?? new Date();
 
   const stats = await stat(target);
@@ -136,6 +138,23 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
     for (const e of result.ruleErrors ?? []) {
       if (!ruleErrorsByRule.has(e.ruleId)) ruleErrorsByRule.set(e.ruleId, e);
     }
+    // Degradations must survive the directory walk or the whole D3 observability
+    // path is dead on the channel that matters most: the CLI and the GitHub
+    // Action both come through here, so dropping them meant a 66 KB file was
+    // reported as "1 finding" with no hint that 16 KB of it was never scanned —
+    // exactly the "partial scan reads as clean" failure the bounds exist to
+    // prevent.
+    //
+    // Keyed by FILE + KIND, not by rule. One oversized file trips the bound in
+    // every rule that looks at it (54 of them, measured), and 54 identical lines
+    // would bury the signal they exist to raise. One line per file per kind says
+    // everything the reader needs: which file was cut short, and how.
+    for (const d of result.degradations ?? []) {
+      const key = `${d.filePath ?? relPath}::${d.kind}`;
+      if (!degradationsByFileKind.has(key)) {
+        degradationsByFileKind.set(key, { ...d, filePath: d.filePath ?? relPath });
+      }
+    }
   }
 
   findings.sort((a, b) => {
@@ -154,5 +173,6 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
     engineVersions: { core: ENGINE_VERSION },
     generatedAt: new Date().toISOString(),
     ...(ruleErrorsByRule.size ? { ruleErrors: [...ruleErrorsByRule.values()] } : {}),
+    ...(degradationsByFileKind.size ? { degradations: [...degradationsByFileKind.values()] } : {}),
   };
 }

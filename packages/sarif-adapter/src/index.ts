@@ -166,17 +166,35 @@ export function toSarif(scan: ScanResponse, options: ToSarifOptions = {}): Sarif
     results,
   };
   const ruleErrors = scan.ruleErrors ?? [];
-  if (ruleErrors.length) {
+  const degradations = scan.degradations ?? [];
+  if (ruleErrors.length || degradations.length) {
+    const notifications: SarifNotification[] = [
+      // Rule crashes are errors: the rule produced nothing.
+      ...ruleErrors.map((e) => ({
+        level: 'error' as SarifLevel,
+        message: {
+          text: `Rule ${e.ruleId} threw and was skipped; its findings are not reported: ${e.message}`,
+        },
+        associatedRule: { id: e.ruleId },
+      })),
+      // Degradations are WARNINGS, not errors: the rule ran and reported
+      // findings, it just did not finish. Level 'error' here (as an earlier
+      // version emitted, via ruleErrors) would fail the whole run for any file
+      // over the cap — overstating a partial scan as a total failure.
+      ...degradations.map((d) => ({
+        level: 'warning' as SarifLevel,
+        message: {
+          text: `${d.detail}${d.filePath ? ` (${d.filePath})` : ''}`,
+        },
+        associatedRule: { id: d.ruleId },
+      })),
+    ];
     run.invocations = [
       {
-        executionSuccessful: false,
-        toolExecutionNotifications: ruleErrors.map((e) => ({
-          level: 'error' as SarifLevel,
-          message: {
-            text: `Rule ${e.ruleId} threw and was skipped; its findings are not reported: ${e.message}`,
-          },
-          associatedRule: { id: e.ruleId },
-        })),
+        // A partial scan alone does not fail the run; a rule CRASH does. Callers
+        // who want CI to fail on partial results gate on `degradations` length.
+        executionSuccessful: ruleErrors.length === 0,
+        toolExecutionNotifications: notifications,
       },
     ];
   }

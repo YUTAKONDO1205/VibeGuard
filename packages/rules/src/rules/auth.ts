@@ -23,7 +23,13 @@ export const debugBypass: RuleDefinition = {
   match: (ctx) =>
     runRegex(
       ctx.content,
-      /if\s*\(?\s*(?:DEBUG|isDev|IS_DEV|process\.env\.NODE_ENV\s*===?\s*["']development["']|debug)\s*\)?\s*[:{][^}]*?(?:return\s+true|skip[_\s]?auth|bypass|allow|permit)/gi,
+      // Bounded whitespace (`\s{0,20}`), not horizontal-only. `if (debug)\n{` (Allman)
+      // and `if (\n  DEBUG\n) {` are ordinary formattings that a horizontal-only
+      // rewrite silently stopped matching — on a CRITICAL rule. Bounding the
+      // quantifier is what removes the quadratic; banning line breaks was
+      // over-correction. Verified to recover both shapes AND stay linear by
+      // scripts/sec-a1-shape-check.mjs.
+      /if\s{0,20}(?:\(\s{0,20})?(?:DEBUG|isDev|IS_DEV|process\.env\.NODE_ENV\s{0,20}===?\s{0,20}["']development["']|debug)\s{0,20}(?:\)\s{0,20})?[:{][^}]{0,800}?(?:return\s{0,20}true|skip[_\s]?auth|bypass|allow|permit)/gi,
       { skipCommentLines: false },
     ),
 };
@@ -48,7 +54,7 @@ export const todoSecurity: RuleDefinition = {
   match: (ctx) =>
     runRegex(
       ctx.content,
-      /(?:\/\/|#|\/\*)\s*(?:TODO|FIXME|XXX|HACK)\b[^\n]*?(?:auth|valid|sanit|escape|secur|permission|role|token|password|encrypt|verif)/gi,
+      /(?:\/\/|#|\/\*)[^\S\r\n]*(?:TODO|FIXME|XXX|HACK)\b[^\n]{0,200}?(?:auth|valid|sanit|escape|secur|permission|role|token|password|encrypt|verif)/gi,
     ),
 };
 
@@ -112,7 +118,7 @@ export const csrfExemptDecorator: RuleDefinition = {
     how: 'Remove @csrf_exempt and submit a CSRF token (Django will inject {% csrf_token %} into forms / require X-CSRFToken on fetch). For pure JSON APIs, use Django REST Framework\'s SessionAuthentication or token auth which handles CSRF correctly.',
   },
   match: (ctx) =>
-    runRegex(ctx.content, /^\s*@csrf_exempt\b/gm, { skipCommentLines: true, language: ctx.language }),
+    runRegex(ctx.content, /^[^\S\r\n]*@csrf_exempt\b/gm, { skipCommentLines: true, language: ctx.language }),
 };
 
 export const insecureSessionCookie: RuleDefinition = {

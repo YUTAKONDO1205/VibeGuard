@@ -109,6 +109,38 @@ export interface RuleError {
   message: string;
 }
 
+/**
+ * A scan that COMPLETED but saw less than the whole input — a partial result,
+ * not a crash.
+ *
+ * Kept SEPARATE from `RuleError` on purpose. A rule error means "this rule threw
+ * and produced nothing"; a degradation means "this rule ran and produced
+ * findings, but a ReDoS bound stopped it before it had searched everything". The
+ * two demand opposite words to the user ("skipped, no findings" vs "ran, results
+ * may be incomplete"), so folding them into one channel guarantees the rendering
+ * lies about one of them — which it did: the CLI's rule-error wording
+ * ("errored and were skipped — findings NOT reported") is false for a truncation.
+ *
+ * `kind`:
+ *  - `input-truncated`: the file exceeded the regex input cap and only its
+ *    prefix was scanned (`scannedChars` of `totalChars`).
+ *  - `deadline-exceeded`: a rule's matching passed the scan-wide time budget and
+ *    was cut off after `matchCount` matches.
+ *
+ * `filePath` is carried so a directory scan can name WHICH file degraded — the
+ * one thing a `ruleId`-keyed channel could not express.
+ */
+export interface ScanDegradation {
+  kind: 'input-truncated' | 'deadline-exceeded';
+  ruleId: string;
+  filePath?: string;
+  /** Human-readable, actionable, and explicit that the result is partial. */
+  detail: string;
+  scannedChars?: number;
+  totalChars?: number;
+  matchCount?: number;
+}
+
 export interface ScanResponse {
   summary: ScanSummary;
   findings: Finding[];
@@ -117,6 +149,12 @@ export interface ScanResponse {
   generatedAt: string;
   /** Rules that threw during `match` and were skipped. Present only when non-empty. */
   ruleErrors?: RuleError[];
+  /**
+   * Rules whose scan was cut short by a ReDoS bound (input cap or time budget).
+   * A partial scan, surfaced so it is never mistaken for a clean one. Present
+   * only when non-empty.
+   */
+  degradations?: ScanDegradation[];
 }
 
 export function emptySummary(): ScanSummary {

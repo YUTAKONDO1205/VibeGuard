@@ -9,6 +9,8 @@ import {
   type KnownLanguage,
   lineCommentStartsAt,
   runRegex,
+  captureRegexBoundaries,
+  REGEX_INPUT_CAP,
 } from './matcher-utils.js';
 
 /**
@@ -403,5 +405,152 @@ describe('runRegex — match anchoring (LF/CRLF parity)', () => {
       expect(m.startLine).toBeLessThanOrEqual(m.endLine);
       if (m.startLine === m.endLine) expect(m.startColumn!).toBeLessThanOrEqual(m.endColumn!);
     }
+  });
+});
+
+/**
+ * D3 — the ReDoS bounds.
+ *
+ * The property that matters most is the NEGATIVE one: on every input a real
+ * scan sees, none of these bounds does anything. A bound that fires on ordinary
+ * files is not a guard, it is a silent false-negative generator, so
+ * "transparent below the cap" is tested before anything else and is also
+ * asserted over the whole regression corpus in analyzer-core.
+ */
+describe('runRegex — D3 bounds', () => {
+  it('is completely transparent below the input cap', () => {
+    const content = `${'const a = 1;\n'.repeat(1000)}eval(x)\n`;
+    expect(content.length).toBeLessThan(REGEX_INPUT_CAP);
+    const { result, events } = captureRegexBoundaries(() => runRegex(content, /eval\(/g));
+    expect(result).toHaveLength(1);
+    expect(events).toEqual([]);
+  });
+
+  it('truncates rather than skips oversized input, keeping the findings it did reach', () => {
+    // A match inside the cap and a match beyond it. Skipping the file would lose
+    // both; truncating keeps the first, which is the whole point of the choice.
+    const head = 'eval(early)\n';
+    const filler = 'x'.repeat(REGEX_INPUT_CAP);
+    const content = `${head}${filler}eval(late)\n`;
+    const { result, events } = captureRegexBoundaries(() => runRegex(content, /eval\((\w+)\)/g));
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.evidence).toBe('eval(early)');
+    const truncation = events.find((e) => e.kind === 'truncated');
+    expect(truncation).toBeDefined();
+    expect(truncation!.inputLength).toBe(content.length);
+  });
+
+  it('reports truncation even when the truncated prefix matches nothing', () => {
+    // The dangerous case: no findings AND no signal reads as "this file is
+    // clean". The event is what stops that reading.
+    const content = 'x'.repeat(REGEX_INPUT_CAP + 1);
+    const { result, events } = captureRegexBoundaries(() => runRegex(content, /eval\(/g));
+    expect(result).toEqual([]);
+    expect(events.map((e) => e.kind)).toContain('truncated');
+  });
+
+  it('positions matches identically whether or not truncation occurred', () => {
+    // Truncation must not shift line/column, or a finding's location would
+    // depend on the size of the file it sits in.
+    const prefix = 'a\nb\neval(x)\n';
+    const short = runRegex(prefix, /eval\(x\)/g);
+    const long = runRegex(`${prefix}${'z'.repeat(REGEX_INPUT_CAP)}`, /eval\(x\)/g);
+    expect(long).toHaveLength(1);
+    expect(long[0]!.startLine).toBe(short[0]!.startLine);
+    expect(long[0]!.startColumn).toBe(short[0]!.startColumn);
+  });
+
+  it('is deterministic across repeated runs on the same oversized input', () => {
+    // The bound that decides the RESULT is length-based, so repeating the scan
+    // must not wobble. If the deadline ever became load-bearing this would flake
+    // — that is the intended alarm.
+    const content = `${'eval(a)\n'.repeat(50)}${'q'.repeat(REGEX_INPUT_CAP)}eval(b)\n`;
+    const runs = Array.from({ length: 5 }, () => runRegex(content, /eval\((\w+)\)/g));
+    for (const r of runs) expect(r).toEqual(runs[0]);
+  });
+
+  it('does not run a further exec once the match limit is reached', () => {
+    // The old code tested the limit after exec had already returned, so hitting
+    // the limit still cost one more unbounded search. Counting exec calls is the
+    // only way to observe the difference; the returned matches look the same.
+    const content = 'eval(x)\n'.repeat(20);
+    let execCalls = 0;
+    const pattern = /eval\(x\)/g;
+    const nativeExec = RegExp.prototype.exec;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (pattern as any).exec = function counted(this: RegExp, s: string) {
+      execCalls += 1;
+      return nativeExec.call(this, s);
+    };
+    const matches = runRegex(content, pattern, { limit: 5 });
+    expect(matches).toHaveLength(5);
+    expect(execCalls).toBe(5);
+  });
+
+  it('reports the match limit through the same channel as the new bounds', () => {
+    const content = 'eval(x)\n'.repeat(20);
+    const { events } = captureRegexBoundaries(() => runRegex(content, /eval\(x\)/g, { limit: 3 }));
+    expect(events.map((e) => e.kind)).toContain('limitReached');
+  });
+
+  it('collects nothing when no capture is active, and restores the previous sink', () => {
+    // A leaked sink would attribute one scan's bounds to the next one's report.
+    const oversized = 'x'.repeat(REGEX_INPUT_CAP + 1);
+    expect(() => runRegex(oversized, /nope/g)).not.toThrow();
+
+    const outer = captureRegexBoundaries(() => {
+      const inner = captureRegexBoundaries(() => runRegex(oversized, /nope/g));
+      expect(inner.events.map((e) => e.kind)).toContain('truncated');
+      return 'ok';
+    });
+    expect(outer.result).toBe('ok');
+    expect(outer.events).toEqual([]);
+  });
+
+  it('restores the sink when the captured function throws', () => {
+    expect(() =>
+      captureRegexBoundaries(() => {
+        throw new Error('rule blew up');
+      }),
+    ).toThrow('rule blew up');
+    // If the sink had leaked, this capture would see the events of the next call
+    // made outside any capture.
+    const after = captureRegexBoundaries(() => runRegex('x', /x/g));
+    expect(after.events).toEqual([]);
+  });
+
+  it('fires the scan-wide deadline across many small runRegex calls', () => {
+    // Regression for the dead-code deadline: `execCount` used to be a per-call
+    // local, so `execCount % 256` never fired for the common case of a rule with
+    // few matches, and the scan-wide budget did nothing. The counter now persists
+    // across calls, so a budget exhausted by MANY cheap calls is still enforced.
+    const content = `${'eval(x)\n'.repeat(400_000)}`; // > cap, many matches
+    const pattern = /eval\(x\)/g;
+    const { events } = captureRegexBoundaries(
+      () => runRegex(content, pattern, { limit: 10_000_000 }),
+      { deadlineMs: 5 },
+    );
+    expect(events.map((e) => e.kind)).toContain('timedOut');
+  });
+
+  it('does not fire the deadline on an input that finishes in time', () => {
+    const { events } = captureRegexBoundaries(
+      () => runRegex('eval(x)\n'.repeat(50), /eval\(x\)/g),
+      { deadlineMs: 2_000 },
+    );
+    expect(events.map((e) => e.kind)).not.toContain('timedOut');
+  });
+
+  it('bounds a quadratic pattern by bounding its input', () => {
+    // The measured shape from scripts/sec-a1-catalog.mjs: recheck classified the
+    // super-linear shipped rules as polynomial degree 2, so T ∝ n² and capping n
+    // caps T. This asserts the mechanism, not a wall-clock number — a timing
+    // threshold here would flake on a loaded CI box.
+    const pattern = /["'][^"'\n]*\b(?:FROM)\s+(\w+)[^"'\n]*["']\s*[+]\s*\w/g;
+    const attack = `"${'FROM x '.repeat(80_000)}`;
+    expect(attack.length).toBeGreaterThan(REGEX_INPUT_CAP);
+    const { events } = captureRegexBoundaries(() => runRegex(attack, pattern));
+    expect(events.map((e) => e.kind)).toContain('truncated');
   });
 });

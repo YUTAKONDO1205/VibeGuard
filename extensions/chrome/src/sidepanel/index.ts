@@ -11,7 +11,7 @@
 // section renders the most-recent 50 entries.
 
 import { scan, detectLanguageFromContent } from '@vibeguard/analyzer-core/browser';
-import { summarize, type Finding, type ScanSummary } from '@vibeguard/findings-schema';
+import { summarize, type Finding, type ScanDegradation, type ScanSummary } from '@vibeguard/findings-schema';
 import {
   addedLineSet,
   languageFromPath,
@@ -144,13 +144,34 @@ function buildFindingCard(f: Finding, opts: { showFilePath?: boolean } = {}): HT
   return card;
 }
 
-function renderFindings(findings: Finding[]): void {
+function buildDegradationBanner(degradations: ScanDegradation[]): HTMLElement {
+  // A partial scan must never read as a clean one. This banner is what stops
+  // "✓ No security issues found." from being shown for a file the scanner only
+  // saw part of.
+  const banner = document.createElement('div');
+  banner.className = 'vg-degradation';
+  // Counted in files: entries are deduplicated per file+kind, so a rule count
+  // here would undercount how much was actually cut short.
+  const files = new Set(degradations.map((d) => d.filePath).filter(Boolean));
+  const scope = files.size > 1 ? ` (${files.size} files)` : '';
+  banner.textContent = `⚠ Partial scan${scope}: a ReDoS guard stopped scanning before the end of the input — results may be incomplete.`;
+  return banner;
+}
+
+function renderFindings(findings: Finding[], degradations?: ScanDegradation[]): void {
   findingsEl.replaceChildren();
+
+  if (degradations?.length) {
+    findingsEl.appendChild(buildDegradationBanner(degradations));
+  }
 
   if (findings.length === 0) {
     const empty = document.createElement('div');
-    empty.className = 'vg-empty vg-ok';
-    empty.textContent = '✓ No security issues found.';
+    // Only "OK" when nothing degraded — otherwise the empty result is unproven.
+    empty.className = degradations?.length ? 'vg-empty' : 'vg-empty vg-ok';
+    empty.textContent = degradations?.length
+      ? 'No issues found in the part of the input that was scanned.'
+      : '✓ No security issues found.';
     findingsEl.appendChild(empty);
     return;
   }
@@ -166,6 +187,8 @@ interface FileGroupResult {
   scanned: number; // lines scanned from the diff
   added: number;   // added lines among them
   findings: Finding[];
+  /** D3 bounds that cut this file's scan short, if any. */
+  degradations?: ScanDegradation[];
 }
 
 function renderFileGroups(groups: FileGroupResult[]): void {
@@ -177,6 +200,13 @@ function renderFileGroups(groups: FileGroupResult[]): void {
     empty.textContent = 'No diff rows found.';
     findingsEl.appendChild(empty);
     return;
+  }
+
+  // Any partially-scanned file in the diff degrades the whole review, so the
+  // banner goes above the summary rather than inside one file's section.
+  const allDegradations = groups.flatMap((g) => g.degradations ?? []);
+  if (allDegradations.length) {
+    findingsEl.appendChild(buildDegradationBanner(allDegradations));
   }
 
   findingsEl.appendChild(buildSummaryBar(summarize(allFindings)));
@@ -236,7 +266,7 @@ function runSnippetScan(source: HistorySource, originLabel: string): void {
     });
     const ms = Math.round(performance.now() - t0);
     setStatus(`${result.findings.length} finding(s) in ${ms} ms · ${language}`);
-    renderFindings(result.findings);
+    renderFindings(result.findings, result.degradations);
     void recordHistory({
       source,
       origin: originLabel,
@@ -360,6 +390,10 @@ function scanDiffFiles(files: ParsedDiffFile[]): FileGroupResult[] {
       scanned: file.lines.length,
       added: added.size,
       findings: overlapping,
+      // Carried per file so the PR-diff view can say a file was only partly
+      // scanned. Without it a truncated diff review reads as a clean one — the
+      // same gap that made the snippet path misleading before the banner.
+      degradations: result.degradations,
     });
   }
   return groups;

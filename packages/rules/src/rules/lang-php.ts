@@ -95,7 +95,7 @@ export const phpLegacyMysqlConcat: RuleDefinition = {
   match: (ctx) =>
     runRegex(
       ctx.content,
-      /\b(?:mysql_query|mysqli_query|pg_query)\s*\([^)]*\.\s*\$[A-Za-z_]/g,
+      /\b(?:mysql_query|mysqli_query|pg_query)[^\S\r\n]*\([^)]{0,500}\.[^\S\r\n]*\$[A-Za-z_]/g,
       { skipCommentLines: true, language: ctx.language },
     ),
 };

@@ -32,7 +32,7 @@ export const javaRuntimeExecConcat: RuleDefinition = {
     ),
     ...runRegex(
       ctx.content,
-      /\bnew\s+ProcessBuilder\s*\([^)]*\+\s*[\w$]/g,
+      /\bnew[^\S\r\n]+ProcessBuilder[^\S\r\n]*\([^)]{0,600}\+[^\S\r\n]*[\w$]/g,
       { skipCommentLines: true, language: ctx.language },
     ),
   ],

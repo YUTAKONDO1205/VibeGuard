@@ -20,8 +20,13 @@ export {
   getLineCommentSpec,
   lineCommentStartsAt,
   hasLineCommentSpec,
+  captureRegexBoundaries,
+  withScanDeadline,
+  REGEX_INPUT_CAP,
+  REGEX_DEADLINE_MS,
   type KnownLanguage,
   type LineCommentSpec,
+  type RegexBoundaryEvent,
 } from './matcher-utils.js';
 export {
   contextConfidence,

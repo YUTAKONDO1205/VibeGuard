@@ -35,6 +35,7 @@ import {
   compareSeverity,
   type Finding,
   type RuleError,
+  type ScanDegradation,
   type ScanMode,
   type ScanResponse,
 } from '@vibeguard/findings-schema';
@@ -170,6 +171,7 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
   const findings: Finding[] = [];
   // Deduped by ruleId across the diffed files (see scanPath for the rationale).
   const ruleErrorsByRule = new Map<string, RuleError>();
+  const degradationsByFileKind = new Map<string, ScanDegradation>();
   const ignore = new Set([...DEFAULT_IGNORE, ...(options.ignore ?? [])]);
   const now = new Date();
 
@@ -207,6 +209,16 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
     for (const e of result.ruleErrors ?? []) {
       if (!ruleErrorsByRule.has(e.ruleId)) ruleErrorsByRule.set(e.ruleId, e);
     }
+    // Carried through the same way `scanPath` does, and for the same reason: this
+    // is the GitHub Action's path, so dropping degradations here would let a PR
+    // pass review on a partial scan with nothing saying so. Keyed by file+kind,
+    // not by rule — one oversized file trips the bound in dozens of rules.
+    for (const d of result.degradations ?? []) {
+      const key = `${d.filePath ?? relPath}::${d.kind}`;
+      if (!degradationsByFileKind.has(key)) {
+        degradationsByFileKind.set(key, { ...d, filePath: d.filePath ?? relPath });
+      }
+    }
   }
 
   findings.sort((a, b) => {
@@ -225,5 +237,6 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
     engineVersions: { core: ENGINE_VERSION },
     generatedAt: new Date().toISOString(),
     ...(ruleErrorsByRule.size ? { ruleErrors: [...ruleErrorsByRule.values()] } : {}),
+    ...(degradationsByFileKind.size ? { degradations: [...degradationsByFileKind.values()] } : {}),
   };
 }

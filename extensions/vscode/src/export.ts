@@ -61,12 +61,18 @@ export async function exportFindings(runner: ScanRunner): Promise<void> {
   });
   if (!target) return; // user cancelled
 
+  // Degradations come from the runner's cache, not from `findings`: a partial
+  // scan is invisible in the finding list by definition. Omitting them here
+  // wrote a truncated scan out as a clean SARIF report — the export is often the
+  // artefact that outlives the session, so it is the worst place to lose them.
+  const degradations = runner.getAllDegradations();
   const response: ScanResponse = {
     summary: findings.length ? summarize(findings) : emptySummary(),
     findings,
     executionTimeMs: 0,
     engineVersions: { core: ENGINE_VERSION },
     generatedAt: new Date().toISOString(),
+    ...(degradations.length ? { degradations } : {}),
   };
 
   const lower = target.fsPath.toLowerCase();

@@ -24,7 +24,7 @@ export const sqlStringConcat: RuleDefinition = {
   match: (ctx) =>
     runRegex(
       ctx.content,
-      /["'`][^"'`\n]*\b(?:FROM|INTO|UPDATE)\s+(?<table>\w+)[^"'`\n]*["'`]\s*[+%]\s*\w/gi,
+      /["'`][^"'`\n]*\b(?:FROM|INTO|UPDATE)[^\S\r\n]+(?<table>\w+)[^"'`\n]*["'`]\s*[+%]\s*\w/gi,
       { skipCommentLines: true, language: ctx.language },
     ),
 };
@@ -47,7 +47,11 @@ export const commandInjectionShellTrue: RuleDefinition = {
     exampleFix: 'subprocess.run(["git", "log", commit_id])',
   },
   match: (ctx) =>
-    runRegex(ctx.content, /subprocess\.(?:run|call|Popen|check_output|check_call)\s*\([^)]*shell\s*=\s*True/gms, {
+    // A1: the argument scan is BOUNDED, but generously. black splits a
+    // subprocess call across many kwargs before reaching `shell=True`, and a
+    // 200-char bound cut real calls short. Raising the bound costs linear time —
+    // it is the UNBOUNDED form that backtracked, not a large K.
+    runRegex(ctx.content, /subprocess\.(?:run|call|Popen|check_output|check_call)\s{0,20}\([^)]{0,600}shell\s{0,20}=\s{0,20}True/gms, {
       skipCommentLines: false,
     }),
 };
@@ -66,7 +70,9 @@ export const osSystemUsage: RuleDefinition = {
     how: 'Replace with subprocess.run([...]) using a list and no shell, or sanitise via shlex.quote.',
   },
   match: (ctx) =>
-    runRegex(ctx.content, /os\.(?:system|popen)\s*\(\s*(?:f["']|["'][^"']*["']\s*[+%]|.*\{)/g, {
+    runRegex(ctx.content, // Bounded rather than horizontal-only: `os.system(\n    f"ls {d}"\n)` is a
+      // normal formatting of this call and banning line breaks lost it.
+      /os\.(?:system|popen)\s{0,20}\((?:\s{0,20}f["']|\s{0,20}["'][^"'\n]{0,200}["']\s{0,20}[+%]|[^\n]{0,200}\{)/g, {
       skipCommentLines: true,
       language: ctx.language,
     }),
@@ -135,7 +141,7 @@ export const innerHtmlAssignment: RuleDefinition = {
   match: (ctx) =>
     runRegex(
       ctx.content,
-      /(?<target>[\w$]+)\.innerHTML\s*=\s*(?!\s*["'][^"'\n]*["']\s*;?\s*$)[^;\n]+/g,
+      /(?<![\w$])(?<target>[\w$]+)\.innerHTML\s*=\s*(?!\s*["'][^"'\n]*["']\s*;?\s*$)[^;\n]+/g,
       { skipCommentLines: true, language: ctx.language },
     ),
 };
@@ -157,7 +163,11 @@ export const pathTraversalConcat: RuleDefinition = {
   match: (ctx) =>
     runRegex(
       ctx.content,
-      /(?:fs\.(?:readFile|writeFile|createReadStream|createWriteStream|open)|open|os\.path\.join)\s*\([^)]*[+,]\s*\w+/g,
+      // Argument lists routinely span lines — `os.path.join(\n root,\n user_input\n)`
+      // is what black produces — so the inner class must NOT exclude newlines.
+      // Bounding it (`{0,200}`) is what removes the quadratic; excluding line
+      // breaks was over-correction and silently lost that shape.
+      /(?:fs\.(?:readFile|writeFile|createReadStream|createWriteStream|open)|open|os\.path\.join)\s{0,20}\([^()]{0,200}[+,]\s{0,20}\w+/g,
       { skipCommentLines: true, language: ctx.language },
     ),
 };

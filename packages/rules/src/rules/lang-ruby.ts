@@ -34,7 +34,7 @@ export const rubyRailsRawOrHtmlSafe: RuleDefinition = {
     // foo.html_safe (anything other than a literal string before .html_safe)
     ...runRegex(
       ctx.content,
-      /(?<!["'])[\w@.\[\]]+\.html_safe\b/g,
+      /(?<![\w@.\[\]"'])[\w@.\[\]]+\.html_safe\b/g,
       { skipCommentLines: true, language: ctx.language },
     ),
   ],
@@ -108,17 +108,17 @@ export const railsCsrfDisabled: RuleDefinition = {
   match: (ctx) => [
     ...runRegex(
       ctx.content,
-      /\bskip_before_action\s+:verify_authenticity_token\b/g,
+      /\bskip_before_action[^\S\r\n]+:verify_authenticity_token\b/g,
       { skipCommentLines: true, language: ctx.language },
     ),
     ...runRegex(
       ctx.content,
-      /\bprotect_from_forgery\s+with:\s*:null_session\b/g,
+      /\bprotect_from_forgery[^\S\r\n]+with:[^\S\r\n]*:null_session\b/g,
       { skipCommentLines: true, language: ctx.language },
     ),
     ...runRegex(
       ctx.content,
-      /^\s*skip_forgery_protection\b/gm,
+      /^[^\S\r\n]*skip_forgery_protection\b/gm,
       { skipCommentLines: true, language: ctx.language },
     ),
   ],
