@@ -709,10 +709,43 @@ try {
   if (r.status === 0 && typeof r.stdout === 'string') gitSha = r.stdout.trim();
 } catch { /* recorded as unknown */ }
 
+// A gitSha alone is a half-truth: it names the commit, not the bytes that were
+// actually scanned. If the working tree carries uncommitted changes, the corpus
+// was produced by something no one can check out later. Record that fact rather
+// than let a clean-looking sha imply reproducibility. `product` is broken out
+// because a dirty harness script is a different kind of dirty from a dirty
+// analyzer — only the latter can move a measurement. null = git unavailable
+// (tarball checkout), which is distinct from a verified-clean tree.
+let dirty = null;
+let dirtyPaths = null;
+let dirtyProduct = null;
+try {
+  const r = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' });
+  if (r.status === 0 && typeof r.stdout === 'string') {
+    dirtyPaths = r.stdout
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => l.replace(/^\S+\s+/, ''))
+      .sort();
+    dirty = dirtyPaths.length > 0;
+    dirtyProduct = dirtyPaths.filter((p) => p.startsWith('packages/'));
+  }
+} catch { /* recorded as null */ }
+
 const manifest = {
   generatedBy: 'sec-b1-gen-corpus.mjs',
   engineVersion,
-  provenance: { gitSha, nodeVersion: process.version, rulesVersion: engineVersion },
+  provenance: {
+    gitSha,
+    dirty,
+    dirtyPaths,
+    dirtyProduct,
+    dirtyNote:
+      'dirty=true means the tree held uncommitted changes when this corpus was generated, so gitSha does not fully identify the inputs. dirtyProduct lists the subset under packages/ — the only paths that can change what the analyzer reports.',
+    nodeVersion: process.version,
+    rulesVersion: engineVersion,
+  },
   // The A/B is over this flag and nothing else.
   arms: {
     false: 'new Analyzer({ canonicalize: false }) — pre-D2 engine, experiment control',

@@ -1094,6 +1094,19 @@ const result = {
   generatedBy: 'sec-b1-er-eval.mjs',
   manifest: rel(manifestPath),
   manifestEngineVersion: manifest.engineVersion ?? null,
+  // Carried forward from the manifest so this file is self-identifying: a reader
+  // holding only the ER table can tell which engine and tree produced the corpus
+  // it summarizes, without needing the manifest beside it. `evaluatedWith` is
+  // this process, which does not regenerate the corpus and so cannot change the
+  // corpus provenance — the two are recorded separately for that reason.
+  provenance: {
+    corpus: manifest.provenance ?? null,
+    corpusProvenanceNote:
+      manifest.provenance == null
+        ? 'the manifest recorded no provenance — the corpus cannot be traced to a commit from this file'
+        : 'copied verbatim from the manifest; describes corpus generation, not this evaluation',
+    evaluatedWith: { nodeVersion: process.version },
+  },
   thresholds: manifest.thresholds ?? null,
   thresholdsNote:
     manifest.thresholds == null

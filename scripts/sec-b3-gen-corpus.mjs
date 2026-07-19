@@ -12,12 +12,16 @@
 //      actually lands on, so `lineDelta` is OBSERVED, not predicted. The
 //      evaluator never has to guess the pairing.
 //
-// Determinism: no Date.now(), no Math.random(), no wall-clock. Every readdirSync
-// is sorted and every path in the JSON is normalised to forward slashes.
+// Determinism: no Math.random(), no wall-clock anywhere that can reach the corpus
+// bytes or a measured value. Every readdirSync is sorted and every path in the
+// JSON is normalised to forward slashes. The ONE clock read is
+// `provenance.generatedAt`, which is a record of when the run happened and is
+// deliberately excluded when checking two runs for byte equality.
 //
 // Run from the repo root (dist must be built):
 //   node scripts/sec-b3-gen-corpus.mjs
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, rmSync, statSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join, dirname, basename, extname } from 'node:path';
 import { allRules, languageMatches } from '@vibeguard/rules';
 
@@ -510,9 +514,59 @@ try {
   engineVersion = JSON.parse(readFileSync('packages/rules/package.json', 'utf8')).version;
 } catch { /* recorded as unknown below */ }
 
+// Provenance so a regenerated manifest is identifiable to a specific engine and
+// environment. Shape follows sec-b1-gen-corpus.mjs (gitSha / nodeVersion /
+// rulesVersion) so the two corpora can be compared field-for-field, plus two
+// fields b1 does not carry:
+//
+//   `dirty` — whether the working tree had uncommitted changes when this ran.
+//   gitSha alone is a HALF-TRUTH on a dirty tree: it names a commit whose bytes
+//   are not the bytes that produced this corpus, so a reader who checks out that
+//   sha cannot reproduce these numbers and has no way to know it. Recording the
+//   flag (and warning on stderr) makes the gap visible instead of silent. It is
+//   NOT fatal — regenerating mid-change is a normal thing to do while iterating;
+//   the point is that the resulting manifest says so.
+//
+//   `generatedAt` — the only clock read in this script. Never used in a
+//   computation; it exists so an orphaned results file can be placed in time.
+let gitSha = 'unknown';
+let dirty = null;
+try {
+  const r = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
+  if (r.status === 0 && typeof r.stdout === 'string') gitSha = r.stdout.trim();
+} catch { /* recorded as unknown */ }
+try {
+  const r = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' });
+  // status !== 0 means git could not answer (not a repo, git absent). Leaving
+  // `dirty` null there is the honest record: unknown, not clean.
+  if (r.status === 0 && typeof r.stdout === 'string') dirty = r.stdout.trim() !== '';
+} catch { /* recorded as null (unknown) */ }
+
+if (dirty === true) {
+  console.error(
+    '\nWARNING: the working tree has uncommitted changes. The corpus below was ' +
+      `produced by the tree as it stands, NOT by commit ${gitSha}. ` +
+      'provenance.dirty=true has been recorded; commit before quoting these numbers ' +
+      'as reproducible from that sha.\n',
+  );
+} else if (dirty === null) {
+  console.error(
+    '\nWARNING: could not determine whether the working tree is clean (git did not ' +
+      'answer). provenance.dirty is recorded as null — treat the sha as unconfirmed.\n',
+  );
+}
+
 const manifest = {
   generatedBy: 'sec-b3-gen-corpus.mjs',
   engineVersion,
+  provenance: {
+    gitSha,
+    dirty,
+    nodeVersion: process.version,
+    rulesVersion: engineVersion,
+    engineVersion,
+    generatedAt: new Date().toISOString(),
+  },
   sourceDirs: SOURCE_DIRS,
   transforms: TRANSFORMS.map((t) => t.name),
   transformMeta: Object.fromEntries(

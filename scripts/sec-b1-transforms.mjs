@@ -869,6 +869,105 @@ function applyDynamicAttr(ctx, splitName) {
   return reject(`${lang} has no dependency-free dynamic member access; a reflect/dynamic rewrite would change the program`);
 }
 
+/**
+ * Per-line lexical state for a JS/TS file: the bracket depth at the START of
+ * each line, whether that line starts inside a block comment, and whether the
+ * scan is still trustworthy. Only N4 needs this — every other transform here is
+ * line-local, but "insert a top-level statement near the head of the file" is
+ * the one question a single line cannot answer.
+ *
+ * `ok` goes false at the first backtick: a template literal can span lines and
+ * carries `${…}` interpolation, so a line-local literal scanner cannot follow it
+ * and the depth after it is a guess. Refusing is cheaper than a wrong insertion
+ * point. A bracket inside a regex literal is likewise miscounted; G0's
+ * `node --check` is the backstop that keeps such a miscount out of the corpus
+ * rather than turning it into a fake evasion.
+ */
+function jsLineState(lines, profile) {
+  const state = [];
+  let depth = 0;
+  let inBlock = false;
+  let ok = true;
+  for (const line of lines) {
+    state.push({ depth, inBlock, ok });
+    if (line.includes('`')) ok = false;
+    let rest = line;
+    if (inBlock) {
+      const close = line.indexOf('*/');
+      if (close === -1) continue;
+      inBlock = false;
+      rest = line.slice(close + 2);
+    }
+    const lits = scanLineLiterals(rest, profile);
+    let k = 0;
+    while (k < rest.length) {
+      const lit = lits.find((l) => k >= l.start && k < l.end);
+      if (lit) { k = lit.end; continue; }
+      if (rest.startsWith('//', k)) break;
+      if (rest.startsWith('/*', k)) {
+        const c = rest.indexOf('*/', k + 2);
+        if (c === -1) { inBlock = true; break; }
+        k = c + 2;
+        continue;
+      }
+      const ch = rest[k];
+      if ('([{'.includes(ch)) depth += 1;
+      else if (')]}'.includes(ch)) depth -= 1;
+      k += 1;
+    }
+  }
+  return state;
+}
+
+/** A directive prologue entry (`'use strict';`). A statement inserted ABOVE one
+ *  demotes it out of the prologue, which turns strict mode off — a change in the
+ *  program, not in its spelling. Skipped as an insertion point for that reason. */
+const isDirective = (t) => /^(['"])use [a-z][a-z ]*\1\s*;?$/.test(t);
+
+// N4 — put a regex literal above the payload, near the head of the file.
+//
+// The payload's own bytes are untouched; a single inert binding is added. What
+// the binding is FOR is the delimiter question every JavaScript lexer has to
+// answer: `/` opens a comment, a division, or a regex depending on what came
+// before it, and a regex body may contain the characters that spell the other
+// two. A normalizer that models only strings and comments therefore mis-reads
+// the character class as a comment opener and loses its place for the rest of
+// the file — every construct after it, payload included, stops being normalized.
+// Nothing about the payload had to change for that to happen, which is what
+// makes it a file-scope rather than a site-scope evasion.
+//
+// JS/TS only: no other language in this population has a regex literal that is
+// lexed by delimiter rather than by a call.
+//
+// The insertion point is the first TOP-LEVEL statement position at or above the
+// payload line — depth 0 by `jsLineState`, past a shebang, past the directive
+// prologue, not between an annotation and what it annotates, and passing G3. A
+// `const` is legal at every one of those and illegal in class-body or
+// object-literal position, which is what the search is avoiding.
+function applyRegexLiteralPrelude(ctx) {
+  const pc = payloadContext(ctx);
+  if (pc.err) return reject(pc.err);
+  const name = `${VG}Re`;
+  if (ctx.content.includes(name)) return reject(`\`${name}\` already occurs in the file`);
+  const state = jsLineState(ctx.lines, pc.profile);
+  for (let i = 0; i <= pc.at; i++) {
+    const line = ctx.lines[i];
+    if (line == null) break;
+    const t = line.trim();
+    if (t === '') continue;
+    if (i === 0 && t.startsWith('#!')) continue;
+    if (isCommentOnly(line, pc.profile)) continue;
+    if (isDirective(t)) continue;
+    const st = state[i];
+    if (!st || !st.ok) return reject('template literal above the payload: the top-level position cannot be located line-locally');
+    if (st.inBlock || st.depth !== 0) continue;
+    if (!gateStatementPosition(line).ok) continue;
+    if (precededByAnnotation(ctx.lines, i)) continue;
+    return insertAbove(ctx, i, [`${indentOf(line)}const ${name} = /[/*]/;${eolOf(line)}`]);
+  }
+  return reject('no top-level statement position at or above the payload line');
+}
+
 // S1 — hoist a constant argument into a temporary. Nothing about the value
 // changes; the rule's pattern simply no longer sees the callee and the literal
 // adjacent to each other. `N` has no dataflow, so it cannot put them back.
@@ -1248,6 +1347,23 @@ const RAW_TRANSFORMS = [
     adversarialCost: 'R',
     payloadExecutableClaim: 'unverified',
     apply: (ctx) => applyDynamicAttr(ctx, true),
+  },
+  {
+    id: 'N4',
+    name: 'regex-literal-prelude',
+    // Lexical, not name-resolution: nothing is renamed and the payload is not
+    // touched at all. What changes is how the file LEXES ahead of the payload.
+    category: 'lexical',
+    // Regex literals are delimiter-lexed in JS/TS only.
+    languages: ['javascript', 'typescript'],
+    // `N` models the regex literal explicitly — the profile flag, the dedicated
+    // scan, and the preceding-token check that decides literal vs. division —
+    // and skips it verbatim, so the character class never opens a comment and
+    // the rest of the file keeps being normalized.
+    d2Predicted: 'covered',
+    adversarialCost: 'M',
+    payloadExecutableClaim: 'unverified',
+    apply: applyRegexLiteralPrelude,
   },
   {
     id: 'S1',

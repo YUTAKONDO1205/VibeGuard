@@ -26,7 +26,18 @@
 // It replicates the analyzer's confidence resolution directly from the rule
 // layer (allRules + explainContextConfidence) so the numbers are transparent;
 // the summary cross-checks the samples totals against the engine's published
-// E2/E3 figures so the replication is self-validating.
+// E2/E3 figures so the replication is self-validating. Exits non-zero if any
+// expected value is violated, so it can gate CI.
+//
+// ⚠ KNOWN LIMITATION — read before trusting a green run. This harness calls
+// `rule.match(ctx)` directly and therefore never goes through `Analyzer`. Any
+// stage that lives in the analyzer rather than in a rule — notably the
+// canonicalization pre-pass and its union step — is NOT exercised here, so a
+// regression in it cannot make this script fail. "this report is unchanged" is
+// vacuously true w.r.t. that layer. The assertions below cover the confidence
+// resolution and the samples fixed points ONLY; the analyzer-level invariants
+// are covered by the canonicalizer soundness tests in
+// `packages/analyzer-core/src/__tests__/`.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -276,12 +287,31 @@ for (const [f, sevs] of Object.entries(floorOwners)) {
 }
 
 // ---- 2. no-collateral check over samples/vulnerable -------------------------
+// Engine fixed point for samples/vulnerable. Re-baselined 2026-07-19: the
+// runRegex fix anchors a match at its first non-whitespace character, which
+// recovered one true positive (VG-FW-001@6:1) that the old newline-anchored
+// position had been dropping. It is severity=high / confidence=medium, which is
+// why the medium bucket moved from 26 to 27 while high stayed at 6. This is a
+// recovered true positive, not an added false positive: samples/safe stays at 0.
+// The recovery does not depend on CRLF vs LF line endings.
+const EXPECT_VULN_TOTAL = 51;
+const EXPECT_VULN_DIST = { high: 6, medium: 27, low: 18 };
+const EXPECT_SAFE_TOTAL = 0;
+
 const vuln = analyze('samples/vulnerable');
 const vulnChanged = vuln.filter((r) => r.changed);
 const vulnChangedUngated = vuln.filter((r) => r.ungatedChanged);
+const actualVulnDist = dist(vuln);
+const vulnerableTotalOk = vuln.length === EXPECT_VULN_TOTAL;
+const vulnerableDistributionOk =
+  JSON.stringify(actualVulnDist) === JSON.stringify(EXPECT_VULN_DIST);
 console.log('\n## samples/vulnerable — no-collateral check\n');
-console.log(`- findings: **${vuln.length}** (engine E2 baseline: 51 — re-baselined 2026-07-19 by the runRegex CRLF fix; the +1 is a recovered VG-FW-001 true positive)`);
-console.log(`- confidence after ①+D1: ${JSON.stringify(dist(vuln))} (E2 baseline: {"high":6,"medium":27,"low":18})`);
+console.log(
+  `- findings: **${vuln.length}** (expected ${EXPECT_VULN_TOTAL}) ${vulnerableTotalOk ? '✓' : '⚠ MISMATCH'}`,
+);
+console.log(
+  `- confidence after ①+D1: ${JSON.stringify(actualVulnDist)} (expected ${JSON.stringify(EXPECT_VULN_DIST)}) ${vulnerableDistributionOk ? '✓' : '⚠ MISMATCH'}`,
+);
 console.log(
   `- true-positives down-ranked: **${vulnChanged.length}** ${vulnChanged.length === 0 ? '✓ (no collateral damage)' : '⚠'}`,
 );
@@ -299,5 +329,45 @@ console.log(
 
 // ---- 3. false-positive guard over samples/safe ------------------------------
 const safe = analyze('samples/safe');
+const safeFindingsOk = safe.length === EXPECT_SAFE_TOTAL;
 console.log('\n## samples/safe — false-positive guard\n');
-console.log(`- findings: **${safe.length}** (gate: must be 0) ${safe.length === 0 ? '✓' : '⚠'}`);
+console.log(
+  `- findings: **${safe.length}** (expected ${EXPECT_SAFE_TOTAL}) ${safeFindingsOk ? '✓' : '⚠ MISMATCH'}`,
+);
+
+// ---- 4. assertions ----------------------------------------------------------
+// Everything above only prints. Collect the hard failures here so the script
+// exits non-zero instead of reporting a broken engine at exit 0.
+const safeCheck = assertGateReached(safe, 'samples/safe');
+const vulnCheck = assertGateReached(vuln, 'samples/vulnerable');
+const failures = [];
+if (!safeFindingsOk) {
+  failures.push(`samples/safe: ${safe.length} finding(s), expected ${EXPECT_SAFE_TOTAL}`);
+}
+if (!vulnerableTotalOk) {
+  failures.push(`samples/vulnerable: ${vuln.length} finding(s), expected ${EXPECT_VULN_TOTAL}`);
+}
+if (!vulnerableDistributionOk) {
+  failures.push(
+    `samples/vulnerable distribution: ${JSON.stringify(actualVulnDist)}, expected ${JSON.stringify(EXPECT_VULN_DIST)}`,
+  );
+}
+// The structural self-checks above (downgrade-only + floor bound) already
+// printed their violations; a violation is a failure, not a note.
+for (const check of [e6Check, vulnCheck, safeCheck]) {
+  for (const p of check.problems) failures.push(`${check.label}: ${p}`);
+}
+// The context-window fixture exists to exercise the gate. If no row is even
+// eligible, the gate is not being reached and the table above is meaningless.
+if (e6Check.gateEligible === 0) {
+  failures.push('samples/context-window: 0 gate-eligible rows — the severity gate is not exercised');
+}
+
+console.log('\n## assertions\n');
+if (failures.length === 0) {
+  console.log('- all expected values hold ✓');
+} else {
+  for (const f of failures) console.log(`- ⚠ ${f}`);
+  console.log(`\n**Result: ${failures.length} assertion failure(s). ⚠**`);
+  process.exit(1);
+}

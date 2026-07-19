@@ -24,6 +24,7 @@
 //   node scripts/sec-b3-cr-eval.mjs
 //   node scripts/sec-b3-cr-eval.mjs --manifest <path> --out <path> --threshold medium
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { dirname, join, relative, resolve } from 'node:path';
 import { allRules, languageMatches, explainContextConfidence } from '@vibeguard/rules';
 
@@ -621,6 +622,24 @@ const sideConstraints = {
   vulnerableDistributionUngated: dist(vulnRows, 'ungated'),
 };
 
+// ------------------------------------------------------------- provenance ---
+// Best-effort, exactly as the generator does it: absence of git is recorded as
+// 'unknown'/null rather than guessed, and never affects any measured value.
+let evalGitSha = 'unknown';
+let evalDirty = null;
+try {
+  const r = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
+  if (r.status === 0 && typeof r.stdout === 'string') evalGitSha = r.stdout.trim();
+} catch { /* recorded as unknown */ }
+try {
+  const r = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' });
+  if (r.status === 0 && typeof r.stdout === 'string') evalDirty = r.stdout.trim() !== '';
+} catch { /* recorded as null (unknown) */ }
+let RULES_VERSION = 'unknown';
+try {
+  RULES_VERSION = JSON.parse(readFileSync('packages/rules/package.json', 'utf8')).version;
+} catch { /* recorded as unknown */ }
+
 // ------------------------------------------------------------------ output ---
 const perMatchConfidenceRules = [...PER_MATCH_CONFIDENCE.entries()]
   .sort((a, b) => a[0].localeCompare(b[0]))
@@ -631,6 +650,29 @@ const result = {
   generatedBy: 'sec-b3-cr-eval.mjs',
   manifest: rel(manifestPath),
   manifestEngineVersion: manifest.engineVersion ?? null,
+  // Provenance of THIS evaluation, plus the provenance of the population it was
+  // computed over. Both are needed and they are not the same thing: the
+  // evaluator can run at a different HEAD (or on a dirtier tree) than the
+  // generator did, and a CR number whose corpus lineage is only recoverable by
+  // opening a second file is a number that gets quoted without its lineage.
+  // `corpus` is copied verbatim from the manifest — null when an older manifest
+  // predates provenance, which is itself worth seeing.
+  provenance: {
+    evaluator: {
+      gitSha: evalGitSha,
+      dirty: evalDirty,
+      nodeVersion: process.version,
+      rulesVersion: RULES_VERSION,
+      generatedAt: new Date().toISOString(),
+    },
+    corpus: manifest.provenance ?? null,
+    // A mismatch is not an error — you may deliberately evaluate an older
+    // corpus — but it must not be invisible.
+    corpusMatchesEvaluator:
+      manifest.provenance?.gitSha == null || evalGitSha === 'unknown'
+        ? null
+        : manifest.provenance.gitSha === evalGitSha,
+  },
   threshold: primaryThreshold,
   arms: {
     ungated: 'explainContextConfidence(...).ungated — item ① alone (before D1)',
@@ -698,6 +740,18 @@ function pad(s, n) {
 }
 console.log('# B3 — concealment rate (CR), before/after D1\n');
 console.log(`manifest: ${rel(manifestPath)}  ·  engineVersion: ${result.manifestEngineVersion ?? '(none)'}`);
+const cprov = result.provenance.corpus;
+console.log(
+  `corpus provenance: ${
+    cprov == null
+      ? '(none recorded — manifest predates provenance)'
+      : `gitSha ${cprov.gitSha}${cprov.dirty === true ? ' (DIRTY TREE)' : cprov.dirty === null ? ' (cleanliness unknown)' : ''} · node ${cprov.nodeVersion}`
+  }`,
+);
+console.log(
+  `evaluator: gitSha ${evalGitSha}${evalDirty === true ? ' (DIRTY TREE)' : ''} · node ${process.version}` +
+    (result.provenance.corpusMatchesEvaluator === false ? '  ⚠ corpus was generated at a DIFFERENT commit' : ''),
+);
 console.log(
   `pairs: declared ${result.pairs.declared} · evaluated ${result.pairs.evaluated} · ` +
     `opt-out excluded ${result.pairs.excludedOptOut} · unresolved-original ${result.pairs.unresolvedOriginal}\n`,

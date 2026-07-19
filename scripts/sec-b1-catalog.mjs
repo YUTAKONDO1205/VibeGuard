@@ -39,7 +39,7 @@ const evalOut = JSON.parse(readFileSync(EVAL, 'utf8'));
 // preserving", stated once per family instead of per transform.
 const FAMILY_EQUIVALENCE = {
   lexical:
-    'Lexical rewrites: constant-string concatenation split, hex/unicode encoding, whitespace/comment insertion. The runtime token stream is identical — the change is only in how the source spells the same literal.',
+    'Lexical rewrites: constant-string concatenation split, hex/unicode encoding, whitespace/comment insertion, and an inert delimiter-lexed literal bound above the payload. The payload spells the same program either way — the change is in how the source is lexed, not in what runs (the one added binding is unused and unobservable).',
   'name-resolution':
     'Name-resolution detours: import aliases, local rebinding, dynamic attribute access (getattr / bracket / send / variable functions). The same object or function is resolved under a different name. D2 folds the inner constant but not the resolved call edge — this is the taint layer’s job (Rice’s wall).',
   structural:
