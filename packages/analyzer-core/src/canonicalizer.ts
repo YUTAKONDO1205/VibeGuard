@@ -143,6 +143,25 @@ interface LanguageProfile {
    * MySQL requires the space, so `a--b` is `a - (-b)`, executable arithmetic.
    */
   readonly dashDashNeedsSpace: boolean;
+  /**
+   * Languages with `/-/` regular-expression literals, whose interior is
+   * ordinary data rather than code.
+   *
+   * Without this the interior is scanned as code, and a `/` or `*` inside it is
+   * read as the syntax it resembles. A literal holding one then opens a phantom
+   * block comment that runs to the next closer or, far more often, to end of
+   * file - one harmless-looking line at the top of a file silently switches the
+   * canonical pass off for everything below it. `D' >= D` still holds because
+   * the original pass is untouched, so nothing is lost outright; what is lost
+   * is every detection the normalization was supposed to ADD, which is the
+   * entire point of the pre-pass.
+   *
+   * Only `javascript`/`typescript`. Ruby and Perl also have slash-delimited
+   * patterns, but their disambiguation rules are genuinely different (`%r{}`
+   * forms, method-call parsing) and a wrong rule here destroys text. Guessing
+   * at them would be worse than the honest residual of not modelling them.
+   */
+  readonly regexLiteral: boolean;
 }
 
 /**
@@ -170,24 +189,24 @@ interface LanguageProfile {
  * attributes rather than string literals.
  */
 const LANGUAGE_PROFILES: Record<string, LanguageProfile> = {
-  javascript: { blockComment: true, stringDelims: ['"', "'", '`'], foldDelims: ['"', "'"], rawDelims: [], tripleQuote: false, concatOps: ['+'], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false },
-  typescript: { blockComment: true, stringDelims: ['"', "'", '`'], foldDelims: ['"', "'"], rawDelims: [], tripleQuote: false, concatOps: ['+'], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false },
-  java: { blockComment: true, stringDelims: ['"', "'"], foldDelims: ['"'], rawDelims: [], tripleQuote: false, concatOps: ['+'], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false },
-  kotlin: { blockComment: true, stringDelims: ['"', "'"], foldDelims: ['"'], rawDelims: [], tripleQuote: false, concatOps: ['+'], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false },
-  csharp: { blockComment: true, stringDelims: ['"', "'"], foldDelims: ['"'], rawDelims: [], tripleQuote: false, concatOps: ['+'], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false },
-  swift: { blockComment: true, stringDelims: ['"'], foldDelims: ['"'], rawDelims: [], tripleQuote: false, concatOps: ['+'], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false },
-  go: { blockComment: true, stringDelims: ['"', "'", '`'], foldDelims: ['"'], rawDelims: ['`'], tripleQuote: false, concatOps: ['+'], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false },
-  c: { blockComment: true, stringDelims: ['"', "'"], foldDelims: ['"'], rawDelims: [], tripleQuote: false, concatOps: [], adjacencyConcat: true, hashNeedsWordStart: false, dashDashNeedsSpace: false },
-  cpp: { blockComment: true, stringDelims: ['"', "'"], foldDelims: ['"'], rawDelims: [], tripleQuote: false, concatOps: [], adjacencyConcat: true, hashNeedsWordStart: false, dashDashNeedsSpace: false },
-  rust: { blockComment: true, stringDelims: ['"', "'"], foldDelims: ['"'], rawDelims: [], tripleQuote: false, concatOps: [], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false },
-  php: { blockComment: true, stringDelims: ['"', "'"], foldDelims: ['"', "'"], rawDelims: [], tripleQuote: false, concatOps: ['.'], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false },
-  python: { blockComment: false, stringDelims: ['"', "'"], foldDelims: ['"', "'"], rawDelims: [], tripleQuote: true, concatOps: ['+'], adjacencyConcat: true, hashNeedsWordStart: false, dashDashNeedsSpace: false },
-  ruby: { blockComment: false, stringDelims: ['"', "'"], foldDelims: ['"', "'"], rawDelims: [], tripleQuote: false, concatOps: ['+'], adjacencyConcat: true, hashNeedsWordStart: false, dashDashNeedsSpace: false },
-  shell: { blockComment: false, stringDelims: ['"', "'"], foldDelims: ['"', "'"], rawDelims: [], tripleQuote: false, concatOps: [], adjacencyConcat: false, hashNeedsWordStart: true, dashDashNeedsSpace: false },
-  yaml: { blockComment: false, stringDelims: ['"', "'"], foldDelims: ['"', "'"], rawDelims: [], tripleQuote: false, concatOps: [], adjacencyConcat: false, hashNeedsWordStart: true, dashDashNeedsSpace: false },
-  toml: { blockComment: false, stringDelims: ['"', "'"], foldDelims: ['"', "'"], rawDelims: [], tripleQuote: false, concatOps: [], adjacencyConcat: false, hashNeedsWordStart: true, dashDashNeedsSpace: false },
-  sql: { blockComment: true, stringDelims: ["'", '"'], foldDelims: ["'"], rawDelims: [], tripleQuote: false, concatOps: [], adjacencyConcat: false, hashNeedsWordStart: true, dashDashNeedsSpace: true },
-  json: { blockComment: true, stringDelims: ['"'], foldDelims: ['"'], rawDelims: [], tripleQuote: false, concatOps: [], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false },
+  javascript: { blockComment: true, stringDelims: ['"', "'", '`'], foldDelims: ['"', "'"], rawDelims: [], tripleQuote: false, concatOps: ['+'], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false, regexLiteral: true },
+  typescript: { blockComment: true, stringDelims: ['"', "'", '`'], foldDelims: ['"', "'"], rawDelims: [], tripleQuote: false, concatOps: ['+'], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false, regexLiteral: true },
+  java: { blockComment: true, stringDelims: ['"', "'"], foldDelims: ['"'], rawDelims: [], tripleQuote: false, concatOps: ['+'], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false, regexLiteral: false },
+  kotlin: { blockComment: true, stringDelims: ['"', "'"], foldDelims: ['"'], rawDelims: [], tripleQuote: false, concatOps: ['+'], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false, regexLiteral: false },
+  csharp: { blockComment: true, stringDelims: ['"', "'"], foldDelims: ['"'], rawDelims: [], tripleQuote: false, concatOps: ['+'], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false, regexLiteral: false },
+  swift: { blockComment: true, stringDelims: ['"'], foldDelims: ['"'], rawDelims: [], tripleQuote: false, concatOps: ['+'], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false, regexLiteral: false },
+  go: { blockComment: true, stringDelims: ['"', "'", '`'], foldDelims: ['"'], rawDelims: ['`'], tripleQuote: false, concatOps: ['+'], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false, regexLiteral: false },
+  c: { blockComment: true, stringDelims: ['"', "'"], foldDelims: ['"'], rawDelims: [], tripleQuote: false, concatOps: [], adjacencyConcat: true, hashNeedsWordStart: false, dashDashNeedsSpace: false, regexLiteral: false },
+  cpp: { blockComment: true, stringDelims: ['"', "'"], foldDelims: ['"'], rawDelims: [], tripleQuote: false, concatOps: [], adjacencyConcat: true, hashNeedsWordStart: false, dashDashNeedsSpace: false, regexLiteral: false },
+  rust: { blockComment: true, stringDelims: ['"', "'"], foldDelims: ['"'], rawDelims: [], tripleQuote: false, concatOps: [], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false, regexLiteral: false },
+  php: { blockComment: true, stringDelims: ['"', "'"], foldDelims: ['"', "'"], rawDelims: [], tripleQuote: false, concatOps: ['.'], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false, regexLiteral: false },
+  python: { blockComment: false, stringDelims: ['"', "'"], foldDelims: ['"', "'"], rawDelims: [], tripleQuote: true, concatOps: ['+'], adjacencyConcat: true, hashNeedsWordStart: false, dashDashNeedsSpace: false, regexLiteral: false },
+  ruby: { blockComment: false, stringDelims: ['"', "'"], foldDelims: ['"', "'"], rawDelims: [], tripleQuote: false, concatOps: ['+'], adjacencyConcat: true, hashNeedsWordStart: false, dashDashNeedsSpace: false, regexLiteral: false },
+  shell: { blockComment: false, stringDelims: ['"', "'"], foldDelims: ['"', "'"], rawDelims: [], tripleQuote: false, concatOps: [], adjacencyConcat: false, hashNeedsWordStart: true, dashDashNeedsSpace: false, regexLiteral: false },
+  yaml: { blockComment: false, stringDelims: ['"', "'"], foldDelims: ['"', "'"], rawDelims: [], tripleQuote: false, concatOps: [], adjacencyConcat: false, hashNeedsWordStart: true, dashDashNeedsSpace: false, regexLiteral: false },
+  toml: { blockComment: false, stringDelims: ['"', "'"], foldDelims: ['"', "'"], rawDelims: [], tripleQuote: false, concatOps: [], adjacencyConcat: false, hashNeedsWordStart: true, dashDashNeedsSpace: false, regexLiteral: false },
+  sql: { blockComment: true, stringDelims: ["'", '"'], foldDelims: ["'"], rawDelims: [], tripleQuote: false, concatOps: [], adjacencyConcat: false, hashNeedsWordStart: true, dashDashNeedsSpace: true, regexLiteral: false },
+  json: { blockComment: true, stringDelims: ['"'], foldDelims: ['"'], rawDelims: [], tripleQuote: false, concatOps: [], adjacencyConcat: false, hashNeedsWordStart: false, dashDashNeedsSpace: false, regexLiteral: false },
 };
 
 /**
@@ -230,6 +249,71 @@ const ZERO_STATS: CanonicalizeStats = { commentsBlanked: 0, whitespaceMapped: 0,
 
 function isIdentChar(ch: string | undefined): boolean {
   return ch != null && /[A-Za-z0-9_$]/.test(ch);
+}
+
+/**
+ * Words after which a `/` opens a regular expression rather than dividing.
+ *
+ * Needed because the preceding-token test below is otherwise character-based:
+ * `return /x/` and `total /x/` end in the same character class, and only the
+ * word tells them apart. Leaving a word OUT of this set costs a missed regex,
+ * which degrades to the behaviour that existed before literals were modelled at
+ * all; putting a wrong one IN would start a regex scan inside arithmetic.
+ */
+const REGEX_ALLOWED_AFTER_WORD = new Set([
+  'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'do',
+  'else', 'yield', 'await', 'case', 'throw',
+]);
+
+/**
+ * End of the regular-expression literal opening at `start`, or `-1` if what
+ * starts there is not one after all.
+ *
+ * `-1` is the SAFE answer and every uncertain path returns it: the caller then
+ * advances a single character, which is exactly what it did before literals
+ * were modelled. A wrong `-1` costs one unrecognized regex; a wrong end offset
+ * would skip over live code.
+ *
+ * The character class is tracked because `/` does not terminate a literal
+ * inside one, which is the compact form of this evasion and needs no backslash.
+ * A newline ends the scan unconditionally: JavaScript regex literals cannot
+ * span lines, so anything reaching one was a division after all, and bounding
+ * the misread to a single line is what makes it cheap.
+ */
+function scanRegexLiteral(content: string, start: number): number {
+  const n = content.length;
+  // `//` and `/*` are comment openers, decided before this is ever called, and
+  // neither is a legal way to begin a regex (a bare `*` has nothing to repeat).
+  const first = content[start + 1];
+  if (first == null || first === '/' || first === '*') return -1;
+
+  let k = start + 1;
+  let inClass = false;
+  while (k < n) {
+    const c = content[k]!;
+    if (c === '\n' || c === '\r') return -1;
+    if (c === '\\') {
+      k += 2;
+      continue;
+    }
+    if (inClass) {
+      if (c === ']') inClass = false;
+      k += 1;
+      continue;
+    }
+    if (c === '[') {
+      inClass = true;
+      k += 1;
+      continue;
+    }
+    if (c === '/') {
+      k += 1;
+      while (k < n && /[a-z]/i.test(content[k]!)) k += 1;
+      return k;
+    }
+    k += 1;
+  }
+  return -1;
 }
 
 /**
@@ -307,6 +391,18 @@ export function canonicalize(content: string, language: string | undefined): Can
   let i = 0;
   let line = 1;
   const n = content.length;
+  /**
+   * Whether the last significant token was a VALUE (identifier, number,
+   * string, regex, or a closing bracket). A `/` after a value divides; a `/`
+   * anywhere else opens a regular expression. Comments and whitespace are not
+   * tokens and leave it alone, which is why this is threaded through the loop
+   * rather than derived from `content[i - 1]`.
+   *
+   * `}` counts as a value even though it ends a block as often as an object
+   * literal. That is the safe side of the ambiguity: it prefers division, and
+   * preferring division only ever costs an unrecognized regex.
+   */
+  let prevIsValue = false;
 
   while (i < n) {
     const ch = content[i]!;
@@ -327,6 +423,7 @@ export function canonicalize(content: string, language: string | undefined): Can
       const stop = close === -1 ? n : close + 3;
       for (let k = i; k < stop; k++) if (content[k] === '\n') line += 1;
       i = stop;
+      prevIsValue = true;
       continue;
     }
 
@@ -349,6 +446,35 @@ export function canonicalize(content: string, language: string | undefined): Can
       if (stop === -1) stop = n;
       blank(i, stop);
       i = stop;
+      continue;
+    }
+
+    // AFTER both comment branches, never before. A legal regex literal cannot
+    // begin `/*` or `//`, so nothing here is reachable for real comment syntax
+    // - whereas putting it first would read the comment in `x = 1; /* c */` as
+    // a regex (it ends on the closer's slash) and stop blanking genuine
+    // comments, a worse regression than the bug being fixed.
+    if (profile.regexLiteral && ch === '/' && !prevIsValue) {
+      const end = scanRegexLiteral(content, i);
+      if (end !== -1) {
+        // Left verbatim, not blanked. The interior is data the rules are
+        // entitled to see, and skipping it costs nothing: length and newline
+        // offsets are preserved trivially, and a second pass takes the same
+        // branch, so idempotence holds by doing nothing at all.
+        i = end;
+        prevIsValue = true;
+        continue;
+      }
+    }
+
+    // Identifiers are consumed whole so the WORD before a `/` can be tested,
+    // not just its last character. The guard on the preceding character keeps
+    // the tail of a longer identifier from being mistaken for a keyword.
+    if (isIdentChar(ch) && !isIdentChar(content[i - 1])) {
+      let k = i;
+      while (k < n && isIdentChar(content[k])) k += 1;
+      prevIsValue = !REGEX_ALLOWED_AFTER_WORD.has(content.slice(i, k));
+      i = k;
       continue;
     }
 
@@ -395,6 +521,7 @@ export function canonicalize(content: string, language: string | undefined): Can
         });
       }
       i = end;
+      prevIsValue = true;
       continue;
     }
 
@@ -402,6 +529,11 @@ export function canonicalize(content: string, language: string | undefined): Can
       out[i] = ' ';
       stats.whitespaceMapped += 1;
     }
+    // Whitespace is not a token and must not clear the flag: a slash on the
+    // line after `a` still divides, and it is the `a` that says so. Everything
+    // else reaching here is punctuation or an operator, after which a `/`
+    // starts a regex - except the closing brackets, which end a value.
+    if (!/\s/.test(ch)) prevIsValue = ch === ')' || ch === ']' || ch === '}';
     i += 1;
   }
 

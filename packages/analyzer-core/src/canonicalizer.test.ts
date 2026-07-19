@@ -322,3 +322,69 @@ describe('canonicalize — op (3) constant-only folding', () => {
     }
   });
 });
+
+describe('canonicalize — regex literals are code, not comment openers', () => {
+  // The evasion this closes: a `/` or `*` inside a regex literal used to be read
+  // as the syntax it resembles, so one regex near the top of a file opened a
+  // phantom block comment that blanked everything after it. The canonical pass
+  // then found nothing, and every detection it was supposed to ADD was lost for
+  // the rest of the file — from a single harmless-looking line.
+  const payload = 'const k = "AKIA" + "IOSFODNN7EXAMPLE";';
+
+  it.each([
+    ['a slash inside the pattern', 'const re = /a/*b/;'],
+    ['a slash inside a character class', 'const re = /[/*]/;'],
+    ['an escaped slash', 'const re = /a\/*b/;'],
+    ['flags after the closing slash', 'const re = /x/gi;'],
+    ['a regex after return', 'function f() { return /x/g; }'],
+    ['a regex holding a quote', "const re = /don't/;"],
+  ])('does not let %s disable the pass for the rest of the file', (_label, prefix) => {
+    const src = `${prefix}\n${payload}`;
+    const canonical = canonicalize(src, 'javascript').content;
+    // The folding op is the observable proof the scanner is still running: the
+    // split literal below the regex must still fold.
+    expect(canonical).toContain('"AKIAIOSFODNN7EXAMPLE"');
+  });
+
+  it('still blanks a genuine block comment that follows a value', () => {
+    // The ordering guard. A regex branch placed BEFORE the comment branch reads
+    // `/* c */` as a regex terminating on the closer's slash, and real comments
+    // stop being removed — a worse regression than the bug being fixed.
+    const canonical = canonicalize('const x = 1; /* eval(s) */', 'javascript').content;
+    expect(canonical).toBe(`const x = 1;${' '.repeat(14)}`);
+  });
+
+  it.each([
+    ['identifiers', 'const q = a / b / c;'],
+    ['numbers', 'const q = 10/2/5;'],
+    ['a closing paren', 'const q = f(1) / g(2) / 3;'],
+    ['a closing bracket', 'const q = xs[0] / ys[1] / 2;'],
+  ])('reads a slash after %s as division and leaves the line alone', (_label, src) => {
+    // A division misread as a regex would swallow to the next slash. Nothing on
+    // these lines may be rewritten.
+    expect(canonicalize(`${src}\n${payload}`, 'javascript').content).toContain(src);
+  });
+
+  it('treats an unterminated regex as division rather than running to end of file', () => {
+    // JS regex literals cannot span lines, so hitting a newline proves the `/`
+    // was a division. Bounding the misread to one line is what makes it cheap.
+    const canonical = canonicalize(`const q = (a) / b;\n${payload}`, 'javascript').content;
+    expect(canonical).toContain('"AKIAIOSFODNN7EXAMPLE"');
+  });
+
+  it('leaves the regex interior byte-identical', () => {
+    // Blanking it would be the destructive direction: the interior is data a
+    // rule is entitled to match on. Skipping costs nothing and keeps length,
+    // newline offsets and idempotence trivially true.
+    const src = 'const re = /\thttp:\/\/x/;';
+    expect(canonicalize(src, 'javascript').content).toBe(src);
+  });
+
+  it('does not model regex literals in languages whose rules differ', () => {
+    // Ruby and Perl also have `/…/`, but `%r{}` forms and method-call parsing
+    // make the disambiguation genuinely different. An honest residual beats a
+    // wrong rule that destroys text.
+    const src = 'x = /a/*b/';
+    expect(canonicalize(src, 'ruby').content).toBe(src);
+  });
+});
