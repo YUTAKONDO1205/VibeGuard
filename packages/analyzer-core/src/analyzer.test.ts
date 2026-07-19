@@ -194,6 +194,45 @@ const apiKey = "AKIAIOSFODNN7EXAMPLE";
     expect(scan(req).ruleErrors).toBeUndefined();
   });
 
+  // A throw during finding CONSTRUCTION (not inside match()) — e.g. maskSecret on
+  // a contract-violating null evidence — used to escape the match()-level guard
+  // and kill the whole scan. On the canonical pass that would let the true arm
+  // lose findings the false arm keeps, breaking the `D′(x) ⊇ D(x)` union
+  // guarantee canonicalizer.ts claims by construction. It must land in
+  // ruleErrors like any other crash, and healthy rules must still report.
+  it('records a finding-construction throw in ruleErrors without killing the scan', () => {
+    const nullEvidence: RuleDefinition = {
+      ruleId: 'VG-TEST-NULLEV',
+      name: 'null-evidence',
+      description: 'returns a match whose evidence violates the string contract',
+      languages: ['*'],
+      category: 'secrets', // masked category, so maskSecret runs on the evidence
+      severity: 'high',
+      defaultConfidence: 'high',
+      match: () => [
+        { startLine: 1, endLine: 1, startColumn: 1, endColumn: 1, evidence: null as unknown as string },
+      ],
+    };
+    const ok: RuleDefinition = {
+      ruleId: 'VG-TEST-OK',
+      name: 'ok',
+      description: 'always matches',
+      languages: ['*'],
+      category: 'quality',
+      severity: 'high',
+      defaultConfidence: 'high',
+      match: () => [{ startLine: 1, endLine: 1, startColumn: 1, endColumn: 1, evidence: 'x' }],
+    };
+    const req: ScanRequest = { targetType: 'snippet', content: 'anything', mode: 'standard' };
+    const r = scan(req, { rules: [nullEvidence, ok] });
+    // The scan did not throw, and the healthy rule still reported.
+    expect(r.findings.map((f) => f.ruleId)).toContain('VG-TEST-OK');
+    // The construction crash is observable, not a scan-killing escape.
+    expect(r.ruleErrors).toEqual([
+      { ruleId: 'VG-TEST-NULLEV', message: expect.stringContaining('null') },
+    ]);
+  });
+
   // --- Context-window confidence (paper item ①) ---------------------------
 
   it('does not down-rank a high-severity DEBUG=True in a docstring (severity gate)', () => {

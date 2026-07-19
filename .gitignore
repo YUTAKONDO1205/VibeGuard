@@ -75,6 +75,10 @@ docs/実装順.md
 # 同じ扱いにする。公開リポジトリに出さない。
 docs/実装順解説.md
 
+# VibeGuard 物理ドック（SecHack365 作品トラック）の設計書。未着手の構想段階で、
+# 実装順.md と同じ計画文書の系統。公開リポジトリに出さない。
+docs/VibeGuard_物理ドック設計書.md
+
 # Security red-team research workspace (local-only; kept out of the public
 # service repo until mitigations + write-up ship — see the folder's scope doc)
 security-experiment/

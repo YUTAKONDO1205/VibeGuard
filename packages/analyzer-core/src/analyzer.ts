@@ -231,10 +231,6 @@ export class Analyzer {
       let matches;
       try {
         matches = rule.match(ctx);
-        // Inside the same try/catch on purpose: a rule that throws only on the
-        // canonical text must land in `ruleErrors` like any other rule crash,
-        // not escape and kill the scan.
-        if (canonicalCtx) matches = mergeCanonicalMatches(matches, rule.match(canonicalCtx));
       } catch (err) {
         // A broken rule should never crash the scan; skip it and continue. But
         // skipping silently drops every finding it would have produced, so record
@@ -248,8 +244,36 @@ export class Analyzer {
         });
         continue;
       }
+      // The canonical pass runs in its OWN try/catch, NOT folded into the one
+      // above. A rule that throws only on the normalized text must not discard
+      // the matches the original pass already produced: an earlier version
+      // shared one try, so a canonical-only crash dropped the whole rule and the
+      // true arm could report FEWER findings than the false arm — a direct
+      // counterexample to the union guarantee `D′(x) ⊇ D(x)` that canonicalizer.ts
+      // claims by construction. Record the crash like any other, but keep the
+      // base matches so the guarantee holds even when a rule is canonical-hostile.
+      if (canonicalCtx) {
+        try {
+          matches = mergeCanonicalMatches(matches, rule.match(canonicalCtx));
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error(`[vibeguard] rule ${rule.ruleId} threw on canonical text:`, err);
+          ruleErrors.push({
+            ruleId: rule.ruleId,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
       const includeRemediation = request.includeRemediation !== false;
       for (const m of matches) {
+       // Building a finding from a match can throw independently of the rule's
+       // own match() — maskSecret on a contract-violating null evidence, say. If
+       // that escaped, a CANONICAL-only match failing here would take down the
+       // whole scan while the false arm (which never saw that match) completes,
+       // so the true arm would report FEWER findings — the exact `D′(x) ⊇ D(x)`
+       // break the match()-level guard above already closes. Same treatment:
+       // record it in `ruleErrors` and skip just this match, never the scan.
+       try {
         if (isSuppressed(suppressions, rule.ruleId, m.startLine)) continue;
         const rawSnippet = extractSnippet(ctx.lines, m.startLine, m.endLine, 0);
         const snippet = shouldMaskCategory(rule.category) ? maskSecret(rawSnippet) : rawSnippet;
@@ -309,6 +333,14 @@ export class Analyzer {
           sourceEngine: 'core-rule',
           tags: rule.tags,
         });
+       } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error(`[vibeguard] rule ${rule.ruleId} threw building a finding:`, err);
+        ruleErrors.push({
+          ruleId: rule.ruleId,
+          message: err instanceof Error ? err.message : String(err),
+        });
+       }
       }
     }
 
