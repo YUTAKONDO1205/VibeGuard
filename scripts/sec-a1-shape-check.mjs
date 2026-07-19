@@ -1,3 +1,10 @@
+// vibeguard:disable-file VG-AUTH-001 VG-INJ-007
+// The fixtures below are deliberately vulnerable snippets — `if (DEBUG) { return
+// true; }`, `os.path.join(root, user_input)` — because their whole purpose is to
+// be matched by the rules under test. VibeGuard flags them correctly; the
+// self-scan gate would otherwise fail on its own test data. Same treatment as
+// packages/rules/src/rules/*.ts, which disable the rules they define fixtures for.
+//
 // A1 — joint check: does a rewrite keep REAL multi-line code shapes matching,
 // AND stay linear?
 //
