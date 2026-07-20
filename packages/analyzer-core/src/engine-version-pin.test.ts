@@ -62,6 +62,15 @@
 //      changes it covers. Do not edit the existing "stays at 0.1.0" entry: past
 //      entries are a record of what shipped, and rewriting them would erase the
 //      evidence that the hold was a decision.
+//   5. `packages/sarif-adapter/src/index.ts` — the literal in
+//      `options.toolVersion ?? scan.engineVersions.core ?? '<version>'`. This one
+//      is NOT asserted below, because it is a fallback for a response that has no
+//      engine version at all, and reaching it from a test would mean constructing
+//      a `ScanResponse` this package never emits. It is listed here because an
+//      unasserted literal is exactly the kind that drifts: it went one release
+//      stale before anyone noticed.
+//   6. `docs/DESIGN.ja.md` — the sample response in the interface section quotes
+//      `"core"`. Also unasserted; also easy to miss.
 //
 // If the bump was NOT intentional, revert it. The tool version (`package.json`,
 // CLI `--version`, SARIF `tool.version`) is the separate axis that moves on every

@@ -21,6 +21,13 @@ jobs:
 
       - run: npm ci
 
+      # Before the build, because this catches the class of breakage that only
+      # shows up at `vsce package` time — i.e. on a release tag, weeks after the
+      # commit that caused it. Cheap, no build required, and it fails with the
+      # fix spelled out rather than with a packaging error.
+      - name: Check packaging invariants
+        run: node scripts/check-packaging-invariants.mjs
+
       - run: npm run build
 
       - run: npm test
