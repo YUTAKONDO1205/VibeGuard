@@ -281,6 +281,20 @@ function formatFindingMarkdown(f: Finding): string {
     : `\`<inline>:${f.startLine ?? '?'}\``;
   out.push(`- ${location}`);
   out.push(`- _confidence_: ${f.confidence}`);
+  // Same reasoning as the human renderer: the PR comment is where a team first
+  // meets this, so it has to carry the migration rather than the surprise.
+  if (f.suppressionOverridden) {
+    const o = f.suppressionOverridden;
+    const where =
+      o.channel === 'config'
+        ? 'a wildcard `suppress` entry in the config (no `rules` listed)'
+        : `a wildcard \`vibeguard:disable-${o.scope === 'line' ? 'line' : 'file'}\` with no rule IDs`;
+    out.push(
+      `- ⚠️ _suppression refused_: ${where} does not apply to ${f.severity} findings. ` +
+        `To accept this one, name it: \`vibeguard:disable-next-line ${f.ruleId}\`` +
+        (o.channel === 'config' ? ` (or add \`${f.ruleId}\` to the entry's \`rules\`).` : '.'),
+    );
+  }
   if (f.remediation) {
     out.push(`- _why_: ${f.remediation.why}`);
     out.push(`- _fix_: ${f.remediation.how}`);
@@ -304,6 +318,27 @@ function formatFinding(f: Finding, useColor: boolean): string {
   const conf = colorise(`(confidence: ${f.confidence})`, DIM, useColor);
 
   const out: string[] = [`${sev}  ${title}  ${ruleId} ${conf}`, `  at ${location}`];
+  // A finding that is here BECAUSE a suppression was refused needs to say so.
+  // Without this the upgrade reads as a false positive appearing from nowhere:
+  // the wildcard is still sitting in the file, visibly "handling" it, and the
+  // finding is back anyway. Naming the rule is the whole migration, so the
+  // message is the fix rather than a pointer to docs that explain the fix.
+  if (f.suppressionOverridden) {
+    const o = f.suppressionOverridden;
+    const where =
+      o.channel === 'config'
+        ? 'a wildcard `suppress` entry in the config (no `rules` listed)'
+        : `a wildcard \`vibeguard:disable-${o.scope === 'line' ? 'line' : 'file'}\` with no rule IDs`;
+    out.push(
+      colorise('  note: ', BOLD, useColor) +
+        `${where} does not apply to ${f.severity} findings.`,
+    );
+    out.push(
+      colorise('        ', DIM, useColor) +
+        `To accept this one, name it: \`vibeguard:disable-next-line ${f.ruleId}\`` +
+        (o.channel === 'config' ? ` (or add "${f.ruleId}" to the entry's \`rules\`).` : '.'),
+    );
+  }
   if (f.snippet) {
     const snippetLines = f.snippet.split('\n').slice(0, 3);
     out.push(...snippetLines.map((l) => colorise(`    | ${l}`, DIM, useColor)));

@@ -11,7 +11,14 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      # Full versions only. The moving major tag `v0`, which the composite action
+      # tells consumers to reference, gets force-pushed to the newest release
+      # after every publish — and under a bare `v*` that re-entered this workflow
+      # and failed the "CLI version matches tag" check, because `0` is not
+      # `0.2.0`. A red run that means "the tag was repointed successfully" is
+      # worse than no run: it trains people to ignore release failures.
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'  # prereleases: v1.0.0-rc.1
   workflow_dispatch:
 
 permissions:

@@ -157,3 +157,46 @@ describe('suppression tally rendering (D8)', () => {
     }
   });
 });
+
+// A finding that came back BECAUSE a wildcard suppression was refused is the
+// one thing an upgrading project sees first, and without an explanation it reads
+// as a false positive appearing from nowhere — the wildcard is still in the file,
+// visibly handling it, and the finding is there anyway. The message has to carry
+// the migration, because naming the rule IS the migration.
+describe('refused suppressions explain themselves', () => {
+  const overridden = (channel: 'pragma' | 'config', scope: 'file' | 'line' | 'path'): Finding =>
+    finding({
+      ruleId: 'VG-INJ-004',
+      severity: 'critical',
+      suppressionOverridden: { channel, scope },
+    });
+
+  it('names the rule to write, for a pragma wildcard', () => {
+    const out = formatHuman(scan([overridden('pragma', 'file')]), false);
+    expect(out).toContain('vibeguard:disable-file');
+    expect(out).toContain('does not apply to critical findings');
+    expect(out).toContain('vibeguard:disable-next-line VG-INJ-004');
+  });
+
+  it('points at the config entry, for a config wildcard', () => {
+    const out = formatHuman(scan([overridden('config', 'path')]), false);
+    expect(out).toContain('`suppress` entry in the config');
+    // The config channel has its own fix, and offering only the pragma form
+    // would send people to edit the wrong file.
+    expect(out).toContain("add \"VG-INJ-004\" to the entry's `rules`");
+  });
+
+  it('carries the same guidance into markdown, where a PR comment shows it', () => {
+    const out = formatMarkdown(scan([overridden('pragma', 'line')]));
+    expect(out).toContain('_suppression refused_');
+    expect(out).toContain('vibeguard:disable-next-line VG-INJ-004');
+  });
+
+  it('says nothing for an ordinary finding', () => {
+    // The note is keyed to the marker, not to severity: a critical that nobody
+    // tried to suppress must not be told how to suppress it.
+    const out = formatHuman(scan([finding({ severity: 'critical' })]), false);
+    expect(out).not.toContain('does not apply to');
+    expect(out).not.toContain('disable-next-line');
+  });
+});
