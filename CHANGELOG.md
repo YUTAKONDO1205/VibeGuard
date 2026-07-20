@@ -1,3 +1,4 @@
+<!-- vibeguard:disable-file VG-SEC-001 -->
 # Changelog
 
 All notable changes to VibeGuard across CLI / GitHub Action / VS Code extension /
@@ -8,6 +9,74 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+### Changed (breaking)
+- **A blanket suppression can no longer silence a `critical`, `high`, or
+  `medium` finding.** A `vibeguard:disable-line` / `disable-next-line` /
+  `disable-file` pragma that lists no rule IDs, and a `.vibeguardrc.json`
+  `suppress` entry that omits `rules`, are both wildcards, and a wildcard is now
+  a *utility* mechanism only: it keeps full authority over `low` and `info` and
+  loses it over the severities that carry a security judgement. This closes a
+  self-defence gap in which one comment anywhere in a file removed every finding
+  in it — the same "utility must not overrule security" principle already
+  enforced on the confidence axis, applied at the suppression enforcement point
+  and derived from the same shared predicate.
+
+  Naming the rule ID remains the escape hatch, at every severity, on both
+  channels: `// vibeguard:disable-file VG-INJ-004` still works exactly as
+  before, as does `"rules": ["VG-INJ-004"]` in the config. There is no flag or
+  override to restore the blanket behaviour — a suppression that has to be
+  written down as a specific rule is a reviewable statement, which is the point.
+  `until=` and `expires` are unaffected: they decide whether an entry exists,
+  not what it may cover, so an unexpired blanket entry is still a blanket entry.
+
+  **Migration:** replace bare `disable-*` pragmas and `rules`-less config
+  entries with explicit rule ID lists. Run a scan first — every finding whose
+  suppression was refused is reported with a `suppressionOverridden` marker
+  naming the channel and scope, so the scan output *is* the migration list.
+  Every such pragma inside this repository has already been rewritten.
+
+### Added
+- **Refused suppressions are recorded rather than dropped silently.** `Finding`
+  gains an optional `suppressionOverridden: { channel, scope, reason? }`. It is
+  present only when a wildcard suppression matched a finding and the severity
+  gate refused it — `channel` is `pragma` or `config`, `scope` is `file`,
+  `line`, or `path`, and `reason` carries the refused entry's `reason=` text
+  when it had one. Absence of the key is the contract for "nothing tried to
+  suppress this", matching how `confidenceAudit` behaves.
+
+- **Hitting the per-file match limit is reported for security findings.**
+  `ScanDegradation` gains a third `kind`, `match-limit`. A rule stops after
+  1000 matches in one file, and until now it stopped in complete silence: a file
+  with 1500 `eval` calls returned exactly 1000 `critical` findings, an empty
+  `degradations` array, and no way to tell that 500 more had been discarded — a
+  truncated scan that read as a finished one. The cap is **not** raised or
+  removed; it is what bounds an availability attack against the scanner. Only
+  its effect is now visible, and only where it matters: `critical`, `high`, and
+  `medium` rules report the truncation, while `low` and `info` keep the previous
+  silence, since quality rules reach this cap routinely and reporting them would
+  bury the signal. The split uses the same shared severity predicate as the
+  suppression gate above.
+
+  The report is aggregated to one entry per (file, rule) — never one per lost
+  finding — so no crafted file can flood the channel. It states how many matches
+  *were* reported and deliberately does not state how many were lost: matching
+  stops at the cap, so the excess is never counted and any number would be
+  invented. **Exit codes are unaffected**: `--fail-on` looks only at findings, so
+  a `match-limit` degradation appears in the output without failing CI.
+
+- **Decision: `ENGINE_VERSION` stays at `0.1.0` for this release.** Both changes
+  above alter engine behaviour — a suppression that used to drop a finding may
+  now keep it, and a new `degradations` kind can appear — so on their own each
+  would justify a bump. It is deliberately not taken. `ENGINE_VERSION` is
+  already behind by the confidence-layer severity gate, and the project's
+  standing policy (recorded in `analyzer.ts` beside the constant and in
+  `docs/EVALUATION.md`) is to hold the field until the engine is frozen and then
+  bump once, so that a single version number denotes one settled engine rather
+  than a sequence of partial states. Until then the field cannot be used to tell
+  these engines apart; the `paper-ses-v0.1.3` tag is the sound baseline for any
+  before/after comparison. Recording it here so the hold is a decision on the
+  record and not an omission.
 
 ### Security
 - **Rule patterns are bounded against catastrophic backtracking (ReDoS).** An
