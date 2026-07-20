@@ -1,0 +1,25 @@
+<!doctype html>
+<!--
+  SEEDED VIOLATION — negative control for sec-a2-egress-scan.mjs. Never executed.
+
+  Scheme obfuscation by numeric character reference. `&#104;` is `h`, so the
+  browser resolves `&#104;ttps://evil.invalid/pixel.gif` to a live https URL and
+  fetches it, while a scanner that reads the attribute value literally sees a
+  string starting with `&` and classifies it as a relative path.
+
+  This is the sharpest edge of discriminating on the URL SCHEME: the check is a
+  literal-string comparison, so anything that breaks the literal while leaving
+  the browser's interpretation intact is a bypass of the audit rather than of the
+  browser. Until 2026-07-20 this file scanned clean.
+
+  The hex form and the `;`-less form are both accepted by browsers, so both are
+  seeded here — a fix that only handled the decimal-with-semicolon spelling would
+  still let the other two through.
+-->
+<html lang="en">
+  <body>
+    <img src="&#104;ttps://evil.invalid/pixel.gif" alt="" />
+    <img src="&#x68;ttps://evil.invalid/hex.gif" alt="" />
+    <img src="&#104ttps://evil.invalid/no-semicolon.gif" alt="" />
+  </body>
+</html>

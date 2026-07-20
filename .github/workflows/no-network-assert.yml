@@ -1,0 +1,257 @@
+name: No-Network Assert (A2)
+
+# Continuous falsification of the PRIVACY.md claim「コードは端末外に出ない」
+# (SCOPE.md §3 A2, contribution C4 — the detector's own attack surface).
+#
+# WHY A SEPARATE WORKFLOW rather than another job in security-scan.yml.
+# security-scan.yml has one subject: VibeGuard scanning *source code* and
+# gating on finding severity (self-scan, samples quality gate, PR diff). Every
+# job there shares that shape. This workflow's subject is the opposite
+# direction — auditing VibeGuard's own *distributables* — and it differs in
+# ways that would make it a poor fit as a fourth job there:
+#   - it must package the release artifacts (npm pack / vsce package / zip),
+#     which none of the scan jobs need and which roughly doubles their runtime;
+#   - it needs a Linux-only runtime capability (network namespaces) that the
+#     scan jobs are indifferent to;
+#   - it needs a `schedule` trigger, because the thing most likely to break the
+#     A2 claim is a dependency gaining a network sink with no commit of ours to
+#     hang a push/PR trigger on. Adding a cron to security-scan.yml would drag
+#     the SARIF upload and PR-comment steps along on every scheduled run.
+# The push/pull_request triggers below are copied from security-scan.yml so the
+# blocking behaviour on `main` stays consistent across security workflows.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    # Mondays 03:17 UTC. Off the hour to dodge the top-of-hour scheduling queue.
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Static leg ─────────────────────────────────────────────────────────────
+  # Build and PACKAGE the three shipped artifacts the way release.yml does, then
+  # AST-scan the packaged bytes for network sinks. Note the ordering: nothing
+  # here reads a committed dist/, so a stale artifact cannot be what passes.
+  #
+  # The scan covers more than those three. `apps/cli/dist` is tsc output rather
+  # than a bundle, so the CLI's real execution closure runs on through
+  # packages/*/dist — which the scanner enumerates as its own targets and which
+  # the closure-completeness check requires to be present. Those package dists
+  # are produced by the `npm run build` step below and are NOT repackaged, so
+  # the build must precede the scan for them to exist at all; a missing one is
+  # a hard failure (`missing directory`), never a silent skip.
+  static-egress-scan:
+    name: AST scan of the shipped execution closure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # Root `npm run build` builds every workspace package (findings-schema,
+      # rules, remediation-engine, sarif-adapter, analyzer-core) before the apps
+      # and extensions. That ordering is what makes packages/*/dist exist for
+      # the scan below; the scanner's closure-completeness check fails loudly if
+      # any of them is absent, so a build that silently stops short cannot be
+      # mistaken for a clean audit.
+      - run: npm run build
+
+      # Negative control FIRST. If the detector is broken, we want the job to
+      # fail here — with a message that says the detector is broken — rather
+      # than to sail through the real scan reporting a meaningless zero.
+      # A green static scan below is only meaningful because this step passed.
+      - name: Negative control — seeded violations must be detected
+        run: |
+          mkdir -p artifacts
+          node scripts/sec-a2-egress-scan.mjs --mode control --out artifacts/a2-control.json
+
+      # Same commands as release.yml's packaging steps, so what we audit is
+      # what we publish. If release.yml's packaging changes, change it here too.
+      - name: Pack CLI tarball (release.yml parity)
+        run: |
+          mkdir -p artifacts
+          npm pack --workspace @vibeguard/cli --pack-destination artifacts
+          mkdir -p extract/cli
+          tar -xzf artifacts/vibeguard-cli-*.tgz -C extract/cli
+
+      - name: Package VSIX (release.yml parity)
+        working-directory: extensions/vscode
+        run: npx vsce package --no-dependencies
+
+      - name: Unpack VSIX
+        run: |
+          mkdir -p extract/vscode
+          unzip -q extensions/vscode/*.vsix -d extract/vscode
+          # A .vsix is a zip whose payload lives under extension/. If that
+          # layout ever changes the scanner's minFiles guard catches it.
+          ls -la extract/vscode/extension
+
+      - name: Package + unpack Chrome zip (release.yml parity)
+        run: |
+          (cd extensions/chrome/dist && zip -qr "$GITHUB_WORKSPACE/artifacts/chrome.zip" .)
+          mkdir -p extract/chrome
+          unzip -q artifacts/chrome.zip -d extract/chrome
+
+      # The real assertion, in ONE invocation so the uploaded report is
+      # complete. `--mode all` covers: zero network sinks across the three
+      # packaged artifacts AND the workspace packages the CLI actually loads at
+      # runtime, the scanned-file-count floor that makes "found nothing" mean
+      # something, the Chrome manifest permission lock, the production
+      # dependency allowlist — which closes the "a dependency brings in a sink
+      # later" false negative, since the AST scan only sees code we wrote plus
+      # code esbuild inlined, not a package the user's `npm i` resolves fresh at
+      # install time — and the closure-completeness check that forbids those two
+      # from drifting apart, i.e. forbids a package being trusted by name while
+      # no target ever reads it.
+      #
+      # Only the three shipped artifacts get a --*-dir override, because only
+      # they are repackaged. The workspace packages are scanned in the build
+      # tree: the CLI tarball does not vendor them and `npm i` fetches them from
+      # the registry, so there is no packaged copy on this runner to point at.
+      # Same commit, same tsc run, same job — but stated rather than glossed.
+      #
+      # The control re-runs as part of `all`; that is deliberate duplication.
+      # The standalone step above exists purely for failure ORDERING, so a
+      # broken detector reports itself before anything claims a clean bill of
+      # health. Re-running it costs milliseconds.
+      - name: Assert zero network sinks in packaged artifacts
+        run: |
+          set -o pipefail
+          node scripts/sec-a2-egress-scan.mjs \
+            --mode all \
+            --cli-dir extract/cli/package \
+            --vscode-dir extract/vscode/extension \
+            --chrome-dir extract/chrome \
+            --out artifacts/a2-egress-scan.json \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: a2-egress-scan
+          path: |
+            artifacts/a2-egress-scan.json
+            artifacts/a2-control.json
+          retention-days: 90
+
+  # ── Dynamic leg ────────────────────────────────────────────────────────────
+  # The strongest falsifiable form of the A2 claim is not "we found no fetch"
+  # but "the tool is functionally complete with no network stack at all". We
+  # strip the network namespace and require BOTH that the CLI still exits 0 and
+  # that it produces byte-identical findings. A tool that phoned home would
+  # either error or degrade; one that does neither cannot have needed the
+  # network.
+  #
+  # Scope, stated honestly: this covers the CLI only. The VS Code extension
+  # host and a Chrome service worker would each need their own harness to drive
+  # under namespace isolation, which is disproportionate for a per-PR gate —
+  # they are covered statically above, and dynamically by the one-off
+  # instrumented experiment recorded in a2-egress/README.md.
+  offline-parity:
+    name: CLI parity with the network removed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run build
+
+      # Which isolation primitive is available is a property of the runner
+      # image, not of our code, so probe rather than assume. Preference order:
+      #   1. `unshare -rn` — unprivileged user+network namespace. Best: no root,
+      #      so nothing in the test runs with elevated rights.
+      #   2. `sudo -n unshare -n` — fallback for images where AppArmor's
+      #      kernel.apparmor_restrict_unprivileged_userns blocks (1). Ubuntu
+      #      24.04 ships that restriction enabled, so (1) is not guaranteed.
+      # If NEITHER works we fail the job. Skipping would leave a green check
+      # whose name claims the network was removed when it was not, which is the
+      # exact vacuous pass this workflow exists to prevent.
+      - name: Select a network-isolation primitive
+        id: iso
+        run: |
+          if unshare -rn true 2>/dev/null; then
+            echo "cmd=unshare -rn" >> "$GITHUB_OUTPUT"
+            echo "Using unprivileged 'unshare -rn'."
+          elif sudo -n unshare -n true 2>/dev/null; then
+            echo "cmd=sudo -n unshare -n" >> "$GITHUB_OUTPUT"
+            echo "Unprivileged userns unavailable; using 'sudo -n unshare -n'."
+          else
+            echo "::error::No network-isolation primitive available on this runner."
+            echo "Neither 'unshare -rn' nor 'sudo -n unshare -n' works, so the offline"
+            echo "parity assertion cannot be made. Failing rather than reporting a"
+            echo "green check for a test that did not run. If the runner image"
+            echo "permanently loses this capability, replace this leg with an"
+            echo "explicit egress-blocking proxy and update a2-egress/README.md."
+            exit 1
+          fi
+
+      # Meta-control for the dynamic leg. If the namespace did not actually
+      # remove the network, the parity comparison below is trivially satisfied
+      # and proves nothing. So first demand that an outbound request FAILS in
+      # there. This is the negative control for the isolation itself.
+      - name: Verify the namespace really has no network
+        run: |
+          set -o pipefail
+          if timeout 60 ${{ steps.iso.outputs.cmd }} node -e "
+            fetch('https://example.com', { signal: AbortSignal.timeout(15000) })
+              .then(() => { console.error('REACHED THE NETWORK'); process.exit(1); })
+              .catch(() => { console.log('outbound request failed as required'); process.exit(0); });
+          "; then
+            echo "Isolation confirmed: outbound requests fail inside the namespace."
+          else
+            echo "::error::The 'isolated' namespace still has network access (or the probe timed out)."
+            echo "The offline-parity assertion would be vacuous, so the job fails here."
+            exit 1
+          fi
+
+      - name: Scan online (baseline)
+        run: |
+          node apps/cli/dist/index.js samples \
+            --mode standard --format json --out online.json --fail-on never
+
+      # (a) must exit 0 with the network gone. `set -e` makes a non-zero exit
+      # from the CLI fail the step, which is the assertion.
+      - name: Scan offline (network namespace removed)
+        run: |
+          ${{ steps.iso.outputs.cmd }} node apps/cli/dist/index.js samples \
+            --mode standard --format json --out offline.json --fail-on never
+          # The sudo fallback runs as root, so the report would be root-owned.
+          sudo -n chown "$(id -u):$(id -g)" offline.json 2>/dev/null || true
+
+      # (b) must produce identical findings. findingId is derived from the
+      # clock (analyzer.ts:63) and is the one field allowed to differ — the
+      # same exemption consistency.test.ts already makes for the cross-channel
+      # comparison.
+      - name: Assert online and offline findings are identical
+        run: |
+          # pipefail is load-bearing: a pipeline's status is the LAST command's,
+          # so `scanner | tee` would report tee's success and turn a genuine
+          # mismatch into a green check.
+          set -o pipefail
+          node scripts/sec-a2-egress-scan.mjs --mode compare \
+            --a online.json --b offline.json | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: a2-offline-parity
+          path: |
+            online.json
+            offline.json
+          retention-days: 90

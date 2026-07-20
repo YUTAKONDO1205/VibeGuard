@@ -1,0 +1,33 @@
+<!doctype html>
+<!-- vibeguard:disable-file VG-CRYPTO-003 reason="SVG xmlns is a plain-http URL by spec, not a transport choice" -->
+<!--
+  SEEDED VIOLATION — negative control for sec-a2-egress-scan.mjs. Never executed.
+
+  The pragma above is belt-and-braces. `security-scan.yml` already passes
+  `--ignore fixtures`, so CI never reads this file; the pragma keeps an ad-hoc
+  `vibeguard scan scripts/` quiet too. It names the rule rather than using a bare
+  wildcard because D5 made anonymous blanket suppression impossible for anything
+  above `low` — this file is the escape hatch working as designed, not around it.
+
+  Inline SVG reaches the network through the SVG 1.1 `xlink:href` attribute, not
+  through `src`. Both `<image>` and `<use>` fetch it, and inline SVG is written
+  directly into HTML — no separate .svg file has to ship for this to be live.
+
+  The scanner's attribute allowlist was built from the HTML vocabulary (`src`,
+  `href`, `poster`, …) and did not carry the SVG spelling, so this file scanned
+  clean until 2026-07-20. The attribute parser already admitted `:` in names, so
+  the miss was in the allowlist alone — which is the failure mode an allowlist
+  has by construction: it is only as complete as the vocabulary its author had
+  in mind.
+
+  Deliberately NOT a data: URI here: the point is the attribute name, and the
+  decoy fixture covers the data:-URI-is-fine direction.
+-->
+<html lang="en">
+  <body>
+    <svg width="1" height="1" xmlns="http://www.w3.org/2000/svg">
+      <image xlink:href="https://evil.invalid/tracker.png" width="1" height="1" />
+      <use xlink:href="https://evil.invalid/sprite.svg#icon" />
+    </svg>
+  </body>
+</html>

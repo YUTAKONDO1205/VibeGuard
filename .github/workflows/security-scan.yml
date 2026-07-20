@@ -18,10 +18,28 @@ jobs:
   # `vibeguard:disable-file` / `disable-line` pragmas in the source so the
   # severity gate below can stay strict.
   #
+  # `scripts/fixtures/` is exempted wholesale instead. It holds negative-control
+  # corpora — the seeded exfiltration samples the M7 egress scanner is measured
+  # against — whose entire reason to exist is to be detected. Failing the
+  # self-scan on them is a tautology: the gate would be reporting that our
+  # planted vulnerabilities are vulnerable. Per-file pragmas (the treatment used
+  # for scripts/sec-a1-shape-check.mjs) don't fit here, because a pragma has to
+  # name the rules it silences and the rules that will match these fixtures are
+  # mostly the network-egress ones we haven't written yet; every new rule would
+  # silently break CI until someone amended every fixture header. Directory-level
+  # exemption keeps the fixture corpus free to grow.
+  #
   # Severity gate:
   #   pull_request → fail on `high` or above
   #   push to main → fail on `critical` only (don't break main if a high slips
   #                   in; PRs should catch it first)
+  #
+  # A note on `--ignore fixtures`: the flag matches a directory *name*, not a
+  # path (file-scanner walks entries and skips `ignore.has(entry.name)`), so
+  # `--ignore scripts/fixtures` would be a silent no-op. `fixtures` is the only
+  # directory of that name in the repo outside `paper_data/`, which is already
+  # ignored, so the basename match is precise enough here — but it is a basename
+  # match, and a future `packages/*/fixtures/` would be swept up with it.
   self-scan:
     runs-on: ubuntu-latest
     steps:
@@ -54,6 +72,7 @@ jobs:
             --ignore samples \
             --ignore test_problem \
             --ignore paper_data \
+            --ignore fixtures \
             --ignore dist \
             --ignore node_modules \
             --ignore .git \
@@ -68,6 +87,7 @@ jobs:
             --ignore samples \
             --ignore test_problem \
             --ignore paper_data \
+            --ignore fixtures \
             --ignore dist \
             --ignore node_modules \
             --ignore .git \
@@ -97,6 +117,7 @@ jobs:
             --ignore samples \
             --ignore test_problem \
             --ignore paper_data \
+            --ignore fixtures \
             --ignore dist \
             --ignore node_modules \
             --ignore .git \
@@ -166,6 +187,7 @@ jobs:
             --out diff-report.md \
             --ignore samples \
             --ignore test_problem \
+            --ignore fixtures \
             --fail-on never
 
       - name: Post diff-scan PR comment
@@ -179,7 +201,13 @@ jobs:
       # fixtures that demonstrate what each rule catches; the dedicated
       # `samples` job above already validates samples/. Excluding both here
       # keeps the PR gate focused on real source changes (mirrors --ignore
-      # samples / test_problem in self-scan).
+      # samples / test_problem in self-scan). `fixtures` is excluded for the
+      # same reason as in self-scan — scripts/fixtures/ is a negative-control
+      # corpus that exists to be detected — and it matters more here, since the
+      # PR that first commits a batch of seeded samples is exactly the PR the
+      # diff gate would otherwise block. `--ignore` is honoured in diff mode
+      # too: diff.ts skips a file when any of its path segments matches the
+      # ignore set, the same basename semantics as the directory walk.
       - name: Enforce diff-scan severity gate (high)
         run: |
           node apps/cli/dist/index.js \
@@ -189,4 +217,5 @@ jobs:
             --out diff.json \
             --ignore samples \
             --ignore test_problem \
+            --ignore fixtures \
             --fail-on high

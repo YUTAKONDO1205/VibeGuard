@@ -1,0 +1,48 @@
+<!doctype html>
+<!--
+  DECOY — must produce ZERO hits.
+
+  The counterpart of decoy-rule-pattern.js for the markup leg. Everything here
+  is what a legitimate shipped side panel actually looks like: relative asset
+  paths, a data: URI, a fragment link, and prose/attributes that mention remote
+  URLs without being one (https://evil.invalid/x.js appears in this comment and
+  in a text node below). A scanner that grepped for `https` in the file would
+  flag all of it and would then have to be neutered to get green again — the
+  same failure mode grep-over-JS has with rule patterns. The discriminator is
+  the URL scheme of a *remote-loading attribute value*, not the presence of a
+  URL-shaped string anywhere in the bytes.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="index.css" />
+    <link rel="icon" href="data:image/png;base64,iVBORw0KGgo=" />
+  </head>
+  <body>
+    <img src="../icons/icon-32.png" alt="" />
+    <!-- data: URI, deliberately base64 rather than an inline SVG: an SVG's
+         xmlns is an http:// URL, and VibeGuard's own self-scan (VG-CRYPTO-003)
+         reports it, which would make this fixture a finding in the repo's
+         Code Scanning results forever. -->
+    <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==" alt="" />
+    <a href="#findings" title="docs live at https://evil.invalid/docs">jump to findings</a>
+    <!-- An EXTERNAL <a href>. Must stay silent: `href` loads on <link> and
+         redirects on <base>, but on <a> it is a navigation target the user has
+         to click, so it is not load-time egress. Seeded as a decoy because the
+         scanner's attribute allowlist is keyed on the attribute name alone —
+         without the tag-aware exemption, adding one ordinary documentation link
+         to the side panel would fail the egress gate, and the cheapest way to
+         get green again would be to weaken the check. -->
+    <a href="https://example.invalid/docs/getting-started">documentation</a>
+    <p>VibeGuard flags things like &lt;script src="https://evil.invalid/x.js"&gt; in your code.</p>
+    <script src="index.js" type="module"></script>
+    <script>
+      // A rule payload: mentions the sinks, performs none of them.
+      const RULES = [
+        { id: 'VG-NET-EXAMPLE-6', pattern: /url\(\s*https?:/g, message: 'remote CSS url()' },
+        { id: 'VG-NET-EXAMPLE-7', pattern: /<img[^>]+src=["']https?:/gi, message: 'remote img' },
+      ];
+      document.title = RULES.length > 0 ? 'VibeGuard' : 'VibeGuard';
+    </script>
+  </body>
+</html>

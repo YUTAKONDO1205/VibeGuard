@@ -1,0 +1,21 @@
+/*
+  DECOY — must produce ZERO hits.
+
+  A normal shipped stylesheet: relative asset paths, a data: URI font, a local
+  @import, and a comment that names a remote url() without being one —
+  url(https://evil.invalid/x.png) right here. Flagging any of this would make
+  the CSS leg unusable on the real side panel sheet, which is how a check gets
+  excluded from CI and stops protecting anything.
+*/
+@import url("theme.css");
+@import 'reset.css';
+
+@font-face {
+  font-family: 'vg';
+  src: url('data:font/woff2;base64,d09GMgABAAAA') format('woff2');
+}
+
+.vg-primary {
+  background-image: url(../icons/icon-16.png);
+  cursor: url("./cursors/pointer.png"), pointer;
+}

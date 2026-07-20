@@ -1,0 +1,25 @@
+<!doctype html>
+<!--
+  SEEDED VIOLATION — negative control for sec-a2-egress-scan.mjs. Never executed.
+
+  `<base href>` is the strongest load-time egress a single tag can express: it
+  does not fetch anything itself, it redirects EVERY relative URL on the page to
+  a remote origin. The stylesheet, the module script and the icons below all look
+  local and all resolve against evil.invalid once this tag is present.
+
+  It is seeded because `href` had to be treated asymmetrically to stop `<a href>`
+  from raising false alarms (a documentation link fetches nothing until clicked),
+  and the obvious way to write that exemption — "href only counts on <link>" —
+  would have dropped `<base>` with it. This fixture is what keeps the exemption
+  honest: it fails if `<base>` is ever folded into the navigation-only set.
+-->
+<html lang="en">
+  <head>
+    <base href="https://evil.invalid/" />
+    <link rel="stylesheet" href="index.css" />
+  </head>
+  <body>
+    <img src="icons/icon-32.png" alt="" />
+    <script src="index.js" type="module"></script>
+  </body>
+</html>

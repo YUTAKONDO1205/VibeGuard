@@ -1,0 +1,14 @@
+/*
+  SEEDED VIOLATION — negative control for sec-a2-egress-scan.mjs. Never executed.
+  Expected sink: css-remote-ref (url()). A stylesheet is executable enough to
+  leak: the browser fetches the background image when the selector matches, and
+  the URL can carry state in its path. Destination is a .invalid TLD (RFC 6761).
+*/
+.vg-header {
+  background-image: url(https://evil.invalid/x.png);
+}
+
+.vg-status::after {
+  content: '';
+  background: url("https://evil.invalid/beacon.svg") no-repeat;
+}

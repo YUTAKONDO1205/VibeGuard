@@ -1,0 +1,16 @@
+<!doctype html>
+<!--
+  SEEDED VIOLATION — negative control for sec-a2-egress-scan.mjs. Never executed.
+  Expected sink: html-remote-ref (link[rel=preconnect]). Weaker than the others —
+  a preconnect carries no payload of its own — but it is still a connection to a
+  third party made by shipped bytes, and the DNS lookup alone tells that party a
+  VibeGuard user exists. A hint tag is exactly the kind of line that survives
+  review because it "isn't a request".
+-->
+<html lang="en">
+  <head>
+    <link rel="preconnect" href="https://evil.invalid" />
+    <link rel="stylesheet" href="index.css" />
+  </head>
+  <body></body>
+</html>
