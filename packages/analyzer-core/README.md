@@ -10,9 +10,17 @@ rule dispatch, snippet extraction, and suppression-comment handling.
   (CLI `--diff`), and the VS Code / Chrome extensions.
 - `scanPath(dir, options)` — walk a directory, scan each file, aggregate
   results. Honours `--ignore` globs and `--known-only`.
-- `parseSuppressions(content)` / `isSuppressed(map, ruleId, line)` — parses
-  `vibeguard:disable-line`, `disable-next-line`, and `disable-file` pragmas
-  emitted by source files.
+- `parseSuppressions(content)` / `isSuppressed(map, ruleId, line, severity)` /
+  `evaluateSuppression(...)` — parses `vibeguard:disable-line`,
+  `disable-next-line`, and `disable-file` pragmas emitted by source files.
+  A pragma with no rule IDs is a wildcard and **cannot** suppress a
+  `critical` / `high` / `medium` finding; such a finding is reported with a
+  `suppressionOverridden` marker instead. `evaluateSuppression` returns that
+  marker alongside the boolean; `isSuppressed` is the boolean alone.
+- `suppressionsForPath(config, path)` / `isPathSuppressed(set, ruleId, severity)` /
+  `evaluatePathSuppression(...)` — the same policy on the config
+  (`.vibeguardrc.json` `suppress[].paths`) channel. An entry that omits `rules`
+  is a wildcard and is gated identically.
 - `detectLanguage(filePath, content)` — extension- and shebang-based
   language detection feeding `RuleDefinition.languages`.
 

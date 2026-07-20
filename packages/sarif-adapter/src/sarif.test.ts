@@ -1,4 +1,4 @@
-// vibeguard:disable-file
+// vibeguard:disable-file VG-INJ-004
 // Test fixtures contain intentional vulnerable code to exercise the rules.
 import { describe, expect, it } from 'vitest';
 import type { Finding, ScanResponse } from '@vibeguard/findings-schema';

@@ -12,7 +12,7 @@ import {
 } from '@vibeguard/findings-schema';
 import { Analyzer, ENGINE_VERSION, type AnalyzerOptions } from './analyzer.js';
 import { detectLanguageFromPath } from './language-detect.js';
-import { isPathSuppressed, suppressionsForPath, type VibeguardConfig } from './config.js';
+import { evaluatePathSuppression, suppressionsForPath, type VibeguardConfig } from './config.js';
 import { loadConfig } from './config-loader.js';
 
 export const DEFAULT_IGNORE = new Set([
@@ -132,8 +132,18 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
     });
     const pathSuppressed = suppressionsForPath(config, relPath, now);
     for (const f of result.findings) {
-      if (isPathSuppressed(pathSuppressed, f.ruleId)) continue;
-      findings.push(f);
+      // A config wildcard that the severity gate refused keeps the finding and
+      // records the refusal on it, exactly like the pragma channel does inside
+      // the analyzer. Note the pragma channel may already have marked this
+      // finding; the config refusal does not overwrite that — one mark is the
+      // signal, and the earlier one is the more specific of the two.
+      const decision = evaluatePathSuppression(pathSuppressed, f.ruleId, f.severity);
+      if (decision.suppressed) continue;
+      findings.push(
+        decision.overridden && !f.suppressionOverridden
+          ? { ...f, suppressionOverridden: decision.overridden }
+          : f,
+      );
     }
     for (const e of result.ruleErrors ?? []) {
       if (!ruleErrorsByRule.has(e.ruleId)) ruleErrorsByRule.set(e.ruleId, e);

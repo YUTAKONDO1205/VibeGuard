@@ -1,4 +1,4 @@
-// vibeguard:disable-file
+// vibeguard:disable-file VG-AUTH-002 VG-INJ-004 VG-SEC-001 VG-SEC-003
 // Fixtures embed eval(), AWS-shaped key literals and DEBUG flags — both plain
 // and in evaded form — because that is exactly what this suite has to scan to
 // prove the canonicalizer closes them. They are not real vulnerabilities. Same

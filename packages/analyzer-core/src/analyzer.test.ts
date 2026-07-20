@@ -1,4 +1,4 @@
-// vibeguard:disable-file
+// vibeguard:disable-file VG-AUTH-002 VG-AUTH-004 VG-INJ-001 VG-INJ-004 VG-INJ-006 VG-INJ-007 VG-QUAL-001 VG-SEC-001 VG-SEC-003
 // Test fixtures contain intentional vulnerable code to exercise the rules.
 import { describe, expect, it } from 'vitest';
 import type { Confidence, ScanRequest, Severity } from '@vibeguard/findings-schema';

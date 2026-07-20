@@ -257,6 +257,23 @@ export function isCommentLine(lineText: string, language?: string): boolean {
 export const REGEX_INPUT_CAP = 50_000;
 
 /**
+ * The per-(file, pattern) match ceiling. Predates D3 — it is the oldest of the
+ * three bounds — and stays exactly where it is: A1 showed that an attacker who
+ * can make one rule produce unbounded matches turns a scan into an availability
+ * attack, and this cap is what closes that. A1-LIMIT does NOT raise or remove it.
+ *
+ * Exported so the analyzer can NAME the number when it reports that the cap
+ * fired. It was previously an inline `1000` here and an unexplained "1000" in
+ * prose elsewhere; two copies of a bound that must agree is one copy too many.
+ *
+ * Note what this bound can and cannot tell a reader: `runRegex` STOPS at the
+ * limit, so the matches beyond it are never enumerated and their count is not
+ * merely unreported but genuinely unknown. Anything downstream may say "at
+ * least this many"; nothing may claim to know the excess.
+ */
+export const REGEX_MATCH_LIMIT = 1000;
+
+/**
  * D3 — the wall-clock bound. SCAN-WIDE, not per call.
  *
  * Per-call was the obvious design and it does not bound anything useful: one
@@ -474,7 +491,7 @@ export function runRegex(
     throw new Error(`pattern must be global: ${pattern}`);
   }
   const matches: RuleMatch[] = [];
-  const limit = options?.limit ?? 1000;
+  const limit = options?.limit ?? REGEX_MATCH_LIMIT;
 
   // Truncate, never skip. Skipping the file would drop every finding it
   // contains, which is a silent false negative on the largest inputs — the ones

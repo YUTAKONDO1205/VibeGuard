@@ -24,6 +24,7 @@ export {
   withScanDeadline,
   REGEX_INPUT_CAP,
   REGEX_DEADLINE_MS,
+  REGEX_MATCH_LIMIT,
   type KnownLanguage,
   type LineCommentSpec,
   type RegexBoundaryEvent,

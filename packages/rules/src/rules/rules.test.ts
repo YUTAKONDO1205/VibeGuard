@@ -1,4 +1,4 @@
-// vibeguard:disable-file
+// vibeguard:disable-file VG-CRYPTO-003 VG-AUTH-001 VG-AUTH-003 VG-AUTH-004 VG-AUTH-006 VG-CRYPTO-001 VG-CRYPTO-002 VG-FW-003 VG-INJ-001 VG-INJ-004 VG-INJ-006 VG-QUAL-001 VG-QUAL-002 VG-QUAL-003 VG-QUAL-004 VG-QUAL-005 VG-QUAL-006 VG-QUAL-008 VG-QUAL-009 VG-QUAL-010 VG-SEC-001 VG-SEC-002 VG-SEC-003 VG-SEC-004
 // Test fixtures contain intentional vulnerable code to exercise the rules.
 import { describe, expect, it } from 'vitest';
 import type { RuleContext, RuleDefinition } from '../rule-types.js';

@@ -121,6 +121,17 @@ const TRANSFORMS = [
   { name: 'docstring-naive', payloadExecutable: false, scope: 'finding', mechanism: 'confidence', disclosure: 'undeclared' },
   { name: 'docstring-phantom', payloadExecutable: 'unverified', scope: 'finding', mechanism: 'confidence', disclosure: 'undeclared' },
   { name: 'suppress-wildcard', payloadExecutable: 'unverified', scope: 'file', mechanism: 'suppression', disclosure: 'declared' },
+  // The named-rule counterpart of suppress-wildcard, and the reason the wildcard
+  // row alone cannot be reported as "the suppression channel is closed". The D5
+  // severity gate refuses a suppression that matched only through its wildcard;
+  // naming the rule is the deliberate escape hatch and is honoured at every
+  // severity (see entryCovers in packages/analyzer-core/src/suppress.ts). So this
+  // arm is EXPECTED to stay at CR 1.0 after D5, and measuring it is what keeps
+  // the wildcard result from overclaiming: the attacker who is willing to write
+  // the rule ID down still conceals everything. What D5 buys is that the pragma
+  // now names what it silences, which is a reviewability property, not a
+  // detection one — hence disclosure 'declared' for both rows.
+  { name: 'suppress-named', payloadExecutable: 'unverified', scope: 'file', mechanism: 'suppression', disclosure: 'declared' },
 ];
 
 // Recorded reasons a (transform, language) pair emits nothing. Every entry here
@@ -360,6 +371,38 @@ function applyTransform(transform, src, finding) {
         outPath: `${REPO_CORPUS_DIR}/suppress-wildcard/${stem}/${basename(relPath)}`,
       };
     }
+
+    // Same pragma, same far-future `until=`, but every rule the file actually
+    // trips is written out by ID. `src.ruleIds` is filled in by the main loop
+    // from the REAL findings, so this is not a hand-authored list: it names
+    // exactly what the scanner found, which is what a real attacker would do
+    // after one scan. A file whose findings are all opt-out rules has nothing to
+    // name and is recorded as unsupported rather than emitting a bare wildcard —
+    // that would silently duplicate the other arm and read as a named result.
+    case 'suppress-named': {
+      const cmt = LINE_COMMENT[language];
+      if (!cmt) {
+        noteUnsupported('suppress-named', language, 'no line-comment prefix known for this language');
+        return null;
+      }
+      const ids = src.ruleIds ?? [];
+      if (ids.length === 0) {
+        noteUnsupported('suppress-named', language,
+          'no in-scope findings to name in at least one file; a bare directive here would be a ' +
+          'wildcard and would silently restate the suppress-wildcard arm');
+        return null;
+      }
+      const at = pragmaInsertIndex(lines, language);
+      const pragma =
+        `${cmt} vibeguard:disable-file ${ids.join(' ')} until=2099-12-31 reason="b3-suppression-abuse"`;
+      const out = [...lines.slice(0, at), pragma, ...lines.slice(at)];
+      return {
+        content: out.join('\n'),
+        insertAt: at,
+        insertCount: 1,
+        outPath: `${REPO_CORPUS_DIR}/suppress-named/${stem}/${basename(relPath)}`,
+      };
+    }
     default:
       throw new Error(`unknown transform ${transform}`);
   }
@@ -449,6 +492,10 @@ for (const src of sources) {
   // Opt-out rules bypass the context layer entirely, so they cannot be attacked
   // by a context disguise and must not sit in the CR denominator.
   const targets = origFindings.filter((f) => f.mode !== 'off');
+  // The suppress-named arm needs the IDs of the rules this file actually trips.
+  // Derived here rather than inside applyTransform because this is the only
+  // place the real findings exist; the transform stays a pure function of `src`.
+  src.ruleIds = [...new Set(targets.map((f) => f.ruleId))].sort();
 
   for (const t of TRANSFORMS) {
     if (t.scope === 'file') {

@@ -1,4 +1,4 @@
-// vibeguard:disable-file
+// vibeguard:disable-file VG-FW-003 VG-INJ-004 VG-INJ-006
 // Fixtures embed eval()/innerHTML/DEBUG/secret literals to exercise the
 // context-window confidence helper; they are not real vulnerabilities.
 import { describe, expect, it } from 'vitest';

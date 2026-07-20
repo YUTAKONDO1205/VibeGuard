@@ -10,13 +10,17 @@ export { extractSnippet, maskSecret } from './snippet.js';
 export {
   parseSuppressions,
   isSuppressed,
+  evaluateSuppression,
   type SuppressMap,
   type SuppressEntry,
+  type SuppressionDecision,
   type ParseSuppressOptions,
 } from './suppress.js';
 export {
   suppressionsForPath,
   isPathSuppressed,
+  evaluatePathSuppression,
+  type PathSuppressionDecision,
   parseConfig,
   CONFIG_FILENAMES,
   type VibeguardConfig,

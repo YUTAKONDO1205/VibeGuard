@@ -19,7 +19,17 @@
  *   eval(payload); // vibeguard:disable-line VG-INJ-004
  *   // vibeguard:disable-next-line VG-INJ-004 until=2026-12-31 reason="ticket #42"
  *   // vibeguard:disable-file VG-AUTH-003 VG-AUTH-004
+ *
+ * Listing rule IDs is no longer merely good style. A directive with no rule IDs
+ * is a wildcard, and a wildcard cannot suppress a finding whose severity
+ * carries a security judgement (critical/high/medium — see
+ * `SECURITY_JUDGEMENT_SEVERITIES` in @vibeguard/findings-schema for where the
+ * line is and why). Such a finding is reported anyway, carrying a
+ * `suppressionOverridden` record of the refusal. Wildcards keep working as
+ * before for `low`/`info`, which is the band the blanket form exists to serve.
  */
+
+import { isSecurityJudgementSeverity, type Severity, type SuppressionOverride } from '@vibeguard/findings-schema';
 
 const PRAGMA_RE = /vibeguard:(disable-line|disable-next-line|disable-file)\b([^\n\r]*)/g;
 const RULE_ID_RE = /VG-[A-Z]+-\d+/g;
@@ -107,20 +117,93 @@ export function parseSuppressions(content: string, options: ParseSuppressOptions
   return { perLine, fileWide };
 }
 
-function entryCovers(entry: SuppressEntry, ruleId: string): boolean {
-  return entry.ruleIds.has(WILDCARD) || entry.ruleIds.has(ruleId);
+/**
+ * What one entry does to a finding of `severity` for `ruleId`.
+ *
+ * `blocked` is the D5 case: the entry matched only through its wildcard, and
+ * the finding carries a security judgement, so the suppression is refused. The
+ * three-way result exists because "refused" and "did not match" have to stay
+ * distinguishable — the caller reports the first as an audit event on a finding
+ * it keeps, and the second not at all.
+ */
+type Coverage = 'no' | 'covers' | 'blocked';
+
+function entryCovers(entry: SuppressEntry, ruleId: string, severity: Severity): Coverage {
+  // Naming the rule is always honoured, at every severity. This is the escape
+  // hatch, and it is deliberately the *only* one: no flag, no config key, no
+  // "force" pragma. A team that genuinely accepts a specific critical finding
+  // writes down which one, which turns a blanket silence into a reviewable
+  // statement about a known rule. The quick-fix action the VS Code extension
+  // offers already emits this form (`disable-next-line <ruleId>`), so the
+  // ordinary interactive path is unaffected by the gate below.
+  if (entry.ruleIds.has(ruleId)) return 'covers';
+  if (!entry.ruleIds.has(WILDCARD)) return 'no';
+  // Wildcard. It keeps full authority over the advisory bands and loses it over
+  // the ones that carry a security verdict — see SECURITY_JUDGEMENT_SEVERITIES.
+  return isSecurityJudgementSeverity(severity) ? 'blocked' : 'covers';
 }
 
-/** Returns true if a finding for `ruleId` at `line` should be dropped. */
-export function isSuppressed(map: SuppressMap, ruleId: string, line: number | undefined): boolean {
+/**
+ * The outcome of consulting every suppression entry that could apply.
+ *
+ * `overridden` is only ever set when `suppressed` is false: if any entry
+ * legitimately covers the finding it is gone, and a refusal recorded on a
+ * finding nobody will see would be noise. It carries the *first* refused entry
+ * rather than all of them, matching how `suppressed` short-circuits — one
+ * refusal is the whole signal, and a file that stacks five blanket pragmas is
+ * not five times as interesting.
+ */
+export interface SuppressionDecision {
+  suppressed: boolean;
+  overridden?: SuppressionOverride;
+}
+
+/**
+ * Resolve every pragma that could apply to a finding for `ruleId` at `line`.
+ *
+ * Both scopes are gated, not just the file-wide one. Gating `disable-file`
+ * alone would leave the identical attack one line longer: a bare
+ * `// vibeguard:disable-line` sitting on the vulnerable line is the same
+ * blanket silence with a smaller blast radius, and it is the form the editor
+ * quick-fix trains people to reach for.
+ */
+export function evaluateSuppression(
+  map: SuppressMap,
+  ruleId: string,
+  line: number | undefined,
+  severity: Severity,
+): SuppressionDecision {
+  let overridden: SuppressionOverride | undefined;
   for (const e of map.fileWide) {
-    if (entryCovers(e, ruleId)) return true;
+    const c = entryCovers(e, ruleId, severity);
+    if (c === 'covers') return { suppressed: true };
+    if (c === 'blocked' && !overridden) {
+      overridden = { channel: 'pragma', scope: 'file', ...(e.reason !== undefined ? { reason: e.reason } : {}) };
+    }
   }
-  if (line == null) return false;
-  const bucket = map.perLine.get(line);
-  if (!bucket) return false;
-  for (const e of bucket) {
-    if (entryCovers(e, ruleId)) return true;
+  const bucket = line == null ? undefined : map.perLine.get(line);
+  for (const e of bucket ?? []) {
+    const c = entryCovers(e, ruleId, severity);
+    if (c === 'covers') return { suppressed: true };
+    if (c === 'blocked' && !overridden) {
+      overridden = { channel: 'pragma', scope: 'line', ...(e.reason !== undefined ? { reason: e.reason } : {}) };
+    }
   }
-  return false;
+  return { suppressed: false, ...(overridden ? { overridden } : {}) };
+}
+
+/**
+ * Returns true if a finding for `ruleId` at `line` should be dropped.
+ *
+ * `severity` is required rather than optional on purpose: an optional parameter
+ * would let an un-updated call site keep compiling and silently opt out of the
+ * gate, which is the one failure mode this change cannot afford.
+ */
+export function isSuppressed(
+  map: SuppressMap,
+  ruleId: string,
+  line: number | undefined,
+  severity: Severity,
+): boolean {
+  return evaluateSuppression(map, ruleId, line, severity).suppressed;
 }

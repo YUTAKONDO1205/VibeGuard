@@ -1,4 +1,4 @@
-// vibeguard:disable-file
+// vibeguard:disable-file VG-AUTH-004 VG-INJ-004 VG-INJ-006 VG-SEC-001
 // Test fixtures contain intentional vulnerable code to exercise the rules.
 //
 // Paper item ② — cross-channel judgment consistency (the empirical backbone of

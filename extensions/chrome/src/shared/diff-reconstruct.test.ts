@@ -1,4 +1,4 @@
-// vibeguard:disable-file
+// vibeguard:disable-file VG-QUAL-003 VG-SEC-001 VG-SEC-003
 import { describe, expect, it } from 'vitest';
 import {
   addedLineSet,

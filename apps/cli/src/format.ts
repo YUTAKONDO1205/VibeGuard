@@ -75,9 +75,16 @@ function appendDegradations(lines: string[], scan: ScanResponse, useColor: boole
   // cut short — an undercount in a channel whose only job is honesty.
   const files = new Set(scan.degradations.map((d) => d.filePath).filter(Boolean));
   const scope = files.size > 0 ? `${files.size} file(s)` : `${scan.degradations.length} scan(s)`;
+  // The parenthetical names the CAUSE, and there are now two distinct ones. The
+  // header used to say "(ReDoS guard)" unconditionally, which stopped being true
+  // when A1-LIMIT started routing match-limit truncations through this channel:
+  // that bound is the per-file match cap, not a ReDoS bound, and a reader who
+  // went looking for a pathological regex would find none. Each entry's `detail`
+  // still says exactly which bound fired.
+  const causes = new Set(scan.degradations.map((d) => (d.kind === 'match-limit' ? 'match limit' : 'ReDoS guard')));
   lines.push(
     colorise(
-      `⚠ ${scope} were only PARTIALLY scanned (ReDoS guard) — results may be incomplete:`,
+      `⚠ ${scope} were only PARTIALLY scanned (${[...causes].join(', ')}) — results may be incomplete:`,
       YELLOW,
       useColor,
     ),
@@ -189,8 +196,12 @@ function appendDegradationsMarkdown(lines: string[], scan: ScanResponse): void {
   if (!scan.degradations?.length) return;
   lines.push('');
   const degradedFiles = new Set(scan.degradations.map((d) => d.filePath).filter(Boolean));
+  // Same correction as the human renderer: name the bound that actually fired.
+  const causes = new Set(
+    scan.degradations.map((d) => (d.kind === 'match-limit' ? 'match limit' : 'ReDoS guard')),
+  );
   lines.push(
-    `> ⚠️ **${degradedFiles.size || scan.degradations.length} file(s) were only partially scanned** (ReDoS guard) — results may be incomplete:`,
+    `> ⚠️ **${degradedFiles.size || scan.degradations.length} file(s) were only partially scanned** (${[...causes].join(', ')}) — results may be incomplete:`,
   );
   for (const d of scan.degradations) {
     const at = d.filePath ? `\`${d.filePath}\` — ` : '';

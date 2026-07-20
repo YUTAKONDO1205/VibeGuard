@@ -2,12 +2,14 @@ import {
   emptySummary,
   summarize,
   compareSeverity,
+  isSecurityJudgementSeverity,
   type Finding,
   type RuleError,
   type ScanDegradation,
   type ScanMode,
   type ScanRequest,
   type ScanResponse,
+  type Severity,
 } from '@vibeguard/findings-schema';
 import {
   allRules,
@@ -15,6 +17,7 @@ import {
   withScanDeadline,
   REGEX_DEADLINE_MS,
   REGEX_INPUT_CAP,
+  REGEX_MATCH_LIMIT,
   explainContextConfidence,
   languageMatches,
   type RegexBoundaryEvent,
@@ -26,7 +29,7 @@ import { buildRemediation } from '@vibeguard/remediation-engine';
 import { canonicalize } from './canonicalizer.js';
 import { detectLanguageFromContent, detectLanguageFromPath } from './language-detect.js';
 import { extractSnippet, maskSecret } from './snippet.js';
-import { parseSuppressions, isSuppressed } from './suppress.js';
+import { parseSuppressions, evaluateSuppression } from './suppress.js';
 
 /**
  * Detection-engine version, embedded in every scan result and SARIF report
@@ -93,19 +96,50 @@ function filterRulesByMode(rules: RuleDefinition[], mode: ScanMode): RuleDefinit
  * would otherwise emit seven identical truncation entries for one oversized
  * file, burying the signal. The first event of each kind carries the report.
  *
- * `limitReached` is deliberately NOT surfaced. It fires on any file with more
- * than 1000 matches of one rule — common, benign, not a security event — so
- * surfacing it would train readers to ignore this channel and take the two
- * bounds that matter with it. `runRegex` still emits it for tests and the A1
- * harness; the decision to drop it is made here, once.
+ * A1-LIMIT — `limitReached` is surfaced BY SEVERITY, not dropped wholesale.
+ *
+ * The previous rule here was "never surface it": the cap fires on any file with
+ * more than REGEX_MATCH_LIMIT matches of one rule, which is common and usually
+ * benign, and flooding this channel with it would train readers to ignore the
+ * two bounds that do matter. That reasoning holds for quality rules and only for
+ * quality rules. Measured on a 1500-`eval` file, the old behaviour reported
+ * exactly 1000 critical findings, 500 more that existed were dropped, and
+ * `degradations` came back empty — a scan that had silently stopped counting
+ * looked byte-for-byte like a scan that was complete. That is the same failure
+ * mode D5 closes on the suppression side: a utility-grade convenience deciding a
+ * security question in silence.
+ *
+ * So the split follows the SAME boundary as D5 and D1c, through the same shared
+ * predicate: if the rule's severity is one the tool's security judgement rests
+ * on (critical/high/medium per `isSecurityJudgementSeverity`), the truncation is
+ * reported; low/info keep the old silence. One principle, one predicate, three
+ * enforcement points.
+ *
+ * Two things this deliberately does NOT do:
+ *  - It does not raise or remove the cap. The cap is what bounds A1's
+ *    availability attack; A1-LIMIT only makes its effect visible.
+ *  - It does not emit one degradation per lost finding. The report is aggregated
+ *    to ONE entry per (file, rule) — see the dedup below — so the channel stays
+ *    readable no matter how many matches were cut. It also cannot state the
+ *    excess, because matching stopped at the cap and never counted the rest;
+ *    saying "500 were dropped" would be a number nobody measured.
  */
 function recordBoundaries(
   degradations: ScanDegradation[],
   ruleId: string,
+  severity: Severity,
   events: RegexBoundaryEvent[],
   filePath: string | undefined,
   pass?: string,
 ): void {
+  recordMatchLimit(
+    degradations,
+    ruleId,
+    severity,
+    events.filter((e) => e.kind === 'limitReached'),
+    filePath,
+  );
+
   const reportable = events.filter((e) => e.kind !== 'limitReached');
   if (reportable.length === 0) return;
   const byKind = new Map<RegexBoundaryEvent['kind'], { first: RegexBoundaryEvent; count: number }>();
@@ -136,6 +170,52 @@ function recordBoundaries(
       });
     }
   }
+}
+
+/**
+ * A1-LIMIT — emit at most ONE `match-limit` degradation per (file, rule).
+ *
+ * Aggregation is not cosmetic here, it is what keeps the channel usable. A rule
+ * carrying seven patterns can raise seven `limitReached` events for one file,
+ * and `recordBoundaries` is called twice per rule (original text, then canonical
+ * text), so the unaggregated count for a single oversized file is patterns ×
+ * passes. Collapsing on (filePath, ruleId) bounds the whole scan at one entry
+ * per file per rule — the same shape the CLI already deduplicates degradations
+ * into, so a directory scan cannot be flooded from one crafted file either.
+ *
+ * The dedup scans `degradations` rather than carrying a Set because the array is
+ * the single source of truth across BOTH passes; a per-call Set would reset
+ * between them and let the canonical pass emit a duplicate of what the original
+ * pass already reported.
+ */
+function recordMatchLimit(
+  degradations: ScanDegradation[],
+  ruleId: string,
+  severity: Severity,
+  events: RegexBoundaryEvent[],
+  filePath: string | undefined,
+): void {
+  if (events.length === 0) return;
+  // The severity gate. Quality rules keep the pre-A1-LIMIT silence.
+  if (!isSecurityJudgementSeverity(severity)) return;
+  const already = degradations.some(
+    (d) => d.kind === 'match-limit' && d.ruleId === ruleId && d.filePath === filePath,
+  );
+  if (already) return;
+
+  degradations.push({
+    kind: 'match-limit',
+    ruleId,
+    filePath,
+    // What was REPORTED, not what existed. See REGEX_MATCH_LIMIT: the matches
+    // past the cap are never enumerated, so the excess has no honest number.
+    matchCount: REGEX_MATCH_LIMIT,
+    detail:
+      `Match limit: this rule reported the first ${REGEX_MATCH_LIMIT} match(es) in this file and stopped. ` +
+      `Further matches of a ${severity}-severity rule exist and were NOT reported — their count is unknown, ` +
+      `because matching stops at the cap. This result is PARTIAL. The cap is a deliberate availability bound ` +
+      `and is not raised; split the file or scan the region directly to see the rest.`,
+  });
 }
 
 function buildRuleContext(content: string, language: string | undefined, filePath: string | undefined): RuleContext {
@@ -318,7 +398,7 @@ export class Analyzer {
         // never indistinguishable from "there was nothing to find".
         const captured = captureRegexBoundaries(() => rule.match(ctx), { inheritDeadline: true });
         matches = captured.result;
-        recordBoundaries(degradations, rule.ruleId, captured.events, request.filePath);
+        recordBoundaries(degradations, rule.ruleId, rule.severity, captured.events, request.filePath);
       } catch (err) {
         // A broken rule should never crash the scan; skip it and continue. But
         // skipping silently drops every finding it would have produced, so record
@@ -345,7 +425,14 @@ export class Analyzer {
           const capturedCanonical = captureRegexBoundaries(() => rule.match(canonicalCtx), {
             inheritDeadline: true,
           });
-          recordBoundaries(degradations, rule.ruleId, capturedCanonical.events, request.filePath, 'canonical text');
+          recordBoundaries(
+            degradations,
+            rule.ruleId,
+            rule.severity,
+            capturedCanonical.events,
+            request.filePath,
+            'canonical text',
+          );
           matches = mergeCanonicalMatches(matches, capturedCanonical.result);
         } catch (err) {
           // eslint-disable-next-line no-console
@@ -366,7 +453,11 @@ export class Analyzer {
        // break the match()-level guard above already closes. Same treatment:
        // record it in `ruleErrors` and skip just this match, never the scan.
        try {
-        if (isSuppressed(suppressions, rule.ruleId, m.startLine)) continue;
+        // A blanket suppression that tried to cover a security judgement does
+        // not drop the finding — it leaves a mark on it (`overridden`), which
+        // is spread onto the finding below.
+        const suppression = evaluateSuppression(suppressions, rule.ruleId, m.startLine, rule.severity);
+        if (suppression.suppressed) continue;
         const rawSnippet = extractSnippet(ctx.lines, m.startLine, m.endLine, 0);
         const snippet = shouldMaskCategory(rule.category) ? maskSecret(rawSnippet) : rawSnippet;
         const evidence = shouldMaskCategory(rule.category) ? maskSecret(m.evidence) : m.evidence;
@@ -411,6 +502,9 @@ export class Analyzer {
                 },
               }
             : {}),
+          // Same conditional-spread contract: the key's absence means nothing
+          // tried to suppress this finding, so it must not be present-but-false.
+          ...(suppression.overridden ? { suppressionOverridden: suppression.overridden } : {}),
           category: rule.category,
           language,
           filePath: request.filePath,

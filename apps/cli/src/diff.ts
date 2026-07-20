@@ -23,7 +23,7 @@ import {
   DEFAULT_IGNORE,
   ENGINE_VERSION,
   detectLanguageFromPath,
-  isPathSuppressed,
+  evaluatePathSuppression,
   loadConfig,
   suppressionsForPath,
   type AnalyzerOptions,
@@ -203,8 +203,15 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
     });
     const pathSuppressed = suppressionsForPath(config, relPath, now);
     for (const f of result.findings) {
-      if (isPathSuppressed(pathSuppressed, f.ruleId)) continue;
-      if (overlapsAdded(f, added)) findings.push(f);
+      // Mirrors scanPath: a config wildcard refused by the severity gate keeps
+      // the finding and records the refusal instead of dropping it.
+      const decision = evaluatePathSuppression(pathSuppressed, f.ruleId, f.severity);
+      if (decision.suppressed) continue;
+      const kept =
+        decision.overridden && !f.suppressionOverridden
+          ? { ...f, suppressionOverridden: decision.overridden }
+          : f;
+      if (overlapsAdded(kept, added)) findings.push(kept);
     }
     for (const e of result.ruleErrors ?? []) {
       if (!ruleErrorsByRule.has(e.ruleId)) ruleErrorsByRule.set(e.ruleId, e);

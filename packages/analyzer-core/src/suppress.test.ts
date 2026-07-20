@@ -1,7 +1,7 @@
-// vibeguard:disable-file
+// vibeguard:disable-file VG-INJ-006
 // Test fixtures contain intentional vulnerable code to exercise suppression.
 import { describe, expect, it } from 'vitest';
-import { parseSuppressions, isSuppressed } from './suppress.js';
+import { parseSuppressions, isSuppressed, evaluateSuppression } from './suppress.js';
 import { scan } from './analyzer.js';
 
 function hasRule(entries: { ruleIds: Set<string> }[] | undefined, id: string): boolean {
@@ -44,22 +44,115 @@ describe('parseSuppressions', () => {
 });
 
 describe('isSuppressed', () => {
+  // These four cover the *matching* logic, so they use `low` throughout: the
+  // severity gate is inert there and the assertions stay about which entry
+  // matches which rule, which is what they were written to pin down. The gate
+  // itself has its own describe block below.
   it('matches per-line wildcard', () => {
     const m = parseSuppressions('eval(x); // vibeguard:disable-line\n');
-    expect(isSuppressed(m, 'VG-INJ-004', 1)).toBe(true);
-    expect(isSuppressed(m, 'VG-INJ-004', 2)).toBe(false);
+    expect(isSuppressed(m, 'VG-INJ-004', 1, 'low')).toBe(true);
+    expect(isSuppressed(m, 'VG-INJ-004', 2, 'low')).toBe(false);
   });
 
   it('matches per-line specific rule only', () => {
     const m = parseSuppressions('eval(x); // vibeguard:disable-line VG-INJ-004\n');
-    expect(isSuppressed(m, 'VG-INJ-004', 1)).toBe(true);
-    expect(isSuppressed(m, 'VG-AUTH-003', 1)).toBe(false);
+    expect(isSuppressed(m, 'VG-INJ-004', 1, 'low')).toBe(true);
+    expect(isSuppressed(m, 'VG-AUTH-003', 1, 'low')).toBe(false);
   });
 
   it('matches file-wide rule', () => {
     const m = parseSuppressions('// vibeguard:disable-file VG-INJ-004\n');
-    expect(isSuppressed(m, 'VG-INJ-004', 99)).toBe(true);
-    expect(isSuppressed(m, 'VG-AUTH-003', 99)).toBe(false);
+    expect(isSuppressed(m, 'VG-INJ-004', 99, 'low')).toBe(true);
+    expect(isSuppressed(m, 'VG-AUTH-003', 99, 'low')).toBe(false);
+  });
+});
+
+describe('severity gate on wildcard suppressions (D5)', () => {
+  const FILE_WIDE = '// vibeguard:disable-file\neval(x);\n';
+  const PER_LINE = 'eval(x); // vibeguard:disable-line\n';
+  const NEXT_LINE = '// vibeguard:disable-next-line\neval(x);\n';
+
+  for (const severity of ['critical', 'high', 'medium'] as const) {
+    it(`refuses a file-wide wildcard for ${severity}`, () => {
+      const m = parseSuppressions(FILE_WIDE);
+      const d = evaluateSuppression(m, 'VG-INJ-004', 2, severity);
+      expect(d.suppressed).toBe(false);
+      expect(d.overridden).toEqual({ channel: 'pragma', scope: 'file' });
+    });
+
+    it(`refuses a per-line wildcard for ${severity}`, () => {
+      const m = parseSuppressions(PER_LINE);
+      const d = evaluateSuppression(m, 'VG-INJ-004', 1, severity);
+      expect(d.suppressed).toBe(false);
+      expect(d.overridden).toEqual({ channel: 'pragma', scope: 'line' });
+    });
+
+    it(`refuses a disable-next-line wildcard for ${severity}`, () => {
+      // Same bucket as disable-line once parsed, but asserted separately because
+      // this is the form the editor quick-fix emits, so a regression that only
+      // hit this spelling would be the one users met first.
+      const m = parseSuppressions(NEXT_LINE);
+      const d = evaluateSuppression(m, 'VG-INJ-004', 2, severity);
+      expect(d.suppressed).toBe(false);
+      expect(d.overridden?.scope).toBe('line');
+    });
+  }
+
+  for (const severity of ['low', 'info'] as const) {
+    it(`still honours a wildcard for ${severity}`, () => {
+      expect(isSuppressed(parseSuppressions(FILE_WIDE), 'VG-INJ-004', 2, severity)).toBe(true);
+      expect(isSuppressed(parseSuppressions(PER_LINE), 'VG-INJ-004', 1, severity)).toBe(true);
+    });
+
+    it(`records nothing when a ${severity} wildcard is honoured`, () => {
+      const d = evaluateSuppression(parseSuppressions(FILE_WIDE), 'VG-INJ-004', 2, severity);
+      expect(d.suppressed).toBe(true);
+      expect(d.overridden).toBeUndefined();
+    });
+  }
+
+  it('honours an explicit rule ID at critical — the escape hatch', () => {
+    const m = parseSuppressions('// vibeguard:disable-file VG-INJ-004\neval(x);\n');
+    const d = evaluateSuppression(m, 'VG-INJ-004', 2, 'critical');
+    expect(d.suppressed).toBe(true);
+    expect(d.overridden).toBeUndefined();
+  });
+
+  it('honours an explicit rule ID on a line at critical', () => {
+    const m = parseSuppressions('eval(x); // vibeguard:disable-line VG-INJ-004\n');
+    expect(isSuppressed(m, 'VG-INJ-004', 1, 'critical')).toBe(true);
+  });
+
+  it('lets an explicit entry win over a blanket one in the same file', () => {
+    // The blanket entry is refused, the explicit one covers. The finding must be
+    // suppressed and must NOT carry an override marker — the refusal is
+    // uninteresting once something legitimately silenced the finding.
+    const m = parseSuppressions('// vibeguard:disable-file\n// vibeguard:disable-file VG-INJ-004\neval(x);\n');
+    const d = evaluateSuppression(m, 'VG-INJ-004', 3, 'critical');
+    expect(d.suppressed).toBe(true);
+    expect(d.overridden).toBeUndefined();
+  });
+
+  it('carries the reason text of the refused entry', () => {
+    const m = parseSuppressions('// vibeguard:disable-file reason="b3-suppression-abuse"\neval(x);\n');
+    const d = evaluateSuppression(m, 'VG-INJ-004', 2, 'critical');
+    expect(d.overridden).toEqual({
+      channel: 'pragma',
+      scope: 'file',
+      reason: 'b3-suppression-abuse',
+    });
+  });
+
+  it('does not let an unexpired until= wildcard through for critical', () => {
+    // until= only controls whether the entry exists at all. A live blanket entry
+    // is still a blanket entry, so the b3 arm's
+    // `disable-file until=2099-12-31 reason="..."` buys nothing at critical.
+    const m = parseSuppressions('// vibeguard:disable-file until=2099-12-31 reason="b3-suppression-abuse"\neval(x);\n', {
+      now: new Date('2026-01-01T00:00:00Z'),
+    });
+    expect(m.fileWide.length).toBe(1);
+    expect(isSuppressed(m, 'VG-INJ-004', 2, 'critical')).toBe(false);
+    expect(isSuppressed(m, 'VG-INJ-004', 2, 'low')).toBe(true);
   });
 });
 
@@ -79,7 +172,7 @@ describe('temporary suppressions (until=)', () => {
       'eval(x); // vibeguard:disable-line VG-INJ-004 until=2099-12-31\n',
       { now: new Date('2026-01-01T00:00:00Z') },
     );
-    expect(isSuppressed(m, 'VG-INJ-004', 1)).toBe(true);
+    expect(isSuppressed(m, 'VG-INJ-004', 1, 'critical')).toBe(true);
   });
 
   it('drops an expired entry at parse time', () => {
@@ -88,7 +181,7 @@ describe('temporary suppressions (until=)', () => {
       { now: new Date('2026-01-01T00:00:00Z') },
     );
     expect(m.perLine.size).toBe(0);
-    expect(isSuppressed(m, 'VG-INJ-004', 1)).toBe(false);
+    expect(isSuppressed(m, 'VG-INJ-004', 1, 'low')).toBe(false);
   });
 
   it('drops an expired file-wide entry', () => {
@@ -141,5 +234,68 @@ describe('Analyzer suppress integration', () => {
     const code = 'el.innerHTML = data; // vibeguard:disable-line VG-INJ-004\n';
     const r = scan({ targetType: 'snippet', content: code, mode: 'standard', filePath: 'a.js' });
     expect(r.findings.some((f) => f.ruleId === 'VG-INJ-006')).toBe(true);
+  });
+
+  // VG-INJ-004 (eval) is `critical`, so every blanket form below is refused.
+  const WILDCARD_FIXTURES: Record<string, string> = {
+    'disable-file': '// vibeguard:disable-file\nconst v = eval(input);\n',
+    'disable-line': 'const v = eval(input); // vibeguard:disable-line\n',
+    'disable-next-line': '// vibeguard:disable-next-line\nconst v = eval(input);\n',
+    'disable-file with until= and reason=':
+      '// vibeguard:disable-file until=2099-12-31 reason="b3-suppression-abuse"\nconst v = eval(input);\n',
+  };
+
+  for (const [label, code] of Object.entries(WILDCARD_FIXTURES)) {
+    it(`reports a critical finding through a blanket ${label}`, () => {
+      const r = scan({ targetType: 'snippet', content: code, mode: 'fast', filePath: 'a.js' });
+      const f = r.findings.find((x) => x.ruleId === 'VG-INJ-004');
+      expect(f).toBeDefined();
+      expect(f?.suppressionOverridden?.channel).toBe('pragma');
+    });
+  }
+
+  it('leaves suppressionOverridden absent on an untouched finding', () => {
+    // Absence is the contract, so assert the key is not merely undefined.
+    const r = scan({
+      targetType: 'snippet',
+      content: 'const v = eval(input);\n',
+      mode: 'fast',
+      filePath: 'a.js',
+    });
+    const f = r.findings.find((x) => x.ruleId === 'VG-INJ-004');
+    expect(f).toBeDefined();
+    expect('suppressionOverridden' in (f as object)).toBe(false);
+  });
+
+  // Mutation control. The three assertions above only mean something if the
+  // blanket pragmas they carry *would* have worked before the gate existed —
+  // otherwise the test proves the attack was never possible rather than that it
+  // is now stopped. `legacyIsSuppressed` is the pre-D5 predicate verbatim
+  // (suppress.ts before this change: wildcard-or-rule-ID, severity-blind), run
+  // against the same parsed pragmas the analyzer saw. It must say "suppressed"
+  // for exactly the fixtures the analyzer now reports.
+  function legacyIsSuppressed(map: ReturnType<typeof parseSuppressions>, ruleId: string, line: number): boolean {
+    const covers = (e: { ruleIds: Set<string> }) => e.ruleIds.has('*') || e.ruleIds.has(ruleId);
+    return map.fileWide.some(covers) || (map.perLine.get(line) ?? []).some(covers);
+  }
+
+  for (const [label, code] of Object.entries(WILDCARD_FIXTURES)) {
+    it(`the pre-gate predicate would have dropped the same finding (${label})`, () => {
+      const r = scan({ targetType: 'snippet', content: code, mode: 'fast', filePath: 'a.js' });
+      const f = r.findings.find((x) => x.ruleId === 'VG-INJ-004');
+      expect(f).toBeDefined();
+      const map = parseSuppressions(code);
+      expect(legacyIsSuppressed(map, 'VG-INJ-004', f!.startLine!)).toBe(true);
+    });
+  }
+
+  it('the pre-gate predicate agrees with the gate on low/info bands', () => {
+    // The control cuts both ways: where the gate is inert, old and new must
+    // still agree, or the change did more than it claims to.
+    const code = '// vibeguard:disable-file\nconst v = eval(input);\n';
+    const map = parseSuppressions(code);
+    for (const severity of ['low', 'info'] as const) {
+      expect(isSuppressed(map, 'VG-INJ-004', 2, severity)).toBe(legacyIsSuppressed(map, 'VG-INJ-004', 2));
+    }
   });
 });

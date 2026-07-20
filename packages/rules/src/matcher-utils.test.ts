@@ -1,4 +1,4 @@
-// vibeguard:disable-file
+// vibeguard:disable-file VG-AUTH-004 VG-INJ-004 VG-SEC-003
 // Fixtures embed eval()/SQL literals to exercise the comment-line predicate;
 // they are not real vulnerabilities.
 import { describe, expect, it } from 'vitest';

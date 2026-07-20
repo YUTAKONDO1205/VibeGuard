@@ -1,4 +1,4 @@
-// vibeguard:disable-file
+// vibeguard:disable-file VG-AUTH-001 VG-FW-003 VG-INJ-007 VG-QUAL-003
 // Fixtures are intentionally vulnerable code shapes.
 import { describe, expect, it } from 'vitest';
 import { allRules } from '../index.js';

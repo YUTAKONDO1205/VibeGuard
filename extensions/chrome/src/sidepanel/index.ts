@@ -154,7 +154,22 @@ function buildDegradationBanner(degradations: ScanDegradation[]): HTMLElement {
   // here would undercount how much was actually cut short.
   const files = new Set(degradations.map((d) => d.filePath).filter(Boolean));
   const scope = files.size > 1 ? ` (${files.size} files)` : '';
-  banner.textContent = `⚠ Partial scan${scope}: a ReDoS guard stopped scanning before the end of the input — results may be incomplete.`;
+  // The banner names the CAUSE, and there are two distinct ones. It used to say
+  // "a ReDoS guard stopped scanning before the end of the input" unconditionally,
+  // which became false twice over once A1-LIMIT started routing match-limit
+  // truncations through this channel: that bound is the per-file match cap, not
+  // a ReDoS bound, and under it the input IS read to the end — only the reported
+  // matches of one rule are capped. A reader told to look for a pathological
+  // regex over a truncated input would find neither. Same basis as the CLI's
+  // `appendDegradations` in apps/cli/src/format.ts.
+  const causes = new Set(
+    degradations.map((d) =>
+      d.kind === 'match-limit'
+        ? 'a per-file match limit capped how many matches were reported'
+        : 'a ReDoS guard stopped scanning before the end of the input',
+    ),
+  );
+  banner.textContent = `⚠ Partial scan${scope}: ${[...causes].join('; ')} — results may be incomplete.`;
   return banner;
 }
 

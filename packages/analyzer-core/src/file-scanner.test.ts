@@ -1,4 +1,4 @@
-// vibeguard:disable-file
+// vibeguard:disable-file VG-INJ-004 VG-SEC-001 VG-SEC-003
 // Test fixtures contain intentional vulnerable code to exercise the rules.
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { RuleDefinition } from '@vibeguard/rules';
 import { scanPath } from './file-scanner.js';
+import { suppressionsForPath, type VibeguardConfig } from './config.js';
 
 const TEMP_DIRS: string[] = [];
 
@@ -79,6 +80,43 @@ describe('scanPath', () => {
     const result = await scanPath(dir);
     expect(result.findings).toEqual([]);
     expect(result.summary.total).toBe(0);
+  });
+
+  // The config channel is the second way to silence a finding, and it is the one
+  // the analyzer never sees — `Analyzer.scan` has already returned by the time
+  // `suppressionsForPath` is consulted. These three pin the D5 gate down on that
+  // path end-to-end, through the function the CLI actually calls.
+  it('reports a critical finding through a rules-omitted config entry', async () => {
+    const dir = await makeRepo({
+      'evil.js': 'const v = eval(input);\n',
+      '.vibeguardrc.json': JSON.stringify({ suppress: [{ paths: ['**/*.js'] }] }),
+    });
+    const result = await scanPath(dir);
+    const f = result.findings.find((x) => x.ruleId === 'VG-INJ-004');
+    expect(f).toBeDefined();
+    expect(f?.suppressionOverridden).toEqual({ channel: 'config', scope: 'path' });
+  });
+
+  it('still honours a config entry that names the rule', async () => {
+    // The escape hatch, on the config channel. Same fixture, one field added.
+    const dir = await makeRepo({
+      'evil.js': 'const v = eval(input);\n',
+      '.vibeguardrc.json': JSON.stringify({
+        suppress: [{ paths: ['**/*.js'], rules: ['VG-INJ-004'] }],
+      }),
+    });
+    const result = await scanPath(dir);
+    expect(result.findings.some((x) => x.ruleId === 'VG-INJ-004')).toBe(false);
+  });
+
+  it('mutation control: the pre-gate config predicate would have dropped it', async () => {
+    // Without this the test above only proves the finding is reported, not that
+    // the wildcard would once have removed it. `legacy` is the pre-D5 body of
+    // `isPathSuppressed` verbatim, run on the same resolved suppression set.
+    const cfg: VibeguardConfig = { suppress: [{ paths: ['**/*.js'] }] };
+    const s = suppressionsForPath(cfg, 'evil.js', new Date('2026-05-22T00:00:00Z'));
+    const legacy = s.has('*') || s.has('VG-INJ-004');
+    expect(legacy).toBe(true);
   });
 
   it('respects knownLanguagesOnly', async () => {

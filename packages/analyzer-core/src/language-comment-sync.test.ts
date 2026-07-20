@@ -1,4 +1,4 @@
-// vibeguard:disable-file
+// vibeguard:disable-file VG-SEC-001 VG-SEC-003
 // Test fixtures contain intentional vulnerable code to exercise the rules.
 //
 // EXT_TO_LANGUAGE (./language-detect.ts) <-> LINE_COMMENT_SPECS

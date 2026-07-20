@@ -185,7 +185,13 @@ function scanFile(absPath) {
       // must not reach it here either. Dropping the row makes the finding VANISH
       // from the scan, which the pair resolver already scores as action(d(v))=0 —
       // concealment via the suppression mechanism rather than a downgrade.
-      if (isSuppressed(suppressions, rule.ruleId, m.startLine)) {
+      // `rule.severity` is the fourth argument since the D5 severity gate landed:
+      // a wildcard pragma no longer suppresses a critical/high/medium finding.
+      // Passing it is not optional book-keeping — this is plain JS, so omitting
+      // the argument would silently reproduce the pre-gate behaviour and this
+      // harness would keep reporting the b3 suppress-wildcard arm as effective
+      // long after the defence stopped it.
+      if (isSuppressed(suppressions, rule.ruleId, m.startLine, rule.severity)) {
         SUPPRESSED_DROPS.push({ ruleId: rule.ruleId, file: rel(absPath), line: m.startLine });
         continue;
       }

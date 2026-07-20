@@ -1,4 +1,4 @@
-// vibeguard:disable-file
+// vibeguard:disable-file VG-INJ-001 VG-INJ-004
 // Fixtures embed vulnerable-looking literals to make the rules fire.
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -110,13 +110,23 @@ describe('D3 regex bounds — observability when a bound does fire', () => {
     expect(r.findings.length).toBeGreaterThan(0);
   });
 
-  it('does not report the ordinary match limit as a degradation', () => {
-    // 1000+ matches of one rule is common and benign. Reporting it here would
-    // train readers to ignore the channel, taking the two real bounds with it.
+  it('reports the match limit only for security-severity rules (A1-LIMIT)', () => {
+    // This test used to assert `degradations` was EMPTY here, on the reasoning
+    // that 1000+ matches of one rule is common and benign and would bury the
+    // two ReDoS bounds. A1-LIMIT keeps that reasoning for quality rules and
+    // drops it for security ones: eval is critical, so 500 silently discarded
+    // criticals is exactly the case the channel exists to report. The split and
+    // the aggregation are covered in a1-match-limit.test.ts; what this file
+    // still owns is that the match limit does not masquerade as a ReDoS bound.
     const content = 'const v = eval("1+1");\n'.repeat(1500);
     expect(content.length).toBeLessThan(REGEX_INPUT_CAP);
     const r = scan({ targetType: 'file', content, filePath: 'many.js', mode: 'standard' });
-    expect(r.degradations ?? []).toEqual([]);
+    const degs = r.degradations ?? [];
+    expect(degs.map((d) => d.kind)).toEqual(['match-limit']);
+    // Neither ReDoS bound fired — this input is small and fast.
+    expect(degs.some((d) => d.kind === 'input-truncated' || d.kind === 'deadline-exceeded')).toBe(
+      false,
+    );
   });
 
   it('is deterministic: the same oversized input yields the same findings every time', () => {
