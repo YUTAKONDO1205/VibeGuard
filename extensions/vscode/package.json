@@ -146,9 +146,9 @@
     "clean": "rimraf dist"
   },
   "dependencies": {
-    "@vibeguard/analyzer-core": "0.1.3",
-    "@vibeguard/findings-schema": "0.1.3",
-    "@vibeguard/sarif-adapter": "0.1.3"
+    "@vibeguard/analyzer-core": "0.2.0",
+    "@vibeguard/findings-schema": "0.2.0",
+    "@vibeguard/sarif-adapter": "0.2.0"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
