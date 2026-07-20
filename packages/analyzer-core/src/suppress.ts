@@ -29,7 +29,14 @@
  * before for `low`/`info`, which is the band the blanket form exists to serve.
  */
 
-import { isSecurityJudgementSeverity, type Severity, type SuppressionOverride } from '@vibeguard/findings-schema';
+import {
+  isSecurityJudgementSeverity,
+  type Severity,
+  type SuppressionChannel,
+  type SuppressionOverride,
+  type SuppressionRecord,
+  type SuppressionScope,
+} from '@vibeguard/findings-schema';
 
 const PRAGMA_RE = /vibeguard:(disable-line|disable-next-line|disable-file)\b([^\n\r]*)/g;
 const RULE_ID_RE = /VG-[A-Z]+-\d+/g;
@@ -156,6 +163,15 @@ function entryCovers(entry: SuppressEntry, ruleId: string, severity: Severity): 
 export interface SuppressionDecision {
   suppressed: boolean;
   overridden?: SuppressionOverride;
+  /**
+   * Which scope actually did the suppressing. Set if and only if `suppressed` is
+   * true, so the caller can record WHAT silenced the finding without re-deriving
+   * it (D8 observability). It sits on the decision rather than being inferred at
+   * the call site because the call site cannot tell `file` from `line` after the
+   * fact — the two scopes are resolved in separate loops in here and the loser
+   * leaves no trace.
+   */
+  scope?: SuppressionScope;
 }
 
 /**
@@ -176,7 +192,7 @@ export function evaluateSuppression(
   let overridden: SuppressionOverride | undefined;
   for (const e of map.fileWide) {
     const c = entryCovers(e, ruleId, severity);
-    if (c === 'covers') return { suppressed: true };
+    if (c === 'covers') return { suppressed: true, scope: 'file' };
     if (c === 'blocked' && !overridden) {
       overridden = { channel: 'pragma', scope: 'file', ...(e.reason !== undefined ? { reason: e.reason } : {}) };
     }
@@ -184,7 +200,7 @@ export function evaluateSuppression(
   const bucket = line == null ? undefined : map.perLine.get(line);
   for (const e of bucket ?? []) {
     const c = entryCovers(e, ruleId, severity);
-    if (c === 'covers') return { suppressed: true };
+    if (c === 'covers') return { suppressed: true, scope: 'line' };
     if (c === 'blocked' && !overridden) {
       overridden = { channel: 'pragma', scope: 'line', ...(e.reason !== undefined ? { reason: e.reason } : {}) };
     }
@@ -206,4 +222,86 @@ export function isSuppressed(
   severity: Severity,
 ): boolean {
   return evaluateSuppression(map, ruleId, line, severity).suppressed;
+}
+
+/**
+ * D8 accounting. Everything below is OBSERVABILITY, not defence: it changes what
+ * a scan reports about suppressions it has already honoured, and never whether
+ * one is honoured. See `SuppressionRecord` in @vibeguard/findings-schema.
+ *
+ * The accumulator is shared rather than reimplemented per call site because
+ * there are three enforcement points (the analyzer's pragma gate, plus the
+ * config gate in `scanPath` and in `scanDiff`) and they have to agree on the
+ * aggregation key exactly, or the same suppression will be counted as two
+ * different rows depending on which entry point the user came through.
+ */
+export type SuppressionTally = Map<string, SuppressionRecord>;
+
+/** The identity of a row: same rule, same channel, same scope, same file. */
+function tallyKey(channel: SuppressionChannel, scope: SuppressionScope, ruleId: string, filePath?: string): string {
+  return `${channel}|${scope}|${ruleId}|${filePath ?? ''}`;
+}
+
+/**
+ * Record `count` suppressed findings. Call it at the point the finding is
+ * dropped — the `continue`, not somewhere that re-derives the decision — so a
+ * row can only exist if something really was removed.
+ */
+export function tallySuppression(
+  into: SuppressionTally,
+  entry: { channel: SuppressionChannel; scope: SuppressionScope; ruleId: string; filePath?: string },
+  count = 1,
+): void {
+  const key = tallyKey(entry.channel, entry.scope, entry.ruleId, entry.filePath);
+  const existing = into.get(key);
+  if (existing) {
+    existing.count += count;
+    return;
+  }
+  into.set(key, {
+    ruleId: entry.ruleId,
+    channel: entry.channel,
+    scope: entry.scope,
+    ...(entry.filePath !== undefined ? { filePath: entry.filePath } : {}),
+    count,
+  });
+}
+
+/**
+ * Fold a sub-scan's records into a walk-wide tally.
+ *
+ * This is the merge point the directory and diff walkers need: the analyzer
+ * reports the PRAGMA suppressions of one file, and the walker adds its own
+ * CONFIG suppressions on top, for every file. Without this the pragma half would
+ * be silently discarded the moment a scan covered more than one file — the
+ * per-file `ScanResponse` is thrown away by the walkers, and only `findings`,
+ * `ruleErrors` and `degradations` were being carried across.
+ */
+export function mergeSuppressions(into: SuppressionTally, records: SuppressionRecord[] | undefined): void {
+  for (const r of records ?? []) {
+    tallySuppression(
+      into,
+      { channel: r.channel, scope: r.scope, ruleId: r.ruleId, ...(r.filePath !== undefined ? { filePath: r.filePath } : {}) },
+      r.count,
+    );
+  }
+}
+
+/**
+ * Materialise the tally for a `ScanResponse`, ordered so two runs over the same
+ * input produce byte-identical output (the walkers iterate a directory listing,
+ * and Map insertion order would otherwise leak that ordering into the artifact).
+ * Sorted loudest-first — most suppressions is the row a reviewer wants at the
+ * top — then by file and rule for a stable tie-break.
+ */
+export function collectSuppressions(tally: SuppressionTally): SuppressionRecord[] {
+  return [...tally.values()].sort((a, b) => {
+    if (a.count !== b.count) return b.count - a.count;
+    const fa = a.filePath ?? '';
+    const fb = b.filePath ?? '';
+    if (fa !== fb) return fa < fb ? -1 : 1;
+    if (a.ruleId !== b.ruleId) return a.ruleId < b.ruleId ? -1 : 1;
+    if (a.channel !== b.channel) return a.channel < b.channel ? -1 : 1;
+    return a.scope < b.scope ? -1 : a.scope > b.scope ? 1 : 0;
+  });
 }

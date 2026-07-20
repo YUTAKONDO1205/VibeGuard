@@ -79,6 +79,54 @@ export interface SuppressionOverride {
   reason?: string;
 }
 
+/**
+ * One aggregated line of "a suppression matched, and a finding is gone because
+ * of it" — D8.
+ *
+ * THIS IS NOT A DEFENCE. Nothing here stops a suppression; every finding counted
+ * by a record has already been dropped and will not appear in `findings`, the
+ * summary, or the exit code. The mechanism this documents (naming a rule ID in a
+ * pragma or in `suppress[].rules`) is honoured at every severity by design — see
+ * `SECURITY_JUDGEMENT_SEVERITIES` and `entryCovers` for why the escape hatch has
+ * to stay open. What changes is only that using it is no longer *silent*: before
+ * this, a scan output was byte-identical whether a critical finding never
+ * existed or whether someone had written one line to erase it. That
+ * indistinguishability is what made suppression usable as a hiding mechanism,
+ * and it is the only thing removed here. An attacker can still suppress; they
+ * can no longer suppress without leaving a countable trace in the artifact the
+ * reviewer reads.
+ *
+ * `SuppressionOverride` is the complement of this type and the two must not be
+ * confused. That one rides on a finding that SURVIVED a refused blanket
+ * suppression; this one stands in for findings that did NOT survive an honoured
+ * one.
+ *
+ * WHAT IS DELIBERATELY NOT HERE: the finding itself — no title, no snippet, no
+ * line numbers. Two reasons, and the second is the load-bearing one.
+ *  - Re-emitting the suppressed content would make suppression a no-op, which
+ *    would break the legitimate use (the noise a team asked not to see would
+ *    come back in a different column) and would guarantee the feature gets
+ *    turned off wholesale, which is strictly worse for observability.
+ *  - `ruleId` plus a line number IS the finding, near enough: a reader holding
+ *    both can reconstruct what was hidden without the analyzer's help. The
+ *    granularity therefore stops at the FILE. "VG-INJ-004 was silenced twice in
+ *    src/db.ts by a pragma" is enough for a reviewer to go look, which is the
+ *    entire job of this channel, and it is not enough to serve as a findings
+ *    feed that bypasses the user's stated intent.
+ * `filePath` is kept because without it a directory scan can only say that
+ * something somewhere was silenced, which is not actionable.
+ */
+export interface SuppressionRecord {
+  /** The suppressed rule. `*` is never used here — records name the real rule. */
+  ruleId: string;
+  channel: SuppressionChannel;
+  scope: SuppressionScope;
+  /** File the suppression applied in. Absent for snippet scans, which have none. */
+  filePath?: string;
+  /** How many findings this channel+scope+rule+file combination removed. */
+  count: number;
+}
+
 export interface Finding {
   findingId: string;
   ruleId: string;
@@ -206,6 +254,15 @@ export interface ScanResponse {
    * only when non-empty.
    */
   degradations?: ScanDegradation[];
+  /**
+   * Findings that a suppression removed from this scan, aggregated per
+   * rule+channel+scope+file. Observability only — see `SuppressionRecord`. These
+   * do NOT contribute to `summary`, do NOT appear in `findings`, and do NOT
+   * affect the CLI exit code (same posture as `degradations`: a signal to a
+   * reader, not a gate). Present only when non-empty, so a scan that suppressed
+   * nothing is byte-identical to what it produced before D8.
+   */
+  suppressions?: SuppressionRecord[];
 }
 
 export function emptySummary(): ScanSummary {

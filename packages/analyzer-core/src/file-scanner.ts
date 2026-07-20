@@ -13,6 +13,7 @@ import {
 import { Analyzer, ENGINE_VERSION, type AnalyzerOptions } from './analyzer.js';
 import { detectLanguageFromPath } from './language-detect.js';
 import { evaluatePathSuppression, suppressionsForPath, type VibeguardConfig } from './config.js';
+import { collectSuppressions, mergeSuppressions, tallySuppression, type SuppressionTally } from './suppress.js';
 import { loadConfig } from './config-loader.js';
 
 export const DEFAULT_IGNORE = new Set([
@@ -80,6 +81,10 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
   // in a single-snippet `Analyzer.scan` but silently lost across a directory scan.
   const ruleErrorsByRule = new Map<string, RuleError>();
   const degradationsByFileKind = new Map<string, ScanDegradation>();
+  // D8: both suppression channels land in one tally. The analyzer reports the
+  // pragma half per file (and that per-file response is otherwise discarded
+  // here), the loop below adds the config half.
+  const suppressionTally: SuppressionTally = new Map();
   const now = options.now ?? new Date();
 
   const stats = await stat(target);
@@ -138,13 +143,28 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
       // finding; the config refusal does not overwrite that — one mark is the
       // signal, and the earlier one is the more specific of the two.
       const decision = evaluatePathSuppression(pathSuppressed, f.ruleId, f.severity);
-      if (decision.suppressed) continue;
+      if (decision.suppressed) {
+        // D8, config half. Not a defence — the finding is dropped exactly as
+        // before — but the drop is now counted. `scope` is `path` unconditionally
+        // because that is the only scope the config channel has (`suppress[].paths`).
+        tallySuppression(suppressionTally, {
+          channel: 'config',
+          scope: 'path',
+          ruleId: f.ruleId,
+          filePath: f.filePath ?? relPath,
+        });
+        continue;
+      }
       findings.push(
         decision.overridden && !f.suppressionOverridden
           ? { ...f, suppressionOverridden: decision.overridden }
           : f,
       );
     }
+    // The pragma-channel tally from inside the analyzer. Merged, never
+    // overwritten: these are counts, and two files suppressing the same rule are
+    // two suppressions.
+    mergeSuppressions(suppressionTally, result.suppressions);
     for (const e of result.ruleErrors ?? []) {
       if (!ruleErrorsByRule.has(e.ruleId)) ruleErrorsByRule.set(e.ruleId, e);
     }
@@ -184,5 +204,6 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
     generatedAt: new Date().toISOString(),
     ...(ruleErrorsByRule.size ? { ruleErrors: [...ruleErrorsByRule.values()] } : {}),
     ...(degradationsByFileKind.size ? { degradations: [...degradationsByFileKind.values()] } : {}),
+    ...(suppressionTally.size ? { suppressions: collectSuppressions(suppressionTally) } : {}),
   };
 }

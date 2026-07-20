@@ -29,7 +29,13 @@ import { buildRemediation } from '@vibeguard/remediation-engine';
 import { canonicalize } from './canonicalizer.js';
 import { detectLanguageFromContent, detectLanguageFromPath } from './language-detect.js';
 import { extractSnippet, maskSecret } from './snippet.js';
-import { parseSuppressions, evaluateSuppression } from './suppress.js';
+import {
+  parseSuppressions,
+  evaluateSuppression,
+  tallySuppression,
+  collectSuppressions,
+  type SuppressionTally,
+} from './suppress.js';
 
 /**
  * Detection-engine version, embedded in every scan result and SARIF report
@@ -340,6 +346,10 @@ export class Analyzer {
     const findings: Finding[] = [];
     const ruleErrors: RuleError[] = [];
     const degradations: ScanDegradation[] = [];
+    // D8: what the pragma channel silenced. Observability, not enforcement — the
+    // findings counted in here are dropped either way; the only difference is
+    // that the drop is now countable by whoever reads the response.
+    const suppressionTally: SuppressionTally = new Map();
 
     if (!request.content) {
       return {
@@ -457,7 +467,21 @@ export class Analyzer {
         // not drop the finding — it leaves a mark on it (`overridden`), which
         // is spread onto the finding below.
         const suppression = evaluateSuppression(suppressions, rule.ruleId, m.startLine, rule.severity);
-        if (suppression.suppressed) continue;
+        if (suppression.suppressed) {
+          // Counted HERE, at the `continue`, and nowhere else. Recording next to
+          // the drop is what makes the tally trustworthy: there is no second
+          // path by which a finding can be suppressed, so there is no way for a
+          // suppression to happen and go uncounted. `scope` comes off the
+          // decision because only `evaluateSuppression` knows which of the two
+          // pragma scopes matched.
+          tallySuppression(suppressionTally, {
+            channel: 'pragma',
+            scope: suppression.scope ?? 'file',
+            ruleId: rule.ruleId,
+            ...(request.filePath !== undefined ? { filePath: request.filePath } : {}),
+          });
+          continue;
+        }
         const rawSnippet = extractSnippet(ctx.lines, m.startLine, m.endLine, 0);
         const snippet = shouldMaskCategory(rule.category) ? maskSecret(rawSnippet) : rawSnippet;
         const evidence = shouldMaskCategory(rule.category) ? maskSecret(m.evidence) : m.evidence;
@@ -547,6 +571,7 @@ export class Analyzer {
       generatedAt: new Date().toISOString(),
       ...(ruleErrors.length ? { ruleErrors } : {}),
       ...(degradations.length ? { degradations } : {}),
+      ...(suppressionTally.size ? { suppressions: collectSuppressions(suppressionTally) } : {}),
     };
   }
 }

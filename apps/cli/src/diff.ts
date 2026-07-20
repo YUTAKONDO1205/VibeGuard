@@ -23,9 +23,13 @@ import {
   DEFAULT_IGNORE,
   ENGINE_VERSION,
   detectLanguageFromPath,
+  collectSuppressions,
   evaluatePathSuppression,
   loadConfig,
+  mergeSuppressions,
   suppressionsForPath,
+  tallySuppression,
+  type SuppressionTally,
   type AnalyzerOptions,
   type VibeguardConfig,
 } from '@vibeguard/analyzer-core';
@@ -172,6 +176,9 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
   // Deduped by ruleId across the diffed files (see scanPath for the rationale).
   const ruleErrorsByRule = new Map<string, RuleError>();
   const degradationsByFileKind = new Map<string, ScanDegradation>();
+  // D8, mirroring `scanPath`: pragma records come up from the analyzer, config
+  // records are added below. Observability only; nothing here gates anything.
+  const suppressionTally: SuppressionTally = new Map();
   const ignore = new Set([...DEFAULT_IGNORE, ...(options.ignore ?? [])]);
   const now = new Date();
 
@@ -206,13 +213,34 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
       // Mirrors scanPath: a config wildcard refused by the severity gate keeps
       // the finding and records the refusal instead of dropping it.
       const decision = evaluatePathSuppression(pathSuppressed, f.ruleId, f.severity);
-      if (decision.suppressed) continue;
+      if (decision.suppressed) {
+        // Counted only if the finding would have been REPORTED, i.e. if it
+        // touches the added lines. A diff scan drops everything outside the
+        // changed range anyway, so counting a suppression there would claim
+        // something was hidden when the diff scan was never going to show it.
+        //
+        // The pragma half cannot be filtered the same way and is not: the
+        // analyzer has no diff context, so on this path its counts may include
+        // findings outside the changed lines. Stated rather than papered over —
+        // the error is towards reporting more suppressions than the diff would
+        // have surfaced, never fewer.
+        if (overlapsAdded(f, added)) {
+          tallySuppression(suppressionTally, {
+            channel: 'config',
+            scope: 'path',
+            ruleId: f.ruleId,
+            filePath: f.filePath ?? relPath,
+          });
+        }
+        continue;
+      }
       const kept =
         decision.overridden && !f.suppressionOverridden
           ? { ...f, suppressionOverridden: decision.overridden }
           : f;
       if (overlapsAdded(kept, added)) findings.push(kept);
     }
+    mergeSuppressions(suppressionTally, result.suppressions);
     for (const e of result.ruleErrors ?? []) {
       if (!ruleErrorsByRule.has(e.ruleId)) ruleErrorsByRule.set(e.ruleId, e);
     }
@@ -245,5 +273,6 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
     generatedAt: new Date().toISOString(),
     ...(ruleErrorsByRule.size ? { ruleErrors: [...ruleErrorsByRule.values()] } : {}),
     ...(degradationsByFileKind.size ? { degradations: [...degradationsByFileKind.values()] } : {}),
+    ...(suppressionTally.size ? { suppressions: collectSuppressions(suppressionTally) } : {}),
   };
 }

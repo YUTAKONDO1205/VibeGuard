@@ -300,3 +300,95 @@ describe('scanDiff — config suppression severity gate (D5)', () => {
     expect(f?.suppressionOverridden).toBeUndefined();
   });
 });
+
+/**
+ * D8 through `scanDiff`, end-to-end.
+ *
+ * This block exists in this shape because of a specific past miss: when D5 added
+ * the config gate at this call site, the only test covering it here compared the
+ * two PREDICATES and never ran `scanDiff`, so reverting the call site left the
+ * suite green. Every assertion below therefore goes through `scanDiff` and reads
+ * its response — a test that calls `tallySuppression` directly would prove
+ * nothing about whether this path records anything.
+ *
+ * Observability, not defence: the findings counted here are suppressed, and are
+ * meant to be.
+ */
+describe('scanDiff — suppression tally (D8)', () => {
+  const oneLineDiff = (path: string, line: string): string =>
+    [`--- a/${path}`, `+++ b/${path}`, '@@ -0,0 +1,1 @@', `+${line}`].join('\n');
+
+  const EVAL_LINE = 'const v = eval(input);';
+
+  it('records a config entry that names a critical rule', async () => {
+    const cwd = await makeFiles({
+      'app.js': `${EVAL_LINE}\n`,
+      '.vibeguardrc.json': JSON.stringify({
+        suppress: [{ paths: ['**/*.js'], rules: ['VG-INJ-004'] }],
+      }),
+    });
+    const result = await scanDiff({
+      cwd,
+      range: 'unused',
+      diffText: oneLineDiff('app.js', EVAL_LINE),
+      mode: 'standard',
+    });
+    expect(result.findings.some((f) => f.ruleId === 'VG-INJ-004')).toBe(false);
+    expect(result.summary.critical).toBe(0);
+    expect(result.suppressions).toContainEqual({
+      ruleId: 'VG-INJ-004',
+      channel: 'config',
+      scope: 'path',
+      filePath: 'app.js',
+      count: 1,
+    });
+  });
+
+  it('records a pragma on the changed line', async () => {
+    // The pragma half reaches this response only if `scanDiff` merges what the
+    // analyzer returned per file, which it discards otherwise.
+    const line = `${EVAL_LINE} // vibeguard:disable-line VG-INJ-004`;
+    const cwd = await makeFiles({ 'app.js': `${line}\n` });
+    const result = await scanDiff({
+      cwd,
+      range: 'unused',
+      diffText: oneLineDiff('app.js', line),
+      mode: 'standard',
+    });
+    expect(result.findings.some((f) => f.ruleId === 'VG-INJ-004')).toBe(false);
+    const rec = result.suppressions?.find((s) => s.ruleId === 'VG-INJ-004');
+    expect(rec?.channel).toBe('pragma');
+    expect(rec?.count).toBe(1);
+  });
+
+  it('does not count a config suppression outside the changed lines', async () => {
+    // A diff scan reports only what the diff touched, so a finding on an
+    // untouched line was never going to be shown. Counting its suppression would
+    // claim something was hidden that the diff scan would not have surfaced.
+    const cwd = await makeFiles({
+      'app.js': `const safe = 1;\n${EVAL_LINE}\n`,
+      '.vibeguardrc.json': JSON.stringify({
+        suppress: [{ paths: ['**/*.js'], rules: ['VG-INJ-004'] }],
+      }),
+    });
+    const result = await scanDiff({
+      cwd,
+      range: 'unused',
+      diffText: oneLineDiff('app.js', 'const safe = 1;'),
+      mode: 'standard',
+    });
+    expect(result.suppressions?.some((s) => s.channel === 'config')).not.toBe(true);
+  });
+
+  it('omits the field when nothing was suppressed', async () => {
+    const cwd = await makeFiles({ 'app.js': `${EVAL_LINE}\n` });
+    const result = await scanDiff({
+      cwd,
+      range: 'unused',
+      diffText: oneLineDiff('app.js', EVAL_LINE),
+      mode: 'standard',
+    });
+    expect(result.findings.some((f) => f.ruleId === 'VG-INJ-004')).toBe(true);
+    expect('suppressions' in (result as object)).toBe(false);
+  });
+});

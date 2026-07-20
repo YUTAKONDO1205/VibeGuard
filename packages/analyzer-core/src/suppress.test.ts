@@ -299,3 +299,80 @@ describe('Analyzer suppress integration', () => {
     }
   });
 });
+
+/**
+ * D8 — the pragma channel's suppression tally.
+ *
+ * These pin OBSERVABILITY, not a defence. Every finding asserted about below is
+ * still suppressed, still absent from `findings`, and still absent from the
+ * summary; the assertions are about a scan being able to say that it happened.
+ * A test that expected a named suppression to stop working would be asserting
+ * the opposite of the design (see `entryCovers`).
+ */
+describe('suppression tally (D8, pragma channel)', () => {
+  it('records a named suppression of a critical finding', () => {
+    // VG-INJ-004 (eval) is critical, and the pragma names it — so the escape
+    // hatch applies at full strength and the finding is gone. What is new is
+    // that the response says one was removed, by which channel, and how many.
+    const code = 'const v = eval(input); // vibeguard:disable-line VG-INJ-004\n';
+    const r = scan({ targetType: 'snippet', content: code, mode: 'standard', filePath: 'a.js' });
+    expect(r.findings.some((f) => f.ruleId === 'VG-INJ-004')).toBe(false);
+    expect(r.summary.critical).toBe(0);
+    expect(r.suppressions).toContainEqual({
+      ruleId: 'VG-INJ-004',
+      channel: 'pragma',
+      scope: 'line',
+      filePath: 'a.js',
+      count: 1,
+    });
+  });
+
+  it('records a file-scoped named suppression with its scope', () => {
+    const code = '// vibeguard:disable-file VG-INJ-004\nconst v = eval(input);\n';
+    const r = scan({ targetType: 'snippet', content: code, mode: 'standard', filePath: 'a.js' });
+    expect(r.findings.some((f) => f.ruleId === 'VG-INJ-004')).toBe(false);
+    const rec = r.suppressions?.find((s) => s.ruleId === 'VG-INJ-004');
+    expect(rec?.scope).toBe('file');
+    expect(rec?.channel).toBe('pragma');
+  });
+
+  it('records a wildcard suppression in the advisory band', () => {
+    // A blanket pragma still works below the security-judgement line (D5 leaves
+    // low/info alone), and that legitimate, everyday suppression is recorded on
+    // the same terms as any other. The tally is an account of what was removed,
+    // not an accusation.
+    // VG-CRYPTO-003 (plaintext http:// URL), severity low.
+    const code = '// vibeguard:disable-file\nconst endpoint = "http://example.com/api";\n';
+    const r = scan({ targetType: 'snippet', content: code, mode: 'standard', filePath: 'a.js' });
+    expect(r.findings.some((f) => f.ruleId === 'VG-CRYPTO-003')).toBe(false);
+    expect(r.suppressions).toContainEqual({
+      ruleId: 'VG-CRYPTO-003',
+      channel: 'pragma',
+      scope: 'file',
+      filePath: 'a.js',
+      count: 1,
+    });
+  });
+
+  it('aggregates repeated suppressions of the same rule into one row', () => {
+    const code =
+      '// vibeguard:disable-file VG-INJ-004\nconst a = eval(x);\nconst b = eval(y);\n';
+    const r = scan({ targetType: 'snippet', content: code, mode: 'standard', filePath: 'a.js' });
+    const rows = (r.suppressions ?? []).filter((s) => s.ruleId === 'VG-INJ-004');
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.count).toBe(2);
+  });
+
+  it('omits the field entirely when nothing was suppressed', () => {
+    // Absence is the contract, exactly as for `degradations`: a clean scan must
+    // be byte-identical to what it produced before this channel existed.
+    const r = scan({
+      targetType: 'snippet',
+      content: 'const v = eval(input);\n',
+      mode: 'standard',
+      filePath: 'a.js',
+    });
+    expect(r.findings.some((f) => f.ruleId === 'VG-INJ-004')).toBe(true);
+    expect('suppressions' in (r as object)).toBe(false);
+  });
+});

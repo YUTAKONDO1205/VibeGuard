@@ -127,3 +127,72 @@ describe('scanPath', () => {
     expect(result.findings).toEqual([]);
   });
 });
+
+/**
+ * D8 on the config channel, through `scanPath` — the function the CLI and the
+ * GitHub Action actually call.
+ *
+ * `scanPath` is where the two halves of the tally have to meet: the analyzer
+ * reports the pragma half per file and `scanPath` throws that per-file response
+ * away, so the merge is a real failure point rather than a formality. Both
+ * halves are asserted, in one scan, for that reason.
+ *
+ * Again: observability, not defence. The named suppressions below all work.
+ */
+describe('scanPath — suppression tally (D8)', () => {
+  it('records a config entry that names a critical rule', async () => {
+    const dir = await makeRepo({
+      'evil.js': 'const v = eval(input);\n',
+      '.vibeguardrc.json': JSON.stringify({
+        suppress: [{ paths: ['**/*.js'], rules: ['VG-INJ-004'] }],
+      }),
+    });
+    const result = await scanPath(dir);
+    expect(result.findings.some((f) => f.ruleId === 'VG-INJ-004')).toBe(false);
+    expect(result.summary.critical).toBe(0);
+    const rec = result.suppressions?.find((s) => s.ruleId === 'VG-INJ-004');
+    expect(rec).toBeDefined();
+    expect(rec?.channel).toBe('config');
+    expect(rec?.scope).toBe('path');
+    expect(rec?.count).toBe(1);
+    expect(rec?.filePath).toBe('evil.js');
+  });
+
+  it('carries the analyzer\'s pragma records across the directory walk', async () => {
+    // The merge point. Before D8 the per-file `ScanResponse` was consulted only
+    // for findings, ruleErrors and degradations, so a pragma record produced
+    // inside the analyzer would have been dropped here without a trace.
+    const dir = await makeRepo({
+      'evil.js': 'const v = eval(input); // vibeguard:disable-line VG-INJ-004\n',
+    });
+    const result = await scanPath(dir);
+    expect(result.findings.some((f) => f.ruleId === 'VG-INJ-004')).toBe(false);
+    expect(result.suppressions).toContainEqual({
+      ruleId: 'VG-INJ-004',
+      channel: 'pragma',
+      scope: 'line',
+      filePath: 'evil.js',
+      count: 1,
+    });
+  });
+
+  it('keeps both channels distinguishable in one walk', async () => {
+    const dir = await makeRepo({
+      'pragma.js': 'const v = eval(input); // vibeguard:disable-line VG-INJ-004\n',
+      'config.js': 'const v = eval(input);\n',
+      '.vibeguardrc.json': JSON.stringify({
+        suppress: [{ paths: ['config.js'], rules: ['VG-INJ-004'] }],
+      }),
+    });
+    const result = await scanPath(dir);
+    const channels = new Set((result.suppressions ?? []).map((s) => s.channel));
+    expect(channels).toEqual(new Set(['pragma', 'config']));
+  });
+
+  it('omits the field when nothing was suppressed', async () => {
+    const dir = await makeRepo({ 'evil.js': 'const v = eval(input);\n' });
+    const result = await scanPath(dir);
+    expect(result.findings.some((f) => f.ruleId === 'VG-INJ-004')).toBe(true);
+    expect('suppressions' in (result as object)).toBe(false);
+  });
+});

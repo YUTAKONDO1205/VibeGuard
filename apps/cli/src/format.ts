@@ -38,6 +38,10 @@ export function formatHuman(scan: ScanResponse, useColor: boolean): string {
     lines.push(colorise('✓ No findings.', GREEN, useColor));
     lines.push(`Scanned in ${scan.executionTimeMs}ms.`);
     appendRuleErrors(lines, scan, useColor);
+    // Deliberately also on the zero-findings path, and this is the case that
+    // matters most: "✓ No findings" printed over a scan where every finding was
+    // suppressed is precisely the outcome an attacker is buying.
+    appendSuppressions(lines, scan, useColor);
     return lines.join('\n');
   }
 
@@ -57,7 +61,44 @@ export function formatHuman(scan: ScanResponse, useColor: boolean): string {
   lines.push(`  total: ${summary.total}    elapsed: ${scan.executionTimeMs}ms`);
   appendRuleErrors(lines, scan, useColor);
   appendDegradations(lines, scan, useColor);
+  appendSuppressions(lines, scan, useColor);
   return lines.join('\n');
+}
+
+/**
+ * Surface findings that a suppression removed (D8).
+ *
+ * NOT a defence and the wording must not imply one: every finding counted here
+ * is gone, on purpose, because someone named its rule ID — the escape hatch that
+ * makes suppression usable is intentionally still open. What this fixes is that
+ * using it used to be invisible: the output of a scan over a file with a
+ * hand-planted `disable-file VG-INJ-004` was character-for-character the output
+ * of a scan over a clean file. Printing the tally makes the two distinguishable,
+ * so a reviewer can ask why, which is the whole of the claim being made.
+ *
+ * Rendered in the neutral colour rather than the yellow used for degradations
+ * and rule errors: those two report a scan that did not do its job, whereas a
+ * suppression is a configured, legitimate operation most of the time. Shouting
+ * at every `low` a team has opted out of would train people to ignore the line,
+ * and the line only works if it is read.
+ *
+ * Silent at zero, per the same rule the other two channels follow.
+ */
+function appendSuppressions(lines: string[], scan: ScanResponse, useColor: boolean): void {
+  if (!scan.suppressions?.length) return;
+  lines.push('');
+  const total = scan.suppressions.reduce((n, s) => n + s.count, 0);
+  lines.push(
+    colorise(
+      `ℹ ${total} finding(s) were SUPPRESSED and are not listed above (rule IDs and counts only):`,
+      DIM,
+      useColor,
+    ),
+  );
+  for (const s of scan.suppressions) {
+    const at = s.filePath ? `${s.filePath} — ` : '';
+    lines.push(`  ${at}${s.ruleId}: ${s.count} × ${s.channel}/${s.scope}`);
+  }
 }
 
 /**
@@ -136,6 +177,10 @@ export function formatMarkdown(scan: ScanResponse): string {
     lines.push('');
     lines.push(`_Scanned in ${scan.executionTimeMs}ms._`);
     appendRuleErrorsMarkdown(lines, scan);
+    // As in the human renderer: a PR comment reading "No findings detected ✅"
+    // over a fully-suppressed diff is the exact artifact this channel exists to
+    // annotate, so the zero-findings path must not skip it.
+    appendSuppressionsMarkdown(lines, scan);
     return lines.join('\n');
   }
 
@@ -171,7 +216,25 @@ export function formatMarkdown(scan: ScanResponse): string {
 
   appendRuleErrorsMarkdown(lines, scan);
   appendDegradationsMarkdown(lines, scan);
+  appendSuppressionsMarkdown(lines, scan);
   return lines.join('\n');
+}
+
+/**
+ * The D8 tally in the PR-comment channel — see `appendSuppressions` for why this
+ * is observability and not a defence, and why it says so plainly instead of
+ * warning. A reviewer looking at a diff has no other way to tell that a line of
+ * the diff itself deleted a finding from the report.
+ */
+function appendSuppressionsMarkdown(lines: string[], scan: ScanResponse): void {
+  if (!scan.suppressions?.length) return;
+  lines.push('');
+  const total = scan.suppressions.reduce((n, s) => n + s.count, 0);
+  lines.push(`> ℹ️ **${total} finding(s) were suppressed** and are not listed above:`);
+  for (const s of scan.suppressions) {
+    const at = s.filePath ? `\`${s.filePath}\` — ` : '';
+    lines.push(`> - ${at}\`${s.ruleId}\`: ${s.count} × ${s.channel}/${s.scope}`);
+  }
 }
 
 /**

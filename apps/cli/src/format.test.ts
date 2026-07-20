@@ -113,3 +113,47 @@ describe('formatMarkdown', () => {
     expect(formatHuman(scan([]), false)).not.toContain('errored and were skipped');
   });
 });
+
+/**
+ * D8 rendering. The tally has to reach the two channels a human reads (the
+ * terminal and the PR comment), and — the part that carries the weight — it has
+ * to reach them on the zero-findings path, since "no findings" over a fully
+ * suppressed scan is the artifact the whole thing exists to annotate.
+ */
+describe('suppression tally rendering (D8)', () => {
+  const withSuppressions = (findings: Finding[]): ScanResponse => ({
+    ...scan(findings),
+    suppressions: [
+      { ruleId: 'VG-INJ-004', channel: 'pragma', scope: 'line', filePath: 'src/db.ts', count: 2 },
+      { ruleId: 'VG-AUTH-003', channel: 'config', scope: 'path', filePath: 'src/api.ts', count: 1 },
+    ],
+  });
+
+  it('renders the tally in human output even with zero findings', () => {
+    const out = formatHuman(withSuppressions([]), false);
+    expect(out).toContain('✓ No findings.');
+    expect(out).toContain('3 finding(s) were SUPPRESSED');
+    expect(out).toContain('src/db.ts — VG-INJ-004: 2 × pragma/line');
+    expect(out).toContain('src/api.ts — VG-AUTH-003: 1 × config/path');
+  });
+
+  it('renders the tally in human output alongside findings', () => {
+    const out = formatHuman(withSuppressions([finding()]), false);
+    expect(out).toContain('3 finding(s) were SUPPRESSED');
+  });
+
+  it('renders the tally in markdown, including the zero-findings path', () => {
+    expect(formatMarkdown(withSuppressions([]))).toContain('**3 finding(s) were suppressed**');
+    const withF = formatMarkdown(withSuppressions([finding()]));
+    expect(withF).toContain('**3 finding(s) were suppressed**');
+    expect(withF).toContain('`VG-INJ-004`: 2 × pragma/line');
+  });
+
+  it('prints nothing at all when no suppression happened', () => {
+    // Zero must be silent in both renderers, or the line becomes noise on every
+    // clean scan and stops being read.
+    for (const out of [formatHuman(scan([finding()]), false), formatMarkdown(scan([finding()]))]) {
+      expect(out.toLowerCase()).not.toContain('suppress');
+    }
+  });
+});
