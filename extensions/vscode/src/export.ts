@@ -66,6 +66,13 @@ export async function exportFindings(runner: ScanRunner): Promise<void> {
   // wrote a truncated scan out as a clean SARIF report — the export is often the
   // artefact that outlives the session, so it is the worst place to lose them.
   const degradations = runner.getAllDegradations();
+  // Suppressions for the same reason, and the argument is stronger for them: a
+  // suppressed finding is absent from `findings` by design, so an export built
+  // from findings alone renders "nothing was found" and "something was found and
+  // silenced" as the same document. The tally is the only thing that tells those
+  // apart, and this file is where the result stops being a session and starts
+  // being evidence.
+  const suppressions = runner.getAllSuppressions();
   const response: ScanResponse = {
     summary: findings.length ? summarize(findings) : emptySummary(),
     findings,
@@ -73,6 +80,7 @@ export async function exportFindings(runner: ScanRunner): Promise<void> {
     engineVersions: { core: ENGINE_VERSION },
     generatedAt: new Date().toISOString(),
     ...(degradations.length ? { degradations } : {}),
+    ...(suppressions.length ? { suppressions } : {}),
   };
 
   const lower = target.fsPath.toLowerCase();

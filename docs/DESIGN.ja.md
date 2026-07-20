@@ -866,7 +866,12 @@ JSON と human 出力にしか載せないと**最も多く使われる経路で
   誤差は常に「多め」方向で、隠されたものを見落とす方向には倒れない。
 - `--min-confidence` はスキャン後に finding を filter するが、抑止された finding は confidence 算出前に
   落ちている。よって閾値で表示されなかったはずのものもタリーに載る。これも「多め」方向。
-- VS Code / Chrome 拡張はレスポンスを受け取るが描画しない（`ruleErrors` / `degradations` と同じ状態）。
+- VS Code / Chrome 拡張は**エディタ UI 上では描画しない**（`ruleErrors` / `degradations` と同じ状態）。
+  ただし **VS Code の SARIF / JSON エクスポートには載せる**（`runner.ts` がキャッシュし `export.ts` が組み立てる）。
+  理由は degradations と同じで、そちらの方が強く当てはまる — エクスポートは**セッションより長く残る成果物**であり、
+  抑止された finding は `findings` に無いのだから、タリーを落とすと
+  「何も無かった」と「何かが消された」が同一の文書として出てしまう。
+  **Chrome 拡張はエクスポート経路自体を持たないので現状ギャップのまま**（0.2.x 送り）。
 
 ### 13.7 検討したが採用しなかった防御
 
