@@ -24,9 +24,8 @@ jobs:
     # Surfacing the secrets at job level lets the conditional `if: env.X != ''`
     # checks below decide whether to skip a publish channel. Missing secrets
     # resolve to empty strings (not an error) so a contributor can cut a
-    # GitHub release without having all three channels wired up.
+    # GitHub release without having both channels wired up.
     env:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
       OVSX_PAT: ${{ secrets.OVSX_PAT }}
     steps:
@@ -38,7 +37,6 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          registry-url: 'https://registry.npmjs.org'  # required for npm publish auth
 
       # Resolve the version from the ref. Tag pushes give us refs/tags/vX.Y.Z;
       # workflow_dispatch falls back to the version field of the root
@@ -115,13 +113,14 @@ jobs:
       # ── Conditional publish steps ───────────────────────────────────────
       # Each step runs only when its secret is configured. Missing a secret
       # is not an error — it lets a contributor cut a GitHub release without
-      # having all three publishing channels wired up.
-
-      - name: Publish CLI to npm
-        if: ${{ env.NPM_TOKEN != '' }}
-        env:
-          NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
-        run: npm publish --workspace @vibeguard/cli --access public
+      # having both publishing channels wired up.
+      #
+      # The CLI is NOT published to npm, deliberately and permanently. It ships
+      # as the tarball attached to the release above (README points there), and
+      # for CI as the composite action, which builds from the checkout and never
+      # resolves `@vibeguard/cli` from a registry. Nothing here should grow an
+      # `npm publish` step back: the package name is unclaimed on the registry,
+      # so publishing would newly expose a name that has never been ours.
 
       - name: Publish VSIX to VS Code Marketplace
         if: ${{ env.VSCE_PAT != '' }}

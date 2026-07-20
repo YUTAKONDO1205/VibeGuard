@@ -72,12 +72,11 @@ npm run build
 
 ## CLI usage
 
-> A standalone npm package (`@vibeguard-aicoding/cli`) is planned for **v0.2**.
-> Until then, run the CLI either by cloning this repo and using
+> The CLI is not published to npm. Get it by cloning this repo and running
 > `node apps/cli/dist/index.js …` as below, by downloading
 > [`vibeguard-cli-<version>.tgz`](https://github.com/YUTAKONDO1205/VibeGuard/releases/latest)
-> from the latest GitHub Release, or via the [GitHub Action](#reusable-action-github-marketplace)
-> which wraps the same CLI for CI use.
+> from the latest GitHub Release, or via the [GitHub Action](#reusable-action-github-marketplace),
+> which wraps the same CLI for CI use and is the supported path for automation.
 
 ```bash
 # Scan a directory (human-readable output)

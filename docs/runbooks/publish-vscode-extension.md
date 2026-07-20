@@ -223,7 +223,12 @@ npx ovsx publish -p <openvsx_token>
 |---|---|---|
 | `VSCE_PAT` | VS Code Marketplace に publish | Azure DevOps PAT — Organization は "All accessible organizations" を選ぶ |
 | `OVSX_PAT` | Open VSX に publish | https://open-vsx.org/user-settings/tokens |
-| `NPM_TOKEN` | `@vibeguard/cli` を npm に publish | https://www.npmjs.com/settings/<user>/tokens — Granular Access Token、`@vibeguard` scope に publish 権限 |
+
+> **npm には公開しない**（恒久的な決定）。CLI はリリースに添付する tarball と、
+> チェックアウトからビルドする composite action の2経路で配布する。
+> `release.yml` に `npm publish` ステップを足し戻さないこと — パッケージ名は
+> レジストリ上で未取得のままであり、公開するとこれまで自分たちのものだった
+> ことのない名前を新たに晒すことになる。
 
 ### 8.2 リリース手順
 
