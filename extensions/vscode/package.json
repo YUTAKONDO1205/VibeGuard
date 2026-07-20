@@ -2,7 +2,7 @@
   "name": "vibeguard-aicoding",
   "displayName": "VibeGuard AICoding",
   "description": "Security diagnostics for AI-generated code, on save and on demand.",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "publisher": "yutakondo",
   "icon": "icon.png",
   "license": "MIT",
@@ -91,17 +91,32 @@
       {
         "id": "vibeguard.ok",
         "description": "Color for the OK / no-findings indicator.",
-        "defaults": { "dark": "#2e7d32", "light": "#2e7d32", "highContrast": "#2e7d32", "highContrastLight": "#2e7d32" }
+        "defaults": {
+          "dark": "#2e7d32",
+          "light": "#2e7d32",
+          "highContrast": "#2e7d32",
+          "highContrastLight": "#2e7d32"
+        }
       },
       {
         "id": "vibeguard.issue",
         "description": "Color for low / medium severity findings.",
-        "defaults": { "dark": "#856404", "light": "#856404", "highContrast": "#856404", "highContrastLight": "#856404" }
+        "defaults": {
+          "dark": "#856404",
+          "light": "#856404",
+          "highContrast": "#856404",
+          "highContrastLight": "#856404"
+        }
       },
       {
         "id": "vibeguard.critical",
         "description": "Color for high / critical severity findings.",
-        "defaults": { "dark": "#c62828", "light": "#c62828", "highContrast": "#c62828", "highContrastLight": "#c62828" }
+        "defaults": {
+          "dark": "#c62828",
+          "light": "#c62828",
+          "highContrast": "#c62828",
+          "highContrastLight": "#c62828"
+        }
       }
     ],
     "configuration": {

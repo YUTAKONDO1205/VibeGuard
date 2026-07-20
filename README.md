@@ -72,11 +72,18 @@ npm run build
 
 ## CLI usage
 
-> The CLI is not published to npm. Get it by cloning this repo and running
-> `node apps/cli/dist/index.js …` as below, by downloading
-> [`vibeguard-cli-<version>.tgz`](https://github.com/YUTAKONDO1205/VibeGuard/releases/latest)
-> from the latest GitHub Release, or via the [GitHub Action](#reusable-action-github-marketplace),
-> which wraps the same CLI for CI use and is the supported path for automation.
+> The CLI is not published to npm, and is not installable on its own. Use it
+> either by cloning this repo (`npm install && npm run build`, then
+> `node apps/cli/dist/index.js …` as below), or — for CI — via the
+> [GitHub Action](#reusable-action-github-marketplace), which wraps the same CLI
+> and is the supported path for automation.
+>
+> The `vibeguard-cli-<version>.tgz` attached to each release is a **source
+> archive**, not a self-contained package: it declares `@vibeguard/*`
+> dependencies that only exist inside this workspace, so `npm install` on it
+> alone fails to resolve them. Making that tarball independently installable
+> needs the CLI to be bundled the way the two extensions already are; until then,
+> clone the repo.
 
 ```bash
 # Scan a directory (human-readable output)

@@ -10,6 +10,29 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-20
+
+> **Upgrading from 0.1.x:** one change can make a previously green CI start
+> failing. A `vibeguard:disable` pragma with no rule IDs, or a `.vibeguardrc.json`
+> `suppress` entry with no `rules`, no longer silences `critical`, `high` or
+> `medium` findings — those findings come back, and a `--fail-on` gate at or above
+> `medium` fails on them.
+>
+> The migration is mechanical and the tool prints it. Each returning finding now
+> says which suppression was refused and the exact line to write instead:
+>
+> ```
+> CRITICAL  Use of eval()  [VG-INJ-004] (confidence: high)
+>   at app.js:2:11
+>   note: a wildcard `vibeguard:disable-file` with no rule IDs does not apply to critical findings.
+>         To accept this one, name it: `vibeguard:disable-next-line VG-INJ-004`.
+> ```
+>
+> Naming the rule keeps working at every severity, so an accepted finding stays
+> accepted — it just has to say which finding it accepted. `low` and `info` are
+> unaffected: wildcards still apply to them. The VS Code quick-fix already emits
+> the named form, so nothing changes for that path.
+
 ### Changed
 - **`ENGINE_VERSION` moves to `0.2.0`**, releasing a deliberate hold. The engine
   version is a separate axis from the released tool version (`0.1.3`): it moves
