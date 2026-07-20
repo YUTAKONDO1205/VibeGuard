@@ -10,6 +10,25 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **`ENGINE_VERSION` moves to `0.2.0`**, releasing a deliberate hold. The engine
+  version is a separate axis from the released tool version (`0.1.3`): it moves
+  only when detection behaviour changes. Several such changes shipped without a
+  bump, on purpose, so that one version would name one settled engine rather than
+  a sequence of partial states — the accepted cost being that `0.1.0` did not
+  satisfy the "same engine ⇒ identical verdicts" contract for that period. That
+  debt is discharged here. `0.2.0` covers, in the order they landed:
+  context-window confidence and its severity gate (`critical`/`high`/`medium`
+  keep their declared confidence where they were previously down-ranked); the
+  canonicalizer pre-pass (rules also run over normalized text, so lexically
+  evaded payloads are detected — additive only); regex time and input-length
+  bounds with the `degradations` channel (a scan that stopped early says so
+  instead of looking clean); `confidenceAudit` on findings (values unchanged,
+  schema changed); the suppression severity gate below; `match-limit` reporting;
+  and the suppression tally. To compare against the engine from before this work,
+  use the `paper-ses-v0.1.3` tag — the version field cannot distinguish states
+  inside the hold. The tool version is unaffected and still moves per release.
+
 ### Changed (breaking)
 - **A blanket suppression can no longer silence a `critical`, `high`, or
   `medium` finding.** A `vibeguard:disable-line` / `disable-next-line` /

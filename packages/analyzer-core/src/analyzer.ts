@@ -45,28 +45,41 @@ import {
  * It deliberately stayed at 0.1.0 across tool releases 0.1.1–0.1.3, which did
  * not alter what VibeGuard detects.
  *
- * KNOWN HAZARD — this value currently understates the engine, on TWO axes now.
+ * 0.2.0 (2026-07-20) ends a deliberate hold. The bump was deferred while a round
+ * of detection changes was in flight, so that one version names ONE settled
+ * engine rather than several successive ones. During the hold `engineVersions.core`
+ * knowingly understated the engine and did NOT satisfy the "same engine ⇒
+ * identical verdicts" contract in README.md; that debt is discharged here, and
+ * `paper-ses-v0.1.3` remains the tag to compare against for the pre-hold engine.
  *
- * (1) The severity gate on context-window confidence
- * (`SEVERITY_CONFIDENCE_FLOOR` in @vibeguard/rules) DID change detection
- * behavior: critical/high findings now keep their default confidence in
- * contexts where they were previously down-ranked.
+ * What 0.2.0 names, i.e. every change to detection behavior made under the hold:
  *
- * (2) D2, the canonicalizer pre-pass, changes it again and in a different
- * direction: rules now also run over the normalized text, so lexically evaded
- * payloads (`"ev" + "al"`, `eval/*x*\/(…)`) are detected where they previously
- * were not. The union can only ADD findings, so the change is one-directional,
- * but it is still a change. Toggle it with `AnalyzerOptions.canonicalize`.
+ *   - Context-window confidence, and its severity gate
+ *     (`SEVERITY_CONFIDENCE_FLOOR` in @vibeguard/rules): critical/high/medium
+ *     findings keep their declared confidence in contexts that previously
+ *     down-ranked them. Down-ranking is triage, never a security verdict.
+ *   - The canonicalizer pre-pass: rules also run over normalized text, so
+ *     lexically evaded payloads (`"ev" + "al"`, `eval/*x*\/(…)`) are detected
+ *     where they were not. The union can only ADD findings. Toggle with
+ *     `AnalyzerOptions.canonicalize`.
+ *   - Regex time and input-length bounds, plus `ScanDegradation`: a scan that
+ *     stopped early now says so instead of looking clean. (Schema change.)
+ *   - `confidenceAudit` on findings: the reasoning behind a confidence value is
+ *     carried rather than recomputed. Values are unchanged. (Schema change.)
+ *   - The suppression severity gate: a wildcard `vibeguard:disable` no longer
+ *     silences critical/high/medium findings, on both the pragma and the config
+ *     channel. Naming a rule still works at every severity. (BREAKING.)
+ *   - `match-limit` degradations: hitting the per-file match cap on a
+ *     security-severity rule is now reported instead of dropped. (Schema change.)
+ *   - `ScanResponse.suppressions`: findings removed by a suppression are tallied,
+ *     so concealment is on the record rather than indistinguishable from absence.
+ *     Observability, not a defence — the suppression still applies. (Schema change.)
  *
- * The bump to
- * 0.2.0 is deliberately deferred until the current round of detection changes is
- * finished, so that 0.2.0 names ONE settled engine rather than several
- * successive ones. The cost of deferring is real and is accepted knowingly:
- * until that bump lands, `engineVersions.core: 0.1.0` does NOT satisfy the "same
- * engine ⇒ identical verdicts" contract in README.md. To compare against the
- * pre-gate engine, use the `paper-ses-v0.1.3` tag rather than this field.
+ * The next bump is due when detection behavior changes again; there is no hold
+ * in effect. `engine-version-pin.test.ts` guards this value and the docs that
+ * quote it, and carries the checklist for changing it.
  */
-export const ENGINE_VERSION = '0.1.0';
+export const ENGINE_VERSION = '0.2.0';
 
 let counter = 0;
 function findingId(): string {

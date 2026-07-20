@@ -14,29 +14,35 @@
 // only machine-readable signal that two runs used the same detector would have
 // been changed by hand rather than by a detection change.
 //
-// The hold at 0.1.0 is itself a decision on the record, not an oversight, and it
-// is a decision with a known cost. Several changes have altered detection
-// behaviour without a bump:
+// The hold at 0.1.0 was a decision on the record, not an oversight, and it was
+// released on purpose on 2026-07-20. It is kept described here because the shape
+// of the decision is the reason this test exists. Several changes had altered
+// detection behaviour without a bump:
 //
-//   D1  / D1b  the severity gate on context-window confidence
-//              (`SEVERITY_CONFIDENCE_FLOOR` in @vibeguard/rules) — critical and
-//              high findings keep their default confidence in contexts that
-//              previously down-ranked them.
-//   D2         the canonicalizer pre-pass — rules also run over normalized text,
-//              so lexically evaded payloads are now detected. Additive only, but
-//              still a behaviour change.
-//   D4 / D5    suppression and match-limit changes — a suppression that used to
-//              drop a finding may now keep it, and a new `degradations` kind can
-//              appear in output.
+//   D1 / D1b / D1c  the severity gate on context-window confidence
+//                   (`SEVERITY_CONFIDENCE_FLOOR` in @vibeguard/rules) — critical,
+//                   high and medium findings keep their declared confidence in
+//                   contexts that previously down-ranked them.
+//   D2              the canonicalizer pre-pass — rules also run over normalized
+//                   text, so lexically evaded payloads are now detected. Additive
+//                   only, but still a behaviour change.
+//   D3              regex time/length bounds and `ScanDegradation` — a scan that
+//                   stopped early says so instead of looking clean.
+//   D4              `confidenceAudit` on findings — values unchanged, schema not.
+//   D5              the suppression severity gate — a wildcard no longer silences
+//                   critical/high/medium, on both the pragma and config channels.
+//   D6              `match-limit` degradations — hitting the per-file match cap on
+//                   a security rule is reported instead of dropped.
+//   D8              `ScanResponse.suppressions` — findings removed by a
+//                   suppression are tallied.
 //
-// Each of those would justify a bump on its own. The project deliberately takes
-// none of them, so that 0.2.0 eventually names ONE settled engine rather than a
-// sequence of partial states (recorded beside the constant in `analyzer.ts`, in
-// `CHANGELOG.md`, and in `docs/EVALUATION.md`). The accepted consequence is that
-// 0.1.0 currently does NOT satisfy the "same engine ⇒ identical verdicts"
-// contract; the `paper-ses-v0.1.3` tag is the sound baseline for any before/after
-// comparison until the bump lands. This test's job is to make sure that hold is
-// only ever released on purpose.
+// Each would have justified a bump on its own. The project deliberately took
+// none of them, so that 0.2.0 names ONE settled engine rather than a sequence of
+// partial states. The accepted consequence was that 0.1.0 did NOT satisfy the
+// "same engine ⇒ identical verdicts" contract for the duration; the
+// `paper-ses-v0.1.3` tag remains the sound baseline for a comparison against the
+// pre-hold engine. That debt is discharged at 0.2.0, and no hold is in effect
+// now. This test's job is to make sure the next release is also on purpose.
 //
 // WHAT TO DO WHEN THIS TEST FAILS
 //
@@ -74,7 +80,7 @@ import { scanPath } from './file-scanner.js';
 /**
  * The pinned value. Changing this line is the deliberate act; see the header.
  */
-const EXPECTED_ENGINE_VERSION = '0.1.0';
+const EXPECTED_ENGINE_VERSION = '0.2.0';
 
 const TEMP_DIRS: string[] = [];
 afterEach(async () => {
