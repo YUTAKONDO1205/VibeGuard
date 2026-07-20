@@ -158,7 +158,7 @@ export function toSarif(scan: ScanResponse, options: ToSarifOptions = {}): Sarif
     tool: {
       driver: {
         name: options.toolName ?? 'VibeGuard',
-        version: options.toolVersion ?? scan.engineVersions.core ?? '0.1.0',
+        version: options.toolVersion ?? scan.engineVersions.core ?? '0.2.0',
         informationUri: options.informationUri ?? 'https://github.com/vibeguard/vibeguard',
         rules,
       },
@@ -167,7 +167,8 @@ export function toSarif(scan: ScanResponse, options: ToSarifOptions = {}): Sarif
   };
   const ruleErrors = scan.ruleErrors ?? [];
   const degradations = scan.degradations ?? [];
-  if (ruleErrors.length || degradations.length) {
+  const suppressions = scan.suppressions ?? [];
+  if (ruleErrors.length || degradations.length || suppressions.length) {
     const notifications: SarifNotification[] = [
       // Rule crashes are errors: the rule produced nothing.
       ...ruleErrors.map((e) => ({
@@ -187,6 +188,33 @@ export function toSarif(scan: ScanResponse, options: ToSarifOptions = {}): Sarif
           text: `${d.detail}${d.filePath ? ` (${d.filePath})` : ''}`,
         },
         associatedRule: { id: d.ruleId },
+      })),
+      // Suppressions are NOTES: nothing went wrong, and a suppression is usually
+      // a deliberate, legitimate decision. They are here at all because SARIF is
+      // the format the GitHub Action emits BY DEFAULT (`action.yml`, `format:
+      // sarif`), so leaving them out meant the suppression tally existed in the
+      // JSON and human output and vanished on the one path most projects
+      // actually run. A trace that disappears in the flagship configuration is
+      // not a trace.
+      //
+      // Granularity matches the tally itself — rule, channel, scope, file, count
+      // — and deliberately carries no line number. Emitting one would rebuild the
+      // finding the author asked to suppress, in the artifact a reviewer reads,
+      // which is the thing `SuppressionRecord` declines to do.
+      //
+      // Not modelled as SARIF `result.suppressions[]`. That is the schema's
+      // first-class spelling for this concept, but it requires emitting the
+      // result — location included — and marking it suppressed, which is exactly
+      // the line-number exposure above. The trade is deliberate: less idiomatic
+      // SARIF, no reconstruction of a suppressed finding.
+      ...suppressions.map((s) => ({
+        level: 'note' as SarifLevel,
+        message: {
+          text:
+            `${s.count} finding(s) of ${s.ruleId} were suppressed by a ${s.channel} ` +
+            `${s.scope} suppression${s.filePath ? ` (${s.filePath})` : ''} and are not reported above.`,
+        },
+        associatedRule: { id: s.ruleId },
       })),
     ];
     run.invocations = [

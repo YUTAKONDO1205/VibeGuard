@@ -84,4 +84,56 @@ describe('toSarif', () => {
     const props = toSarif(wrap([fakeFinding()])).runs[0]!.results[0]!.properties!;
     expect('confidenceAudit' in props).toBe(false);
   });
+
+  // SARIF is what the GitHub Action emits by default, so a suppression tally
+  // that only reached the JSON and human renderers was invisible on the path
+  // most projects actually run.
+  it('records suppressions as note-level notifications', () => {
+    const response = {
+      ...wrap([]),
+      suppressions: [
+        {
+          ruleId: 'VG-INJ-004',
+          channel: 'pragma' as const,
+          scope: 'file' as const,
+          filePath: 'app.js',
+          count: 3,
+        },
+      ],
+    };
+    const run = toSarif(response).runs[0]!;
+    // A suppression is not a failure: the run still succeeded.
+    expect(run.invocations?.[0]?.executionSuccessful).toBe(true);
+    const notif = run.invocations?.[0]?.toolExecutionNotifications[0];
+    expect(notif?.level).toBe('note');
+    expect(notif?.associatedRule?.id).toBe('VG-INJ-004');
+    expect(notif?.message.text).toContain('3 finding(s)');
+    expect(notif?.message.text).toContain('app.js');
+  });
+
+  // The tally deliberately carries no line number, and the SARIF rendering must
+  // not reintroduce one: that would rebuild the finding the author suppressed,
+  // inside the artifact a reviewer reads.
+  it('does not leak a location for a suppressed finding', () => {
+    const response = {
+      ...wrap([]),
+      suppressions: [
+        {
+          ruleId: 'VG-INJ-004',
+          channel: 'config' as const,
+          scope: 'path' as const,
+          filePath: 'app.js',
+          count: 1,
+        },
+      ],
+    };
+    const run = toSarif(response).runs[0]!;
+    expect(run.results).toEqual([]);
+    const text = run.invocations![0]!.toolExecutionNotifications[0]!.message.text;
+    expect(text).not.toMatch(/line\s*\d+/i);
+  });
+
+  it('omits invocations when nothing errored, degraded, or was suppressed', () => {
+    expect(toSarif(wrap([fakeFinding()])).runs[0]!.invocations).toBeUndefined();
+  });
 });

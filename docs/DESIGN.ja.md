@@ -751,7 +751,7 @@ Semgrep を呼び出し、結果を共通形式へ変換する。
 suppress は4軸で構成する。実装は `packages/analyzer-core/src/suppress.ts`（pragma）と `packages/analyzer-core/src/config.ts`（パス単位）に分かれる。
 
 - **行コメントによる suppress**：`vibeguard:disable-line` / `disable-next-line` / `disable-file` の3 pragma。
-- **ruleId 単位の suppress**：pragma 末尾に rule ID を列挙（例：`// vibeguard:disable-line VG-INJ-004 VG-AUTH-003`）。省略時はワイルドカード。
+- **ruleId 単位の suppress**：pragma 末尾に rule ID を列挙（例：`// vibeguard:disable-line VG-INJ-004 VG-AUTH-003`）。省略するとワイルドカードになるが、**ワイルドカードは `critical` / `high` / `medium` の finding を抑止できない**（下記 13.4.1 の D5）。rule ID を名指しした場合のみ全 severity で抑止できる。
 - **ファイルパス単位の suppress**：プロジェクト直下の `.vibeguardrc.json`（または `vibeguard.config.json`）で glob ベースに指定。CLI からは `--config <path>` で明示指定／`--no-config` で抑止可能。
 - **一時 suppress と恒久 suppress の区別**：pragma に `until=YYYY-MM-DD` を付与すると、その日付を過ぎた時点で suppress は自動失効し finding が再び surface する。config の各エントリには `expires` フィールドで同じ効果。`until` 無し／`expires` 無しは恒久。
 
@@ -770,7 +770,101 @@ config の例：
 }
 ```
 
-`paths` は必須、`rules` を省略すると当該パスの全 rule を抑止する。期限切れエントリは parse 時に黙って drop されるため、見落とした古い suppress が残り続けることはない。
+`paths` は必須。`rules` を省略すると当該パスに対するワイルドカードになり、pragma 側と同じく **`low` / `info` の finding しか抑止しない**（13.4.1）。期限切れエントリは `suppressionsForPath` が参照する時点で drop される（parse 時ではない）。ただしこれは **`expires` が正しい日付形式のときだけ**で、不正な形式は「永久有効」に倒れる — 13.4.1 の fail-open を参照。「古い suppress が残り続けることはない」とは書けない。
+
+#### 13.4.1 D5：ワイルドカード抑止への severity ゲート
+
+【実装更新 2026-07-20】検出器そのものが攻撃面になりうるという観点（SCOPE.md の C4）から、D1c が confidence 軸で引いたのと同じ線を**抑止軸**にも引いた。原則は D1c と共通で、「suppress は utility 機構であって security 判断ではない」。ファイルを書ける者はコメントも書ける以上、裸のコメント 1 行がファイル全体の critical finding を消せる状態は、検出器が自分の判断を攻撃者に明け渡していることに等しい。
+
+**境界**。`critical` / `high` / `medium` を「security judgement を伴う severity」とし、ワイルドカード抑止はこの帯に効かない。`low` / `info` には従来どおり効く（ワイルドカードという形式が本来奉仕している帯）。述語は D1c（confidence floor）・D6（match-limit）と共有の `isSecurityJudgementSeverity` / `SECURITY_JUDGEMENT_SEVERITIES`（`@vibeguard/findings-schema`）で、境界の定義を 1 箇所に集約している。
+
+**両チャネルに適用**。pragma の 3 スコープ（`disable-line` / `disable-next-line` / `disable-file`）と config のパス抑止の**両方**をゲートする。片方だけに入れると、塞いだつもりのものがもう一方から素通りする。実装は `suppress.ts` の三値 `Coverage = 'no' | 'covers' | 'blocked'` と `entryCovers` / `evaluateSuppression`（pragma 側は fileWide・perLine の両ループを通す）、`config.ts` の `evaluatePathSuppression`。適用点は `analyzer.ts`・`file-scanner.ts`・`apps/cli/src/diff.ts` の 3 箇所。
+
+**escape hatch は rule ID の名指しだけ**。`// vibeguard:disable-file VG-INJ-004` は従来どおり全 severity で効く。ゲートを外すフラグや設定は**意図的に用意していない** — 「無効化スイッチ」を置いた時点で、攻撃者にとってのコストは裸のワイルドカードと同じに戻る。
+
+**黙って無視しない**。ゲートが抑止を拒否したとき、finding は落とさずに `suppressionOverridden`（`channel` = `pragma` | `config`、`scope` = `file` | `line` | `path`、`reason?`）を付けて報告する。抑止が効かなかったこと自体が、書いた側に見える必要がある。
+
+**後方互換の破壊**。これは breaking change である。既存の裸のワイルドカード抑止は、`critical` / `high` / `medium` に対して**黙って効かなくなる**（正確には finding が復活し `suppressionOverridden` が付く）。移行はスキャンを 1 回走らせて `suppressionOverridden` の付いた finding を rule ID 名指しに書き換えること。本リポジトリ内の該当 pragma は書き換え済み。
+
+**残存する攻撃面（mitigated ではない）**。rule ID を名指しすれば、依然として全 severity を抑止できる。したがって D5 が消したのは **blanket（匿名）抑止**であって、抑止機構の悪用そのものではない。効果は攻撃者のコストを「裸の 1 行」から「抑止したいルール ID を 1 個特定して名指しする」に上げたことと、その結果が**コードレビューで可視な言明**になったことにある。攻撃が不可能になったとは書けない。
+
+**既知の限界（fail-open）**。`config.ts:64` の `isExpired` は `expires` が不正な日付形式のとき `NaN` を検出して「期限切れでない」＝**永久有効**に倒す。これは fail-open であり、壊れた日付で恒久抑止を作れる。D5 後はワイルドカードが security 帯に効かないので、影響は「rule ID 名指し抑止の延命」に限定されるが、限界であることに変わりはない。
+
+### 13.5 D6 / A1-LIMIT：マッチ上限による切り捨ての可視化
+
+検出器そのものが攻撃面になりうる、という観点（SCOPE.md の C4）から入れた施策のひとつ。
+
+**背景（実測）**。`runRegex` には 1 ファイル 1 パターンあたり `REGEX_MATCH_LIMIT`（= 1000）件のマッチ上限が以前からある。この上限は A1 の可用性攻撃（1 ルールに無制限のマッチを生成させてスキャンを止める）を封じる要であり、**撤廃しない**。問題は上限が効いたことを誰にも伝えていなかった点にある。実測すると、`eval` を 1500 個並べたファイルのスキャンは critical な finding をちょうど 1000 件返し、残り 500 件は報告されず、`degradations` は空のまま返る。つまり**途中で数えるのをやめたスキャンが、完全に走りきったスキャンと区別できない**。これは D5 が抑止側で塞いだのと同じ失敗、すなわち utility 向けの都合がセキュリティ上の判断を黙って下している状態である。
+
+**方針**。上限には手を触れず、切り捨てが起きたことだけを可視化する。切り分けの境界は D1c（confidence の floor）・D5（ワイルドカード抑止のゲート）と共有の述語 `isSecurityJudgementSeverity`（`@vibeguard/findings-schema`）に置く。**1 つの原則、3 つの施行点**。
+
+- **critical / high / medium**：`degradations` に `kind: 'match-limit'` を 1 件出す。
+- **low / info**：従来どおり黙って落とす。品質系ルールが上限に達するのは日常的かつ良性で、これを報告すると channel 全体が読まれなくなり、本来効く 2 つの ReDoS bound を巻き添えにする。
+
+**集約**。イベントは **(file, rule) ごとに 1 件**に集約する。失われた finding ごとには出さない。1 ルールが複数パターンを持ち、さらに原文パスと canonical パスの 2 回評価されるため、集約しないと 1 ファイルから パターン数 × パス数 だけ出てしまう。集約により、細工したファイル 1 つでディレクトリスキャンの出力を溢れさせることもできない。
+
+**報告できない数**。`matchCount` には**報告した件数**（= 上限値）を入れる。超過分の件数は載せない。マッチングは上限で停止するため、超過分は「報告していない」のではなく**そもそも数えられていない**。「500 件落ちた」と書けば、それは誰も測っていない数字になる。
+
+**exit code には効かせない**。`degradations` は出力には載るが CI を落とさない。exit code は `apps/cli/src/index.ts` の `--fail-on` 判定が `scan.findings` だけを見て決めており、この経路に degradation は入らない。medium の finding のみ・`match-limit` あり のディレクトリを `--fail-on high` でスキャンして exit 0 になること、`--fail-on medium` では finding 側の理由で exit 1 になることを実測で確認している。partial なスキャンを CI で落としたい利用者は、従来どおり SARIF ないし JSON 上の `degradations` の件数で自前に gate する。
+
+**関連実装**：`packages/analyzer-core/src/analyzer.ts` の `recordBoundaries` / `recordMatchLimit`、テストは `packages/analyzer-core/src/a1-match-limit.test.ts`。
+
+### 13.6 D8：抑止の可観測性（`ScanResponse.suppressions`）
+
+**これは防御ではない。** 13.4.1 のとおり、rule ID を名指しした抑止は全 severity で通る。
+D5 が消したのは blanket（匿名）抑止であって抑止の悪用そのものではなく、名指し抑止は
+eslint-disable と同じ**意図的な escape hatch**で、潰せば正当な運用が壊れる。
+実測でも b3 の `suppress-named` アームの隠蔽率は D5 の前後で変わらない。
+
+D8 が変えるのは**痕跡の有無**だけである。D8 以前は、`disable-file VG-INJ-004` を1行仕込んだ
+ファイルのスキャン結果と、そもそも問題の無いファイルのスキャン結果が**バイト単位で同一**だった。
+つまり「隠された」と「無かった」が出力上で区別できなかった。D8 後は、抑止で消えた finding が
+`ScanResponse.suppressions` に集計として残る。主張できるのは
+**「抑止は finding を消せるが、何かが消されたという事実は消せない」**までであって、防いだとは書けない。
+
+**粒度は file 止まり**（`{ ruleId, channel, scope, filePath?, count }`）。行番号もスニペットも載せない。
+`ruleId` ＋ 行番号は finding そのものなので、両方出すとタリーが「抑止を無視した finding フィード」になり、
+作者の明示的な意思を踏み越える。そうなった機能は丸ごと無効化されるので、可観測性ごと失われる。
+一方 `filePath` は残す — 無いとディレクトリスキャンで「どこかで何かが隠された」としか言えない。
+
+**記録点は D5 のゲートと同じ3つの chokepoint**（pragma の `analyzer.ts`、config の `file-scanner.ts` と
+`apps/cli/src/diff.ts`）。新しい走査パスは作らない。片方の経路だけ記録すると
+「ある経路で抑止すればタリーにも残らない」という抜け道になる。
+
+**exit code には効かせない**（degradations と同じ扱い）。見るべきものであって、ビルドを落とす理由ではない。
+
+**SARIF にも載せる。** GitHub Action は `action.yml` の既定で `format: sarif` を出すので、
+JSON と human 出力にしか載せないと**最も多く使われる経路で痕跡が消える**。既定の構成で消える痕跡は痕跡ではない。
+ただし SARIF 標準の `result.suppressions[]` は使わない — あれは result（＝位置情報つき）を出したうえで
+「抑止済み」と印を付ける形式で、上に書いた行番号の非開示と両立しない。
+`toolExecutionNotifications` の `note` として、タリーと同じ粒度で出す。
+
+**既知の限界**:
+- diff 経路の pragma 側は、変更行の外にある抑止も数えうる（analyzer は diff の文脈を持たないため）。
+  誤差は常に「多め」方向で、隠されたものを見落とす方向には倒れない。
+- `--min-confidence` はスキャン後に finding を filter するが、抑止された finding は confidence 算出前に
+  落ちている。よって閾値で表示されなかったはずのものもタリーに載る。これも「多め」方向。
+- VS Code / Chrome 拡張はレスポンスを受け取るが描画しない（`ruleErrors` / `degradations` と同じ状態）。
+
+### 13.7 検討したが採用しなかった防御
+
+実装しなかった判断も設計の一部なので、根拠ごと残す。ここに書かないと「なぜやらなかったか」だけが失われ、同じ案が再提案される。
+
+#### D7 / A1-INJ：注入ルールのロード時 ReDoS 審査（**棄却**・2026-07-20）
+
+**狙い**。D3 の反証で確定した通り、JS の `RegExp.prototype.exec` は割り込み不可であり、単発の破滅的 exec は実行時にはどうやっても止められない。ならば **実行時に解けない問題を、ロード時に解ける問題へ変換する** ── 危険な正規表現は「走らせてから止める」のではなく「走らせる前に受け取らない」。方向としてはこれが唯一の筋である。
+
+**実装案**。`AnalyzerOptions.rules`（外部から追加ルールを注入できる受け口）で、注入された各パターンの正規表現ソースを構文形から審査し、super-linear になりうる形（改行を跨ぎうる `\s` の量化、隣接量化子、無制限 lazy scan 等）を検出したら警告付きで当該ルールを無効化する。
+
+**棄却根拠**。構文形からの構造チェックは近似が粗く、その粗さがそのまま偽陽性率になる。A1 の regex カタログ計測（`scripts/sec-a1-*.mjs`、結果 JSON は `security-experiment/_results/` にあり未公開）では、**出荷ルールの 82 パターン中 41 本**が multi-vertical-whitespace 指標に当たった。つまり自分の出荷ルールの半分がロード時に弾かれる判定器であり、防御として成立していない。閾値を緩めれば今度は攻撃パターンを通すので、この指標では両立点が無い。<br>※この 82/41 は上記ハーネスでの計測値で、結果 JSON が未公開のため公開ツリーだけからは再現できない。再検討時はカタログを取り直すこと。
+
+**未再現**。棄却検討の途中で pump 2/25 および nested-dot でのハングが話題に上ったが、**これらは誰も再現していない**。根拠として扱わない。
+
+**代わりに実施したこと**。D6（A1-LIMIT、マッチ上限の可視化）と、既存の D3 系検査 `scripts/sec-a1-rewrite-check.mjs`（出荷ルール側の静的修正が正しく効いているかのゲート）。
+
+**将来の方向**。自作の構文ヒューリスティクスではなく、既存の ReDoS 決定手続き（`recheck` の多項式次数判定）に委ねるほうが偽陽性が桁で低い。狙い（実行時→ロード時への変換）自体は筋が良く、誤っていたのは変換先の判定器であって方向ではない。
+
+**注入面の現状**。`options.rules` の非テスト消費者は現時点で**ゼロ**であり、CLI / VS Code / Chrome はいずれも `rules` を渡さない。したがって現状この攻撃面は開いていない。**注入経路を実運用で開放する前に、この項目を再検討すること。**
 
 ---
 
@@ -870,7 +964,7 @@ sequenceDiagram
   "findings": [],
   "executionTimeMs": 0,
   "engineVersions": {
-    "core": "0.1.0"
+    "core": "0.2.0"
   },
   "generatedAt": "2026-04-20T00:00:00Z"
 }
