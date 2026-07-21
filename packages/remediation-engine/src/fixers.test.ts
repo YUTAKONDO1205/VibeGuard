@@ -102,7 +102,8 @@ describe('fix determinism and safety', () => {
       endColumn: col,
       evidence: '',
     });
-    const out = applyFixes(content, built.edits);
+    expect(built).not.toBeNull();
+    const out = applyFixes(content, built!.edits);
     expect(out).toBe('a("http://x.io"); b("https://y.io");\n');
   });
 });
