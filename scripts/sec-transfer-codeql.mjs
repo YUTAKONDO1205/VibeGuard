@@ -1,3 +1,4 @@
+// vibeguard:disable-file VG-INJ-004 reason="eval-exec family mapping strings (/code-injection, /eval- query-id patterns and prose describing CWE-95) — not an executable eval() of untrusted input; same self-scan exemption as packages/rules/src/rules/injection.ts and scripts/e4-prdiff-eval.mjs"
 // Cross-tool evasion transfer, arm 3 of 3: CodeQL (a dataflow / semantic
 // analyzer) as the "semantic tier" beside Bandit (Python AST) and Semgrep
 // (multi-language pattern/AST).
