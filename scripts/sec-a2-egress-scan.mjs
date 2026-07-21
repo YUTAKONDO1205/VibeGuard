@@ -1,3 +1,12 @@
+// vibeguard:disable-file VG-INJ-006
+// The GAP descriptions below quote attack shapes as prose — the `risk:` field
+// spells out `el.innerHTML = '<img src=' + host + '>'` to name exactly what the
+// AST leg does and does not catch. VibeGuard's DOM-XSS rule matches that literal
+// string; the self-scan gate would fail on the scanner's own documentation of
+// what it scans for. Same treatment as scripts/sec-a1-shape-check.mjs and the
+// rule sources that disable the rules whose fixtures they carry. This is a Node
+// script with no DOM, so a real innerHTML sink can never appear here.
+//
 // A2 — no-egress assertion over the execution closure of the shipped code.
 //
 // SUBJECT OF THE CLAIM. Not "four distribution channels" — that phrasing counts
