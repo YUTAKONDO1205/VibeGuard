@@ -89,7 +89,7 @@ import { scanPath } from './file-scanner.js';
 /**
  * The pinned value. Changing this line is the deliberate act; see the header.
  */
-const EXPECTED_ENGINE_VERSION = '0.2.0';
+const EXPECTED_ENGINE_VERSION = '0.2.1';
 
 const TEMP_DIRS: string[] = [];
 afterEach(async () => {

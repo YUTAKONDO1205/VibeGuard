@@ -26,7 +26,7 @@ import {
   type RuleMatch,
 } from '@vibeguard/rules';
 import { buildRemediation } from '@vibeguard/remediation-engine';
-import { canonicalize } from './canonicalizer.js';
+import { canonicalize, canonicalizePreprocessor } from './canonicalizer.js';
 import { detectLanguageFromContent, detectLanguageFromPath } from './language-detect.js';
 import { extractSnippet, maskSecret } from './snippet.js';
 import {
@@ -78,8 +78,17 @@ import {
  * The next bump is due when detection behavior changes again; there is no hold
  * in effect. `engine-version-pin.test.ts` guards this value and the docs that
  * quote it, and carries the checklist for changing it.
+ *
+ * 0.2.1 (2026-07-21) names the C/C++/Arduino embedded layer (VG-EMB): the
+ * `.ino`/`.hh`/`.cxx`/`.ipp` extensions, the N_pp preprocessor-branch
+ * normalization face (a third union term, C/C++ only), and 19 new rules across
+ * VG-MEM / VG-EMB / VG-RTOS. This is a detection-behavior change (new rules, new
+ * languages, a new normalization face), so the engine moves even though it is
+ * purely ADDITIVE: web-language verdicts are untouched (E2=51 / E3=0 hold), and
+ * the released `v0.2.0` / `paper-css-v0.2.0` tags remain the immutable baseline
+ * for the pre-embedded engine. Nothing else about detection changed.
  */
-export const ENGINE_VERSION = '0.2.0';
+export const ENGINE_VERSION = '0.2.1';
 
 let counter = 0;
 function findingId(): string {
@@ -261,6 +270,18 @@ export interface AnalyzerOptions {
    * fix a false positive.
    */
   canonicalize?: boolean;
+  /**
+   * Run the N_pp preprocessor arm (see canonicalizer.ts), the third union face
+   * for C/C++: `D′(x) = D(x) ∪ D(N(x)) ∪ D(N_pp(x))`. Defaults to true, and is
+   * additionally gated by `canonicalize` — with normalization off entirely there
+   * is no N_pp either.
+   *
+   * Its own switch exists for the ablation ladder (D vs D∪N vs D∪N∪N_pp): set
+   * `preprocessorFace: false` with `canonicalize: true` to measure the middle
+   * rung. Like `canonicalize`, it can only ADD findings, so disabling
+   * it only loses detections on C/C++ preprocessor-split payloads.
+   */
+  preprocessorFace?: boolean;
 }
 
 /**
@@ -348,10 +369,15 @@ function mergeCanonicalMatches(original: RuleMatch[], canonical: RuleMatch[]): R
 export class Analyzer {
   private readonly rules: RuleDefinition[];
   private readonly canonicalizeEnabled: boolean;
+  private readonly preprocessorFaceEnabled: boolean;
 
   constructor(options: AnalyzerOptions = {}) {
     this.rules = options.rules ?? allRules;
     this.canonicalizeEnabled = options.canonicalize !== false;
+    // Gated by BOTH switches: N_pp is a face of the same normalization, so
+    // `canonicalize: false` turns it off regardless, and `preprocessorFace:
+    // false` turns off only this face for the A/B ablation.
+    this.preprocessorFaceEnabled = this.canonicalizeEnabled && options.preprocessorFace !== false;
   }
 
   scan(request: ScanRequest): ScanResponse {
@@ -403,6 +429,22 @@ export class Analyzer {
     const canonicalCtx = canonical?.changed
       ? buildRuleContext(canonical.content, language, request.filePath)
       : undefined;
+
+    // D2 — the N_pp preprocessor face (third union term, C/C++ only). Skipped
+    // when it adds nothing over the faces already scanned: `changed` is false
+    // when the input holds no directives (or is not a preprocessor language),
+    // and the `!==` guard drops the pass when directive-blanking collapsed the
+    // text to exactly the N face — a common case, since real C files that N
+    // already touches often have no code the directives were splitting. The
+    // pass is NOT deduped against the ORIGINAL here because `changed` already
+    // means `content !== request.content`.
+    const pp = this.preprocessorFaceEnabled
+      ? canonicalizePreprocessor(request.content, language)
+      : undefined;
+    const ppCtx =
+      pp?.changed && pp.content !== canonical?.content
+        ? buildRuleContext(pp.content, language, request.filePath)
+        : undefined;
 
     // D3 — one wall-clock budget for the whole rule loop. The per-rule captures
     // inside inherit this deadline instead of restarting it, so the bound is on
@@ -460,6 +502,37 @@ export class Analyzer {
         } catch (err) {
           // eslint-disable-next-line no-console
           console.error(`[vibeguard] rule ${rule.ruleId} threw on canonical text:`, err);
+          ruleErrors.push({
+            ruleId: rule.ruleId,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      // The N_pp face — a THIRD pass, in its OWN try/catch for the same reason
+      // the canonical pass is separated from the base one: a rule that throws
+      // only on the preprocessor-blanked text must not discard the matches the
+      // first two passes already produced, or the true arm could report fewer
+      // findings than the false arm, breaking the `D′(x) ⊇ D(x)` union
+      // guarantee. `matches` here is already `merge(base, canonical)`, so the
+      // second merge yields `merge(merge(base, canonical), pp)`: the original
+      // still wins every collision because it is in the base of both folds.
+      if (ppCtx) {
+        try {
+          const capturedPp = captureRegexBoundaries(() => rule.match(ppCtx), {
+            inheritDeadline: true,
+          });
+          recordBoundaries(
+            degradations,
+            rule.ruleId,
+            rule.severity,
+            capturedPp.events,
+            request.filePath,
+            'preprocessor text',
+          );
+          matches = mergeCanonicalMatches(matches, capturedPp.result);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error(`[vibeguard] rule ${rule.ruleId} threw on preprocessor text:`, err);
           ruleErrors.push({
             ruleId: rule.ruleId,
             message: err instanceof Error ? err.message : String(err),

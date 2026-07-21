@@ -11,9 +11,27 @@ const DEFAULT_REFERENCES: Record<string, string[]> = {
   'ai-quality': ['https://owasp.org/www-project-top-10-for-large-language-model-applications/'],
   quality: [],
   logging: ['https://owasp.org/Top10/A09_2021-Security_Logging_and_Monitoring_Failures/'],
+  // VG-EMB 17d/17f — the C/C++ memory and concurrency categories. No OWASP web
+  // Top-10 entry fits memory safety or ISR concurrency, so these point at the
+  // authoritative CWE definitions instead of forcing a web mapping.
+  memory: ['https://cwe.mitre.org/data/definitions/119.html'],
+  concurrency: ['https://cwe.mitre.org/data/definitions/662.html'],
 };
 
 export { interpolate } from './interpolate.js';
+export { fixers, buildFix, applyFixes, type Fixer, type FixEdit } from './fixers.js';
+export {
+  parseSizeOutput,
+  computeFootprint,
+  nullFootprint,
+  probeArmToolchain,
+  measureFootprint,
+  renderFootprint,
+  type Footprint,
+  type SizeReport,
+  type SpawnLike,
+  type CompileAndSize,
+} from './footprint.js';
 
 export function buildRemediation(rule: RuleDefinition, match?: RuleMatch): Remediation {
   const tmpl = rule.remediation;

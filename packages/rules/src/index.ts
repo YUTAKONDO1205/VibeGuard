@@ -9,6 +9,9 @@ import { goRules } from './rules/lang-go.js';
 import { javaRules } from './rules/lang-java.js';
 import { rubyRules } from './rules/lang-ruby.js';
 import { phpRules } from './rules/lang-php.js';
+import { cRules } from './rules/lang-c.js';
+import { embeddedAiRules } from './rules/embedded-ai.js';
+import { rtosRules } from './rules/embedded-rtos.js';
 
 export type { RuleDefinition, RuleMatch, RuleContext } from './rule-types.js';
 export {
@@ -22,12 +25,15 @@ export {
   hasLineCommentSpec,
   captureRegexBoundaries,
   withScanDeadline,
+  extractBlockAfter,
+  blankCommentsAndStrings,
   REGEX_INPUT_CAP,
   REGEX_DEADLINE_MS,
   REGEX_MATCH_LIMIT,
   type KnownLanguage,
   type LineCommentSpec,
   type RegexBoundaryEvent,
+  type ExtractedBlock,
 } from './matcher-utils.js';
 export {
   contextConfidence,
@@ -54,6 +60,9 @@ export const allRules: RuleDefinition[] = [
   ...javaRules,
   ...rubyRules,
   ...phpRules,
+  ...cRules,
+  ...embeddedAiRules,
+  ...rtosRules,
 ];
 
 export function getRule(ruleId: string): RuleDefinition | undefined {

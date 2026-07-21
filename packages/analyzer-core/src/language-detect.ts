@@ -20,6 +20,16 @@ const EXT_TO_LANGUAGE: Record<string, string> = {
   '.cpp': 'cpp',
   '.hpp': 'cpp',
   '.cc': 'cpp',
+  // C++ dialects and header/impl extensions. `.ino` is an Arduino sketch, which
+  // is a C++ dialect — no separate profile, it rides the cpp rules and the cpp
+  // canonicalizer arm. `.hh` is the GNU C++ header convention, `.cxx` a common
+  // C++ source extension, `.ipp` an inline-implementation header. All map to
+  // cpp, which already has a LINE_COMMENT_SPEC and a LANGUAGE_PROFILE, so this
+  // is a mapping change with no new language surface (VG-EMB 17c EMB-LANG).
+  '.ino': 'cpp',
+  '.hh': 'cpp',
+  '.cxx': 'cpp',
+  '.ipp': 'cpp',
   '.sh': 'shell',
   '.bash': 'shell',
   '.zsh': 'shell',

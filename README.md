@@ -151,6 +151,7 @@ The real quality gate for rule correctness.
 
 - [`samples/safe`](samples/safe) → must produce 0 findings (false-positive guard).
 - [`samples/vulnerable`](samples/vulnerable) → must produce ≥ 15 findings (regression guard).
+- [`samples/embedded/safe`](samples/embedded/safe) → must produce 0 findings, and [`samples/embedded/vulnerable`](samples/embedded/vulnerable) → must produce ≥ 18 findings. This is a **separate count** from the web samples above (the embedded rules are language-gated to `c`/`cpp`, so the two corpora cannot perturb each other); exact per-rule coverage is pinned in `embedded-samples.test.ts`.
 
 ### pr-diff-scan job
 Scans only the added lines in a PR and posts a dedicated sticky comment (header `vibeguard-diff`). Fails on `high` or above. The job runs `git diff --unified=0 origin/<base_ref>...HEAD`, reads each changed file from the working tree, runs a full scan, then keeps only the findings that overlap an added line.
@@ -232,7 +233,7 @@ Marketplace publishing is documented in [`docs/runbooks/publish-action-to-market
 
 ## Rule catalogue
 
-47 rules at the moment, across 8 languages. The ID prefix groups rules by source file; the `category` field is a separate, risk-oriented axis.
+66 rules at the moment, across 10 languages (including a C/C++/Arduino embedded layer). The ID prefix groups rules by source file; the `category` field is a separate, risk-oriented axis.
 
 | Prefix | Coverage | Examples |
 |---|---|---|
@@ -243,8 +244,18 @@ Marketplace publishing is documented in [`docs/runbooks/publish-action-to-market
 | `VG-QUAL-001..004` | General quality (CORS / swallowed exceptions / open redirect, etc.) | |
 | `VG-QUAL-005..010` | **AI-trace heuristics** (`category: ai-quality`) | Stub implementations / placeholder emails / mock data / `debug=true` / "for now" comments / empty validators. |
 | `VG-FW-NNN` | Framework misconfiguration | Django `DEBUG=True` / Flask `app.run(debug=True)` / CORS wildcard. |
+| `VG-MEM-NNN` | **C/C++ memory** (`category: memory`) | `gets` / `strcpy`/`sprintf` / `memcpy` sized from `strlen` / same-block double-free & use-after-free. |
+| `VG-EMB-NNN` | **AI-generated embedded** (secrets / crypto / ai-quality) | Hard-coded Wi-Fi & BLE creds / cleartext `http://` / `setInsecure()` / `#define DEBUG 1` / auth-bypass flag / credential to serial / "remove before production" / use-before-`begin()`. |
+| `VG-RTOS-NNN` | **Interrupt / RTOS** (`category: concurrency`) | Forbidden call inside an ISR body / shared ISR variable missing `volatile` / `O_DIRECT` without `O_SYNC`. |
 
 VG-QUAL-005..010 target the "compiles cleanly but shouldn't ship" patterns that AI-generated code produces. They run at `severity=medium` and `confidence=low~medium` because heuristics are inherently noisier than syntactic rules.
+
+The C/C++/Arduino layer (`VG-MEM`/`VG-EMB`/`VG-RTOS`, plus the `.ino`/`.hh`/`.cxx`/`.ipp` extensions and a preprocessor-branch normalization face) is regex-and-lexical only — **no `tree-sitter` or other parser dependency** — so it ships to all four channels. `VG-EMB` is the intended focus: valid C that is a security problem because of *how AI writes firmware* (a hard-coded SSID is legal C, so existing embedded static analyzers stay silent). `VG-MEM` is a deliberate floor with no novelty (flawfinder/cppcheck territory).
+
+**Deliberately NOT detected in the embedded layer** (kept out because a lexical scanner cannot decide them without a parser or dataflow, and forcing them would manufacture false positives):
+- *Memory (17d):* destination-size-checked `memcpy`, use-after-free / double-free across any control flow, integer overflow before `malloc`, constant array-index out of bounds.
+- *AI-embedded (17e):* CRC misused as an integrity/authenticity check (intent, not syntax), entropy/content-based "does this flash string look secret", cross-function/cross-file init order, power-management sequencing, hard-coded SD paths, and `digitalWrite` before `pinMode` (indistinguishable from the documented glitch-free-init idiom).
+- *RTOS (17f):* `xTaskCreate` stack-size magic number (unit is words on vanilla FreeRTOS, bytes on ESP-IDF — any threshold is wrong somewhere), hard-coded task priorities, and mutex acquire-order / priority inversion (needs a cross-function lock graph).
 
 Each rule declares a *default* confidence, and the analyzer then applies a **context-window confidence correction**: a match that sits inside a comment, docstring, or block comment, or on a test/fixture/mock path, has its confidence down-ranked (never up-ranked, and severity is untouched), so a pattern shown inside a docstring is reported at lower confidence than a live one.
 
@@ -290,9 +301,9 @@ VibeGuard tracks **two independent version numbers**. Keeping them separate is i
 | Version | Where | Bumps when | Current |
 | --- | --- | --- | --- |
 | **Tool version** | `package.json` of each channel; CLI `--version`; SARIF `tool.version` | Any release of the published artifact — packaging, UX, docs, or detection changes. | `0.1.3` |
-| **Engine version** | `ENGINE_VERSION` in [`analyzer-core`](packages/analyzer-core); every scan result and SARIF report as `engineVersions.core` | Only when **detection behavior** changes (rules, analysis, finding schema). | `0.2.0` |
+| **Engine version** | `ENGINE_VERSION` in [`analyzer-core`](packages/analyzer-core); every scan result and SARIF report as `engineVersions.core` | Only when **detection behavior** changes (rules, analysis, finding schema). | `0.2.1` |
 
-The CLI prints both, e.g. `vibeguard 0.1.3 (engine 0.2.0)`. The tool version is read from `package.json` at runtime, so it always matches the published package. The engine stayed at `0.1.0` while the tool advanced to `0.1.3`, because those releases (vsce metadata fix, OK-state UX, license) did not change what VibeGuard detects, and it was then held there deliberately through a round of detection work so that one version would name one settled engine rather than several successive ones. `0.2.0` releases that hold: it covers context-window confidence and its severity gate, the canonicalizer pre-pass, regex time/length bounds with `degradations`, `confidenceAudit`, the suppression severity gate, `match-limit` reporting, and the suppression tally. See [CHANGELOG.md](CHANGELOG.md) for what each one changes. To compare against the engine from before that work, use the `paper-ses-v0.1.3` tag.
+The CLI prints both, e.g. `vibeguard 0.1.3 (engine 0.2.1)`. The tool version is read from `package.json` at runtime, so it always matches the published package. The engine stayed at `0.1.0` while the tool advanced to `0.1.3`, because those releases (vsce metadata fix, OK-state UX, license) did not change what VibeGuard detects, and it was then held there deliberately through a round of detection work so that one version would name one settled engine rather than several successive ones. `0.2.0` released that hold: context-window confidence and its severity gate, the canonicalizer pre-pass, regex time/length bounds with `degradations`, `confidenceAudit`, the suppression severity gate, `match-limit` reporting, and the suppression tally. `0.2.1` adds the C/C++/Arduino embedded layer (VG-MEM/VG-EMB/VG-RTOS, the `.ino`/`.hh`/`.cxx`/`.ipp` extensions, and the N_pp preprocessor face) — purely additive, so web-language verdicts are unchanged. See [CHANGELOG.md](CHANGELOG.md) for what each one changes. To compare against the engine from before that work, use the `paper-ses-v0.1.3` (pre-hold) or `v0.2.0` (pre-embedded) tags.
 
 **Rule of thumb:** compare results across two runs by **engine version** (same engine ⇒ identical verdicts); report which build you installed by **tool version**.
 

@@ -637,3 +637,174 @@ export function languageMatches(ruleLanguages: string[], inputLanguage?: string)
   if (!inputLanguage) return false;
   return ruleLanguages.includes(inputLanguage);
 }
+
+/** A balanced `{ … }` block: its text and the offsets it spans in the source. */
+export interface ExtractedBlock {
+  /** The block including its outer braces. */
+  body: string;
+  /** Offset of the opening `{`. */
+  start: number;
+  /** Offset one past the closing `}`. */
+  end: number;
+}
+
+/**
+ * VG-EMB 17f — lexical balanced-block extraction, no parser.
+ *
+ * 17c REJECTED tree-sitter with the promise that structural rules (an ISR body,
+ * a function scope) can be written LEXICALLY. This is where that promise is
+ * kept: given the offset of a match (e.g. `ISR(TIMER1_OVF_vect)`), return the
+ * `{ … }` block that follows it, so a rule can scan the BODY rather than the
+ * whole file. If this needs to grow into an expression parser to work, the
+ * rejection was wrong — so it is kept deliberately small.
+ *
+ * The scan is a single forward pass with a five-state machine — code, `//`
+ * comment, `/* *\/` comment, `"` string, `'` char — honoring `\` escapes, so a
+ * brace inside a string or comment (`"}"`, `// }`) does NOT count. That
+ * distinction is the whole reason this cannot be a bare `indexOf('}')`.
+ *
+ * LINEAR by construction (no regex, one pass, bounded by `maxBodyLength`), so it
+ * stays inside the D3 ReDoS contract even when callers overlap many heads.
+ *
+ * FAILS QUIET. No opening brace within `maxHeadGap`, or the block never balances
+ * within `maxBodyLength` / before EOF, returns `null` — never a truncated body.
+ * An unbalanced block is a parse failure, and a rule anchored to a guessed body
+ * would report findings on garbage; `null` means "no detection", the safe side.
+ *
+ * KNOWN RESIDUAL: C++ raw strings `R"(…)"` are not modelled (their `"` closes
+ * the string state early), so a raw string containing unbalanced braces inside
+ * a scanned block can desync the count and yield `null`. That is the fail-quiet
+ * direction (a missed detection, never a wrong one), and modelling user-defined
+ * raw delimiters is exactly the parser this helper refuses to become.
+ */
+export function extractBlockAfter(
+  content: string,
+  matchIndex: number,
+  opts?: { maxHeadGap?: number; maxBodyLength?: number },
+): ExtractedBlock | null {
+  const maxHeadGap = opts?.maxHeadGap ?? 200;
+  const maxBodyLength = opts?.maxBodyLength ?? 20_000;
+  const n = content.length;
+
+  // Find the opening brace within the head gap. Stop at `;` FIRST: a `;` before
+  // any `{` means this was a DECLARATION (a prototype `void isr();`), which has
+  // no body — binding to the next function's `{` would flag the wrong function.
+  let i = matchIndex;
+  const headLimit = Math.min(n, matchIndex + maxHeadGap);
+  while (i < headLimit && content[i] !== '{' && content[i] !== ';') i += 1;
+  if (i >= n || content[i] !== '{') return null;
+
+  const start = i;
+  const bodyLimit = Math.min(n, start + maxBodyLength);
+  let depth = 0;
+  let state: 'code' | 'line' | 'block' | 'dq' | 'sq' = 'code';
+
+  for (; i < bodyLimit; i += 1) {
+    const c = content[i];
+    const next = content[i + 1];
+    switch (state) {
+      case 'code':
+        if (c === '/' && next === '/') {
+          state = 'line';
+          i += 1;
+        } else if (c === '/' && next === '*') {
+          state = 'block';
+          i += 1;
+        } else if (c === '"') {
+          state = 'dq';
+        } else if (c === "'") {
+          state = 'sq';
+        } else if (c === '{') {
+          depth += 1;
+        } else if (c === '}') {
+          depth -= 1;
+          if (depth === 0) {
+            const end = i + 1;
+            return { body: content.slice(start, end), start, end };
+          }
+        }
+        break;
+      case 'line':
+        if (c === '\n') state = 'code';
+        break;
+      case 'block':
+        if (c === '*' && next === '/') {
+          state = 'code';
+          i += 1;
+        }
+        break;
+      case 'dq':
+        if (c === '\\') i += 1;
+        else if (c === '"') state = 'code';
+        break;
+      case 'sq':
+        if (c === '\\') i += 1;
+        else if (c === "'") state = 'code';
+        break;
+    }
+  }
+  // Never balanced within the limit: fail quiet.
+  return null;
+}
+
+/**
+ * Overwrite the interior of `//` and `/* *\/` comments and `"…"` / `'…'` string
+ * literals with spaces, LENGTH- and NEWLINE-PRESERVING (delimiters kept, `\n`
+ * and `\r` never touched). Same five-state machine and escape handling as
+ * `extractBlockAfter`.
+ *
+ * Purpose: a lexical rule that scans a region for a token (a `free`, a forbidden
+ * ISR call, a pointer dereference) must not match that token when it sits INSIDE
+ * a comment or a string literal — `/* free(p) old *\/` is not a double free, and
+ * `printf("p->x")` is not a use-after-free. Because it preserves geometry, any
+ * offset computed over the blanked text is valid in the original.
+ */
+export function blankCommentsAndStrings(content: string): string {
+  const n = content.length;
+  const out = content.split('');
+  let state: 'code' | 'line' | 'block' | 'dq' | 'sq' = 'code';
+  const blank = (k: number): void => {
+    if (content[k] !== '\n' && content[k] !== '\r') out[k] = ' ';
+  };
+  for (let i = 0; i < n; i += 1) {
+    const c = content[i];
+    const next = content[i + 1];
+    switch (state) {
+      case 'code':
+        if (c === '/' && next === '/') state = 'line';
+        else if (c === '/' && next === '*') state = 'block';
+        else if (c === '"') state = 'dq';
+        else if (c === "'") state = 'sq';
+        break;
+      case 'line':
+        if (c === '\n') state = 'code';
+        else blank(i);
+        break;
+      case 'block':
+        if (c === '*' && next === '/') {
+          state = 'code';
+          i += 1; // keep the `/` of the closer
+        } else {
+          blank(i);
+        }
+        break;
+      case 'dq':
+        if (c === '\\') {
+          blank(i);
+          if (i + 1 < n) blank(i + 1);
+          i += 1;
+        } else if (c === '"') state = 'code';
+        else blank(i);
+        break;
+      case 'sq':
+        if (c === '\\') {
+          blank(i);
+          if (i + 1 < n) blank(i + 1);
+          i += 1;
+        } else if (c === "'") state = 'code';
+        else blank(i);
+        break;
+    }
+  }
+  return out.join('');
+}

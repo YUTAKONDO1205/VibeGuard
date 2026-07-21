@@ -67,7 +67,7 @@ afterEach(async () => {
  * parser has drifted from the table's shape and is under-reporting languages —
  * which would silently weaken the sync check below rather than fail it.
  */
-const CANARY_EXTENSIONS = ['.py', '.php', '.html', '.ts', '.sql'];
+const CANARY_EXTENSIONS = ['.py', '.php', '.html', '.ts', '.sql', '.ino'];
 
 interface ExtEntry {
   readonly ext: string;
