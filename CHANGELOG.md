@@ -10,6 +10,38 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-21
+
+### Added — C/C++/Arduino embedded layer (engine 0.2.0 → 0.2.1)
+
+Purely additive: no web-language verdict changes (E2=51 / E3=0 hold), so
+`v0.2.0` remains the immutable baseline for the pre-embedded engine.
+
+- **Language layer:** `.ino`/`.hh`/`.cxx`/`.ipp` now scan as C++, and a new
+  N_pp preprocessor-branch normalization face (a third union term,
+  `D′ = D(x) ∪ D(N(x)) ∪ D(N_pp(x))`, C/C++ only) so a dangerous construct split
+  across `#ifdef` branches can be matched. Still regex-and-lexical only — **no
+  `tree-sitter` or other parser dependency**; `analyzer-core` and `rules` keep
+  zero external runtime deps.
+- **19 new rules:** `VG-MEM-001..005` (memory: `gets`/`strcpy`/`memcpy`-from-`strlen`/
+  same-block double-free & use-after-free), `VG-EMB-001..003/010..012/020..023/031`
+  (AI-generated embedded: hard-coded Wi-Fi & BLE creds, cleartext `http://`,
+  `setInsecure()`, BLE Just Works, `#define DEBUG 1`, auth-bypass flag, credential
+  to serial, "remove before production" comment, use-before-`begin()`), and
+  `VG-RTOS-001/002/004` (forbidden call in an ISR body, shared ISR variable
+  missing `volatile`, `O_DIRECT` without `O_SYNC`). A lexical `extractBlockAfter`
+  helper extracts ISR/`setup()` bodies without a parser.
+- **`samples/embedded/{vulnerable,safe}`** with its own CI gate (safe = 0,
+  vulnerable ≥ 18) and a per-rule coverage pin — a separate count from the web
+  samples.
+- **Deterministic autofix** (`@vibeguard/remediation-engine`): a `fixers` table
+  (`#define DEBUG 1`→`0`, TLS-verify constant, `http`→`https`, add `O_SYNC`),
+  LLM-free, with overlap-rejecting `applyFixes`. Plus an honest-null firmware
+  footprint measurement (`footprint.ts`) that reports "not measured" when the
+  arm toolchain is absent rather than a fabricated zero.
+- Rules intentionally **not** implemented (a lexical scanner cannot decide them)
+  are listed in the README rule catalogue.
+
 ## [0.2.0] - 2026-07-20
 
 > **Upgrading from 0.1.x:** one change can make a previously green CI start

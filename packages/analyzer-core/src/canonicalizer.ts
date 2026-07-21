@@ -544,6 +544,135 @@ export function canonicalize(content: string, language: string | undefined): Can
 }
 
 /**
+ * Languages with a C preprocessor, gating the N_pp arm below. This lives outside
+ * LANGUAGE_PROFILE on purpose: the three profile-driven ops (comment,
+ * whitespace, fold) run INSIDE the `canonicalize` loop, whereas N_pp is a
+ * pre-step with its own entry point. `.ino`/`.hh`/`.cxx`/`.ipp` reach here
+ * already resolved to `cpp` (see language-detect.ts), so no dialect list is
+ * needed.
+ */
+function languageHasPreprocessor(language: string | undefined): boolean {
+  return language === 'c' || language === 'cpp';
+}
+
+/**
+ * A physical line that OPENS a preprocessor directive. Keyword-anchored, not a
+ * bare leading `#`: a `#` at the start of a line inside a multi-line raw string
+ * (`R"(\n#not a directive\n)"`) must not be blanked. Anchoring on the directive
+ * keywords makes such a misfire need a line that literally begins `#if` /
+ * `#define` / … — far rarer — and even then only the ADDED N_pp face is
+ * affected, never D(x) or D(N(x)).
+ */
+const PP_DIRECTIVE =
+  /^[ \t]*#[ \t]*(?:if|ifdef|ifndef|elif|elifdef|elifndef|else|endif|define|undef|include|include_next|pragma|line|error|warning)\b/;
+/** A null directive: `#` alone on a line. */
+const PP_NULL = /^[ \t]*#[ \t]*\r?$/;
+/** A GCC/preprocessor line marker: `# 1 "file.h"`. */
+const PP_LINEMARKER = /^[ \t]*#[ \t]*\d/;
+/**
+ * The directive continues onto the next physical line. A trailing backslash
+ * splices the following line on; horizontal whitespace after the backslash is
+ * tolerated (GCC does), and a `\r` before the newline is allowed so CRLF input
+ * continues correctly.
+ */
+const PP_CONTINUES = /\\[ \t]*\r?$/;
+
+/**
+ * Blank every preprocessor directive line — and each `\`-continuation of one —
+ * to spaces, preserving `\n` and `\r` so no offset or line number moves.
+ * Returns the input unchanged when it holds no directives (so the caller can
+ * skip a no-op face).
+ */
+function blankPreprocessorDirectives(content: string): string {
+  const n = content.length;
+  let out: string[] | null = null;
+  let lineStart = 0;
+  let inDirective = false;
+  while (lineStart <= n) {
+    let lineEnd = content.indexOf('\n', lineStart);
+    if (lineEnd === -1) lineEnd = n;
+    // `line` excludes the `\n` terminator but may carry a trailing `\r`.
+    const line = content.slice(lineStart, lineEnd);
+    const opens = PP_DIRECTIVE.test(line) || PP_NULL.test(line) || PP_LINEMARKER.test(line);
+    if (inDirective || opens) {
+      out ??= content.split('');
+      for (let k = lineStart; k < lineEnd; k++) {
+        // Never touch `\r` (and `\n` is already outside the range): blanking a
+        // line terminator would shift every offset after it.
+        if (content[k] === '\r') continue;
+        out[k] = ' ';
+      }
+      inDirective = PP_CONTINUES.test(line);
+    } else {
+      inDirective = false;
+    }
+    if (lineEnd === n) break;
+    lineStart = lineEnd + 1;
+  }
+  return out ? out.join('') : content;
+}
+
+/**
+ * `N_pp` — the preprocessor normalization arm (VG-EMB 17c EMB-LANG).
+ *
+ * THE PROBLEM N ALONE DOES NOT SOLVE. In C/C++ a dangerous construct can be
+ * split across preprocessor directives, which are neither comments nor
+ * whitespace, so both D(x) and D(N(x)) see them as line-breaking tokens:
+ *
+ *     WiFi.begin("ssid",
+ *     #ifdef PROD
+ *         PROD_PW);
+ *     #else
+ *         "test123");
+ *     #endif
+ *
+ * A bounded call-shape pattern cannot reach across the `#ifdef` line, so the
+ * literal in the first branch is never joined to the call. N_pp blanks the
+ * DIRECTIVE lines (newline-preserving, exactly as a comment is blanked) so a
+ * bounded pattern can span them into the first branch.
+ *
+ * WHAT IT DELIBERATELY DOES NOT DO. Branches are NOT expanded and macros are NOT
+ * substituted: "surface dangerous code in any branch" needs every branch to
+ * stay VISIBLE, which the source already guarantees, not the code compiled.
+ * Blanking makes only the FIRST branch contiguous with the text before the
+ * directive; a payload reachable only through the `#else` arm stays separated by
+ * the first branch's text and is NOT surfaced. That is a pinned residual (see
+ * canonicalizer.test.ts), not a silent gap — expanding branches is exponential
+ * under nesting and budget-hostile, and the union can still only ADD findings,
+ * so the honest partial win is taken over none.
+ *
+ * FALSE POSITIVES. Splicing one branch's tail to the next branch's head can form
+ * a statement present in no build. This is the same chimera class N already
+ * accepts from block-comment blanking, and it is bounded: `foldConcatenations`
+ * refuses to cross a physical line, so two mutually-exclusive branches' literals
+ * can never be merged into one fabricated secret. Under this codebase's
+ * asymmetry — a visible false positive is triageable, a silent false negative is
+ * not — this is accepted.
+ *
+ * COMPOSITION. N_pp(x) = N(ppBlank(x)): directives are blanked first, then the
+ * full N pipeline runs, so a secret split by BOTH a directive and a comment
+ * still folds. Length- and newline-preserving by the same construction as N, so
+ * canonical-space positions are identity-mapped to the original and
+ * `anchorMatch` (analyzer.ts) re-anchors an N_pp-only finding to its payload
+ * line. The analyzer unions the result: D′(x) = D(x) ∪ D(N(x)) ∪ D(N_pp(x)).
+ *
+ * `changed` is measured against the ORIGINAL, not against the blanked text: the
+ * caller uses it to decide whether this face adds anything over D(x), and skips
+ * the third rule pass when it does not.
+ */
+export function canonicalizePreprocessor(
+  content: string,
+  language: string | undefined,
+): CanonicalizeResult {
+  if (!languageHasPreprocessor(language)) {
+    return { content, changed: false, stats: { ...ZERO_STATS } };
+  }
+  const blanked = blankPreprocessorDirectives(content);
+  const canon = canonicalize(blanked, language);
+  return { content: canon.content, changed: canon.content !== content, stats: canon.stats };
+}
+
+/**
  * Op (3) — fold runs of constant string literals joined by a concatenation
  * operator into a single literal, in place.
  *

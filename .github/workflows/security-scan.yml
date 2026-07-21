@@ -157,6 +157,27 @@ jobs:
           echo "samples/vulnerable findings: $COUNT"
           test "$COUNT" -ge 15
 
+      # VG-EMB 17g — the embedded corpus is a SEPARATE count from the web
+      # samples above. It sits under samples/, so the self-scan's `--ignore
+      # samples` already excludes it (no pragma needed). The exact per-rule
+      # coverage is pinned in a vitest (embedded-samples.test.ts); CI enforces
+      # the same floor/zero discipline as the web gate.
+      - name: samples/embedded/safe must produce zero findings
+        run: |
+          node apps/cli/dist/index.js samples/embedded/safe \
+            --mode standard --format json --out emb-safe.json --fail-on never
+          COUNT=$(node -e "console.log(JSON.parse(require('fs').readFileSync('emb-safe.json','utf8')).findings.length)")
+          echo "samples/embedded/safe findings: $COUNT"
+          test "$COUNT" -eq 0
+
+      - name: samples/embedded/vulnerable must trip the embedded rules
+        run: |
+          node apps/cli/dist/index.js samples/embedded/vulnerable \
+            --mode standard --format json --out emb-vuln.json --fail-on never
+          COUNT=$(node -e "console.log(JSON.parse(require('fs').readFileSync('emb-vuln.json','utf8')).findings.length)")
+          echo "samples/embedded/vulnerable findings: $COUNT"
+          test "$COUNT" -ge 18
+
   # PR diff scan: scan only the lines this PR touches. Complements the
   # whole-repo self-scan above by giving reviewers a tight, low-noise list
   # of "what's new in this PR". Runs on PRs only.

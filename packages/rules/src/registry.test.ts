@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { allRules } from './index.js';
 
-const RULE_ID_RE = /^VG-(INJ|AUTH|SEC|CRYPTO|QUAL|FW)-\d{3}$/;
+const RULE_ID_RE = /^VG-(INJ|AUTH|SEC|CRYPTO|QUAL|FW|MEM|EMB|RTOS)-\d{3}$/;
 const VALID_SEVERITY = new Set(['critical', 'high', 'medium', 'low', 'info']);
 const VALID_CONFIDENCE = new Set(['high', 'medium', 'low']);
 // Categories are a richer taxonomy than the rule-ID prefix. The prefix groups
@@ -20,6 +20,9 @@ const VALID_CATEGORY = new Set([
   'logging',
   'config',
   'logic',
+  // VG-EMB 17d/17f — C/C++ memory safety and ISR/RTOS concurrency.
+  'memory',
+  'concurrency',
 ]);
 
 describe('rule registry', () => {
@@ -73,7 +76,7 @@ describe('rule registry', () => {
   });
 
   it('rule ID prefix is one of the known families', () => {
-    const validPrefixes = new Set(['INJ', 'AUTH', 'SEC', 'CRYPTO', 'QUAL', 'FW']);
+    const validPrefixes = new Set(['INJ', 'AUTH', 'SEC', 'CRYPTO', 'QUAL', 'FW', 'MEM', 'EMB', 'RTOS']);
     for (const r of allRules) {
       const prefix = r.ruleId.split('-')[1];
       expect(validPrefixes.has(prefix ?? ''), `${r.ruleId} unknown prefix`).toBe(true);

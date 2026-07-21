@@ -39,9 +39,20 @@ const ADVERSARIAL: Array<{ name: string; content: string }> = [
   { name: 'cors-near-miss', content: 'cors({ origin: "\n'.repeat(N / 17) },
   { name: 'sql-near-miss', content: '"SELECT FROM t" +\n'.repeat(N / 18) },
   { name: 'html-safe-near-miss', content: 'a.html_saf\n'.repeat(N / 11) },
+  // VG-EMB C-shaped inputs. The MEM-004/005 pair-scan and the RTOS-001 head
+  // scans are hand-rolled loops (not runRegex), so they need their own
+  // adversarial coverage: many same-name frees with no barrier between them
+  // (the O(pointers × n) shape MAX_PAIR_GAP bounds), and attach-spam sharing one
+  // handler definition (the block-dedup path).
+  { name: 'free-pair-soup', content: `free(p);${' '.repeat(20)}`.repeat(N / 30) },
+  { name: 'free-distinct-soup', content: 'free(a); free(b); free(c); free(d);\n'.repeat(N / 36) },
+  { name: 'memcpy-strlen-near-miss', content: 'memcpy(dst, src, strle\n'.repeat(N / 23) },
+  { name: 'emb002-underscore-soup', content: 'PASS_'.repeat(N / 5) },
+  { name: 'attach-spam', content: `void IRAM_ATTR h(){malloc(1);}\n${'attachInterrupt(0,h,0);\n'.repeat(N / 24)}` },
+  { name: 'isr-head-soup', content: 'void IRAM_ATTR h(){\n'.repeat(N / 19) },
 ];
 
-// Per-input ceiling for a FULL scan (all 47 rules over ~50 KB). A linear scan of
+// Per-input ceiling for a FULL scan (every rule over ~50 KB). A linear scan of
 // this is tens of ms; a single super-linear rule pushes it to seconds. 1500 ms
 // sits an order of magnitude away from both, inside DESIGN §11.1's 3 s single-
 // file budget with room for a loaded CI box.
@@ -50,7 +61,7 @@ const BUDGET_MS = 1_500;
 describe('A1 ReDoS invariant — no rule is super-linear on adversarial input', () => {
   for (const { name, content } of ADVERSARIAL) {
     it(`scans '${name}' (${Math.round(content.length / 1000)}KB) within ${BUDGET_MS}ms`, () => {
-      const langs = ['python', 'javascript', 'ruby', 'go', 'php', 'java'];
+      const langs = ['python', 'javascript', 'ruby', 'go', 'php', 'java', 'c', 'cpp'];
       for (const language of langs) {
         const t0 = Date.now();
         scan({ targetType: 'file', content, filePath: `adv.${name}`, mode: 'standard', language });

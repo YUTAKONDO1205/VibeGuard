@@ -12,6 +12,7 @@
 export { Analyzer, scan, ENGINE_VERSION, type AnalyzerOptions } from './analyzer.js';
 export {
   canonicalize,
+  canonicalizePreprocessor,
   type CanonicalizeResult,
   type CanonicalizeStats,
 } from './canonicalizer.js';
