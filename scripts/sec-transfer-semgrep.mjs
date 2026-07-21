@@ -1,3 +1,4 @@
+// vibeguard:disable-file VG-INJ-004 reason="eval-exec family mapping strings (eval-detected/eval-injection/user-eval check-id patterns and prose describing CWE-95) — not an executable eval() of untrusted input; same self-scan exemption as packages/rules/src/rules/injection.ts and scripts/e4-prdiff-eval.mjs"
 // Cross-tool evasion transfer, arm 2 of 3: Semgrep (a MULTI-LANGUAGE pattern
 // engine) as a second external point on the tool axis, beside Bandit.
 //
