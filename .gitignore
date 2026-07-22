@@ -54,6 +54,7 @@ docs/EVALUATION.md
 # Design / paper drafts exported as Office / PDF (local-only, e.g. 追加設計書案)
 docs/*.docx
 docs/*.pdf
+docs/*.md
 
 # Research roadmap report + its template (local-only planning docs)
 docs/20260401_report_template.html
