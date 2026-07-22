@@ -552,7 +552,13 @@ export class Analyzer {
         // A blanket suppression that tried to cover a security judgement does
         // not drop the finding — it leaves a mark on it (`overridden`), which
         // is spread onto the finding below.
-        const suppression = evaluateSuppression(suppressions, rule.ruleId, m.startLine, rule.severity);
+        // Per-match severity override (RuleMatch.severity) is honored at BOTH
+        // the suppression gate and finding assembly, so an escalated-to-high
+        // match cannot be silenced by a wildcard `vibeguard:disable` that a
+        // blanket medium would permit. `?? rule.severity` reproduces the old
+        // behaviour for every rule that sets no per-match severity.
+        const matchSeverity = m.severity ?? rule.severity;
+        const suppression = evaluateSuppression(suppressions, rule.ruleId, m.startLine, matchSeverity);
         if (suppression.suppressed) {
           // Counted HERE, at the `continue`, and nowhere else. Recording next to
           // the drop is what makes the tally trustworthy: there is no second
@@ -586,7 +592,11 @@ export class Analyzer {
           m.confidence == null
             ? explainContextConfidence(
                 rule.defaultConfidence,
-                rule.severity,
+                // Gate the confidence floor at the match's REAL (possibly
+                // escalated) severity, consistent with the suppression gate
+                // above — a match escalated to high must not be floored as if it
+                // were the rule's static low.
+                matchSeverity,
                 ctx,
                 m,
                 rule.contextConfidence ?? 'auto',
@@ -598,7 +608,7 @@ export class Analyzer {
           ruleId: rule.ruleId,
           title: rule.name,
           description: rule.description,
-          severity: rule.severity,
+          severity: matchSeverity,
           confidence: m.confidence ?? audit!.confidence,
           // Conditional spread, not `confidenceAudit: undefined`: absence of the
           // key is the contract (`'confidenceAudit' in finding` is meaningful),

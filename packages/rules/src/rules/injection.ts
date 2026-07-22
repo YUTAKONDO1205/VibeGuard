@@ -1,8 +1,9 @@
-// vibeguard:disable-file VG-INJ-004
-// This file *defines* injection rules; the literal strings "eval(" appear
-// inside rule descriptions and remediation text by design.
-import type { RuleDefinition } from '../rule-types.js';
-import { runRegex } from '../matcher-utils.js';
+// vibeguard:disable-file VG-INJ-004 VG-INJ-020
+// This file *defines* injection rules; the literal strings "eval(", "__proto__",
+// and the polluting-merge shapes appear inside rule descriptions, regexes, and
+// remediation text by design.
+import type { RuleDefinition, RuleMatch } from '../rule-types.js';
+import { runRegex, blankJsLiterals, extractBlockAfter, indexToPosition, REGEX_INPUT_CAP } from '../matcher-utils.js';
 
 export const sqlStringConcat: RuleDefinition = {
   ruleId: 'VG-INJ-001',
@@ -172,6 +173,159 @@ export const pathTraversalConcat: RuleDefinition = {
     ),
 };
 
+// --- VG-INJ-020: Prototype-polluting merge (D1b adversarial-review derivative) ---
+//
+// Two shapes, one rule. Branch A is a LITERAL write to a prototype sink; Branch B
+// is a RECURSIVE unguarded for-in merge. The classic slopsquatting-adjacent AI
+// smell: a `deepMerge`/`extend` helper copies attacker-controlled keys straight
+// onto the target with no own-property guard, so `{"__proto__":{"isAdmin":true}}`
+// pollutes Object.prototype (CWE-1321, OWASP A08).
+//
+// DELIBERATELY NOT DETECTED: generic dynamic-write `obj[key] = value`. That is the
+// single most common legitimate JS shape; a taint-free regex for it is an FP
+// flood (it collided with the project's E3=0 safe-corpus contract). Branch B fires
+// only on the conjunction for-in + dynamic-write-with-loop-var + self-recursion +
+// NO guard — each conjunct removes a large class of false positives.
+
+// Branch A — a literal assignment INTO a prototype sink. The trailing `=(?![=>])`
+// requires a real assignment and rejects `===`/`==` comparisons and `=>` arrows,
+// which is what makes the required negatives free: `key === '__proto__'` guards
+// are comparisons, `delete obj['__proto__']` has no `=`. `.prototype` on its own
+// (the ubiquitous `MyClass.prototype.method = fn`) is NOT a sink — only
+// `.constructor.prototype` is, so ordinary prototype-method assignment is silent.
+const PROTO_WRITE =
+  /(?:\.__proto__|\[[^\S\r\n]{0,2}(["'`])__proto__\1[^\S\r\n]{0,2}\]|\.constructor[^\S\r\n]{0,2}\.[^\S\r\n]{0,2}prototype|\[[^\S\r\n]{0,2}(["'`])constructor\2[^\S\r\n]{0,2}\][^\S\r\n]{0,2}\[[^\S\r\n]{0,2}(["'`])prototype\3[^\S\r\n]{0,2}\])(?:[^\S\r\n]{0,2}(?:\.[\w$]{1,60}|\[[^\]\n]{1,80}\]))?[^\S\r\n]{0,2}=(?![=>])/g;
+
+// A guard anywhere in the merge body vetoes Branch B. Run on the ORIGINAL body
+// text (NOT the comment/string-blanked copy) so a `key === '__proto__'` string
+// literal and a `'constructor'` denylist entry are still visible — blanking would
+// erase exactly the guard we are looking for.
+const MERGE_GUARD =
+  /hasOwnProperty|\bhasOwn\b|Object[^\S\r\n]{0,2}\.[^\S\r\n]{0,2}(?:keys|entries|getOwnPropertyNames)\b|["'`]__proto__["'`]|["'`]constructor["'`]|["'`]prototype["'`]|Object[^\S\r\n]{0,2}\.[^\S\r\n]{0,2}create[^\S\r\n]{0,2}\([^\S\r\n]{0,2}null|[\w$]{1,40}[^\S\r\n]{0,2}\.[^\S\r\n]{0,2}(?:has|includes)[^\S\r\n]{0,2}\(/;
+
+// Function heads WITH a name (a self-recursion check needs the name). Both
+// `function foo(` and `const foo = (…) =>` / `const foo = function`.
+const MERGE_HEAD =
+  /function[^\S\r\n]{1,4}(?<fn1>[\w$]{1,60})[^\S\r\n]{0,4}\(|(?:const|let|var)[^\S\r\n]{1,4}(?<fn2>[\w$]{1,60})[^\S\r\n]{0,4}=[^\S\r\n]{0,4}(?:async[^\S\r\n]{0,4})?(?:function\b|\([^()\n]{0,200}\)[^\S\r\n]{0,4}=>|[\w$]{1,40}[^\S\r\n]{0,4}=>)/g;
+
+// A for-in loop, capturing the iteration variable.
+const FOR_IN = /for[^\S\r\n]{0,4}\([^\S\r\n]{0,4}(?:const|let|var)?[^\S\r\n]{0,4}(?<k>[\w$]{1,40})[^\S\r\n]{1,4}in[^\S\r\n]{1,4}[\w$.]{1,60}/;
+
+// Branch A — literal prototype-sink writes. Matches on RAW content (so the
+// bracket-string form `obj["__proto__"] = x`, whose string literal IS the
+// payload, is kept), but REJECTS any match whose sink START sits inside a string
+// or comment. `blanked` has those regions overwritten with spaces length- and
+// newline-preservingly, so a match position that is a space in `blanked` but not
+// in `content` was inside a string/comment — e.g. a `.__proto__ =` printed inside
+// an Error message by defensive code. That is a false positive; skip it.
+function protoWrites(content: string, blanked: string, lines: string[]): RuleMatch[] {
+  const out: RuleMatch[] = [];
+  let m: RegExpExecArray | null;
+  let count = 0;
+  PROTO_WRITE.lastIndex = 0;
+  while (count < 1000 && (m = PROTO_WRITE.exec(content)) !== null) {
+    count += 1;
+    if (m[0].length === 0) {
+      PROTO_WRITE.lastIndex += 1;
+      continue;
+    }
+    // Sink start blanked (inside a string/comment) → not a real assignment sink.
+    if (blanked[m.index] !== content[m.index]) continue;
+    const pos = indexToPosition(content, m.index);
+    const lineText = lines[pos.line - 1] ?? '';
+    out.push({
+      startLine: pos.line,
+      endLine: pos.line,
+      startColumn: pos.column,
+      endColumn: pos.column + m[0].length,
+      evidence: (lineText.trim() || m[0]).slice(0, 200),
+    });
+  }
+  return out;
+}
+
+function prototypePollutingMerges(content: string, lines: string[], blanked: string): RuleMatch[] {
+  // Structural detection runs on the blanked copy (code only — a `for…in` or a
+  // dynamic write inside a string/comment does not count); geometry is preserved
+  // so offsets map back to `content` 1:1.
+  const out: RuleMatch[] = [];
+  let h: RegExpExecArray | null;
+  let heads = 0;
+  MERGE_HEAD.lastIndex = 0;
+  while (heads < 200 && (h = MERGE_HEAD.exec(blanked)) !== null) {
+    heads += 1;
+    if (h[0].length === 0) {
+      MERGE_HEAD.lastIndex += 1;
+      continue;
+    }
+    const fn = h.groups?.fn1 ?? h.groups?.fn2;
+    if (!fn) continue;
+    // Seed extractBlockAfter just before the params/brace; its 200-char head gap
+    // skips `(params)` and its `;`-stop rejects a bare declaration with no body.
+    const block = extractBlockAfter(blanked, h.index + h[0].length - 1);
+    if (!block) continue;
+    const body = block.body; // blanked
+    const forIn = FOR_IN.exec(body);
+    if (!forIn?.groups?.k) continue;
+    // `k`/`fn` are `[\w$]+`; `$` is a regex metachar (end-anchor), so it MUST be
+    // escaped before embedding — a `$`-prefixed loop var or function name (jQuery-
+    // style `$k`) otherwise builds an unmatchable pattern and silently misses.
+    const k = forIn.groups.k.replace(/\$/g, '\\$');
+    const fnEsc = fn.replace(/\$/g, '\\$');
+    // A dynamic bracket WRITE keyed by the loop var: `target[k] = …` (not `==`).
+    const writeRe = new RegExp(`\\[[^\\S\\r\\n]{0,2}${k}[^\\S\\r\\n]{0,2}\\][^\\S\\r\\n]{0,2}=(?![=>])`);
+    if (!writeRe.test(body)) continue;
+    // The recursion signal: the function calls ITSELF inside the body. This is
+    // the "recursive merge" requirement and the main suppressor of shallow
+    // single-level `for (k in src) dst[k] = src[k]` copies, which cannot be
+    // steered into prototype pollution the classic way and are ubiquitous.
+    const recRe = new RegExp(`\\b${fnEsc}[^\\S\\r\\n]{0,2}\\(`);
+    if (!recRe.test(body)) continue;
+    // Guard veto — checked on the ORIGINAL body slice.
+    if (MERGE_GUARD.test(content.slice(block.start, block.end))) continue;
+    const forInOffset = block.start + forIn.index;
+    const pos = indexToPosition(content, forInOffset);
+    const lineText = lines[pos.line - 1] ?? '';
+    out.push({
+      startLine: pos.line,
+      endLine: pos.line,
+      startColumn: pos.column,
+      endColumn: pos.column + forIn[0].length,
+      evidence: lineText.trim().slice(0, 200) || forIn[0],
+    });
+  }
+  return out;
+}
+
+export const prototypePollutingMerge: RuleDefinition = {
+  ruleId: 'VG-INJ-020',
+  name: 'Prototype-polluting merge',
+  description:
+    'A recursive merge/extend copies keys into a target without an own-property guard, or writes directly into __proto__ / constructor.prototype. Attacker-controlled keys like "__proto__" then pollute Object.prototype.',
+  languages: ['javascript', 'typescript'],
+  category: 'injection',
+  severity: 'high',
+  defaultConfidence: 'medium',
+  cwe: ['CWE-1321'],
+  owasp: ['A08:2021'],
+  tags: ['prototype-pollution', 'ai-prone'],
+  remediation: {
+    why: 'Merging untrusted keys without a guard lets an input key of "__proto__", "constructor", or "prototype" mutate Object.prototype, corrupting every object in the process (privilege escalation, DoS, RCE gadgets).',
+    how: 'Guard every copied key: skip "__proto__"/"constructor"/"prototype", use Object.hasOwn(src, key) before recursing, or build the target with Object.create(null). Prefer a vetted deep-merge library.',
+    exampleFix: "for (const key of Object.keys(src)) { if (key === '__proto__' || key === 'constructor') continue; /* … */ }",
+  },
+  match: (ctx) => {
+    // D3 parity: the hand-rolled scans below do not self-truncate, so cap here.
+    const content = ctx.content.length > REGEX_INPUT_CAP ? ctx.content.slice(0, REGEX_INPUT_CAP) : ctx.content;
+    const lines = content === ctx.content ? ctx.lines : content.split('\n');
+    const blanked = blankJsLiterals(content);
+    return [
+      ...protoWrites(content, blanked, lines),
+      ...prototypePollutingMerges(content, lines, blanked),
+    ];
+  },
+};
+
 export const injectionRules: RuleDefinition[] = [
   sqlStringConcat,
   commandInjectionShellTrue,
@@ -180,4 +334,5 @@ export const injectionRules: RuleDefinition[] = [
   dangerousDeserialization,
   innerHtmlAssignment,
   pathTraversalConcat,
+  prototypePollutingMerge,
 ];

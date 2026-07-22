@@ -178,6 +178,42 @@ jobs:
           echo "samples/embedded/vulnerable findings: $COUNT"
           test "$COUNT" -ge 18
 
+      # 0.2.x — design-smell / supply-chain (design-*) and prototype-pollution
+      # (proto-*) corpora, each a SEPARATE count from the web/embedded gates. Per-
+      # rule coverage is pinned in design-samples.test.ts (E8); CI enforces the
+      # same floor/zero discipline.
+      - name: samples/design-safe must produce zero findings
+        run: |
+          node apps/cli/dist/index.js samples/design-safe \
+            --mode standard --format json --out design-safe.json --fail-on never
+          COUNT=$(node -e "console.log(JSON.parse(require('fs').readFileSync('design-safe.json','utf8')).findings.length)")
+          echo "samples/design-safe findings: $COUNT"
+          test "$COUNT" -eq 0
+
+      - name: samples/design-smells must trip the design-smell and supply-chain rules
+        run: |
+          node apps/cli/dist/index.js samples/design-smells \
+            --mode standard --format json --out design-smells.json --fail-on never
+          COUNT=$(node -e "console.log(JSON.parse(require('fs').readFileSync('design-smells.json','utf8')).findings.length)")
+          echo "samples/design-smells findings: $COUNT"
+          test "$COUNT" -ge 6
+
+      - name: samples/proto-safe must produce zero findings
+        run: |
+          node apps/cli/dist/index.js samples/proto-safe \
+            --mode standard --format json --out proto-safe.json --fail-on never
+          COUNT=$(node -e "console.log(JSON.parse(require('fs').readFileSync('proto-safe.json','utf8')).findings.length)")
+          echo "samples/proto-safe findings: $COUNT"
+          test "$COUNT" -eq 0
+
+      - name: samples/proto-pollution must trip VG-INJ-020
+        run: |
+          node apps/cli/dist/index.js samples/proto-pollution \
+            --mode standard --format json --out proto-pollution.json --fail-on never
+          COUNT=$(node -e "console.log(JSON.parse(require('fs').readFileSync('proto-pollution.json','utf8')).findings.length)")
+          echo "samples/proto-pollution findings: $COUNT"
+          test "$COUNT" -ge 1
+
   # PR diff scan: scan only the lines this PR touches. Complements the
   # whole-repo self-scan above by giving reviewers a tight, low-noise list
   # of "what's new in this PR". Runs on PRs only.
