@@ -234,6 +234,62 @@ const apiKey = "AKIAIOSFODNN7EXAMPLE";
     ]);
   });
 
+  // --- Per-match severity override (RuleMatch.severity) --------------------
+  // The design-smell rules (VG-SMELL-012/003) escalate a single match to `high`
+  // on its content ("admin"/"root" literal, an authorization method) while the
+  // rule's static severity stays `medium`/`low`. The override must reach the
+  // finding AND the suppression severity gate, or an escalated-to-high match
+  // could be silenced by a wildcard `vibeguard:disable` that its base severity
+  // would have let through.
+  describe('per-match severity override', () => {
+    // Base severity 'low'; line 1 escalates to 'high', line 2 stays default.
+    const escalating: RuleDefinition = {
+      ruleId: 'VG-TEST-ESC',
+      name: 'escalating',
+      description: 'emits one escalated and one default-severity match',
+      languages: ['*'],
+      category: 'quality',
+      severity: 'low',
+      defaultConfidence: 'low',
+      match: () => [
+        { startLine: 1, endLine: 1, startColumn: 1, endColumn: 1, evidence: 'a', severity: 'high' },
+        { startLine: 2, endLine: 2, startColumn: 1, endColumn: 1, evidence: 'b' },
+      ],
+    };
+
+    it('assembles the finding at the per-match severity, falling back to the rule default', () => {
+      const req: ScanRequest = { targetType: 'snippet', content: 'a\nb\n', mode: 'standard' };
+      // canonicalize:false — this synthetic rule ignores content and emits fixed
+      // matches, so the canonical pass (if it fired) would double-emit rather
+      // than dedupe by source overlap the way a content-keyed rule does. The
+      // override semantics under test are orthogonal to canonicalization.
+      const r = scan(req, { rules: [escalating], canonicalize: false });
+      const bySeverity = new Map(r.findings.map((f) => [f.severity, f]));
+      expect(bySeverity.get('high')).toBeDefined();
+      expect(bySeverity.get('low')).toBeDefined();
+      expect(r.findings).toHaveLength(2);
+    });
+
+    it('gates a wildcard suppression at the per-match severity, not the rule default', () => {
+      // A file-wide wildcard is HONORED for low/info and REFUSED for medium+
+      // (the D5 gate). With the override, line 1 (escalated to high) survives
+      // the wildcard while line 2 (base low) is suppressed — proof the gate saw
+      // the match severity, not the rule's static 'low'.
+      const req: ScanRequest = {
+        targetType: 'snippet',
+        content: '// vibeguard:disable-file\na\nb\n',
+        mode: 'standard',
+        filePath: 'x.js',
+      };
+      const r = scan(req, { rules: [escalating], canonicalize: false });
+      const highs = r.findings.filter((f) => f.severity === 'high');
+      expect(highs).toHaveLength(1);
+      expect(highs[0]?.suppressionOverridden).toEqual({ channel: 'pragma', scope: 'file' });
+      // The base-low match on line 2 was honoured by the wildcard — no finding.
+      expect(r.findings.every((f) => f.severity !== 'low')).toBe(true);
+    });
+  });
+
   // --- Context-window confidence (paper item ①) ---------------------------
 
   it('does not down-rank a high-severity DEBUG=True in a docstring (severity gate)', () => {

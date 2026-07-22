@@ -808,3 +808,139 @@ export function blankCommentsAndStrings(content: string): string {
   }
   return out.join('');
 }
+
+/**
+ * Code chars after which a `/` begins a REGEX literal rather than a division.
+ * The standard lexical heuristic: a regex can follow an operator/opener/keyword
+ * position but not a value position. Kept conservative — a rare misread
+ * (`return /re/`, whose `prev` is the identifier char `n`) at worst fails to
+ * blank a regex, which is the same fail-safe direction as the shared blanker.
+ */
+const JS_REGEX_PREV = new Set([
+  '(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';', '+', '-', '*', '%', '^', '~', '<', '>',
+]);
+
+/**
+ * Like `blankCommentsAndStrings`, but JS-AWARE: it additionally blanks BACKTICK
+ * template literals and REGEX literals. The C-style shared blanker misses both,
+ * and each is a real defect source in JS rules:
+ *  - a `'` inside a `` `can't` `` template opened the single-quote state and
+ *    blanked real code to the next quote (a false negative), and
+ *  - a `"` inside a `/["']/` regex opened the double-quote state and left the
+ *    NEXT real string classified as code (a false positive when that string
+ *    contained a sink pattern).
+ * Length- and newline-preserving, so any offset over the result is valid in the
+ * original. Delimiters are kept; interiors become spaces.
+ *
+ * The div-vs-regex call uses `prev` (the last significant code char) against
+ * `JS_REGEX_PREV`; after any string/regex closes, `prev` is set to a value-like
+ * char so a following `/` reads as division.
+ */
+export function blankJsLiterals(content: string): string {
+  const out = content.split('');
+  const n = content.length;
+  const blank = (k: number): void => {
+    if (k >= 0 && k < n && content[k] !== '\n' && content[k] !== '\r') out[k] = ' ';
+  };
+  let state: 'code' | 'line' | 'block' | 'dq' | 'sq' | 'tpl' | 'regex' = 'code';
+  let prev = '';
+  let inClass = false;
+  for (let i = 0; i < n; i += 1) {
+    const c = content[i]!; // i < n, always defined
+    const next = content[i + 1];
+    switch (state) {
+      case 'code':
+        if (c === '/' && next === '/') { state = 'line'; i += 1; }
+        else if (c === '/' && next === '*') { state = 'block'; i += 1; }
+        else if (c === '"') state = 'dq';
+        else if (c === "'") state = 'sq';
+        else if (c === '`') state = 'tpl';
+        else if (c === '/' && (prev === '' || JS_REGEX_PREV.has(prev))) { state = 'regex'; inClass = false; }
+        else if (c !== ' ' && c !== '\t' && c !== '\n' && c !== '\r') prev = c;
+        break;
+      case 'line':
+        if (c === '\n') state = 'code';
+        else blank(i);
+        break;
+      case 'block':
+        if (c === '*' && next === '/') { state = 'code'; i += 1; }
+        else blank(i);
+        break;
+      case 'dq':
+        if (c === '\\') { blank(i); blank(i + 1); i += 1; }
+        else if (c === '"' || c === '\n') { state = 'code'; prev = ')'; }
+        else blank(i);
+        break;
+      case 'sq':
+        if (c === '\\') { blank(i); blank(i + 1); i += 1; }
+        else if (c === "'" || c === '\n') { state = 'code'; prev = ')'; }
+        else blank(i);
+        break;
+      case 'tpl':
+        if (c === '\\') { blank(i); blank(i + 1); i += 1; }
+        else if (c === '`') { state = 'code'; prev = ')'; }
+        else blank(i);
+        break;
+      case 'regex':
+        if (c === '\\') { blank(i); blank(i + 1); i += 1; }
+        else if (c === '[') { inClass = true; blank(i); }
+        else if (c === ']') { inClass = false; blank(i); }
+        else if (c === '/' && !inClass) { state = 'code'; prev = ')'; }
+        else if (c === '\n') state = 'code'; // unterminated → was probably division
+        else blank(i);
+        break;
+    }
+  }
+  return out.join('');
+}
+
+/**
+ * A PYTHON-aware blanker: `#` line comments, `"""`/`'''` docstrings, and `"`/`'`
+ * strings. The C-style shared blanker treats `#` as code (so a comment's
+ * keywords inflate metrics) and mis-reads an apostrophe in a `# don't` comment
+ * as a string opener (blanking real code to the next quote). Length- and
+ * newline-preserving.
+ */
+export function blankPyLiterals(content: string): string {
+  const out = content.split('');
+  const n = content.length;
+  const blank = (k: number): void => {
+    if (k >= 0 && k < n && content[k] !== '\n' && content[k] !== '\r') out[k] = ' ';
+  };
+  let state: 'code' | 'hash' | 'dq' | 'sq' | 'tdq' | 'tsq' = 'code';
+  for (let i = 0; i < n; i += 1) {
+    const c = content[i];
+    switch (state) {
+      case 'code':
+        if (c === '#') state = 'hash';
+        else if (content.startsWith('"""', i)) { state = 'tdq'; i += 2; }
+        else if (content.startsWith("'''", i)) { state = 'tsq'; i += 2; }
+        else if (c === '"') state = 'dq';
+        else if (c === "'") state = 'sq';
+        break;
+      case 'hash':
+        if (c === '\n') state = 'code';
+        else blank(i);
+        break;
+      case 'dq':
+        if (c === '\\') { blank(i); blank(i + 1); i += 1; }
+        else if (c === '"' || c === '\n') state = 'code';
+        else blank(i);
+        break;
+      case 'sq':
+        if (c === '\\') { blank(i); blank(i + 1); i += 1; }
+        else if (c === "'" || c === '\n') state = 'code';
+        else blank(i);
+        break;
+      case 'tdq':
+        if (content.startsWith('"""', i)) { state = 'code'; i += 2; }
+        else blank(i);
+        break;
+      case 'tsq':
+        if (content.startsWith("'''", i)) { state = 'code'; i += 2; }
+        else blank(i);
+        break;
+    }
+  }
+  return out.join('');
+}

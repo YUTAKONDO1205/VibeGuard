@@ -1,8 +1,10 @@
-// vibeguard:disable-file VG-CRYPTO-003 VG-AUTH-001 VG-AUTH-003 VG-AUTH-004 VG-AUTH-006 VG-CRYPTO-001 VG-CRYPTO-002 VG-FW-003 VG-INJ-001 VG-INJ-004 VG-INJ-006 VG-QUAL-001 VG-QUAL-002 VG-QUAL-003 VG-QUAL-004 VG-QUAL-005 VG-QUAL-006 VG-QUAL-008 VG-QUAL-009 VG-QUAL-010 VG-SEC-001 VG-SEC-002 VG-SEC-003 VG-SEC-004
+// vibeguard:disable-file VG-CRYPTO-003 VG-AUTH-001 VG-AUTH-003 VG-AUTH-004 VG-AUTH-006 VG-CRYPTO-001 VG-CRYPTO-002 VG-FW-003 VG-INJ-001 VG-INJ-004 VG-INJ-006 VG-INJ-020 VG-QUAL-001 VG-QUAL-002 VG-QUAL-003 VG-QUAL-004 VG-QUAL-005 VG-QUAL-006 VG-QUAL-008 VG-QUAL-009 VG-QUAL-010 VG-SEC-001 VG-SEC-002 VG-SEC-003 VG-SEC-004 VG-SMELL-003 VG-SMELL-004 VG-SMELL-012 VG-AISC-001
 // Test fixtures contain intentional vulnerable code to exercise the rules.
 import { describe, expect, it } from 'vitest';
 import type { RuleContext, RuleDefinition } from '../rule-types.js';
-import { evalUsage, sqlStringConcat, innerHtmlAssignment, dangerousDeserialization } from './injection.js';
+import { evalUsage, sqlStringConcat, innerHtmlAssignment, dangerousDeserialization, prototypePollutingMerge } from './injection.js';
+import { longSecurityMethod, primitiveRoleCheck, securitySwissArmyKnife } from './design-smells-single.js';
+import { hallucinatedDependency } from './ai-supply-chain.js';
 import {
   dummyToken,
   tlsVerifyDisabled,
@@ -714,5 +716,658 @@ describe('PHP language pack', () => {
       '<?php mysqli_query($db, "SELECT * FROM t WHERE id = " . $id); ?>',
       'php',
     );
+  });
+});
+
+describe('VG-INJ-020 prototype-polluting merge', () => {
+  const recursiveMerge = [
+    'function deepMerge(target, source) {',
+    '  for (const key in source) {',
+    '    if (typeof source[key] === "object") {',
+    '      target[key] = deepMerge(target[key] || {}, source[key]);',
+    '    } else {',
+    '      target[key] = source[key];',
+    '    }',
+    '  }',
+    '  return target;',
+    '}',
+  ].join('\n');
+
+  it('flags an unguarded recursive for-in merge', () => {
+    expectMatches(prototypePollutingMerge, recursiveMerge, 'javascript', 1);
+  });
+
+  it('flags a literal __proto__ write', () => {
+    expectMatches(prototypePollutingMerge, 'obj.__proto__.isAdmin = true;', 'javascript', 1);
+  });
+
+  it('flags a bracket __proto__ write', () => {
+    expectMatches(prototypePollutingMerge, 'target["__proto__"]["polluted"] = value;', 'javascript', 1);
+  });
+
+  it('flags a constructor.prototype write', () => {
+    expectMatches(prototypePollutingMerge, 'x.constructor.prototype.tainted = 1;', 'javascript', 1);
+  });
+
+  it('flags an arrow-function recursive merge', () => {
+    const arrow = [
+      'const extend = (dst, src) => {',
+      '  for (let k in src) {',
+      '    if (src[k] && typeof src[k] === "object") dst[k] = extend(dst[k] || {}, src[k]);',
+      '    else dst[k] = src[k];',
+      '  }',
+      '  return dst;',
+      '};',
+    ].join('\n');
+    expectMatches(prototypePollutingMerge, arrow, 'javascript', 1);
+  });
+
+  // --- Negatives (Fable's required FP pins) ---
+  it('does NOT flag a merge guarded with Object.hasOwn', () => {
+    const guarded = [
+      'function deepMerge(target, source) {',
+      '  for (const key in source) {',
+      '    if (!Object.hasOwn(source, key)) continue;',
+      '    if (typeof source[key] === "object") target[key] = deepMerge(target[key] || {}, source[key]);',
+      '    else target[key] = source[key];',
+      '  }',
+      '  return target;',
+      '}',
+    ].join('\n');
+    expectNoMatch(prototypePollutingMerge, guarded, 'javascript');
+  });
+
+  it('does NOT flag a merge with an explicit __proto__ key guard', () => {
+    const guarded = [
+      'function deepMerge(target, source) {',
+      '  for (const key in source) {',
+      '    if (key === "__proto__" || key === "constructor") continue;',
+      '    if (typeof source[key] === "object") target[key] = deepMerge(target[key] || {}, source[key]);',
+      '    else target[key] = source[key];',
+      '  }',
+      '  return target;',
+      '}',
+    ].join('\n');
+    expectNoMatch(prototypePollutingMerge, guarded, 'javascript');
+  });
+
+  it('does NOT flag a merge into an Object.create(null) target', () => {
+    const safe = [
+      'function deepMerge(source) {',
+      '  const target = Object.create(null);',
+      '  for (const key in source) {',
+      '    target[key] = typeof source[key] === "object" ? deepMerge(source[key]) : source[key];',
+      '  }',
+      '  return target;',
+      '}',
+    ].join('\n');
+    expectNoMatch(prototypePollutingMerge, safe, 'javascript');
+  });
+
+  it('does NOT flag a shallow (non-recursive) for-in copy', () => {
+    const shallow = [
+      'function assign(target, source) {',
+      '  for (const key in source) {',
+      '    target[key] = source[key];',
+      '  }',
+      '  return target;',
+      '}',
+    ].join('\n');
+    expectNoMatch(prototypePollutingMerge, shallow, 'javascript');
+  });
+
+  it('does NOT flag an array index copy loop', () => {
+    const arr = [
+      'function copy(dst, src) {',
+      '  for (let i = 0; i < src.length; i++) {',
+      '    dst[i] = copy(dst[i] || [], src[i]);',
+      '  }',
+      '  return dst;',
+      '}',
+    ].join('\n');
+    expectNoMatch(prototypePollutingMerge, arr, 'javascript');
+  });
+
+  it('does NOT flag ordinary prototype-method assignment', () => {
+    expectNoMatch(prototypePollutingMerge, 'MyClass.prototype.render = function () { return this.x; };', 'javascript');
+  });
+
+  it('does NOT flag a __proto__ comparison or delete', () => {
+    expectNoMatch(prototypePollutingMerge, 'if (key === "__proto__") return; delete obj["__proto__"];', 'javascript');
+  });
+
+  it('does NOT flag Object.keys iteration (own-keys semantics)', () => {
+    const ownKeys = [
+      'function deepMerge(target, source) {',
+      '  for (const key of Object.keys(source)) {',
+      '    target[key] = typeof source[key] === "object" ? deepMerge(target[key] || {}, source[key]) : source[key];',
+      '  }',
+      '  return target;',
+      '}',
+    ].join('\n');
+    expectNoMatch(prototypePollutingMerge, ownKeys, 'javascript');
+  });
+});
+
+describe('VG-SMELL-003 long security method', () => {
+  function longAuthMethod(): string {
+    const lines = ['function authorizeRequest(user, resource, action) {', '  let allowed = false;'];
+    for (let i = 0; i < 12; i++) {
+      lines.push(`  if (user.role === "role${i}") {`);
+      lines.push('    if (resource.owner === user.id) {');
+      lines.push('      if (action === "read") {');
+      lines.push('        if (user.permission && session.valid) {');
+      lines.push('          allowed = true;');
+      lines.push('        }');
+      lines.push('      }');
+      lines.push('    }');
+      lines.push('  }');
+    }
+    lines.push('  return allowed;', '}');
+    return lines.join('\n');
+  }
+
+  it('flags a long, deeply-nested authorization method as high', () => {
+    const m = longSecurityMethod.match(ctx(longAuthMethod(), 'javascript'));
+    expect(m.length).toBe(1);
+    expect(m[0]?.severity).toBe('high');
+  });
+
+  it('flags a long security method in python', () => {
+    const lines = ['def validate_token(user, token):', '    ok = False'];
+    for (let i = 0; i < 18; i++) {
+      lines.push(`    if token.kind == "k${i}":`);
+      lines.push('        if user.session:');
+      lines.push('            if token.valid:');
+      lines.push('                if user.permission:');
+      lines.push('                    ok = True');
+    }
+    lines.push('    return ok');
+    const m = longSecurityMethod.match(ctx(lines.join('\n'), 'python'));
+    expect(m.length).toBe(1);
+    expect(m[0]?.severity).toBe('high');
+  });
+
+  it('does NOT flag a short auth method', () => {
+    const short = [
+      'function login(user, password) {',
+      '  if (!user) return false;',
+      '  const ok = verify(user.hash, password);',
+      '  if (!ok) return false;',
+      '  return issueToken(user);',
+      '}',
+    ].join('\n');
+    expectNoMatch(longSecurityMethod, short, 'javascript');
+  });
+
+  it('does NOT flag a flat switch dispatcher (many branches, shallow nesting)', () => {
+    const lines = ['function handleAuthEvent(evt) {', '  switch (evt.type) {'];
+    for (let i = 0; i < 30; i++) lines.push(`    case "e${i}": return validate(evt);`);
+    lines.push('    default: return null;', '  }', '}');
+    expectNoMatch(longSecurityMethod, lines.join('\n'), 'javascript');
+  });
+
+  it('does NOT flag a long method with NO security keyword', () => {
+    const lines = ['function computeReport(rows) {', '  let total = 0;'];
+    for (let i = 0; i < 12; i++) {
+      lines.push(`  if (rows[${i}]) {`);
+      lines.push('    if (rows[i].active) {');
+      lines.push('      if (rows[i].value > 0) {');
+      lines.push('        if (rows[i].tax) {');
+      lines.push('          total += rows[i].value;');
+      lines.push('        }');
+      lines.push('      }');
+      lines.push('    }');
+      lines.push('  }');
+    }
+    lines.push('  return total;', '}');
+    expectNoMatch(longSecurityMethod, lines.join('\n'), 'javascript');
+  });
+
+  it('does NOT double-report a qualifying method containing an inner helper', () => {
+    const lines = ['function authorizeRequest(user) {', '  let allowed = false;'];
+    lines.push('  function innerCheck(u) { return u && u.role; }');
+    for (let i = 0; i < 12; i++) {
+      lines.push(`  if (user.role === "role${i}") {`);
+      lines.push('    if (user.owner) {');
+      lines.push('      if (user.session) {');
+      lines.push('        if (user.permission) {');
+      lines.push('          allowed = innerCheck(user);');
+      lines.push('        }');
+      lines.push('      }');
+      lines.push('    }');
+      lines.push('  }');
+    }
+    lines.push('  return allowed;', '}');
+    const m = longSecurityMethod.match(ctx(lines.join('\n'), 'javascript'));
+    expect(m.length).toBe(1);
+  });
+});
+
+describe('VG-SMELL-012 primitive role check', () => {
+  const threeSites = [
+    'function canDelete(user) {',
+    '  if (user.role === "admin") return true;',
+    '  if (req.user.role == "owner") return true;',
+    '  if (currentUser.userType === "manager") return true;',
+    '  return false;',
+    '}',
+  ].join('\n');
+
+  it('flags three or more hardcoded role comparisons', () => {
+    const m = primitiveRoleCheck.match(ctx(threeSites, 'javascript'));
+    expect(m.length).toBe(3);
+  });
+
+  it('escalates an admin/root literal to high', () => {
+    const m = primitiveRoleCheck.match(ctx(threeSites, 'javascript'));
+    const adminSite = m.find((x) => x.variables?.lit?.toLowerCase() === 'admin');
+    expect(adminSite?.severity).toBe('high');
+    const ownerSite = m.find((x) => x.variables?.lit?.toLowerCase() === 'owner');
+    expect(ownerSite?.severity).toBeUndefined();
+  });
+
+  it('flags a Yoda-style comparison', () => {
+    const yoda = [
+      'if ("admin" === user.role) grant();',
+      'if ("root" == account.role) grant();',
+      'if ("editor" === member.permission) grant();',
+    ].join('\n');
+    expect(primitiveRoleCheck.match(ctx(yoda, 'javascript')).length).toBe(3);
+  });
+
+  it('flags python role comparisons', () => {
+    const py = [
+      'if user.role == "admin":',
+      '    allow()',
+      'if account.role == "owner":',
+      '    allow()',
+      'if member.permission == "editor":',
+      '    allow()',
+    ].join('\n');
+    expect(primitiveRoleCheck.match(ctx(py, 'python')).length).toBe(3);
+  });
+
+  // --- Negatives ---
+  it('does NOT flag when fewer than three sites', () => {
+    const two = [
+      'if (user.role === "admin") return true;',
+      'if (user.role === "owner") return true;',
+    ].join('\n');
+    expectNoMatch(primitiveRoleCheck, two, 'javascript');
+  });
+
+  it('does NOT flag when an enum/constant layer is present', () => {
+    const enumed = [
+      'const Roles = Object.freeze({ ADMIN: "admin", OWNER: "owner", USER: "user" });',
+      'if (user.role === "admin") return true;',
+      'if (req.user.role == "owner") return true;',
+      'if (currentUser.role === "user") return true;',
+    ].join('\n');
+    expectNoMatch(primitiveRoleCheck, enumed, 'javascript');
+  });
+
+  it('does NOT flag OAuth scope comparisons', () => {
+    const scopes = [
+      'if (token.scope === "user") return true;',
+      'if (grant.scope == "read") return true;',
+      'if (auth.scope === "write") return true;',
+    ].join('\n');
+    expectNoMatch(primitiveRoleCheck, scopes, 'javascript');
+  });
+
+  it('does NOT flag test assertions', () => {
+    const asserts = [
+      'expect(user.role).toBe("admin");',
+      'assert user.role == "owner"',
+      'it("role is admin", () => { expect(u.role === "admin").toBe(true); });',
+    ].join('\n');
+    expectNoMatch(primitiveRoleCheck, asserts, 'javascript');
+  });
+
+  it('does NOT flag comparisons against a constant (no string literal)', () => {
+    const consts = [
+      'if (user.role === Role.ADMIN) return true;',
+      'if (req.user.role === Role.OWNER) return true;',
+      'if (currentUser.role === Role.MANAGER) return true;',
+    ].join('\n');
+    expectNoMatch(primitiveRoleCheck, consts, 'javascript');
+  });
+});
+
+describe('VG-SMELL-004 security swiss army knife', () => {
+  function ctxF(content: string, filePath: string, language = 'javascript'): RuleContext {
+    return { content, lines: content.split('\n'), language, filePath };
+  }
+
+  const swiss = [
+    'class SecurityUtils {',
+    '  static hashPassword(p) { return bcrypt.hash(p); }',
+    '  static generateJwt(u) { return jwt.sign(u); }',
+    '  static sanitizeHtml(s) { return escape(s); }',
+    '  static validateEmail(e) { return /x/.test(e); }',
+    '  static encryptFile(f) { return cipher(f); }',
+    '  static checkAdminRole(u) { return u.role; }',
+    '  static parseCsv(t) { return t.split(","); }',
+    '  static calculateTax(a) { return a * 0.1; }',
+    '}',
+  ].join('\n');
+
+  it('flags a SecurityUtils grab-bag mixing crypto/auth/parsing/business as high', () => {
+    const m = securitySwissArmyKnife.match(ctxF(swiss, 'src/SecurityUtils.js'));
+    expect(m.length).toBe(1);
+    expect(m[0]?.severity).toBe('high');
+    expect(m[0]?.startLine).toBe(1);
+  });
+
+  it('flags via the filename gate even without a matching class name', () => {
+    const fns = [
+      'export function hashPassword(p) { return bcrypt.hash(p); }',
+      'export function loginUser(u) { return session.start(u); }',
+      'export function sanitizeInput(s) { return escape(s); }',
+      'export function parseCsvFile(t) { return t.split(","); }',
+      'export function calculateInvoiceTotal(a) { return a; }',
+    ].join('\n');
+    const m = securitySwissArmyKnife.match(ctxF(fns, 'src/utils.js'));
+    expect(m.length).toBe(1);
+  });
+
+  // --- Negatives ---
+  it('does NOT flag a cohesive single-domain crypto util', () => {
+    const cohesive = [
+      'class CryptoUtils {',
+      '  static hash(x) { return sha256(x); }',
+      '  static encrypt(x) { return cipher(x); }',
+      '  static decrypt(x) { return decipher(x); }',
+      '  static hmac(x) { return mac(x); }',
+      '  static sign(x) { return signer(x); }',
+      '}',
+    ].join('\n');
+    expect(securitySwissArmyKnife.match(ctxF(cohesive, 'src/crypto-utils.js'))).toEqual([]);
+  });
+
+  it('does NOT flag a test-helper file even if it is a grab-bag', () => {
+    expect(securitySwissArmyKnife.match(ctxF(swiss, 'src/utils.test.js'))).toEqual([]);
+  });
+
+  it('does NOT flag a barrel/re-export file with no function bodies', () => {
+    const barrel = [
+      'export { hashPassword } from "./crypto";',
+      'export { login } from "./auth";',
+      'export { parseCsv } from "./parse";',
+    ].join('\n');
+    expect(securitySwissArmyKnife.match(ctxF(barrel, 'src/utils/index.js'))).toEqual([]);
+  });
+
+  it('does NOT flag a non-utility file name with no utility class', () => {
+    expect(securitySwissArmyKnife.match(ctxF(swiss.replace('SecurityUtils', 'AccountController'), 'src/account.js'))).toEqual([]);
+  });
+});
+
+describe('VG-AISC-001 hallucinated dependency', () => {
+  it('flags an edit-distance-1 npm typo (expresss)', () => {
+    const m = hallucinatedDependency.match(ctx("const e = require('expresss');", 'javascript'));
+    expect(m.length).toBe(1);
+    expect(m[0]?.variables?.didYouMean).toBe('express');
+  });
+
+  it('flags an adjacent transposition (lodahs -> lodash)', () => {
+    const m = hallucinatedDependency.match(ctx("import _ from 'lodahs';", 'javascript'));
+    expect(m.length).toBe(1);
+    expect(m[0]?.variables?.didYouMean).toBe('lodash');
+  });
+
+  it('flags an edit-distance-1 PyPI typo (reqeusts -> requests)', () => {
+    const m = hallucinatedDependency.match(ctx('import reqeusts', 'python'));
+    expect(m.length).toBe(1);
+    expect(m[0]?.variables?.didYouMean).toBe('requests');
+  });
+
+  it('flags a curated hallucinated name with high confidence', () => {
+    const m = hallucinatedDependency.match(ctx("require('huggingface-cli');", 'javascript'));
+    expect(m.length).toBe(1);
+    expect(m[0]?.confidence).toBe('high');
+  });
+
+  // --- Negatives (the precision contract) ---
+  it('does NOT flag a popular package', () => {
+    expectNoMatch(hallucinatedDependency, "import express from 'express';", 'javascript');
+  });
+
+  it('does NOT flag a subpath of a popular package', () => {
+    expectNoMatch(hallucinatedDependency, "import merge from 'lodash/merge';", 'javascript');
+  });
+
+  it('does NOT flag a relative import', () => {
+    expectNoMatch(hallucinatedDependency, "import x from './utils';", 'javascript');
+  });
+
+  it('does NOT flag a scoped package', () => {
+    expectNoMatch(hallucinatedDependency, "import core from '@babel/core';", 'javascript');
+  });
+
+  it('does NOT flag a node builtin', () => {
+    expectNoMatch(hallucinatedDependency, "const fs = require('fs');", 'javascript');
+  });
+
+  it('does NOT flag an UNKNOWN but not-near-miss package (the contract)', () => {
+    expectNoMatch(hallucinatedDependency, "const w = require('my-internal-corp-widget');", 'javascript');
+  });
+
+  it('does NOT flag a python stdlib import', () => {
+    expectNoMatch(hallucinatedDependency, 'import os\nfrom pathlib import Path', 'python');
+  });
+
+  it('does NOT flag a popular python package', () => {
+    expectNoMatch(hallucinatedDependency, 'import numpy as np\nimport requests', 'python');
+  });
+
+  it('does NOT flag an unknown-not-near-miss python module', () => {
+    expectNoMatch(hallucinatedDependency, 'import mycompanyinternallib', 'python');
+  });
+});
+
+describe('0.2.x adversarial-review regressions (verified false positives)', () => {
+  function ctxF(content: string, filePath: string, language = 'javascript'): RuleContext {
+    return { content, lines: content.split('\n'), language, filePath };
+  }
+
+  // VG-SMELL-004: 'hash' in a hashmap-key helper must not read as a crypto domain.
+  it('SMELL-004 does NOT flag a CacheUtils whose only "security" signal is hashKey', () => {
+    const cache = [
+      'class CacheUtils {',
+      '  static hashKey(k) { return fnv1a(k) >>> 0; }',
+      '  static serializeEntry(e) { return JSON.stringify(e); }',
+      '  static computeSize(e) { return Buffer.byteLength(e); }',
+      '  static parseKey(raw) { return raw.split(":"); }',
+      '  static formatKey(ns, k) { return ns + ":" + k; }',
+      '}',
+    ].join('\n');
+    expect(securitySwissArmyKnife.match(ctxF(cache, 'src/CacheUtils.js'))).toEqual([]);
+  });
+
+  // VG-SMELL-004: a parser that handles auth-shaped strings is parsing, not auth.
+  it('SMELL-004 does NOT flag a decoder that only parses auth-shaped strings', () => {
+    const dec = [
+      'class DecoderUtils {',
+      '  static parseToken(raw) { return raw.split("."); }',
+      '  static parseSession(raw) { return JSON.parse(raw); }',
+      '  static parseAuthHeader(h) { return h.replace("Bearer ", ""); }',
+      '  static parseCsv(t) { return t.split(","); }',
+      '  static renderReport(rows) { return rows.join("\n"); }',
+      '}',
+    ].join('\n');
+    expect(securitySwissArmyKnife.match(ctxF(dec, 'src/DecoderUtils.js'))).toEqual([]);
+  });
+
+  // VG-AISC-001: a method literally named `import`/`require` is a call, not a load.
+  it('AISC-001 does NOT flag a member-access .import()/.require() call', () => {
+    const code = "const r = makeRegistry();\nr.import('expresss', { lazy: true });\nr.require('winstonn');";
+    expect(hallucinatedDependency.match(ctx(code, 'javascript'))).toEqual([]);
+  });
+
+  // VG-INJ-020: a proto sink printed inside a diagnostic string is not a write.
+  it('INJ-020 does NOT flag a proto sink that only appears inside a string literal', () => {
+    const guard = [
+      'const FORBIDDEN = ["__proto__", "constructor", "prototype"];',
+      'function assertSafeKey(key) {',
+      '  if (FORBIDDEN.includes(key)) {',
+      '    throw new Error(`Refusing to set .__proto__ = on the target for ${key}`);',
+      '  }',
+      '  return key;',
+      '}',
+    ].join('\n');
+    expect(prototypePollutingMerge.match(ctx(guard, 'javascript'))).toEqual([]);
+  });
+
+  // VG-INJ-020: a module-scope denylist consulted via Set.has(key) is a guard.
+  it('INJ-020 does NOT flag a merge guarded by a hoisted Set.has denylist', () => {
+    const hoisted = [
+      'const BLOCKED = new Set(["__proto__", "constructor", "prototype"]);',
+      'function deepMerge(target, source) {',
+      '  for (const key in source) {',
+      '    if (BLOCKED.has(key)) continue;',
+      '    if (source[key] && typeof source[key] === "object") {',
+      '      target[key] = deepMerge(target[key] ?? {}, source[key]);',
+      '    } else {',
+      '      target[key] = source[key];',
+      '    }',
+      '  }',
+      '  return target;',
+      '}',
+    ].join('\n');
+    expect(prototypePollutingMerge.match(ctx(hoisted, 'javascript'))).toEqual([]);
+  });
+
+  // VG-SMELL-012 extra adversarial negatives (its workflow generator errored).
+  it('SMELL-012 does NOT flag a switch on a role (no comparison operator)', () => {
+    const sw = [
+      'switch (user.role) {',
+      '  case "admin": return grantAll();',
+      '  case "owner": return grantOwner();',
+      '  case "member": return grantMember();',
+      '}',
+    ].join('\n');
+    expect(primitiveRoleCheck.match(ctx(sw, 'javascript'))).toEqual([]);
+  });
+
+  it('SMELL-012 does NOT flag role comparisons against variables (no string literal)', () => {
+    const vars = [
+      'if (user.role === adminRole) return true;',
+      'if (user.role === ownerRole) return true;',
+      'if (user.role === managerRole) return true;',
+    ].join('\n');
+    expect(primitiveRoleCheck.match(ctx(vars, 'javascript'))).toEqual([]);
+  });
+});
+
+describe('0.2.x completeness-review regressions (Fable-found, scanner-verified)', () => {
+  // BLOCKER: from X import Y turned the imported SYMBOL into a package candidate.
+  it('AISC-001 does NOT flag the imported symbol of a from-import (from flask import request)', () => {
+    expectNoMatch(hallucinatedDependency, 'from flask import request', 'python');
+    expectNoMatch(hallucinatedDependency, 'from fastapi import Request, Response', 'python');
+  });
+
+  it('AISC-001 still flags a hallucinated MODULE in a from-import', () => {
+    expectMatches(hallucinatedDependency, 'from reqeusts import get', 'python', 1);
+  });
+
+  // MAJOR: real popular packages that are edit-distance-1 of a listed name.
+  it('AISC-001 does NOT flag real packages that are DL-1 of a listed one (preact, enquirer)', () => {
+    expectNoMatch(hallucinatedDependency, "import { h } from 'preact';", 'javascript');
+    expectNoMatch(hallucinatedDependency, "const e = require('enquirer');", 'javascript');
+  });
+
+  // MAJOR: python # comments must not inflate SMELL-003 branch/nesting metrics.
+  it('SMELL-003 does NOT fire from keywords inside python # comments', () => {
+    const lines = ['def summarize(user, resource):', '    total = 0'];
+    for (let i = 0; i < 90; i++) lines.push('    # if the role or the token and the session and auth or login');
+    lines.push('    if resource:', '        total += 1', '    return total');
+    expectNoMatch(longSecurityMethod, lines.join('\n'), 'python');
+  });
+
+  // MAJOR: an apostrophe in a python # comment must not blank real code (FN).
+  it('SMELL-003 STILL fires on a genuine long method containing a # don\'t comment', () => {
+    const lines = ['def authorize(user, resource, action):', "    # don't skip this", '    allowed = False'];
+    for (let i = 0; i < 18; i++) {
+      lines.push(`    if user.role == "r${i}":`);
+      lines.push('        if resource.owner:');
+      lines.push('            if user.session:');
+      lines.push('                if user.permission:');
+      lines.push('                    allowed = True');
+    }
+    lines.push('    return allowed');
+    const m = longSecurityMethod.match(ctx(lines.join('\n'), 'python'));
+    expect(m.length).toBe(1);
+  });
+
+  // MAJOR: a template literal containing an apostrophe must not desync blankJs (FN).
+  it('INJ-020 STILL fires on a real proto write after a template literal with an apostrophe', () => {
+    const code = "const msg = `can't merge these`;\nobj.__proto__.polluted = { admin: true };";
+    const m = prototypePollutingMerge.match(ctx(code, 'javascript'));
+    expect(m.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('0.2.x final-review regressions (Fable round 2, scanner-verified)', () => {
+  // A1: real packages that are DL-1 of a listed name.
+  it('AISC-001 does NOT flag psycopg (real, DL-1 of psycopg2) or merge2 (DL-1 of merge)', () => {
+    expectNoMatch(hallucinatedDependency, 'import psycopg', 'python');
+    expectNoMatch(hallucinatedDependency, "const m = require('merge2');", 'javascript');
+  });
+
+  // A2: role comparisons inside string literals (doc/example/i18n strings).
+  it('SMELL-012 does NOT flag role comparisons written inside string literals', () => {
+    const docs = [
+      "const ex1 = 'if (user.role === \"admin\") grant();';",
+      "const ex2 = 'if (user.role === \"owner\") grant();';",
+      "const ex3 = 'if (user.role === \"editor\") grant();';",
+    ].join('\n');
+    expectNoMatch(primitiveRoleCheck, docs, 'javascript');
+  });
+
+  // A3: a regex literal containing a quote must not desync the JS blanker.
+  it('INJ-020 does NOT fire from a proto sink in a string after a quote-class regex literal', () => {
+    const code = [
+      "const QUOTE = /[\"']/;",
+      'function validate(k) {',
+      '  throw new Error("cannot set x.__proto__ = payload for " + k);',
+      '}',
+    ].join('\n');
+    expectNoMatch(prototypePollutingMerge, code, 'javascript');
+  });
+
+  // A5: a $-prefixed loop var must not break the dynamic recursion regex.
+  it('INJ-020 STILL fires on a recursive merge using a $-prefixed loop variable', () => {
+    const code = [
+      'function deepMerge(target, source) {',
+      '  for (const $k in source) {',
+      '    if (typeof source[$k] === "object") target[$k] = deepMerge(target[$k] || {}, source[$k]);',
+      '    else target[$k] = source[$k];',
+      '  }',
+      '  return target;',
+      '}',
+    ].join('\n');
+    expect(prototypePollutingMerge.match(ctx(code, 'javascript')).length).toBeGreaterThanOrEqual(1);
+  });
+
+  // AUTHZ escalation is case-insensitive on the word tokens (checkUserPermissions).
+  it('SMELL-003 escalates a long method with checkUserPermissions (capital P) to high', () => {
+    const lines = ['function checkUserPermissions(user, resource) {', '  let ok = false;'];
+    for (let i = 0; i < 12; i++) {
+      lines.push(`  if (user.tier === ${i}) {`);
+      lines.push('    if (resource.ownerId === user.id) {');
+      lines.push('      if (user.session && user.session.valid) {');
+      lines.push('        if (user.active) {');
+      lines.push('          ok = true;');
+      lines.push('        }');
+      lines.push('      }');
+      lines.push('    }');
+      lines.push('  }');
+    }
+    lines.push('  return ok;', '}');
+    const m = longSecurityMethod.match(ctx(lines.join('\n'), 'javascript'));
+    expect(m.length).toBe(1);
+    expect(m[0]?.severity).toBe('high');
   });
 });

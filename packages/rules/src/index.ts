@@ -12,6 +12,8 @@ import { phpRules } from './rules/lang-php.js';
 import { cRules } from './rules/lang-c.js';
 import { embeddedAiRules } from './rules/embedded-ai.js';
 import { rtosRules } from './rules/embedded-rtos.js';
+import { designSmellSingleRules } from './rules/design-smells-single.js';
+import { aiSupplyChainRules } from './rules/ai-supply-chain.js';
 
 export type { RuleDefinition, RuleMatch, RuleContext } from './rule-types.js';
 export {
@@ -27,6 +29,8 @@ export {
   withScanDeadline,
   extractBlockAfter,
   blankCommentsAndStrings,
+  blankJsLiterals,
+  blankPyLiterals,
   REGEX_INPUT_CAP,
   REGEX_DEADLINE_MS,
   REGEX_MATCH_LIMIT,
@@ -63,6 +67,8 @@ export const allRules: RuleDefinition[] = [
   ...cRules,
   ...embeddedAiRules,
   ...rtosRules,
+  ...designSmellSingleRules,
+  ...aiSupplyChainRules,
 ];
 
 export function getRule(ruleId: string): RuleDefinition | undefined {

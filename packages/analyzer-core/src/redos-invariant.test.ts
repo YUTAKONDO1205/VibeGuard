@@ -1,4 +1,8 @@
 // vibeguard:disable-file
+// vibeguard:disable-file VG-AISC-001
+// (The bare wildcard above covers low/info rules on the adversarial strings; the
+// D5 severity gate refuses a wildcard for medium+, so VG-AISC-001 — which the
+// near-miss import fixtures below trip at `medium` — is named explicitly.)
 // The CI invariant for the A1 ReDoS defence (L1).
 //
 // WHAT THIS GUARANTEES, AND WHY IT IS A TIMING TEST AND NOT `recheck`.
@@ -50,6 +54,19 @@ const ADVERSARIAL: Array<{ name: string; content: string }> = [
   { name: 'emb002-underscore-soup', content: 'PASS_'.repeat(N / 5) },
   { name: 'attach-spam', content: `void IRAM_ATTR h(){malloc(1);}\n${'attachInterrupt(0,h,0);\n'.repeat(N / 24)}` },
   { name: 'isr-head-soup', content: 'void IRAM_ATTR h(){\n'.repeat(N / 19) },
+  // 0.2.x rule shapes. VG-SMELL-012's lazy dotted-identifier run adjacent to the
+  // role-literal alternation; VG-SMELL-003/004 and VG-INJ-020's function-head and
+  // for-in scans; VG-AISC-001's import extraction feeding the edit-distance loop.
+  { name: 'role-compare-near-miss', content: 'user.role == "admi\n'.repeat(N / 19) },
+  { name: 'role-id-run', content: `${'a.'.repeat(N / 4)}role === "x"\n` },
+  { name: 'fn-head-soup', content: 'function f(a,b){\n'.repeat(N / 17) },
+  { name: 'for-in-head-soup', content: 'for (const k in o){\n'.repeat(N / 20) },
+  { name: 'proto-write-near-miss', content: 'a.__proto_\n'.repeat(N / 11) },
+  { name: 'import-near-miss-soup', content: "import x from 'expres'\n".repeat(N / 23) },
+  { name: 'require-soup', content: "require('lodahs');\n".repeat(N / 19) },
+  // The JS-aware blanker's regex-literal + template states (blankJsLiterals).
+  { name: 'regex-literal-soup', content: 'const R = /["\']|[a-z]/g;\n'.repeat(N / 26) },
+  { name: 'template-soup', content: 'const s = `x ${a} y`;\n'.repeat(N / 22) },
 ];
 
 // Per-input ceiling for a FULL scan (every rule over ~50 KB). A linear scan of
