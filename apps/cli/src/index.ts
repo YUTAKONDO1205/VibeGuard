@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { ENGINE_VERSION, scanPath } from '@vibeguard/analyzer-core';
 import {
@@ -13,6 +13,7 @@ import { toSarif } from '@vibeguard/sarif-adapter';
 import { parseArgs, HELP_TEXT } from './args.js';
 import { formatHuman, formatMarkdown } from './format.js';
 import { scanDiff } from './diff.js';
+import { runFix } from './fix.js';
 
 // Tool version: the released CLI artifact version. Read from package.json at
 // runtime so it always matches the published package and never drifts. This is
@@ -89,6 +90,31 @@ async function main(): Promise<number> {
       process.stderr.write(`note: ${hidden} finding(s) below --min-confidence ${min} hidden\n`);
     }
     scan = { ...scan, findings: kept, summary: kept.length ? summarize(kept) : emptySummary() };
+  }
+
+  // Fix mode (--fix / --dry-run) replaces the normal findings report with a fix
+  // plan. It operates on the post-filter finding set, so --min-confidence also
+  // narrows what gets fixed. --dry-run previews without writing; bare --fix
+  // writes. Fixing is not a gate, so this never returns the --fail-on exit code.
+  if (args.fix || args.dryRun) {
+    let targetIsFile = false;
+    try {
+      targetIsFile = statSync(args.target).isFile();
+    } catch {
+      // --diff defaults the target to '.', a directory; a missing target would
+      // already have failed the scan above. Either way, treat as not-a-file.
+    }
+    const write = args.fix && !args.dryRun;
+    let fixResult;
+    try {
+      fixResult = await runFix(scan.findings, { target: args.target, targetIsFile }, write);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`error: ${message}\n`);
+      return 2;
+    }
+    process.stdout.write(fixResult.output);
+    return fixResult.code;
   }
 
   const useColor = !args.noColor && Boolean(process.stdout.isTTY) && !args.outFile;

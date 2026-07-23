@@ -16,6 +16,7 @@
   "dependencies": {
     "@vibeguard/analyzer-core": "0.2.0",
     "@vibeguard/findings-schema": "0.2.0",
+    "@vibeguard/remediation-engine": "0.2.0",
     "@vibeguard/sarif-adapter": "0.2.0"
   },
   "devDependencies": {

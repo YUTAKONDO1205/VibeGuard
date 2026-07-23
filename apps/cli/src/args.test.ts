@@ -80,4 +80,14 @@ describe('parseArgs', () => {
     const r = parseArgs(['./src', '--fail-on', 'critical', '--min-confidence', 'medium']);
     expect(r).toMatchObject({ failOn: 'critical', minConfidence: 'medium' });
   });
+
+  it('fix and dryRun default to false', () => {
+    expect(parseArgs(['./src'])).toMatchObject({ fix: false, dryRun: false });
+  });
+
+  it('parses --fix and --dry-run', () => {
+    expect(parseArgs(['./src', '--fix'])).toMatchObject({ fix: true, dryRun: false });
+    expect(parseArgs(['./src', '--dry-run'])).toMatchObject({ fix: false, dryRun: true });
+    expect(parseArgs(['./src', '--fix', '--dry-run'])).toMatchObject({ fix: true, dryRun: true });
+  });
 });
