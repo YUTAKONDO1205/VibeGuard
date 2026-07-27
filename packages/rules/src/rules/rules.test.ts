@@ -1347,6 +1347,28 @@ interface AuditOracle {
 const AUDIT_SCRIPT_URL = new URL('../../../../scripts/gen-aisc-known-packages.mjs', import.meta.url);
 const RULE_SOURCE_URL = new URL('./ai-supply-chain.ts', import.meta.url);
 
+/**
+ * ⚠ THE SCRIPT THIS IMPORTS MUST NOT CARRY A SHEBANG.
+ *
+ * Vitest loads it through Vite, which hands the text to `vm.Script`. Node strips
+ * a leading `#!/usr/bin/env node` before parsing a module; `vm.Script` does not,
+ * and sees `#` in expression position — `SyntaxError: Invalid or unexpected
+ * token`. Neither `@vite-ignore`, nor `server.deps.external`, nor a `new
+ * Function('u','return import(u)')` escape hatch avoids it: the first two do not
+ * match a `file://` href, and the third runs in a context with no dynamic-import
+ * callback. So the shebang is gone from the script instead, which costs nothing
+ * — it is always invoked as `node scripts/gen-aisc-known-packages.mjs …`.
+ *
+ * Importing the real file (rather than a `data:` URL or an inlined copy) is
+ * load-bearing: the script resolves `ai-supply-chain-data.ts` relative to its own
+ * `import.meta.url`, so any copy would resolve to the wrong place.
+ *
+ * ⚠ HOW THIS HID FOR A WHOLE SESSION: with a warm `node_modules/.vite` cache the
+ * import resolved from cache and this passed. It fails only from a COLD cache —
+ * i.e. always in CI, and never on a machine that just ran the suite. When
+ * touching this, verify with `rm -rf node_modules/.vite` first; a green run
+ * without that proves nothing.
+ */
 async function loadOracle(): Promise<AuditOracle> {
   return (await import(/* @vite-ignore */ AUDIT_SCRIPT_URL.href)) as unknown as AuditOracle;
 }

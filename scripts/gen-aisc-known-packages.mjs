@@ -1,4 +1,12 @@
-#!/usr/bin/env node
+// NO SHEBANG, DELIBERATELY. `packages/rules/src/rules/rules.test.ts` imports this
+// file to pin the audit oracle against the rule so the two cannot drift, and it
+// does so through Vitest — i.e. through Vite, which hands the text to
+// `vm.Script`. Node strips a leading `#!/usr/bin/env node` before parsing a
+// module; `vm.Script` does not, and fails with "Invalid or unexpected token".
+// Nothing here is ever run as `./scripts/gen-aisc-known-packages.mjs`; every
+// caller says `node scripts/gen-aisc-known-packages.mjs …`, so the shebang was
+// decorative and its absence costs nothing. See the comment on `loadOracle`.
+//
 // Offline (re)generator + validator + FP AUDITOR for VG-AISC-001's bundled
 // known-package data (packages/rules/src/rules/ai-supply-chain-data.ts).
 //
