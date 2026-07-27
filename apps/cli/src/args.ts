@@ -12,6 +12,18 @@ export interface CliArgs {
    * unchanged when the flag is absent.
    */
   minConfidence?: Confidence;
+  /**
+   * Apply deterministic auto-fixes to the scanned files on disk. Off by default.
+   * Only findings whose rule carries a fixer that proves a correct edit from the
+   * file bytes are touched; everything else is reported as still-manual.
+   */
+  fix: boolean;
+  /**
+   * Compute and print the fix plan (a diff of what --fix would change) without
+   * writing anything. Implies fix mode; when combined with --fix, nothing is
+   * written.
+   */
+  dryRun: boolean;
   noColor: boolean;
   noRemediation: boolean;
   knownLanguagesOnly: boolean;
@@ -41,6 +53,11 @@ Options:
   --min-confidence <level>      Hide findings below this confidence (default: show all).
                                 One of: high, medium, low
                                 Hidden findings are excluded from --fail-on too.
+  --fix                         Apply deterministic auto-fixes to the files on disk.
+                                Only rules with a provably-correct fixer are touched;
+                                each applied edit is labelled safe or needs-review.
+  --dry-run                     Print the fix plan (a diff of what --fix would change)
+                                without writing anything. Implies fix mode.
   --ignore <name>               Extra directory name to ignore (repeatable)
   --diff <range>                Scan only lines added in \`git diff <range>\`
                                 (e.g. main...HEAD, origin/main..., HEAD~3..HEAD)
@@ -59,6 +76,8 @@ Examples:
   vibeguard suspicious.py --fail-on critical
   vibeguard ./src --min-confidence medium
   vibeguard . --diff origin/main...HEAD --format markdown
+  vibeguard ./firmware --dry-run
+  vibeguard ./firmware --fix
 `;
 
 export function parseArgs(argv: string[]): CliArgs | { help: true } | { version: true } | { error: string } {
@@ -69,6 +88,8 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { version:
     failOn: 'high',
     noColor: !!process.env.NO_COLOR,
     noRemediation: false,
+    fix: false,
+    dryRun: false,
     knownLanguagesOnly: false,
     ignore: [],
     noConfig: false,
@@ -141,6 +162,14 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { version:
     }
     if (a === '--no-config') {
       args.noConfig = true;
+      continue;
+    }
+    if (a === '--fix') {
+      args.fix = true;
+      continue;
+    }
+    if (a === '--dry-run') {
+      args.dryRun = true;
       continue;
     }
     if (a === '--no-remediation') {
