@@ -1368,9 +1368,21 @@ const RULE_SOURCE_URL = new URL('./ai-supply-chain.ts', import.meta.url);
  * i.e. always in CI, and never on a machine that just ran the suite. When
  * touching this, verify with `rm -rf node_modules/.vite` first; a green run
  * without that proves nothing.
+ *
+ * ⚠ THE SPECIFIER MUST STAY A STRING LITERAL. `scripts/sec-a2-egress-scan.mjs`
+ * (the A2 no-egress assertion) reports any `import()` whose argument is not a
+ * literal as a `dynamic-module-specifier` sink — correctly, because a computed
+ * specifier can resolve to anything at runtime and so defeats the whole scan.
+ * `packages/rules/dist` is inside the CLI's execution closure and test files are
+ * emitted into it, so `import(AUDIT_SCRIPT_URL.href)` failed that assertion in
+ * CI. A literal keeps the oracle pinned and the closure statically readable.
  */
 async function loadOracle(): Promise<AuditOracle> {
-  return (await import(/* @vite-ignore */ AUDIT_SCRIPT_URL.href)) as unknown as AuditOracle;
+  // @ts-expect-error — an authoring .mjs has no declaration file (TS7016). The
+  // shape is declared by `AuditOracle` above and is not taken on trust: the two
+  // tests below re-derive every verdict from the rule and fail on any drift, and
+  // the text-identity pin asserts the shared helper is byte-for-byte the same.
+  return (await import('../../../../scripts/gen-aisc-known-packages.mjs')) as unknown as AuditOracle;
 }
 
 /** Every single-edit neighbour of `name`, plus its separator variants. */
