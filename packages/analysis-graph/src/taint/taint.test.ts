@@ -1,3 +1,9 @@
+// vibeguard:disable-file VG-INJ-004 VG-INJ-006
+// Test fixtures contain intentional vulnerable code to exercise the rules: this
+// suite asserts that taint analysis FINDS `eval(req.body)` and
+// `el.innerHTML = req.query`, so the strings have to be here. Naming the two
+// rules rather than a bare wildcard keeps the escape hatch narrow — a real
+// injection introduced into this file under any OTHER rule still reports.
 // Tests for H1 taint-lite.
 //
 // The fixtures are written as whole files with a hand-rolled mini-indexer

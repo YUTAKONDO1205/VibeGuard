@@ -507,6 +507,86 @@ if (!PRE_BUILD) {
   }
 }
 
+// ── Invariant 6: action.yml builds everything the CLI needs ────────────────
+//
+// `action.yml` does not call the root `build` script. It lists the workspaces to
+// build one by one, deliberately, so the Action does not pay for the two
+// extension bundles it never uses. That is a reasonable optimisation and it is
+// also a SECOND COPY of the dependency order — the kind of duplication that only
+// announces itself at the worst moment.
+//
+// It announced itself once already. `@vibeguard/analysis-graph` was added to the
+// CLI's dependencies and to the root build chain, and not to this list. Nothing
+// locally noticed, because the root build had already produced the `dist` that
+// every local command then read. The Action, which starts from a clean checkout,
+// compiled the CLI against a package that had never been built and failed with
+// `Cannot find module '@vibeguard/analysis-graph' or its corresponding type
+// declarations` — followed by a trail of `implicitly has an 'any' type` errors
+// that made the real cause harder to see rather than easier.
+//
+// So this asserts the two lists agree: every workspace package the CLI depends
+// on, transitively, must appear in action.yml's build block BEFORE the CLI
+// itself. Order is checked as well as membership, because `tsc` needs the
+// dependency's `.d.ts` to exist already — a name in the right list at the wrong
+// position fails in exactly the same way as a name that is missing.
+{
+  const actionYml = readFileSync(join(REPO_ROOT, 'action.yml'), 'utf8');
+
+  // Transitive closure over workspace (`@vibeguard/*`) dependencies only.
+  const needed = [];
+  const seen = new Set();
+  const visit = (name) => {
+    if (seen.has(name) || !name.startsWith('@vibeguard/')) return;
+    seen.add(name);
+    const dir =
+      name === '@vibeguard/cli' ? 'apps/cli' : `packages/${name.slice('@vibeguard/'.length)}`;
+    let pkg;
+    try {
+      pkg = JSON.parse(readFileSync(join(REPO_ROOT, dir, 'package.json'), 'utf8'));
+    } catch {
+      return;
+    }
+    for (const dep of Object.keys(pkg.dependencies ?? {})) visit(dep);
+    if (name !== '@vibeguard/cli') needed.push(name);
+  };
+  visit('@vibeguard/cli');
+
+  const position = new Map();
+  const buildLine = /npm run build -w (\S+)/g;
+  for (let m = buildLine.exec(actionYml); m; m = buildLine.exec(actionYml)) {
+    if (!position.has(m[1])) position.set(m[1], m.index);
+  }
+  const cliAt = position.get('@vibeguard/cli');
+
+  if (cliAt === undefined) {
+    failures.push(
+      'action.yml: no `npm run build -w @vibeguard/cli` line found, so the build-order\n' +
+        '  invariant cannot be checked. If the Action stopped building the CLI from source,\n' +
+        '  update this check rather than deleting it.',
+    );
+  } else {
+    for (const name of needed) {
+      const at = position.get(name);
+      if (at === undefined) {
+        failures.push(
+          `action.yml does not build ${name}, but @vibeguard/cli depends on it.\n` +
+            `  The Action builds from a clean checkout, so an unbuilt dependency has no .d.ts\n` +
+            `  and tsc fails with "Cannot find module ${name} or its corresponding type\n` +
+            `  declarations" — in CI only, long after the change looked fine locally.\n` +
+            `  Fix: add \`npm run build -w ${name}\` to the build block in action.yml,\n` +
+            `  BEFORE the @vibeguard/cli line.`,
+        );
+      } else if (at > cliAt) {
+        failures.push(
+          `action.yml builds ${name} AFTER @vibeguard/cli, but the CLI depends on it.\n` +
+            `  tsc needs the dependency's declarations to exist already, so the order is part\n` +
+            `  of the contract rather than a formatting detail. Move the line above the CLI's.`,
+        );
+      }
+    }
+  }
+}
+
 if (failures.length) {
   console.error('packaging invariants FAILED:\n');
   for (const f of failures) console.error(`  - ${f}\n`);
@@ -516,9 +596,10 @@ if (failures.length) {
 console.log(
   PRE_BUILD
     ? 'packaging invariants OK, SOURCE-ONLY subset (vscode engine/types, CLI stays ' +
-      'unpublished, analysis-graph absent from declarations / imports). ' +
+      'unpublished, analysis-graph absent from declarations / imports, action.yml build order). ' +
       'The bundle-leak and bundle-size invariants did NOT run — rerun without ' +
       '--pre-build after `npm run build` to check the shipped artefacts.'
     : 'packaging invariants OK (vscode engine/types, CLI stays unpublished, ' +
-      'analysis-graph absent from shipped bundles / declarations / imports, bundle sizes in band)',
+      'analysis-graph absent from shipped bundles / declarations / imports, bundle sizes in band, ' +
+      'action.yml builds every CLI dependency)',
 );
