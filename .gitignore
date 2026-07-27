@@ -16,7 +16,7 @@ Desktop.ini
 .idea/
 *~
 
-# AI coding assistants (local-only tooling / config / harness docs)
+# Local-only editor / tooling config and working notes (not part of the product)
 .claude/
 .codex/
 .cursor/

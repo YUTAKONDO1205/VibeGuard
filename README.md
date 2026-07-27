@@ -38,7 +38,6 @@ Source of truth for all four channels: this repository (MIT-licensed). The CLI u
 
 ```text
 VibeGuard/
-├─ AGENTS.md                  # Project-wide rules for AI implementation agents
 ├─ docs/                     # Design docs (DESIGN.ja.md, EVALUATION.md, …)
 ├─ apps/
 │  └─ cli/                    # CLI for local + CI use
@@ -306,16 +305,6 @@ VibeGuard tracks **two independent version numbers**. Keeping them separate is i
 The CLI prints both, e.g. `vibeguard 0.1.3 (engine 0.2.1)`. The tool version is read from `package.json` at runtime, so it always matches the published package. The engine stayed at `0.1.0` while the tool advanced to `0.1.3`, because those releases (vsce metadata fix, OK-state UX, license) did not change what VibeGuard detects, and it was then held there deliberately through a round of detection work so that one version would name one settled engine rather than several successive ones. `0.2.0` released that hold: context-window confidence and its severity gate, the canonicalizer pre-pass, regex time/length bounds with `degradations`, `confidenceAudit`, the suppression severity gate, `match-limit` reporting, and the suppression tally. `0.2.1` adds the C/C++/Arduino embedded layer (VG-MEM/VG-EMB/VG-RTOS, the `.ino`/`.hh`/`.cxx`/`.ipp` extensions, and the N_pp preprocessor face) — purely additive, so web-language verdicts are unchanged. See [CHANGELOG.md](CHANGELOG.md) for what each one changes. To compare against the engine from before that work, use the `paper-ses-v0.1.3` (pre-hold) or `v0.2.0` (pre-embedded) tags.
 
 **Rule of thumb:** compare results across two runs by **engine version** (same engine ⇒ identical verdicts); report which build you installed by **tool version**.
-
-## Implementation conventions (agent harness)
-
-This repo is built on the assumption that AI implementation agents do the implementation in multi-agent runs. Responsibilities are split into three roles:
-
-- **Planner** — Decomposes ambiguous requirements into implementable tasks.
-- **Generator** — Implements exactly one task with the smallest viable change.
-- **Evaluator** — Runs tests, static analysis, and (when needed) browser verification, and reports PASS / PASS WITH GAPS / FAIL.
-
-Any non-trivial feature must go through Planner, and each generated task is gated by Evaluator. See [AGENTS.md](AGENTS.md) for the full protocol.
 
 ## License
 
