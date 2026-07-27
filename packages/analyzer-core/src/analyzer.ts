@@ -80,9 +80,9 @@ import {
  *     so concealment is on the record rather than indistinguishable from absence.
  *     Observability, not a defence — the suppression still applies. (Schema change.)
  *
- * The next bump is due when detection behavior changes again; there is no hold
- * in effect. `engine-version-pin.test.ts` guards this value and the docs that
- * quote it, and carries the checklist for changing it.
+ * `engine-version-pin.test.ts` guards this value and the docs that quote it, and
+ * carries the checklist for changing it. There is no hold in effect: the next
+ * bump is due when detection behavior changes again.
  *
  * 0.2.1 (2026-07-21) names the C/C++/Arduino embedded layer (VG-EMB): the
  * `.ino`/`.hh`/`.cxx`/`.ipp` extensions, the N_pp preprocessor-branch
@@ -92,8 +92,34 @@ import {
  * purely ADDITIVE: web-language verdicts are untouched (E2=51 / E3=0 hold), and
  * the released `v0.2.0` / `paper-css-v0.2.0` tags remain the immutable baseline
  * for the pre-embedded engine. Nothing else about detection changed.
+ *
+ * 0.3.0 (2026-07-28) names the single-file design-smell and AI-supply-chain
+ * layer. Like 0.2.1 it is ADDITIVE — no rule that existed at 0.2.1 changed what
+ * it matches or at what severity — so `v0.2.0` and the engine-0.2.1 build remain
+ * usable baselines for the rules they already had:
+ *
+ *   - New single-file rules: `VG-SMELL-003` (long security method),
+ *     `VG-SMELL-004` (security Swiss army knife),
+ *     `VG-SMELL-012` (primitive role check, TS/JS/Python plus Java, Go, Kotlin),
+ *     `VG-AISC-001` (hallucinated dependency) and `VG-INJ-020`
+ *     (prototype-polluting merge).
+ *   - Per-match severity (`RuleMatch.severity`): a match may escalate above its
+ *     rule's static severity on its own content, and the suppression severity
+ *     gate then applies at the escalated value. Only the new rules set it, so
+ *     nothing already shipped moves.
+ *   - The declared-package veto (`declared-veto.ts`): `VG-AISC-001` findings are
+ *     dropped for packages the project's LOCKFILE declares. It can only silence
+ *     a rule introduced in this same release.
+ *
+ * The cross-file analysis added in the same release (`@vibeguard/analysis-graph`
+ * — `VG-SMELL-010`, `VG-AISC-002`, `VG-AISC-003`, `VG-RTOS-003`, reached through
+ * `--include-design-smells`) does NOT move this constant, and the changes to
+ * `VG-SMELL-010`'s severity conditions are not changes to this engine. That pass
+ * is opt-in, the core path never imports it, and it reports its own axis as
+ * `engineVersions['analysis-graph']` (held at `0.3.0-alpha.1`, because the
+ * cross-file pass is an alpha skeleton and says so).
  */
-export const ENGINE_VERSION = '0.2.1';
+export const ENGINE_VERSION = '0.3.0';
 
 let counter = 0;
 function findingId(): string {

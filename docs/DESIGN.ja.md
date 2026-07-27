@@ -13,6 +13,19 @@
 > 0依存の維持のため）、`extractBlockAfter` による字句レベルのブロック抽出で ISR 本体等の構造ルールを実現している。
 > 詳細な規則一覧・意図的に検出しない範囲（drop-list）は `README.md` の Rule catalogue を参照。
 
+> **実装追記（engine 0.3.0・2026-07-28）**：単一ファイル内の**設計スメル**（`VG-SMELL-003` 長大セキュリティ
+> メソッド / `VG-SMELL-004` セキュリティ何でも屋モジュール / `VG-SMELL-012` 文字列直書きロール判定）と、
+> **AI 生成コード固有のサプライチェーン**（`VG-AISC-001` 幻覚依存＝実在しないパッケージの import）、
+> プロトタイプ汚染マージ（`VG-INJ-020`）を追加した。いずれも AST は使わず、`match()` 内で
+> `ctx.content`/`ctx.lines` から字句的に判定する（4チャネル一致と 0依存の維持）。あわせて
+> **マッチ単位の severity 昇格**（`RuleMatch.severity`）と、プロジェクトの**ロックファイルを根拠にした
+> `VG-AISC-001` の veto**（宣言済みパッケージは指摘しない）を入れた。既存ルールの判定は変えていない。
+>
+> **クロスファイル解析（`@vibeguard/analysis-graph`, 0.3.0-α）** は別パッケージ・別軸として分離した。
+> `--include-design-smells` を付けたときだけ走り、依存グラフ・構造インデックス・メトリクスの上で
+> `VG-SMELL-010`（散在した認可判定）/ `VG-AISC-002` / `VG-AISC-003` / `VG-RTOS-003` を判定する。
+> 版数は `engineVersions["analysis-graph"]`（現在 `0.3.0-alpha.1`）として `core` とは独立に報告される。
+
 ---
 
 ## 1. 文書の位置づけ
@@ -915,7 +928,7 @@ sequenceDiagram
   "findings": [],
   "executionTimeMs": 0,
   "engineVersions": {
-    "core": "0.2.1"
+    "core": "0.3.0"
   },
   "generatedAt": "2026-04-20T00:00:00Z"
 }
