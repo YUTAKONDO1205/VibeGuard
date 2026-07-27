@@ -671,6 +671,22 @@ function targets(opts) {
       minFiles: 1,
       packageName: '@vibeguard/sarif-adapter',
     },
+    // The cross-file analysis package (0.3.0-α). It is a production dependency
+    // of the CLI, so the `--mode deps` completeness check demands it be scanned:
+    // the name-based allowlist is only sound while every name it accepts is also
+    // READ, and adding a dependency without adding it here is exactly how that
+    // soundness quietly lapses. This target is what makes the allowlist entry
+    // mean something.
+    //
+    // It is NOT reachable from the extensions — see
+    // `scripts/check-packaging-invariants.mjs`, which asserts that separately —
+    // so it appears here and in no shipped-artefact target.
+    {
+      id: 'pkg-analysis-graph',
+      dir: resolve(REPO_ROOT, 'packages/analysis-graph/dist'),
+      minFiles: 10,
+      packageName: '@vibeguard/analysis-graph',
+    },
   ];
 }
 
