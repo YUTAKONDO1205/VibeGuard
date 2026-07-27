@@ -1,8 +1,11 @@
-import type {
-  ConfidenceAudit,
-  Finding,
-  ScanResponse,
-  Severity,
+import {
+  isDesignSmellFinding,
+  type ConfidenceAudit,
+  type DesignMetrics,
+  type Finding,
+  type ScanResponse,
+  type SecurityContext,
+  type Severity,
 } from '@vibeguard/findings-schema';
 
 export interface SarifLog {
@@ -67,11 +70,37 @@ export interface SarifResult {
       };
     };
   }>;
+  /**
+   * The other places a finding implicates — SARIF's own field for exactly this,
+   * rendered by GitHub code scanning as linked secondary locations.
+   *
+   * Present only for design smells that carry `relatedLocations`. It matters
+   * more than it looks: a cross-file finding's entire claim is the RELATIONSHIP
+   * between sites ("this authorization check is duplicated in five handlers
+   * across four files"), and `locations` can hold exactly one. Emitting only
+   * that collapses the claim to a single line and silently discards the
+   * evidence, in the format the GitHub Action produces BY DEFAULT — so the
+   * channel most users see would have been the one that could not show what was
+   * found.
+   */
+  relatedLocations?: Array<{
+    id: number;
+    physicalLocation: {
+      artifactLocation: { uri: string };
+      region: { startLine: number; endLine?: number; startColumn?: number; endColumn?: number };
+    };
+    message?: { text: string };
+  }>;
   properties?: {
     confidence?: string;
     severity?: string;
     tags?: string[];
     confidenceAudit?: ConfidenceAudit;
+    /** Design-smell scope (`file`, `project`, …). Absent for ordinary findings. */
+    scope?: string;
+    /** The measurements behind a design smell's verdict. */
+    metrics?: DesignMetrics;
+    securityContext?: SecurityContext;
   };
 }
 
@@ -132,6 +161,30 @@ function findingToResult(f: Finding): SarifResult {
         },
       },
     ],
+    // Conditional spread throughout, for the reason spelled out on the
+    // properties bag below: an absent key and a key holding `undefined` are the
+    // same thing in JSON and different things to a consumer enumerating them.
+    ...(isDesignSmellFinding(f) && (f.relatedLocations?.length ?? 0) > 0
+      ? {
+          relatedLocations: f.relatedLocations!.map((loc, i) => ({
+            // SARIF requires related locations to be identified so a message can
+            // reference them. 1-based to match how the spec's examples number
+            // them, and stable because `relatedLocations` is emitted in the
+            // producer's deterministic order.
+            id: i + 1,
+            physicalLocation: {
+              artifactLocation: { uri: loc.filePath },
+              region: {
+                startLine: loc.startLine,
+                endLine: loc.endLine,
+                startColumn: loc.startColumn,
+                endColumn: loc.endColumn,
+              },
+            },
+            ...(loc.evidence ? { message: { text: loc.evidence } } : {}),
+          })),
+        }
+      : {}),
     properties: {
       confidence: f.confidence,
       severity: f.severity,
@@ -141,6 +194,13 @@ function findingToResult(f: Finding): SarifResult {
       // enumerate them, and "this finding was never context-evaluated" must not
       // look like "it was evaluated and found nothing".
       ...(f.confidenceAudit ? { confidenceAudit: f.confidenceAudit } : {}),
+      ...(isDesignSmellFinding(f)
+        ? {
+            scope: f.scope,
+            ...(f.metrics ? { metrics: f.metrics } : {}),
+            ...(f.securityContext ? { securityContext: f.securityContext } : {}),
+          }
+        : {}),
     },
   };
 }

@@ -34,6 +34,22 @@ export interface CliArgs {
   config?: string;
   /** Skip config auto-discovery entirely. */
   noConfig: boolean;
+  /**
+   * Run the cross-file design-smell pass (`@vibeguard/analysis-graph`) in
+   * addition to the per-file rules. Off by default.
+   *
+   * DEFAULT-OFF IS A CONTRACT, NOT A PREFERENCE. Three regression harnesses pin
+   * the output of a plain scan — `samples/vulnerable` at 51 findings,
+   * `samples/safe` at 0, and the E6 confidence distribution — and every one of
+   * them invokes the CLI with no flags. If cross-file analysis ran by default,
+   * turning it on would be indistinguishable from breaking them, and the project
+   * would lose the fixed points it uses to detect real regressions.
+   *
+   * It is also the honest default for a different reason: this pass reads every
+   * source file in the target, which is a different cost profile from the
+   * per-file scan and a surprise if it happens without being asked for.
+   */
+  includeDesignSmells: boolean;
   showHelp: boolean;
   showVersion: boolean;
 }
@@ -61,6 +77,11 @@ Options:
   --ignore <name>               Extra directory name to ignore (repeatable)
   --diff <range>                Scan only lines added in \`git diff <range>\`
                                 (e.g. main...HEAD, origin/main..., HEAD~3..HEAD)
+  --include-design-smells       Also run cross-file design-smell analysis over the whole
+                                target (VG-SMELL-*). Reads every source file in the tree,
+                                so it costs more than the default per-file scan.
+                                CLI and GitHub Action only — not available in the editor
+                                or browser extensions.
   --known-only                  Only scan files whose extension maps to a known language
   --config <path>               Path to a vibeguard config file (.vibeguardrc.json)
                                 When omitted, the file is auto-discovered in the scan target.
@@ -78,6 +99,7 @@ Examples:
   vibeguard . --diff origin/main...HEAD --format markdown
   vibeguard ./firmware --dry-run
   vibeguard ./firmware --fix
+  vibeguard ./src --include-design-smells
 `;
 
 export function parseArgs(argv: string[]): CliArgs | { help: true } | { version: true } | { error: string } {
@@ -93,6 +115,7 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { version:
     knownLanguagesOnly: false,
     ignore: [],
     noConfig: false,
+    includeDesignSmells: false,
     showHelp: false,
     showVersion: false,
   };
@@ -162,6 +185,10 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { version:
     }
     if (a === '--no-config') {
       args.noConfig = true;
+      continue;
+    }
+    if (a === '--include-design-smells') {
+      args.includeDesignSmells = true;
       continue;
     }
     if (a === '--fix') {

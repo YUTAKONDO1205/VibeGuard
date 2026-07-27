@@ -1,7 +1,7 @@
 // vibeguard:disable-file VG-INJ-004
 // Test fixtures contain intentional vulnerable code to exercise the rules.
 import { describe, expect, it } from 'vitest';
-import type { Finding, ScanResponse } from '@vibeguard/findings-schema';
+import { summarize, type Finding, type ScanResponse } from '@vibeguard/findings-schema';
 import { toSarif } from './index.js';
 
 const fakeFinding = (overrides: Partial<Finding> = {}): Finding => ({
@@ -135,5 +135,87 @@ describe('toSarif', () => {
 
   it('omits invocations when nothing errored, degraded, or was suppressed', () => {
     expect(toSarif(wrap([fakeFinding()])).runs[0]!.invocations).toBeUndefined();
+  });
+});
+
+describe('design-smell findings in SARIF', () => {
+  const smell = {
+    findingId: 'ds1',
+    ruleId: 'VG-SMELL-010',
+    title: 'Scattered Authorization',
+    description: 'Authorization is decided inline in 3 route handlers across 2 files.',
+    severity: 'high' as const,
+    confidence: 'medium' as const,
+    category: 'security-design-smell',
+    sourceEngine: 'core-rule' as const,
+    scope: 'project' as const,
+    filePath: 'src/routes/admin.ts',
+    startLine: 12,
+    primaryLocation: { filePath: 'src/routes/admin.ts', startLine: 12 },
+    relatedLocations: [
+      { filePath: 'src/routes/users.ts', startLine: 44, evidence: "user.role !== 'admin'" },
+      { filePath: 'src/routes/settings.ts', startLine: 31 },
+    ],
+    metrics: { duplicatedCheckCount: 3 },
+    securityContext: { containsAuthorizationLogic: true },
+  };
+
+  const resultFor = (findings: Finding[]) =>
+    toSarif({
+      summary: summarize(findings),
+      findings,
+      executionTimeMs: 1,
+      engineVersions: { core: '0.2.1' },
+      generatedAt: '2026-07-27T00:00:00.000Z',
+    }).runs[0]!.results[0]!;
+
+  it('emits relatedLocations, so a cross-file claim survives the default Action format', () => {
+    // Without this the flagship finding renders as one line and the "scattered"
+    // half — the entire claim — is discarded in the format the GitHub Action
+    // produces by default.
+    const r = resultFor([smell as unknown as Finding]);
+    expect(r.relatedLocations).toHaveLength(2);
+    expect(r.relatedLocations![0]!.physicalLocation.artifactLocation.uri).toBe('src/routes/users.ts');
+    expect(r.relatedLocations![0]!.physicalLocation.region.startLine).toBe(44);
+  });
+
+  it('gives each related location a stable 1-based id', () => {
+    const r = resultFor([smell as unknown as Finding]);
+    expect(r.relatedLocations!.map((l) => l.id)).toEqual([1, 2]);
+  });
+
+  it('carries evidence as the related location message when present', () => {
+    const r = resultFor([smell as unknown as Finding]);
+    expect(r.relatedLocations![0]!.message?.text).toBe("user.role !== 'admin'");
+    // Absent, not present-and-undefined, when the producer had no evidence.
+    expect('message' in r.relatedLocations![1]!).toBe(false);
+  });
+
+  it('carries scope and metrics in the property bag', () => {
+    const r = resultFor([smell as unknown as Finding]);
+    expect(r.properties?.scope).toBe('project');
+    expect(r.properties?.metrics).toEqual({ duplicatedCheckCount: 3 });
+    expect(r.properties?.securityContext).toEqual({ containsAuthorizationLogic: true });
+  });
+
+  it('leaves ordinary findings byte-identical — no new keys appear', () => {
+    // The regression contract: enabling design smells must not change the SARIF
+    // of a scan that has none.
+    const plain: Finding = {
+      findingId: 'f1',
+      ruleId: 'VG-INJ-001',
+      title: 'SQL Injection',
+      description: 'd',
+      severity: 'critical',
+      confidence: 'high',
+      category: 'injection',
+      sourceEngine: 'core-rule',
+      filePath: 'src/db.ts',
+      startLine: 3,
+    };
+    const r = resultFor([plain]);
+    expect('relatedLocations' in r).toBe(false);
+    expect('scope' in (r.properties ?? {})).toBe(false);
+    expect('metrics' in (r.properties ?? {})).toBe(false);
   });
 });

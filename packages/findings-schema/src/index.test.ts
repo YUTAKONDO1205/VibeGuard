@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
+  allDesignSmellLocations,
   compareConfidence,
   compareSeverity,
+  designSmellLocationsAgree,
   emptySummary,
+  isDesignSmellFinding,
   isSecurityJudgementSeverity,
   summarize,
+  DESIGN_SMELL_CATEGORY,
+  DESIGN_SMELL_SCOPE_ORDER,
   SECURITY_JUDGEMENT_SEVERITIES,
   SEVERITY_ORDER,
+  type DesignSmellFinding,
+  type DesignSmellScope,
   type Finding,
   type Severity,
 } from './index.js';
@@ -121,5 +128,118 @@ describe('compareConfidence', () => {
     expect(compareConfidence('high', 'low')).toBeLessThanOrEqual(0);
     expect(compareConfidence('low', 'low')).toBeLessThanOrEqual(0);
     expect(compareConfidence('low', 'high')).toBeGreaterThan(0);
+  });
+});
+
+// ── Design smells (0.3.0-α, #21 SCHEMA) ─────────────────────────────────────
+
+const fakeSmell = (over: Partial<DesignSmellFinding> = {}): DesignSmellFinding => ({
+  findingId: 's1',
+  ruleId: 'VG-SMELL-010',
+  title: 'Scattered Authorization',
+  description: 'd',
+  severity: 'medium',
+  confidence: 'medium',
+  category: DESIGN_SMELL_CATEGORY,
+  sourceEngine: 'core-rule',
+  scope: 'project',
+  filePath: 'src/routes/admin.ts',
+  startLine: 12,
+  ...over,
+});
+
+describe('isDesignSmellFinding', () => {
+  it('classifies by category, not by the presence of a scope field', () => {
+    expect(isDesignSmellFinding(fakeSmell())).toBe(true);
+    // A finding carrying a scope but the wrong category is NOT in the partition:
+    // membership is what the E2 regression contract is written in terms of.
+    const impostor = { ...fakeSmell(), category: 'injection' } as Finding;
+    expect(isDesignSmellFinding(impostor)).toBe(false);
+  });
+
+  it('leaves ordinary findings out', () => {
+    expect(isDesignSmellFinding(fakeFinding('critical'))).toBe(false);
+  });
+
+  it('partitions a mixed list without touching the other half', () => {
+    const core = [fakeFinding('critical'), fakeFinding('low')];
+    const mixed: Finding[] = [...core, fakeSmell()];
+    expect(mixed.filter((f) => !isDesignSmellFinding(f))).toEqual(core);
+  });
+});
+
+describe('designSmellLocationsAgree', () => {
+  it('accepts a finding with no primaryLocation (absence is not a contradiction)', () => {
+    expect(designSmellLocationsAgree(fakeSmell())).toBe(true);
+  });
+
+  it('accepts a primaryLocation that mirrors the flat fields', () => {
+    const f = fakeSmell({
+      primaryLocation: { filePath: 'src/routes/admin.ts', startLine: 12 },
+    });
+    expect(designSmellLocationsAgree(f)).toBe(true);
+  });
+
+  it('rejects a drifted path', () => {
+    const f = fakeSmell({
+      primaryLocation: { filePath: 'src/routes/users.ts', startLine: 12 },
+    });
+    expect(designSmellLocationsAgree(f)).toBe(false);
+  });
+
+  it('rejects a drifted line', () => {
+    const f = fakeSmell({
+      primaryLocation: { filePath: 'src/routes/admin.ts', startLine: 44 },
+    });
+    expect(designSmellLocationsAgree(f)).toBe(false);
+  });
+
+  it('rejects an endLine present on one side only', () => {
+    const f = fakeSmell({
+      primaryLocation: { filePath: 'src/routes/admin.ts', startLine: 12, endLine: 20 },
+    });
+    expect(designSmellLocationsAgree(f)).toBe(false);
+  });
+});
+
+describe('allDesignSmellLocations', () => {
+  it('puts the primary first and preserves related order', () => {
+    const f = fakeSmell({
+      primaryLocation: { filePath: 'src/routes/admin.ts', startLine: 12 },
+      relatedLocations: [
+        { filePath: 'src/routes/users.ts', startLine: 44 },
+        { filePath: 'src/routes/settings.ts', startLine: 31 },
+      ],
+    });
+    expect(allDesignSmellLocations(f).map((l) => l.filePath)).toEqual([
+      'src/routes/admin.ts',
+      'src/routes/users.ts',
+      'src/routes/settings.ts',
+    ]);
+  });
+
+  it('synthesises the primary from the flat fields when it is absent', () => {
+    const f = fakeSmell({ relatedLocations: [{ filePath: 'b.ts', startLine: 1 }] });
+    expect(allDesignSmellLocations(f)).toEqual([
+      { filePath: 'src/routes/admin.ts', startLine: 12, endLine: undefined },
+      { filePath: 'b.ts', startLine: 1 },
+    ]);
+  });
+
+  it('returns nothing when there is no location at all (snippet scan)', () => {
+    const f = fakeSmell({ filePath: undefined, startLine: undefined });
+    expect(allDesignSmellLocations(f)).toEqual([]);
+  });
+});
+
+describe('DESIGN_SMELL_SCOPE_ORDER', () => {
+  it('runs narrowest to widest', () => {
+    const scopes: DesignSmellScope[] = ['line', 'symbol', 'class', 'file', 'module', 'project'];
+    const ranks = scopes.map((s) => DESIGN_SMELL_SCOPE_ORDER[s]);
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
+  });
+
+  it('is total, so adding a scope breaks the build rather than defaulting', () => {
+    expect(Object.keys(DESIGN_SMELL_SCOPE_ORDER)).toHaveLength(6);
   });
 });

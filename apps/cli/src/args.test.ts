@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseArgs } from './args.js';
+import { HELP_TEXT, parseArgs } from './args.js';
 
 describe('parseArgs', () => {
   it('returns help when no args', () => {
@@ -89,5 +89,40 @@ describe('parseArgs', () => {
     expect(parseArgs(['./src', '--fix'])).toMatchObject({ fix: true, dryRun: false });
     expect(parseArgs(['./src', '--dry-run'])).toMatchObject({ fix: false, dryRun: true });
     expect(parseArgs(['./src', '--fix', '--dry-run'])).toMatchObject({ fix: true, dryRun: true });
+  });
+});
+
+describe('--include-design-smells', () => {
+  it('defaults to false, which is what keeps E2/E3/E6 stable', () => {
+    // Every regression harness invokes the CLI with no flags. If this ever
+    // defaults to true, enabling cross-file analysis becomes indistinguishable
+    // from breaking the fixed points the project uses to detect real
+    // regressions.
+    expect(parseArgs(['./src'])).toMatchObject({ includeDesignSmells: false });
+  });
+
+  it('parses the flag', () => {
+    expect(parseArgs(['./src', '--include-design-smells'])).toMatchObject({
+      includeDesignSmells: true,
+    });
+  });
+
+  it('takes no value, so the next token stays a separate flag', () => {
+    expect(parseArgs(['./src', '--include-design-smells', '--fail-on', 'never'])).toMatchObject({
+      includeDesignSmells: true,
+      failOn: 'never',
+    });
+  });
+
+  it('composes with --format and --min-confidence', () => {
+    expect(
+      parseArgs(['./src', '--include-design-smells', '--format', 'sarif', '--min-confidence', 'medium']),
+    ).toMatchObject({ includeDesignSmells: true, format: 'sarif', minConfidence: 'medium' });
+  });
+
+  it('is documented in --help', () => {
+    // A flag absent from help is a flag nobody finds. HELP is the string the
+    // CLI prints, so this asserts the user-visible surface, not a constant.
+    expect(HELP_TEXT).toContain('--include-design-smells');
   });
 });
