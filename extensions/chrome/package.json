@@ -2,7 +2,7 @@
   "name": "vibeguard-chrome",
   "displayName": "VibeGuard",
   "description": "Security diagnostics for AI-generated code, in any browser tab.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -14,8 +14,8 @@
     "clean": "rimraf dist"
   },
   "dependencies": {
-    "@vibeguard/analyzer-core": "0.2.0",
-    "@vibeguard/findings-schema": "0.2.0"
+    "@vibeguard/analyzer-core": "0.3.0",
+    "@vibeguard/findings-schema": "0.3.0"
   },
   "devDependencies": {
     "@types/chrome": "^0.2.2",

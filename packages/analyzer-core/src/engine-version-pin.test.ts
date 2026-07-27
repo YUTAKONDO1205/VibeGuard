@@ -47,8 +47,8 @@
 // WHAT TO DO WHEN THIS TEST FAILS
 //
 // A failure means someone changed `ENGINE_VERSION` (or a doc that quotes it).
-// It is NOT automatically a bug — the engine freeze is scheduled to end, and the
-// bump to 0.2.0 is expected. If the bump is intentional, update, in one change:
+// It is NOT automatically a bug — a release that changes detection is supposed
+// to move this value. If the bump is intentional, update, in one change:
 //
 //   1. `EXPECTED_ENGINE_VERSION` below.
 //   2. `ENGINE_VERSION` in `analyzer.ts`, and the long comment above it — the
@@ -89,7 +89,7 @@ import { scanPath } from './file-scanner.js';
 /**
  * The pinned value. Changing this line is the deliberate act; see the header.
  */
-const EXPECTED_ENGINE_VERSION = '0.2.1';
+const EXPECTED_ENGINE_VERSION = '0.3.0';
 
 const TEMP_DIRS: string[] = [];
 afterEach(async () => {

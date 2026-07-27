@@ -10,8 +10,38 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Added
+## [0.3.0] - 2026-07-28
 
+Two detection layers land at once, on two deliberately separate version axes:
+single-file **security design smells** and **AI-supply-chain** rules move the
+engine (`0.2.1` → `0.3.0`), and a new opt-in **cross-file analysis** package
+reports its own axis (`engineVersions["analysis-graph"] = 0.3.0-alpha.1`) so a
+scan that never asked for it is unaffected.
+
+> **Note on 0.2.1.** The entry below it records the embedded layer as engine
+> `0.2.1`, but no `v0.2.1` tag or published package was ever cut — the tool
+> version stayed at `0.2.0`. `v0.3.0` is therefore the first *released artifact*
+> that carries the C/C++/Arduino rules as well. Upgrading from `v0.2.0` gets both
+> releases' worth of new findings.
+
+### Added — cross-file analysis (`@vibeguard/analysis-graph`, phase 0.3.0-α)
+
+- **New package `@vibeguard/analysis-graph`**, opt-in via `--include-design-smells`
+  on the CLI and the `include-design-smells` input on the Action. Off by default:
+  it reads every source file in the tree rather than one at a time, which is a
+  different cost profile, and turning it on by default would change the findings
+  of every existing workflow without anyone asking. Ignored with `--diff` (the
+  CLI says so on stderr) — cross-file analysis needs whole files, not added lines.
+  It indexes **lexically**, like the rest of VibeGuard: still no `tree-sitter`,
+  still zero runtime dependencies.
+- **Four cross-file rules.** `VG-SMELL-010` (scattered authorization — the
+  flagship), `VG-AISC-002` (hallucinated API/symbol, C/C++), `VG-AISC-003`
+  (generated security initializer that nothing ever calls, C/C++), and
+  `VG-RTOS-003` (cross-file ISR `volatile`).
+- **Package separation is enforced, not just intended.** `scripts/check-packaging-invariants.mjs`
+  runs in CI both before and after the build and fails if cross-file analysis code
+  reaches a browser or editor bundle. The Chrome and VS Code channels stay
+  single-file by construction.
 - **`VG-RTOS-003` — cross-file ISR `volatile`** (#20d). The half of the ISR
   shared-variable check that `VG-RTOS-002` could not reach: the ISR writes the
   variable in one file and the reader lives in another. Runs in
@@ -27,6 +57,35 @@ the project uses [Semantic Versioning](https://semver.org/).
   deliberately not wired to severity** — measured over 1,683 repositories it held
   for 95.4% of sites, and a severity that is `high` for almost everything is not
   a severity.
+### Added — single-file design smells and AI supply chain (engine 0.2.1 → 0.3.0)
+
+Additive with respect to engine `0.2.1`: no rule that existed then changed what
+it matches or at what severity.
+
+- **Three single-file security design smells**, category `security-design-smell`,
+  computed lexically inside `match()` with no AST and no cross-file state:
+  `VG-SMELL-003` (long, deeply nested security method), `VG-SMELL-004` (a generic
+  Utils/Helper module mixing crypto/auth/validation with unrelated concerns), and
+  `VG-SMELL-012` (authorization decided by comparing a role against hardcoded
+  `"admin"`/`"root"` literals in three or more places). Each favours **precision
+  over recall** — the repo ships a hard `samples/safe == 0 findings` gate, so a
+  design smell that fires on well-factored code is a bug, not a near-miss.
+- **`VG-AISC-001` — hallucinated dependency**: an import naming a package that
+  near-misses a real one, the failure mode that makes slopsquatting possible.
+- **`VG-INJ-020` — prototype-polluting merge**: a `for…in` copy loop with no
+  `__proto__` / `constructor` / `prototype` key guard.
+- **Per-match severity escalation** (`RuleMatch.severity`): a match may come out
+  above its rule's static severity on its own content (a `VG-SMELL-012` hit on an
+  `admin` literal, a `VG-SMELL-003` method that does authorization), and the
+  suppression severity gate then applies at the escalated value rather than the
+  declared one.
+- **`--fix` / `--dry-run` on the CLI** (#18), plus `scripts/fix-pr.mjs` to open the
+  result as a pull request. The fixers are the deterministic, LLM-free table in
+  `@vibeguard/remediation-engine`; the CLI re-reads the exact bytes the scan saw
+  so a fix lands on the token the finding pointed at, and `applyFixes` refuses a
+  partial apply when two edits overlap (the file is left untouched and the fixes
+  are counted unfixable). Fix code is CLI-only and never enters the browser or
+  editor bundles. Zero-send is unchanged: nothing here reaches the network.
 - **`VG-SMELL-012` now covers Java, Go and Kotlin** (#17z-e), with positive and
   negative corpora for each. Files carrying raw-string / text-block delimiters
   the blanker does not model are skipped rather than guessed at.
@@ -46,6 +105,13 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **`ENGINE_VERSION` moves to `0.3.0`.** The new single-file rules, per-match
+  severity and the declared-package veto are detection-behaviour changes, so the
+  engine axis moves with them. It is additive — the rules that existed at engine
+  `0.2.1` are untouched — so `v0.2.0` / `paper-css-v0.2.0` remain sound baselines
+  for the rules they already had. The cross-file pass does **not** move this
+  number; it reports `engineVersions["analysis-graph"]` instead, deliberately
+  still labelled `-alpha.1` because it is an α skeleton.
 - **`VG-SMELL-010` condition ③ narrowed.** `MUTATING_METHOD` no longer contains
   the bare verbs `update`, `delete`, `insert`, `destroy`, and a SQL verb pair must
   now be accompanied by SQL syntax. Measured: `createHash(…).update(…)`,

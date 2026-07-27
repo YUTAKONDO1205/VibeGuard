@@ -5,12 +5,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-28
+
+> The extension version jumps `0.1.3` → `0.3.0` in this file because the `0.2.0`
+> release was recorded only in the repository-level
+> [CHANGELOG.md](../../CHANGELOG.md), not here. Everything in `0.2.0` is in this
+> build too.
+
 ### Added
 - Each finding's confidence is now visible: diagnostics end with
   `(confidence: …)` in the Problems panel and on hover, and the findings tree
   shows it in the row's tooltip. Confidence reflects how sure the analyzer is
   that a match is real — it does not change a finding's severity, and nothing
   is filtered out of the view.
+- New rules from analyzer engine `0.3.0`, which the extension picks up without
+  any UI change: the single-file security design smells (`VG-SMELL-003` /
+  `VG-SMELL-004` / `VG-SMELL-012`), the hallucinated-dependency rule
+  (`VG-AISC-001`), and prototype-polluting merges (`VG-INJ-020`). Plus the
+  C/C++/Arduino embedded rules from engine `0.2.1` (`VG-MEM` / `VG-EMB` /
+  `VG-RTOS`), which never reached a published build before now.
+- A match can now escalate its own severity (e.g. a role check against a literal
+  `"admin"`), so the same rule may show as a warning in one file and an error in
+  another.
+
+### Not included
+- The cross-file analysis added in `0.3.0` (`--include-design-smells`,
+  `VG-SMELL-010` and friends) is **CLI / GitHub Action only**. The extension scans
+  the file in front of you and stays single-file by design; a CI packaging check
+  fails the build if cross-file code ever reaches this bundle.
 
 ## [0.1.3] - 2026-05-28
 
