@@ -99,8 +99,6 @@ const body = [
   '```',
   preview.stdout.trim(),
   '```',
-  '',
-  '🤖 Generated with [Claude Code](https://claude.com/claude-code)',
 ].join('\n');
 
 const steps = [
