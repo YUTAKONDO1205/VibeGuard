@@ -39,6 +39,10 @@ inputs:
     description: 'Comma-separated list of additional directory names to ignore (e.g. "vendor,build").'
     required: false
     default: ''
+  include-design-smells:
+    description: 'Also run cross-file design-smell analysis over the whole target ("true" / "false"). Reads every source file in the tree, so it costs more than the default per-file scan. Off by default: it is a different analysis with a different cost profile, and enabling it by default would change the findings of every existing workflow without anyone asking for it. Ignored when "diff" is set, because cross-file analysis needs whole files rather than added lines.'
+    required: false
+    default: 'false'
   known-only:
     description: 'Restrict scanning to files with known language extensions ("true" / "false").'
     required: false
@@ -101,6 +105,7 @@ runs:
         VG_OUT: ${{ inputs.out }}
         VG_DIFF: ${{ inputs.diff }}
         VG_IGNORE: ${{ inputs.ignore }}
+        VG_DESIGN_SMELLS: ${{ inputs.include-design-smells }}
         VG_KNOWN_ONLY: ${{ inputs.known-only }}
         VG_NO_REM: ${{ inputs.no-remediation }}
       run: |
@@ -131,6 +136,9 @@ runs:
         fi
         if [ "$VG_KNOWN_ONLY" = "true" ]; then
           args+=("--known-only")
+        fi
+        if [ "$VG_DESIGN_SMELLS" = "true" ]; then
+          args+=("--include-design-smells")
         fi
         if [ "$VG_NO_REM" = "true" ]; then
           args+=("--no-remediation")

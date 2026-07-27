@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { readFileSync, statSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
-import { ENGINE_VERSION, scanPath } from '@vibeguard/analyzer-core';
+import { dirname, resolve } from 'node:path';
+import { ENGINE_VERSION, loadConfig, scanPath } from '@vibeguard/analyzer-core';
 import {
   compareConfidence,
   compareSeverity,
@@ -74,6 +75,73 @@ async function main(): Promise<number> {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`error: ${message}\n`);
     return 2;
+  }
+
+  // ── Cross-file design smells (opt-in) ────────────────────────────────────
+  //
+  // DYNAMIC import, inside the flag check, and that placement is the point.
+  // `@vibeguard/analysis-graph` is the cross-file brain, and the phase's
+  // absolute constraint is that it stays out of the browser and editor channels
+  // so those keep the "zero dependency, light, four channels agree" properties.
+  // The CLI is one of its two sanctioned consumers (the GitHub Action is the
+  // other), but importing it at module top level would still be wrong here:
+  //  - it would be loaded and evaluated on every invocation, including the
+  //    `--help` that most first runs are, to support a flag almost nobody passes;
+  //  - it would make a broken or missing optional package break the ordinary
+  //    scan, turning an opt-in extra into a hard dependency of the core path.
+  // Loading it only when asked keeps the failure contained: the `catch` below
+  // reports that the cross-file pass did not run and lets the per-file findings
+  // through, because a partial report is worth more than no report.
+  //
+  // The boundary itself is NOT maintained by this comment. See
+  // `scripts/check-packaging-invariants.mjs`, which asserts three ways that this
+  // package reaches neither extension bundle.
+  if (args.includeDesignSmells) {
+    if (args.diff) {
+      // A diff scan sees only added lines, and cross-file analysis is a claim
+      // about whole files in relation to each other. Running it over a
+      // reconstructed partial tree would produce findings that cite line numbers
+      // from a file the user never wrote in that shape — and, worse, would make
+      // the same code report differently on a branch than on main, which is the
+      // reproducibility property §5.4 exists to protect.
+      process.stderr.write(
+        'note: --include-design-smells is ignored with --diff; cross-file analysis needs whole files\n',
+      );
+    } else {
+      try {
+        const { analyzeProject, applyConfigSuppression, mergeCrossFileFindings } = await import(
+          '@vibeguard/analysis-graph'
+        );
+        const crossFile = await analyzeProject(args.target, { ignore: args.ignore });
+        // The config `suppress` channel has to be applied HERE rather than left
+        // to the merge, because the core scan applied it inside `scanPath` and a
+        // finding that arrives afterwards has never been offered to it. Without
+        // this, `suppress` silently does nothing for design smells — and since
+        // they are emitted at `high` under the default `--fail-on high`, the only
+        // remaining escape would be dropping the flag entirely.
+        // Same discovery rules as the core scan: `--no-config` skips entirely,
+        // `--config` names a file, otherwise auto-discover in the scan target.
+        // Loading it a second time here (the core path already did) rather than
+        // threading it out of `scanPath` keeps the optional package's entry
+        // point free of a parameter that only exists because of an internal
+        // sharing decision — and the file is small enough that a second read is
+        // not worth an API change.
+        const loaded = args.noConfig
+          ? undefined
+          : await loadConfig(
+              statSync(args.target).isFile() ? dirname(resolve(args.target)) : resolve(args.target),
+              args.config,
+            ).catch(() => undefined);
+        const suppressed = applyConfigSuppression(crossFile, loaded?.config);
+        scan = mergeCrossFileFindings(scan, suppressed);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        process.stderr.write(
+          `warning: cross-file design-smell analysis did not run (${message}). ` +
+            'Per-file findings below are complete; design smells are ABSENT, not clean.\n',
+        );
+      }
+    }
   }
 
   // Confidence threshold, applied once here so every output format and the

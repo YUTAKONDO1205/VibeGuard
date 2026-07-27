@@ -25,10 +25,23 @@ jobs:
       # shows up at `vsce package` time — i.e. on a release tag, weeks after the
       # commit that caused it. Cheap, no build required, and it fails with the
       # fix spelled out rather than with a packaging error.
-      - name: Check packaging invariants
-        run: node scripts/check-packaging-invariants.mjs
+      #
+      # --pre-build runs only the invariants that read source and manifests.
+      # The bundle-leak and bundle-size invariants need extensions/*/dist and
+      # therefore run after the build, in the step below. They are NOT skipped
+      # here — the flag makes this step promise less, so that a missing artefact
+      # can stay a hard failure where it is genuinely a failure.
+      - name: Check packaging invariants (source-only)
+        run: node scripts/check-packaging-invariants.mjs --pre-build
 
       - run: npm run build
+
+      # Now that the extensions are built, check the shipped artefacts. This is
+      # the half that enforces the 0.3.0-α package separation: no cross-file
+      # analysis code inside a browser or editor bundle. A missing dist here is
+      # a failure, not a skip.
+      - name: Check packaging invariants (shipped bundles)
+        run: node scripts/check-packaging-invariants.mjs
 
       - run: npm test
 
