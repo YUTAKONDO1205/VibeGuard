@@ -6,6 +6,14 @@ import { evalUsage, sqlStringConcat, innerHtmlAssignment, dangerousDeserializati
 import { longSecurityMethod, primitiveRoleCheck, securitySwissArmyKnife } from './design-smells-single.js';
 import { hallucinatedDependency } from './ai-supply-chain.js';
 import {
+  KNOWN_NPM,
+  KNOWN_PYPI,
+  NODE_BUILTINS,
+  PY_STDLIB,
+  ALIAS_STOPLIST,
+  CURATED_HALLUCINATIONS,
+} from './ai-supply-chain-data.js';
+import {
   dummyToken,
   tlsVerifyDisabled,
   debugBypass,
@@ -1164,6 +1172,307 @@ describe('VG-AISC-001 hallucinated dependency', () => {
 
   it('does NOT flag an unknown-not-near-miss python module', () => {
     expectNoMatch(hallucinatedDependency, 'import mycompanyinternallib', 'python');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §17z-a / §17z-c — corpus audit of the bundled known-package data.
+//
+// The additions these tests guard were not chosen by taste. `scripts/aisc-corpus
+// -extract.mjs` pulls every dependency name out of the manifests of the 2,683
+// repositories in paper_data/corpus1k(+_vibe) — 3,953 npm and 1,550 PyPI real
+// names — and `scripts/gen-aisc-known-packages.mjs --audit` reports the ones the
+// rule would flag. Each name below was in that report, i.e. it is a MEASURED
+// false positive, not a hypothetical one. Deleting one re-opens it.
+// ---------------------------------------------------------------------------
+describe('VG-AISC-001 corpus-audit regressions (§17z-a)', () => {
+  // Representative sample of the npm additions, one per near-neighbour that made
+  // it fire. All are real, installed packages in the corpora.
+  it('AISC-001 is SILENT on real npm packages recovered by the corpus audit', () => {
+    for (const pkg of [
+      'xtend', 'through', 'tslint', 'jsdoc', 'aws-cdk', 'mssql', 'clipboard',
+      'preact-router', 'cli-table', 'eventemitter2', 'kcors', 'prompt',
+      'ntypescript', 'eclint', 'xml-js',
+    ]) {
+      expect(
+        hallucinatedDependency.match(ctx(`const x = require('${pkg}');`, 'javascript')),
+        `${pkg} is a real npm package and must not be flagged`,
+      ).toEqual([]);
+    }
+  });
+
+  // The separator-confusion class: PyPI distributions are hyphenated, the MODULE
+  // you import is the underscore form. Before the audit every one of these
+  // correct imports was reported as "did you mean <hyphenated>?".
+  it('AISC-001 is SILENT on the underscore MODULE name of a hyphenated PyPI distribution', () => {
+    for (const mod of [
+      'typing_extensions', 'charset_normalizer', 'huggingface_hub', 'sentry_sdk',
+      'prometheus_client', 'async_timeout', 'mypy_extensions', 'pydantic_core',
+      'requests_oauthlib', 'pre_commit', 'annotated_types', 'pytest_cov',
+    ]) {
+      expect(
+        hallucinatedDependency.match(ctx(`import ${mod}`, 'python')),
+        `${mod} is the real module name of an already-listed distribution`,
+      ).toEqual([]);
+    }
+  });
+
+  it('AISC-001 is SILENT on real PyPI packages recovered by the corpus audit', () => {
+    for (const mod of ['authlib', 'dateutils', 'pymssql', 'scapy', 'simpy', 'httpx2', '_pytest', 'blackd']) {
+      expect(
+        hallucinatedDependency.match(ctx(`import ${mod}`, 'python')),
+        `${mod} is a real PyPI package and must not be flagged`,
+      ).toEqual([]);
+    }
+  });
+
+  // CLOSURE. An addition is itself a new near-miss target: `scapy` (added in the
+  // audit) put `scanpy` — a real, widely used package — one edit away, creating a
+  // false positive that did not exist before the fix. This test is the standing
+  // proof that the audit was iterated instead of run once.
+  it('AISC-001 is SILENT on scanpy, the false positive that adding scapy created', () => {
+    expectNoMatch(hallucinatedDependency, 'import scanpy as sc', 'python');
+  });
+
+  // PY_STDLIB is the Python 3 list, so legacy py2 files read as near-misses.
+  it('AISC-001 is SILENT on the python2 stdlib module urllib2', () => {
+    expectNoMatch(hallucinatedDependency, 'import urllib2', 'python');
+  });
+
+  // The additions must not cost recall: a typo of an ADDED name is still a typo.
+  it('AISC-001 still flags typos of the newly added names', () => {
+    const npmTypo = hallucinatedDependency.match(ctx("require('tslintt');", 'javascript'));
+    expect(npmTypo.length).toBe(1);
+    expect(npmTypo[0]?.variables?.didYouMean).toBe('tslint');
+    const pyTypo = hallucinatedDependency.match(ctx('import scanpyy', 'python'));
+    expect(pyTypo.length).toBe(1);
+    expect(pyTypo[0]?.variables?.didYouMean).toBe('scanpy');
+  });
+
+  // The precision contract is unchanged by the additions: the design-safe corpus
+  // fixtures' "unknown but not a near miss" names must still be silent.
+  it('AISC-001 keeps the unknown-but-silent contract after the additions', () => {
+    expectNoMatch(hallucinatedDependency, "require('my-internal-corp-widget');", 'javascript');
+    expectNoMatch(hallucinatedDependency, 'import mycompanyinternallib', 'python');
+  });
+});
+
+describe('VG-AISC-001 curated hallucinations (§17z-c)', () => {
+  it('flags the documented frontier-model hallucinations at high confidence', () => {
+    for (const pkg of [
+      'huggingface-cli', 'css-color-stop', 'dns-sd', 'dom-ains', 'iana-language-tag',
+      'istanbul-converter', 'istanbul-instrumenter-babel', 'jest-xml', 'network-util',
+      'react-randomized', 'rollup-plugin-es6', 'terminal-align', 'unhandled-promise-rejections',
+    ]) {
+      const m = hallucinatedDependency.match(ctx(`const x = require('${pkg}');`, 'javascript'));
+      expect(m.length, `${pkg} is on the curated list and must fire`).toBe(1);
+      expect(m[0]?.confidence).toBe('high');
+    }
+  });
+
+  // THE TRAP THIS GUARDS. The same study's PyPI disclosure list is a list of
+  // hallucinated `pip install` TARGETS, and most of those names are real IMPORT
+  // modules shipped under a different distribution name (objc→pyobjc,
+  // git→GitPython, win32api→pywin32, paho→paho-mqtt, ruamel→ruamel.yaml,
+  // cairo→pycairo, vlc→python-vlc, hamcrest→PyHamcrest, urllib2→py2 stdlib).
+  // VG-AISC-001 reads IMPORTS, so pasting that list into CURATED_HALLUCINATIONS
+  // would accuse real code at HIGH confidence. If someone does it anyway, this
+  // fails first.
+  it('does NOT treat the PyPI half of the disclosure set as hallucinations', () => {
+    for (const mod of [
+      'objc', 'git', 'win32api', 'win32com', 'paho', 'ruamel', 'cairo', 'vlc',
+      'hamcrest', 'opentelemetry', 'rospy', 'sphinxcontrib', 'allure', 'digitalio',
+    ]) {
+      expect(
+        hallucinatedDependency.match(ctx(`import ${mod}`, 'python')),
+        `${mod} is a REAL importable module; only its pip-install name was hallucinated`,
+      ).toEqual([]);
+    }
+  });
+
+  // A curated name that is also on a known list can never fire: the exact-match
+  // exemption runs first. That would be a silently dead entry, so forbid it.
+  it('no curated name is shadowed by a known/builtin/stoplist entry', () => {
+    const shadows = new Set<string>([
+      ...KNOWN_NPM, ...KNOWN_PYPI, ...NODE_BUILTINS, ...PY_STDLIB, ...ALIAS_STOPLIST,
+    ]);
+    const dead = [...CURATED_HALLUCINATIONS].filter((n) => shadows.has(n));
+    expect(dead, `curated names shadowed by an exemption list: ${dead.join(', ')}`).toEqual([]);
+  });
+
+  // Mirrors `gen-aisc-known-packages.mjs --check`, which nothing in CI runs.
+  it('the known lists stay lowercase and duplicate-free', () => {
+    for (const [label, list] of [['KNOWN_NPM', KNOWN_NPM], ['KNOWN_PYPI', KNOWN_PYPI]] as const) {
+      const seen = new Set<string>();
+      const dupes: string[] = [];
+      for (const n of list) {
+        expect(n, `${label}: not lowercase`).toBe(n.toLowerCase());
+        if (seen.has(n)) dupes.push(n);
+        seen.add(n);
+      }
+      expect(dupes, `${label} duplicates: ${dupes.join(', ')}`).toEqual([]);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The audit oracle in scripts/gen-aisc-known-packages.mjs duplicates the rule's
+// near-miss predicate (`classifyImportName` in ai-supply-chain.ts, including its
+// exemption ORDER — a plain .mjs cannot import a .ts without a build step, and
+// making an authoring-time script depend on `npm run build` was rejected). An
+// audit that answers a slightly different question than the rule is worse than no
+// audit at all, so the duplication is PINNED here, two ways:
+//   1. differentially, over a generated mutation battery that reaches every
+//      branch (exact hit, builtin, stoplist, curated, separator collision,
+//      edit-distance-1, and the length floor);
+//   2. textually, on withinEditDistance1 — the subtle part, where a "cleanup" in
+//      one copy would pass the battery on the sampled inputs and diverge on
+//      others.
+//
+// The module is loaded through a runtime-computed URL on purpose: `tsc` builds
+// this package with rootDir=src, so a static import of a file outside src would
+// break the build. `import(<expression>)` is typed as `any` and never resolved at
+// compile time. The relative path holds from both src/rules/ and dist/rules/.
+// ---------------------------------------------------------------------------
+interface AuditOracle {
+  auditVerdict: (
+    pkg: string,
+    ctx: { index: unknown; builtins: ReadonlySet<string>; stoplist: ReadonlySet<string>; curated: ReadonlySet<string> },
+  ) => { confidence: string; didYouMean?: string } | null;
+  buildIndex: (names: readonly string[]) => unknown;
+  normKey: (s: string) => string;
+  withinEditDistance1: (a: string, b: string) => boolean;
+}
+
+const AUDIT_SCRIPT_URL = new URL('../../../../scripts/gen-aisc-known-packages.mjs', import.meta.url);
+const RULE_SOURCE_URL = new URL('./ai-supply-chain.ts', import.meta.url);
+
+async function loadOracle(): Promise<AuditOracle> {
+  return (await import(/* @vite-ignore */ AUDIT_SCRIPT_URL.href)) as unknown as AuditOracle;
+}
+
+/** Every single-edit neighbour of `name`, plus its separator variants. */
+function mutate(name: string): string[] {
+  const out = new Set<string>();
+  for (let i = 0; i < name.length; i += 1) {
+    out.add(name.slice(0, i) + name.slice(i + 1));
+    out.add(name.slice(0, i) + name.charAt(i) + name.slice(i));
+    out.add(name.slice(0, i) + 'q' + name.slice(i + 1));
+    if (i + 1 < name.length) {
+      out.add(name.slice(0, i) + name.charAt(i + 1) + name.charAt(i) + name.slice(i + 2));
+    }
+  }
+  out.add(name.replace(/-/g, '_'));
+  out.add(name.replace(/[-_]/g, ''));
+  out.add(name.replace(/_/g, '-'));
+  out.delete(name);
+  return [...out].filter((n) => n.length > 0);
+}
+
+describe('VG-AISC-001 audit-oracle pin (§17z-a)', () => {
+  const NPM_SEEDS = [
+    'express', 'lodash', 'react', 'typescript', 'eslint', 'mongoose', 'webpack',
+    'through', 'tslint', 'clipboard', 'aws-cdk', 'eventemitter2', 'socket.io',
+    'huggingface-cli', 'my-internal-corp-widget', 'crypto', 'utils', 'ws',
+  ];
+  const PY_SEEDS = [
+    'requests', 'numpy', 'pandas', 'sqlalchemy', 'psycopg2', 'typing_extensions',
+    'scanpy', 'scapy', 'urllib2', 'mycompanyinternallib', 'pathlib', 'utils', 'os',
+  ];
+
+  it('agrees with the rule on every mutation of a broad seed set (npm)', async () => {
+    const oracle = await loadOracle();
+    const index = oracle.buildIndex(KNOWN_NPM);
+    const env = {
+      index,
+      builtins: NODE_BUILTINS,
+      stoplist: ALIAS_STOPLIST,
+      curated: CURATED_HALLUCINATIONS,
+    };
+    let fired = 0;
+    let silent = 0;
+    const names = [...new Set(NPM_SEEDS.flatMap((s) => [s, ...mutate(s)]))];
+    for (const name of names) {
+      const verdict = oracle.auditVerdict(name, env);
+      const m = hallucinatedDependency.match(ctx(`const x = require('${name}');`, 'javascript'));
+      expect(m.length, `oracle/rule disagree on npm '${name}'`).toBe(verdict ? 1 : 0);
+      if (verdict) {
+        fired += 1;
+        expect(m[0]?.confidence, `confidence differs on '${name}'`).toBe(verdict.confidence);
+        expect(m[0]?.variables?.didYouMean, `didYouMean differs on '${name}'`).toBe(verdict.didYouMean);
+      } else {
+        silent += 1;
+      }
+    }
+    // Guard against a vacuous pass: the battery must reach both outcomes.
+    expect(names.length).toBeGreaterThan(300);
+    expect(fired).toBeGreaterThan(20);
+    expect(silent).toBeGreaterThan(20);
+  });
+
+  it('agrees with the rule on every mutation of a broad seed set (PyPI)', async () => {
+    const oracle = await loadOracle();
+    const index = oracle.buildIndex(KNOWN_PYPI);
+    const env = {
+      index,
+      builtins: PY_STDLIB,
+      stoplist: ALIAS_STOPLIST,
+      curated: CURATED_HALLUCINATIONS,
+    };
+    let fired = 0;
+    let silent = 0;
+    // Python candidates come out of an `import` statement, so only names that are
+    // legal identifiers can ever reach the predicate.
+    const names = [...new Set(PY_SEEDS.flatMap((s) => [s, ...mutate(s)]))].filter((n) =>
+      /^[a-z_][a-z0-9_]*$/.test(n),
+    );
+    for (const name of names) {
+      const verdict = oracle.auditVerdict(name, env);
+      const m = hallucinatedDependency.match(ctx(`import ${name}`, 'python'));
+      expect(m.length, `oracle/rule disagree on PyPI '${name}'`).toBe(verdict ? 1 : 0);
+      if (verdict) {
+        fired += 1;
+        expect(m[0]?.confidence, `confidence differs on '${name}'`).toBe(verdict.confidence);
+        expect(m[0]?.variables?.didYouMean, `didYouMean differs on '${name}'`).toBe(verdict.didYouMean);
+      } else {
+        silent += 1;
+      }
+    }
+    expect(names.length).toBeGreaterThan(200);
+    expect(fired).toBeGreaterThan(20);
+    expect(silent).toBeGreaterThan(20);
+  });
+
+  it('keeps withinEditDistance1 textually identical in the rule and the audit script', async () => {
+    const body = (src: string): string => {
+      const at = src.indexOf('function withinEditDistance1(');
+      expect(at, 'withinEditDistance1 not found').toBeGreaterThan(-1);
+      const open = src.indexOf('{', at);
+      let depth = 0;
+      let end = open;
+      for (let i = open; i < src.length; i += 1) {
+        if (src[i] === '{') depth += 1;
+        else if (src[i] === '}') {
+          depth -= 1;
+          if (depth === 0) {
+            end = i;
+            break;
+          }
+        }
+      }
+      return src
+        .slice(open + 1, end)
+        .replace(/\/\/[^\n]*/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+    const { readFile } = await import('node:fs/promises');
+    const ruleSrc = await readFile(RULE_SOURCE_URL, 'utf8');
+    const auditSrc = await readFile(AUDIT_SCRIPT_URL, 'utf8');
+    expect(
+      body(auditSrc),
+      'scripts/gen-aisc-known-packages.mjs has drifted from ai-supply-chain.ts — mirror the edit',
+    ).toBe(body(ruleSrc));
   });
 });
 

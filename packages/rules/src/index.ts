@@ -52,6 +52,9 @@ export {
   type ContextConfidenceResult,
   type DowngradeSignal,
 } from './confidence.js';
+// The near-miss resolver behind VG-AISC-001, exported so the CLI-only rename
+// fixer computes "did you mean" with the DETECTOR'S code, not a copy of it.
+export { nearestKnownPackage } from './rules/ai-supply-chain.js';
 
 export const allRules: RuleDefinition[] = [
   ...injectionRules,

@@ -675,7 +675,7 @@ Semgrep を呼び出し、結果を共通形式へ変換する。
 suppress は4軸で構成する。実装は `packages/analyzer-core/src/suppress.ts`（pragma）と `packages/analyzer-core/src/config.ts`（パス単位）に分かれる。
 
 - **行コメントによる suppress**：`vibeguard:disable-line` / `disable-next-line` / `disable-file` の3 pragma。
-- **ruleId 単位の suppress**：pragma 末尾に rule ID を列挙（例：`// vibeguard:disable-line VG-INJ-004 VG-AUTH-003`）。省略するとワイルドカードになるが、**ワイルドカードは `critical` / `high` / `medium` の finding を抑止できない**（下記 13.4.1 の D5）。rule ID を名指しした場合のみ全 severity で抑止できる。
+- **ruleId 単位の suppress**：pragma 末尾に rule ID を列挙（例：`// vibeguard:disable-line VG-INJ-004 VG-AUTH-003`）。省略するとワイルドカードになるが、**ワイルドカードは `critical` / `high` / `medium` の finding を抑止できない**（下記 §12.4.1 の D5）。rule ID を名指しした場合のみ全 severity で抑止できる。
 - **ファイルパス単位の suppress**：プロジェクト直下の `.vibeguardrc.json`（または `vibeguard.config.json`）で glob ベースに指定。CLI からは `--config <path>` で明示指定／`--no-config` で抑止可能。
 - **一時 suppress と恒久 suppress の区別**：pragma に `until=YYYY-MM-DD` を付与すると、その日付を過ぎた時点で suppress は自動失効し finding が再び surface する。config の各エントリには `expires` フィールドで同じ効果。`until` 無し／`expires` 無しは恒久。
 
@@ -694,7 +694,7 @@ config の例：
 }
 ```
 
-`paths` は必須。`rules` を省略すると当該パスに対するワイルドカードになり、pragma 側と同じく **`low` / `info` の finding しか抑止しない**（13.4.1）。期限切れエントリは `suppressionsForPath` が参照する時点で drop される（parse 時ではない）。ただしこれは **`expires` が正しい日付形式のときだけ**で、不正な形式は「永久有効」に倒れる — 13.4.1 の fail-open を参照。「古い suppress が残り続けることはない」とは書けない。
+`paths` は必須。`rules` を省略すると当該パスに対するワイルドカードになり、pragma 側と同じく **`low` / `info` の finding しか抑止しない**（§12.4.1）。期限切れエントリは `suppressionsForPath` が参照する時点で drop される（parse 時ではない）。ただしこれは **`expires` が正しい日付形式のときだけ**で、不正な形式は「永久有効」に倒れる — §12.4.1 の fail-open を参照。「古い suppress が残り続けることはない」とは書けない。
 
 #### 12.4.1 D5：ワイルドカード抑止への severity ゲート
 
@@ -735,7 +735,7 @@ config の例：
 
 ### 12.3.5 前提となる攻撃者像（§12.4 以降の共通前提）
 
-以降の防御（13.4 抑止 severity ゲート／13.5 マッチ上限の可視化／13.6 抑止の可観測性）は、
+以降の防御（§12.4.1 抑止 severity ゲート／§12.5 マッチ上限の可視化／§12.6 抑止の可観測性）は、
 すべて**同一の攻撃者**を想定している。ここで一度だけ定義し、各節では繰り返さない。
 
 **攻撃者＝スキャン対象コードの作者**。開発者本人か、その代理として動くコード生成 AI。
@@ -749,15 +749,15 @@ config の例：
    ファイルを書ける者が自由に演出できる。したがって**文脈由来の confidence を CI ゲートの判定に使ってはならない**。
    `--fail-on` は severity のみを見る。これを破ると「finding を移動させればビルドが通る」経路ができる。
 2. **格下げ・抑止は utility の機構であり、security 判断ではない。** finding を消せる機構は、
-   security 帯に対しては**制限するか、消したことを可視化する**かのどちらかにする。13.4–13.6 はその適用である。
+   security 帯に対しては**制限するか、消したことを可視化する**かのどちらかにする。§12.4.1–§12.6 はその適用である。
 
 公開ツリー向けの脅威モデル（信頼境界・攻撃経路と防御の対応表・既知の限界）は
 ルートの [`SECURITY.md`](../SECURITY.md) にある。本節は設計文書側の前置きで、
-個々の根拠は 13.4 以降の各節が持つ。
+個々の根拠は §12.4.1 以降の各節が持つ。
 
 ### 12.6 D8：抑止の可観測性（`ScanResponse.suppressions`）
 
-**これは防御ではない。** 13.4.1 のとおり、rule ID を名指しした抑止は全 severity で通る。
+**これは防御ではない。** §12.4.1 のとおり、rule ID を名指しした抑止は全 severity で通る。
 D5 が消したのは blanket（匿名）抑止であって抑止の悪用そのものではなく、名指し抑止は
 eslint-disable と同じ**意図的な escape hatch**で、潰せば正当な運用が壊れる。
 実測でも b3 の `suppress-named` アームの隠蔽率は D5 の前後で変わらない。

@@ -232,7 +232,7 @@ Marketplace publishing is documented in [`docs/runbooks/publish-action-to-market
 
 ## Rule catalogue
 
-66 rules at the moment, across 10 languages (including a C/C++/Arduino embedded layer). The ID prefix groups rules by source file; the `category` field is a separate, risk-oriented axis.
+71 single-file rules at the moment, across 10 languages (including a C/C++/Arduino embedded layer), plus 4 cross-file rules that run only behind `--include-design-smells` (see below). The ID prefix groups rules by source file; the `category` field is a separate, risk-oriented axis.
 
 | Prefix | Coverage | Examples |
 |---|---|---|
@@ -249,11 +249,24 @@ Marketplace publishing is documented in [`docs/runbooks/publish-action-to-market
 
 VG-QUAL-005..010 target the "compiles cleanly but shouldn't ship" patterns that AI-generated code produces. They run at `severity=medium` and `confidence=low~medium` because heuristics are inherently noisier than syntactic rules.
 
+### Cross-file rules (`--include-design-smells`)
+
+Four rules need the whole project rather than one file, so they live in `@vibeguard/analysis-graph` and run only when you pass `--include-design-smells`. That package is **not** bundled into the Chrome or VS Code extensions (a packaging invariant checks it), so these rules are CLI- and Action-only.
+
+| Rule | What it reports |
+|---|---|
+| `VG-SMELL-010` | **Scattered authorization** — the same privilege decision re-derived inline in ≥3 route handlers across ≥2 files, instead of in one guard. Severity rises to `high` on a privilege word, a security-worded path, or a data-store write in the handler. |
+| `VG-AISC-002` | A call into a **known SDK namespace whose member no member header declares** — the hallucinated-API shape, reported only when the project's own quoted includes all resolve. |
+| `VG-AISC-003` | A **security initialiser that is defined and never named anywhere else** in the project. |
+| `VG-RTOS-003` | An **ISR-written shared variable missing `volatile`, where the reader is in another file** — the cross-file half of `VG-RTOS-002`. |
+
+These are lexical-structural, not AST-based; `confidence` is capped at `medium` for `VG-RTOS-003` and `VG-AISC-003` because "this token never appears elsewhere" and "this declaration has no `volatile`" are the weakest kind of evidence the project ships on.
+
 The C/C++/Arduino layer (`VG-MEM`/`VG-EMB`/`VG-RTOS`, plus the `.ino`/`.hh`/`.cxx`/`.ipp` extensions and a preprocessor-branch normalization face) is regex-and-lexical only — **no `tree-sitter` or other parser dependency** — so it ships to all four channels. `VG-EMB` is the intended focus: valid C that is a security problem because of *how AI writes firmware* (a hard-coded SSID is legal C, so existing embedded static analyzers stay silent). `VG-MEM` is a deliberate floor with no novelty (flawfinder/cppcheck territory).
 
 **Deliberately NOT detected in the embedded layer** (kept out because a lexical scanner cannot decide them without a parser or dataflow, and forcing them would manufacture false positives):
 - *Memory (17d):* destination-size-checked `memcpy`, use-after-free / double-free across any control flow, integer overflow before `malloc`, constant array-index out of bounds.
-- *AI-embedded (17e):* CRC misused as an integrity/authenticity check (intent, not syntax), entropy/content-based "does this flash string look secret", cross-function/cross-file init order, power-management sequencing, hard-coded SD paths, and `digitalWrite` before `pinMode` (indistinguishable from the documented glitch-free-init idiom).
+- *AI-embedded (17e):* CRC misused as an integrity/authenticity check (intent, not syntax), entropy/content-based "does this flash string look secret", cross-function/cross-file init order, power-management sequencing, hard-coded SD paths, `digitalWrite` before `pinMode` (indistinguishable from the documented glitch-free-init idiom), and **a debug UART left initialised in a production build** — `Serial.begin(…)` / `HAL_UART_Init(…)` is lexically identical whether the port drives a debug console or a GPS, a modem, a sensor, or field diagnostics, and nearly every legitimate Arduino sketch opens one, so the rule would fire on `samples/embedded/safe` and break the zero-findings contract. What is actually harmful about a live debug port is already covered by other rules: `VG-EMB-020` for the debug flag itself, `VG-EMB-021` for the bypass it usually guards, and `VG-EMB-022` for secrets printed to the port. An open port with none of those is an attack-surface note, not a finding.
 - *RTOS (17f):* `xTaskCreate` stack-size magic number (unit is words on vanilla FreeRTOS, bytes on ESP-IDF — any threshold is wrong somewhere), hard-coded task priorities, and mutex acquire-order / priority inversion (needs a cross-function lock graph).
 
 Each rule declares a *default* confidence, and the analyzer then applies a **context-window confidence correction**: a match that sits inside a comment, docstring, or block comment, or on a test/fixture/mock path, has its confidence down-ranked (never up-ranked, and severity is untouched), so a pattern shown inside a docstring is reported at lower confidence than a live one.

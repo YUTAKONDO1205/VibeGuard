@@ -10,6 +10,21 @@
  */
 
 export { Analyzer, scan, ENGINE_VERSION, type AnalyzerOptions } from './analyzer.js';
+// Exported on the browser entry too, even though no browser channel has a
+// lockfile to build a declared set from: the two entries differ only by what
+// needs `node:fs`, and this module needs none. A browser consumer that receives
+// a package list from elsewhere (a manifest the user pasted in, a host page)
+// can therefore use the same veto rather than reimplementing it — and, more to
+// the point, the API surfaces stay identical so E1's "one engine, four
+// channels" claim keeps meaning what it says.
+export {
+  buildDeclaredPackageIndex,
+  isDeclaredPackage,
+  declaredPackageOfMatch,
+  DECLARED_PACKAGE_VARIABLE,
+  type DeclaredPackageIndex,
+  type DeclaredPackageVeto,
+} from './declared-veto.js';
 export {
   canonicalize,
   canonicalizePreprocessor,

@@ -27,6 +27,11 @@ import {
 } from '@vibeguard/rules';
 import { buildRemediation } from '@vibeguard/remediation-engine';
 import { canonicalize, canonicalizePreprocessor } from './canonicalizer.js';
+import {
+  buildDeclaredPackageIndex,
+  declaredPackageOfMatch,
+  type DeclaredPackageVeto,
+} from './declared-veto.js';
 import { detectLanguageFromContent, detectLanguageFromPath } from './language-detect.js';
 import { extractSnippet, maskSecret } from './snippet.js';
 import {
@@ -282,6 +287,41 @@ export interface AnalyzerOptions {
    * it only loses detections on C/C++ preprocessor-split payloads.
    */
   preprocessorFace?: boolean;
+  /**
+   * Default for `ScanRequest.declaredPackages` (§17z-b), applied to every
+   * request this Analyzer handles that does not carry its own.
+   *
+   * The request field is the contract — see the schema for what may and may not
+   * be put in it — and this is only a place to say it ONCE for a run that scans
+   * many files from one project. Both consumers need that: `scanPath` walks a
+   * whole tree against a single lockfile, and `scanDiff` builds its requests
+   * internally, so without an instance-level default the diff channel (the CI
+   * path, where the veto matters most) could not be given the evidence at all
+   * without threading a parameter through a module it does not own.
+   *
+   * Precedence is `request.declaredPackages ?? options.declaredPackages`, with
+   * NO merging of the two. Merging would make "this request declares nothing"
+   * unsayable, and a caller that wants a per-request override is asking for
+   * exactly that.
+   */
+  declaredPackages?: readonly string[];
+  /**
+   * Called once for each match the declared-package veto removed.
+   *
+   * The veto deletes findings, and this codebase does not let a mechanism
+   * delete findings in silence — D8 exists because a scan that hid something
+   * looked identical to a scan that found nothing. The honest home for that
+   * record would be `ScanResponse` alongside `suppressions`, and it is NOT
+   * there: this change is allowed exactly one additive schema field
+   * (`ScanRequest.declaredPackages`), so a response channel would have to wait.
+   * An in-process callback is the interim: it costs the schema nothing, and the
+   * CLI uses it to print how many findings the lockfile silenced instead of
+   * silently reporting fewer. Promoting it to a `ScanResponse` field is tracked
+   * as follow-up work, and until then a consumer that ignores this callback IS
+   * getting a silent veto — which is why it is documented as a gap rather than
+   * as a design.
+   */
+  onDeclaredPackageVeto?: (veto: DeclaredPackageVeto) => void;
 }
 
 /**
@@ -370,9 +410,13 @@ export class Analyzer {
   private readonly rules: RuleDefinition[];
   private readonly canonicalizeEnabled: boolean;
   private readonly preprocessorFaceEnabled: boolean;
+  private readonly declaredPackages: readonly string[] | undefined;
+  private readonly onDeclaredPackageVeto: ((veto: DeclaredPackageVeto) => void) | undefined;
 
   constructor(options: AnalyzerOptions = {}) {
     this.rules = options.rules ?? allRules;
+    this.declaredPackages = options.declaredPackages;
+    this.onDeclaredPackageVeto = options.onDeclaredPackageVeto;
     this.canonicalizeEnabled = options.canonicalize !== false;
     // Gated by BOTH switches: N_pp is a face of the same normalization, so
     // `canonicalize: false` turns it off regardless, and `preprocessorFace:
@@ -419,6 +463,11 @@ export class Analyzer {
     const candidateRules = filterRulesByMode(baseRules, mode);
     const ctx = buildRuleContext(request.content, language, request.filePath);
     const suppressions = parseSuppressions(request.content);
+    // §17z-b. Built once per scan, not once per rule: the index is a pure
+    // function of the declared list, and the list is the same for every rule.
+    // `buildDeclaredPackageIndex` additionally memoizes on the array identity,
+    // so a directory walk handing the same array to every file indexes it once.
+    const declared = buildDeclaredPackageIndex(request.declaredPackages ?? this.declaredPackages);
 
     // D2 — the normalization pre-pass. `ctx` deliberately keeps the ORIGINAL
     // content: rules run over both, and the results are unioned (see
@@ -538,6 +587,41 @@ export class Analyzer {
             message: err instanceof Error ? err.message : String(err),
           });
         }
+      }
+      // §17z-b — the declared-package veto. ONE enforcement point, and its
+      // position between the merges above and the assembly below is the whole
+      // of its correctness argument:
+      //
+      //  - AFTER the merges, because there are three match faces (original,
+      //    canonical, N_pp) and the union of them is what the engine promises
+      //    (`D′(x) ⊇ D(x)`, canonicalizer.ts). Filtering per face would let the
+      //    faces disagree about what a match IS: a match dropped from the base
+      //    face but surviving on the canonical one would come back through
+      //    `mergeCanonicalMatches` re-anchored, so the same input would report
+      //    a finding at a different line depending on which face saw it first.
+      //    Vetoing the merged set makes the decision independent of the face,
+      //    which is the only version of it that is stable under E1.
+      //  - BEFORE assembly, because `RuleMatch.variables` — where the package
+      //    name lives — does not exist on `Finding`. After assembly the name is
+      //    gone and the veto could only be reconstructed by re-parsing a
+      //    snippet, i.e. by guessing.
+      //
+      // Note this runs after the suppression-free part of the pipeline and
+      // before the suppression gate below, so a vetoed match is not counted as
+      // a suppression: it was not silenced, it was refuted. The two must not be
+      // conflated in the tally, which is a record of things HIDDEN.
+      if (declared) {
+        matches = matches.filter((m) => {
+          const pkg = declaredPackageOfMatch(m, declared);
+          if (pkg === undefined) return true;
+          this.onDeclaredPackageVeto?.({
+            ruleId: rule.ruleId,
+            packageName: pkg,
+            ...(request.filePath !== undefined ? { filePath: request.filePath } : {}),
+            startLine: m.startLine,
+          });
+          return false;
+        });
       }
       const includeRemediation = request.includeRemediation !== false;
       for (const m of matches) {

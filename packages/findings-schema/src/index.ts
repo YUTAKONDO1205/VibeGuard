@@ -454,6 +454,38 @@ export interface ScanRequest {
   includeExternalScanners?: boolean;
   includeRemediation?: boolean;
   context?: ScanContext;
+  /**
+   * Package names the scanned project has RESOLVED — read from a lockfile by
+   * whoever built this request, never by a rule. §17z-b.
+   *
+   * The one piece of cross-file evidence the per-file engine accepts, and it is
+   * shaped as data on the request precisely so the engine stays free of I/O: a
+   * rule's `match()` is a pure function of one file's text, the four delivery
+   * channels agree only because they share that pure matcher, and two of those
+   * channels (Chrome, the editor's snippet path) have no filesystem to read a
+   * lockfile from. Passing the names in lets the channels that DO have one
+   * (CLI, GitHub Action) supply the evidence, while a channel that supplies
+   * nothing keeps today's behaviour byte for byte.
+   *
+   * WHAT MAY GO IN HERE: names taken from a lockfile — package-lock.json,
+   * yarn.lock, pnpm-lock.yaml, poetry.lock, uv.lock, Pipfile.lock. A lockfile
+   * entry carries a resolved version, which exists only because a registry
+   * answered for that name.
+   *
+   * WHAT MUST NOT: names from package.json / requirements.txt / pyproject.toml
+   * and friends. A manifest is a wish, not a receipt, and a generator that
+   * hallucinates an import hallucinates the matching manifest line in the same
+   * completion — so a manifest-sourced list would silence exactly the findings
+   * that are true. The consumer of this field cannot check the provenance of
+   * what it is handed, which is why the constraint is stated here, at the
+   * boundary, rather than left to the reader.
+   *
+   * Consumed by the declared-package veto in analyzer-core (see
+   * `declared-veto.ts` for what the veto does and does not claim). Absent and
+   * empty behave identically — no veto — but they mean different things to the
+   * producer, and only the producer can report which happened.
+   */
+  declaredPackages?: readonly string[];
 }
 
 /**

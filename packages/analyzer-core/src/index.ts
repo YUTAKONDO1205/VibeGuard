@@ -1,5 +1,13 @@
 export { Analyzer, scan, ENGINE_VERSION, type AnalyzerOptions } from './analyzer.js';
 export {
+  buildDeclaredPackageIndex,
+  isDeclaredPackage,
+  declaredPackageOfMatch,
+  DECLARED_PACKAGE_VARIABLE,
+  type DeclaredPackageIndex,
+  type DeclaredPackageVeto,
+} from './declared-veto.js';
+export {
   canonicalize,
   type CanonicalizeResult,
   type CanonicalizeStats,

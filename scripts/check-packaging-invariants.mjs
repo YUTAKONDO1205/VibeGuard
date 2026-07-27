@@ -206,29 +206,39 @@ const AG_PACKAGE_NAME = '@vibeguard/analysis-graph';
 // string literal survives bundling and minification, so this one is answered by
 // reading the artefact.
 //
-// ★ MEASURED LIMIT — do not over-trust this invariant.
+// ★ MEASURED — and re-measured, because the needle changed underneath it.
 //
-// It was falsified three ways against the real esbuild config, and it fires in
-// only one of them:
+// HISTORY, kept because the reasoning is still the reason this needle is what it
+// is. When the needle was the `AG_BUNDLE_SENTINEL` string, the invariant was
+// falsified three ways against the real esbuild config and fired in only one:
 //
 //   `import "@vibeguard/analysis-graph";`           bundle 7.0 KB → 7.0 KB, NO hit
 //   `import { createBudget } ...; createBudget({})` bundle 7.0 KB → 9.4 KB, NO hit
 //   `import { AG_BUNDLE_SENTINEL } ...; log(it)`    bundle 7.0 KB → 7.2 KB, HIT
 //
-// The reason is tree shaking, and it contradicts the optimistic claim in the
-// sentinel's own doc comment ("cannot be tree-shaken out of a module whose code
-// was included"). esbuild includes the MODULE and then drops the individual
-// declarations nothing references, and a `const` string nobody reads is exactly
-// such a declaration. So a realistic leak — code that imports the package to
-// USE it — pulls in real graph code and still leaves no sentinel behind.
+// The reason was tree shaking: esbuild includes the MODULE and then drops the
+// individual declarations nothing references, and a `const` string nobody reads
+// is exactly such a declaration. A realistic leak therefore left no sentinel.
 //
-// This invariant therefore catches the cases the declaration checks are blind to
-// (hand-patched `dist`, vendored copy, a build that ships an artefact the source
-// tree no longer explains) and NOT the ordinary case. The ordinary case is
-// invariant 4's, which caught all three leaks above at the import and at the
-// manifest. Making this one catch everything requires giving the sentinel a
-// side effect esbuild cannot elide, which is a change to `analysis-graph`'s
-// public surface and belongs to that package's owner, not to this script.
+// THAT IS WHY THE PRIMARY NEEDLE IS NOW `MODULE_MARKER` (below) — the module-path
+// comment esbuild emits for every module it includes, which survives exactly when
+// the module is included, i.e. the thing we actually want to detect.
+//
+// RE-MEASURED 2026-07-28 against the current needle, by injecting into the VS
+// Code extension entry, rebuilding, running this probe, and reverting:
+//
+//   `import "@vibeguard/analysis-graph";`                     invariant 3 FAILS
+//   `import { createBudget } ...; const b = createBudget();`   invariant 3 FAILS
+//   `import { crossFileRules } ...; log(crossFileRules.length)` invariant 3 FAILS
+//   (clean tree)                                               all invariants PASS
+//
+// So with the module-path needle this invariant does catch the ordinary leak, and
+// the "fires in only one of three" limit above belongs to the sentinel era. Do not
+// weaken this check on the strength of the historical numbers. Invariant 4 still
+// catches the same three at the import and the manifest, and remains the cheaper
+// and earlier signal — this one additionally covers what 4 is blind to: a
+// hand-patched `dist`, a vendored copy, or a build shipping an artefact the
+// source tree no longer explains.
 //
 // `.map` files are excluded on purpose. Source maps embed `sourcesContent` —
 // the ORIGINAL text of every module, including modules whose exports were

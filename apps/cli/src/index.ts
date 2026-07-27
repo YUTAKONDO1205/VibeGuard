@@ -15,6 +15,7 @@ import { parseArgs, HELP_TEXT } from './args.js';
 import { formatHuman, formatMarkdown } from './format.js';
 import { scanDiff } from './diff.js';
 import { runFix } from './fix.js';
+import { readDeclaredPackages } from './declared-packages.js';
 
 // Tool version: the released CLI artifact version. Read from package.json at
 // runtime so it always matches the published package and never drifts. This is
@@ -51,6 +52,41 @@ async function main(): Promise<number> {
   }
   const args = parsed;
 
+  // ── Declared-package veto (§17z-b) ───────────────────────────────────────
+  //
+  // ALWAYS ON, with no flag to disable it, and that is not an oversight.
+  // `--include-design-smells` is default-off because it ADDS a class of finding
+  // and costs a second pass over the tree; this is the opposite on both counts.
+  // It removes findings whose PREMISE has been disproven — VG-AISC-001 says "a
+  // generator invented this package name", and a lockfile entry is the record
+  // of a registry having resolved it — so an opt-out would recover nothing
+  // except findings that are known-wrong. It also costs one directory read,
+  // whether or not anything is found.
+  //
+  // What it deliberately does NOT claim is that a declared package is SAFE; see
+  // `declared-veto.ts` for the residual slopsquat case (a name that was
+  // hallucinated, registered by an attacker, and then actually installed is in
+  // the lockfile like any other). Nothing here is a substitute for a rule that
+  // judges real packages.
+  //
+  // Read BEFORE the scan and reported on stderr, so the ordering a user sees is
+  // "here is the evidence I used" then "here is what it removed", and so stdout
+  // stays byte-identical to what the chosen format produced.
+  const declared = await readDeclaredPackages(args.target);
+  for (const w of declared.warnings) {
+    process.stderr.write(`warning: ${w}\n`);
+  }
+  // A veto deletes findings, and this codebase does not allow a mechanism to
+  // delete findings in silence. The count comes back through an analyzer
+  // callback rather than a `ScanResponse` field only because this change is
+  // budgeted one additive schema field; see `AnalyzerOptions.
+  // onDeclaredPackageVeto`. Aggregated to one line: a project that legitimately
+  // depends on twelve near-miss-looking packages should not get twelve notes.
+  let vetoed = 0;
+  const onDeclaredPackageVeto = (): void => {
+    vetoed += 1;
+  };
+
   let scan;
   try {
     if (args.diff) {
@@ -61,6 +97,15 @@ async function main(): Promise<number> {
         includeRemediation: !args.noRemediation,
         ignore: args.ignore,
         config: args.noConfig ? false : args.config,
+        // `ScanDiffOptions extends AnalyzerOptions`, so the declared set rides
+        // in as the Analyzer-level default and reaches the requests `scanDiff`
+        // builds internally. That is why the analyzer accepts an instance-level
+        // default at all: without it the diff channel — the CI path, where a
+        // hallucinated-dependency false positive is most expensive — could not
+        // be given the evidence without rewriting a module this change does not
+        // own.
+        declaredPackages: declared.packages,
+        onDeclaredPackageVeto,
       });
     } else {
       scan = await scanPath(args.target, {
@@ -69,12 +114,22 @@ async function main(): Promise<number> {
         ignore: args.ignore,
         knownLanguagesOnly: args.knownLanguagesOnly,
         config: args.noConfig ? false : args.config,
+        declaredPackages: declared.packages,
+        onDeclaredPackageVeto,
       });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`error: ${message}\n`);
     return 2;
+  }
+
+  if (vetoed > 0) {
+    const from = declared.sources.map((s) => s.file).join(', ');
+    process.stderr.write(
+      `note: ${vetoed} supply-chain finding(s) not reported — the package is resolved in ${from}, ` +
+        'so the name is not a hallucination. This says the package EXISTS, not that it is safe.\n',
+    );
   }
 
   // ── Cross-file design smells (opt-in) ────────────────────────────────────

@@ -12,6 +12,7 @@
 // fires on well-factored code is a bug, not a near-miss.
 import type { RuleContext, RuleDefinition, RuleMatch } from '../rule-types.js';
 import {
+  blankCommentsAndStrings,
   blankJsLiterals,
   blankPyLiterals,
   extractBlockAfter,
@@ -53,9 +54,65 @@ const MIN_NESTING = 4;
 const MIN_BRANCHES = 10;
 const MAX_HEADS = 200;
 
-/** Function/method heads in a brace language, each with the name it binds. */
+/**
+ * Function/method heads in a brace language, each with the name it binds.
+ *
+ * Four alternatives, in order: `function` declarations (fnA), `const f = …`
+ * bindings (fnB), a method head whose `)` is followed directly by `{` (fnC), and
+ * — 17z-f-lite — a method head separated from its `{` by a TYPE ANNOTATION (fnD).
+ *
+ * 17z-f-lite (the TypeScript recall gap). §17z-f parked this on "AST in 0.3.0
+ * resolves it naturally"; 0.3.0-α shipped WITHOUT an AST, so the premise expired
+ * and the lexically-reachable part is taken here. Two shapes were invisible:
+ *
+ *  - `authorize(user: User): Promise<boolean> {` — fnC requires `)` `{` adjacency,
+ *    so every annotated method in a TS codebase was skipped. (An annotated
+ *    `function` declaration was already fine: fnA stops at `(` and lets
+ *    `extractBlockAfter` walk to the brace.) That is now fnD.
+ *  - `fetchAll<T>(…)` — a generic parameter list sits between the name and `(`,
+ *    which none of the alternatives allowed. Now an OPTIONAL group on fnA/fnC/fnD.
+ *
+ * BOTH ARE WRITTEN AROUND FIXED ANCHORS (`<`…`>` and `:`…`{`) so no two
+ * variable-length runs are ever adjacent — the D3 rule. The generics group is one
+ * bounded run inside literal angle brackets that the run itself cannot contain;
+ * fnD's return type is one bounded run that cannot contain `{`, so it is pinned
+ * against the literal `{` that ends it, and it excludes `?`, `;`, `=`, `(` and `)`
+ * so it cannot walk across a ternary, a statement boundary, an assignment or a
+ * function-type annotation into an unrelated block. Because the group is optional
+ * and can only start at a literal `<`, a head with no generics matches EXACTLY the
+ * text it matched before this change.
+ *
+ * STILL OUT OF REACH, and deliberately (each needs balanced-delimiter or
+ * multi-line reasoning, i.e. the parser this file refuses to become). The list
+ * below was CORRECTED on 2026-07-28 after the regex was executed against each
+ * shape instead of reasoned about; the previous version claimed three things
+ * that are in fact detected, which is the opposite error but the same kind — a
+ * drop-list nobody re-measured.
+ *
+ *   NOT detected (true false negatives):
+ *     - a parameter list containing parentheses:
+ *         `verify(cb: (x: number) => void) {`   `verify(a = makeDefault()) {`
+ *       fnC/fnD both scan the list with `[^()\n]`, so any inner paren ends it.
+ *     - a parameter list broken across lines, for the METHOD forms (fnC/fnD).
+ *     - nested generics in the TYPE-PARAMETER position:
+ *         `verify<T extends Map<string, number>>(a: T) {`
+ *     - object-literal and function return types: `: { ok: boolean }`,
+ *       `: (x: number) => void`  — fnD's run excludes `{`, `(` and `)`.
+ *     - return-type-annotated arrow bindings: `const f = (x): T => {` (fnB).
+ *
+ *   DETECTED, contrary to what this comment used to claim:
+ *     - single-line destructured parameters — `verify({ user, ctx }) {` — the
+ *       braces carry no parentheses, so fnC's `\([^()\n]{0,200}\)` swallows them.
+ *     - nested generics in the RETURN position — `: Promise<Map<string, X>> {`
+ *       — fnD's return run permits `<` and `>`.
+ *     - multi-line parameter lists on a `function` DECLARATION, because fnA
+ *       ends at the opening `(` and never looks at the list.
+ *
+ * Everything in the first list is a false NEGATIVE, which is the side a
+ * precision-first rule is allowed to be wrong on.
+ */
 const JS_HEAD =
-  /(?:^|[^\w$.])(?:async[^\S\r\n]{1,4})?function[^\S\r\n]{0,4}(?<fnA>[\w$]{0,60})[^\S\r\n]{0,4}\(|(?:const|let|var)[^\S\r\n]{1,4}(?<fnB>[\w$]{1,60})[^\S\r\n]{0,4}=[^\S\r\n]{0,4}(?:async[^\S\r\n]{0,4})?(?:function\b|\([^()\n]{0,200}\)[^\S\r\n]{0,4}=>|[\w$]{1,40}[^\S\r\n]{0,4}=>)|(?:^|[^\w$.])(?:public|private|protected|static|async|readonly|[^\S\r\n]){0,6}(?<fnC>(?!(?:if|for|while|switch|catch|return|function|await|typeof|do|else)\b)[\w$]{1,60})[^\S\r\n]{0,4}\([^()\n]{0,200}\)[^\S\r\n]{0,4}\{/g;
+  /(?:^|[^\w$.])(?:async[^\S\r\n]{1,4})?function[^\S\r\n]{0,4}(?<fnA>[\w$]{0,60})(?:<[^<>()\n]{0,80}>)?[^\S\r\n]{0,4}\(|(?:const|let|var)[^\S\r\n]{1,4}(?<fnB>[\w$]{1,60})[^\S\r\n]{0,4}=[^\S\r\n]{0,4}(?:async[^\S\r\n]{0,4})?(?:function\b|\([^()\n]{0,200}\)[^\S\r\n]{0,4}=>|[\w$]{1,40}[^\S\r\n]{0,4}=>)|(?:^|[^\w$.])(?:public|private|protected|static|async|readonly|[^\S\r\n]){0,6}(?<fnC>(?!(?:if|for|while|switch|catch|return|function|await|typeof|do|else)\b)[\w$]{1,60})(?:<[^<>()\n]{0,80}>)?[^\S\r\n]{0,4}\([^()\n]{0,200}\)[^\S\r\n]{0,4}\{|(?:^|[^\w$.])(?:public|private|protected|static|async|readonly|[^\S\r\n]){0,6}(?<fnD>(?!(?:if|for|while|switch|catch|return|function|await|typeof|do|else)\b)[\w$]{1,60})(?:<[^<>()\n]{0,80}>)?[^\S\r\n]{0,4}\([^()\n]{0,200}\)[^\S\r\n]{0,4}:[^\S\r\n]{0,4}[A-Za-z_$][^{}()?;=\n]{0,120}\{/g;
 
 interface BodyMetrics {
   lines: number;
@@ -99,7 +156,10 @@ function jsLongMethods(content: string): RuleMatch[] {
       continue;
     }
     if (h.index < emittedEnd) continue;
-    const name = h.groups?.fnA ?? h.groups?.fnB ?? h.groups?.fnC ?? '';
+    // Distinct group names per alternative, not one reused `fn`: duplicate named
+    // capture groups across alternatives are an ES2025 addition and a SyntaxError
+    // on the Node 18 floor this package declares.
+    const name = h.groups?.fnA ?? h.groups?.fnB ?? h.groups?.fnC ?? h.groups?.fnD ?? '';
     const block = extractBlockAfter(blanked, h.index + h[0].length - 1);
     if (!block) continue;
     const m = jsBodyMetrics(block.body);
@@ -245,11 +305,134 @@ const ROLE_YODA = new RegExp(
   'gi',
 );
 
+// 17z-e — the JAVA/KOTLIN string-comparison idiom. `==` on a Java String is a
+// reference comparison, so real Java writes `user.getRole().equals("admin")`;
+// shipping the java arm with only the `==` shapes above would detect a form that
+// competent Java never uses and miss the one it always uses, i.e. it would look
+// like coverage without being coverage. The `.equals(` / `.equalsIgnoreCase(`
+// token is a FIXED anchor between two bounded runs, so the shape costs the same
+// as the forward one. The optional `(\s*)` accepts a getter call
+// (`getRole().equals(…)`) as well as a bare field.
+//
+// Kotlin gets it too: `==` there already compiles to `equals`, so the idiomatic
+// Kotlin form is caught by ROLE_FWD — but `.equals(` is legal Kotlin and costs
+// nothing to accept. NOT enabled for js/ts/python: `.equals(` is not a JS string
+// method, and adding it there would change three shipped languages for no recall.
+const ROLE_EQUALS = new RegExp(
+  `\\b(?<id>${ROLE_ID})\\b(?:[^\\S\\r\\n]{0,4}\\([^\\S\\r\\n]{0,4}\\))?[^\\S\\r\\n]{0,4}\\.[^\\S\\r\\n]{0,4}(?:equalsIgnoreCase|equals)[^\\S\\r\\n]{0,4}\\([^\\S\\r\\n]{0,4}"(?<lit>${ROLE_LIT})"`,
+  'gi',
+);
+// Yoda-equals: `"admin".equals(user.getRole())`. This is the NULL-SAFE form every
+// Java style guide recommends, so it is the most likely one to appear — a
+// primitive role check does not stop being one because it is written safely.
+const ROLE_EQUALS_YODA = new RegExp(
+  `"(?<lit>${ROLE_LIT})"[^\\S\\r\\n]{0,4}\\.[^\\S\\r\\n]{0,4}(?:equalsIgnoreCase|equals)[^\\S\\r\\n]{0,4}\\([^\\S\\r\\n]{0,4}\\b(?<id>${ROLE_ID})\\b`,
+  'gi',
+);
+
 // The escape hatch: if the file ALREADY has an enum / constant set / policy layer
 // / helper, the raw comparisons are legacy or incidental — suppress the whole
 // file. Conservative by design (a false negative here, never a false positive).
 const ROLE_MITIGATION =
   /\benum[^\S\r\n]{1,4}\w{0,30}(?:role|permission)|\bclass[^\S\r\n]{1,4}\w{0,30}(?:role|permission)\w{0,20}[^\S\r\n]{0,4}\((?:\w{0,10}\.)?(?:str|int)?enum\)|\btype[^\S\r\n]{1,4}\w{0,30}role\w{0,20}[^\S\r\n]{0,4}=|\bhas_?(?:role|permission|authority)[^\S\r\n]{0,2}\(|\b(?:roles?|permissions?|scopes?)\.[A-Z][A-Z0-9_]{1,30}\b|Object[^\S\r\n]{0,2}\.[^\S\r\n]{0,2}freeze[^\S\r\n]{0,2}\(/i;
+
+// 17z-e — the PER-LANGUAGE half of the mitigation veto.
+//
+// ROLE_MITIGATION above is the portable half (a `Roles.ADMIN` constant reference,
+// a `hasRole(` helper, an `Object.freeze` table). What "the roles are already
+// aggregated" LOOKS like is not portable: Java says `enum Role`, Go says
+// `type Role string` + a `const (… iota)` block, Kotlin says `enum class Role`.
+// Those forms are added HERE, per language, instead of being folded into the
+// shared pattern — widening the shared one would change what js/ts/python veto
+// on, and this arm must not be able to move a single existing finding.
+//
+// The direction is deliberate and matches the shared veto: a miss here is a
+// FALSE NEGATIVE (the file stays silent although its roles really are scattered),
+// never a false positive. That is why each entry is generous — `\biota\b`
+// anywhere in a Go file, any `@PreAuthorize` in a Java one — rather than tied to
+// the exact declaration the comparisons reference. Proving that linkage lexically
+// needs the cross-file graph, which is 0.3.0's job, not a regex's.
+const ROLE_MITIGATION_BY_LANGUAGE: Record<string, RegExp> = {
+  // `public enum Role {`, `enum Authority`; Spring's declarative policy layer
+  // (`@PreAuthorize("hasRole('ADMIN')")`, `@RolesAllowed`, `@Secured`); and a
+  // `static final String ROLE_ADMIN = …` constant table.
+  java: /\benum[^\S\r\n]{1,6}\w{0,30}?(?:role|permission|authority|access|scope)|@(?:PreAuthorize|PostAuthorize|RolesAllowed|Secured)\b|\bfinal[^\S\r\n]{1,6}String[^\S\r\n]{1,6}\w{0,24}?(?:role|permission|authority|admin)/i,
+  // `type Role string` / `type Permission int` (a named role type), `const RoleAdmin
+  // = …`, and `iota` — the Go idiom for a constant enumeration. `iota` is accepted
+  // file-wide on purpose: a file that declares ANY const enumeration and also
+  // compares roles is far more likely mid-migration than genuinely unaggregated.
+  go: /\btype[^\S\r\n]{1,6}\w{0,30}?(?:role|permission|authority|access)\w{0,20}[^\S\r\n]{1,6}(?:string|u?int(?:8|16|32|64)?|byte|struct|interface)\b|\bconst[^\S\r\n]{1,6}\w{0,24}?(?:role|permission|authority)|\biota\b/i,
+  // `enum class Role`, `sealed class Role` / `sealed interface Role` (the Kotlin
+  // ADT spelling of the same thing), `const val ROLE_ADMIN = …`, and the Spring
+  // annotations again (Kotlin services use them unchanged).
+  kotlin: /\b(?:enum|sealed|value)[^\S\r\n]{1,6}(?:class|interface)[^\S\r\n]{1,6}\w{0,30}?(?:role|permission|authority|access)|\bconst[^\S\r\n]{1,6}val[^\S\r\n]{1,6}\w{0,24}?(?:role|permission|authority|admin)|@(?:PreAuthorize|PostAuthorize|RolesAllowed|Secured)\b/i,
+};
+
+/**
+ * 17z-e — languages whose RAW-STRING syntax no blanker in this repo models, and
+ * the delimiter that proves the file uses it.
+ *
+ * MEASURED, not assumed. Feeding `String doc = """\n if (user.role == "admin")…`
+ * to both blankers shows each one desyncing: `blankCommentsAndStrings` reads the
+ * three quotes as open-close-open, so the text block's interior alternates
+ * between "string" and "code" on every quote inside it, and `blankJsLiterals`
+ * does the same. Either way a role comparison written INSIDE a Java text block or
+ * a Kotlin raw string can come back classified as code — a false positive on text
+ * that is not code at all.
+ *
+ * The fix is to stay silent on the whole file, not to teach the blanker triple
+ * quotes: the blankers are shared with the C/C++ rules and with E7's pinned
+ * output, so changing one to serve this arm risks moving findings that have
+ * nothing to do with roles. A file-level skip costs recall in exactly the files
+ * we cannot reason about, which is the same trade `extractBlockAfter` makes when
+ * a block does not balance.
+ *
+ * GO IS DELIBERATELY ABSENT. Its raw string is the backtick, and
+ * `blankJsLiterals` already models backticks (JS template literals): the same
+ * probe shows a Go raw string's interior fully blanked and the following real
+ * comparison intact. Skipping every Go file containing a backtick would have
+ * silenced the arm on almost all real Go, because struct tags (`json:"role"`) put
+ * a backtick in nearly every file. The one residual divergence — Go raw strings
+ * have no escapes, so a trailing `\` before the closing backtick makes the JS
+ * blanker read past it — over-blanks and therefore only ever drops a site.
+ */
+const UNMODELLED_RAW_STRING: Record<string, string> = {
+  java: '"""',
+  kotlin: '"""',
+};
+
+/**
+ * The blanker whose string/comment model matches `language`.
+ *
+ * js/ts (and any unknown language) keep `blankJsLiterals` exactly as before —
+ * this arm must not change what the three shipped languages do. Java and Kotlin
+ * get the C-family blanker: they have no regex literals, and Kotlin's backtick is
+ * an IDENTIFIER quote (`` `is` ``), so the JS blanker would read one as a template
+ * literal and blank the real code after it. Go gets the JS blanker for the
+ * opposite reason — its backtick IS a string quote.
+ */
+function blankFor(content: string, language: string | undefined): string {
+  if (language === 'python') return blankPyLiterals(content);
+  if (language === 'java' || language === 'kotlin') return blankCommentsAndStrings(content);
+  return blankJsLiterals(content);
+}
+
+/**
+ * Own-property lookup for the two language-keyed maps above.
+ *
+ * `Object.hasOwn`, not a bare index, for the reason `getLineCommentSpec` in
+ * matcher-utils.ts spells out: `ctx.language` reaches `match()` from a caller —
+ * `scan({ …, language })` takes whatever string it is given — so a language of
+ * `'constructor'` or `'toString'` would resolve to an INHERITED function, dodge
+ * the `?? undefined` fallback, and then `langVeto.test(…)` throws. That throw is
+ * swallowed by the analyzer's per-rule try/catch, i.e. it would silently delete
+ * every finding this rule had produced: the undeclared-suppression failure mode,
+ * arrived at through a prototype chain rather than a bug in the rule.
+ */
+function ownEntry<T>(map: Record<string, T>, language: string | undefined): T | undefined {
+  if (language == null || !Object.hasOwn(map, language)) return undefined;
+  return map[language];
+}
 
 // Lines that are test assertions, not production role checks.
 const ASSERT_LINE = /^[^\S\r\n]*(?:assert\b|expect[^\S\r\n]{0,2}\(|it[^\S\r\n]{0,2}\(|test[^\S\r\n]{0,2}\()/;
@@ -257,14 +440,27 @@ const ADMIN_FAMILY = /^(?:admin|administrator|superadmin|super_admin|superuser|r
 
 function primitiveRoleChecks(content: string, lines: string[], language: string | undefined): RuleMatch[] {
   if (ROLE_MITIGATION.test(content)) return [];
+  // 17z-e — per-language veto and raw-string skip, both no-ops for js/ts/python
+  // (neither map has an entry for them), so those three languages take exactly
+  // the path they took before this arm existed.
+  const langVeto = ownEntry(ROLE_MITIGATION_BY_LANGUAGE, language);
+  if (langVeto?.test(content)) return [];
+  const rawDelimiter = ownEntry(UNMODELLED_RAW_STRING, language);
+  if (rawDelimiter !== undefined && content.includes(rawDelimiter)) return [];
   const raw = [
     ...runRegex(content, ROLE_FWD, { skipCommentLines: true, language }),
     ...runRegex(content, ROLE_YODA, { skipCommentLines: true, language }),
+    ...(language === 'java' || language === 'kotlin'
+      ? [
+          ...runRegex(content, ROLE_EQUALS, { skipCommentLines: true, language }),
+          ...runRegex(content, ROLE_EQUALS_YODA, { skipCommentLines: true, language }),
+        ]
+      : []),
   ];
   // Blank comment/string interiors so a role comparison written INSIDE a string
   // literal (a lint-rule doc, a codemod fixture, an i18n catalog) is rejected —
   // the comparison's identifier start then sits on a blanked (space) position.
-  const blankedLines = (language === 'python' ? blankPyLiterals(content) : blankJsLiterals(content)).split('\n');
+  const blankedLines = blankFor(content, language).split('\n');
   // Drop test-assertion / string-embedded sites and dedupe by line.
   const byLine = new Map<number, RuleMatch>();
   for (const m of raw) {
@@ -294,7 +490,12 @@ export const primitiveRoleCheck: RuleDefinition = {
   name: 'Primitive Role Check',
   description:
     'Authorization is decided by comparing a role/permission identifier against hardcoded string literals ("admin", "root") in three or more places, with no enum/constant/policy layer. String-based role checks invite typos, drift, and privilege-escalation bugs.',
-  languages: ['javascript', 'typescript', 'python'],
+  // 17z-e — java/go/kotlin added. The forward/yoda comparison SHAPE is portable
+  // across the C family; what each language needed was its own mitigation veto
+  // (see ROLE_MITIGATION_BY_LANGUAGE) and its own string model (see blankFor).
+  // Languages are NOT added without a negative corpus: samples/design-safe holds
+  // an "already aggregated" file per language, pinned at zero findings.
+  languages: ['javascript', 'typescript', 'python', 'java', 'go', 'kotlin'],
   category: 'security-design-smell',
   severity: 'medium',
   defaultConfidence: 'medium',

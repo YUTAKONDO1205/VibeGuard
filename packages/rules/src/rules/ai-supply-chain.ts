@@ -145,10 +145,84 @@ function pyCandidates(content: string, language: string | undefined): Candidate[
   return out;
 }
 
-function hallucinatedDeps(content: string, lines: string[], language: string | undefined): RuleMatch[] {
-  const isPy = language === 'python';
+/**
+ * The classification core: given an ALREADY-NORMALIZED (lowercased, no
+ * surrounding whitespace) candidate package name, decide whether it is a
+ * finding and, if it is a near miss, which popular name it is a near miss OF.
+ *
+ * Split out of `hallucinatedDeps` for one reason: the CLI's rename fixer
+ * (`remediation-engine/fixers.ts`, VG-AISC-001) has to answer exactly the same
+ * question — "what did this import mean?" — and `RuleMatch.variables` does NOT
+ * survive into a `Finding`, so the fixer cannot read the `didYouMean` the
+ * detector already computed; it must recompute it from the file bytes.
+ * Recomputing it by COPYING this logic into the fixer is the drift that would
+ * eventually rename an import to something the detector never suggested. One
+ * exported function (`nearestKnownPackage`) that both sides call makes that
+ * class of drift structurally impossible rather than merely discouraged.
+ *
+ * The exemption order (builtin → alias stoplist → literally known → curated →
+ * separator collision → edit distance) is load-bearing and deliberately
+ * identical to what it replaced; see the precision contract in the file header.
+ */
+function classifyImportName(
+  pkg: string,
+  isPy: boolean,
+): { didYouMean?: string; confidence?: 'high' | 'medium' } {
   const index = isPy ? PYPI_INDEX : NPM_INDEX;
   const builtins = isPy ? PY_STDLIB : NODE_BUILTINS;
+  // Cheap exemptions first.
+  if (builtins.has(pkg)) return {};
+  if (ALIAS_STOPLIST.has(pkg)) return {};
+  if (index.set.has(pkg)) return {};
+
+  if (CURATED_HALLUCINATIONS.has(pkg)) {
+    // Documented hallucination: a finding, but with NO suggestion — the name
+    // does not exist and nothing in the bundled data says what was meant.
+    return { confidence: 'high' };
+  }
+  // Normalized-key collision: same name modulo -/_/. separators (pip/npm
+  // separator confusion), but not literally equal to a known name.
+  const canon = index.normKeys.get(normKey(pkg));
+  if (canon && canon !== pkg) return { didYouMean: canon, confidence: 'medium' };
+  if (pkg.length >= 5) {
+    // Edit-distance-1 of a popular name (length band avoids comparing against
+    // everything; the ≥5 floor stops short names from colliding constantly).
+    for (const len of [pkg.length - 1, pkg.length, pkg.length + 1]) {
+      const bucket = index.byLen.get(len);
+      if (!bucket) continue;
+      const hit = bucket.find((known) => withinEditDistance1(pkg, known));
+      if (hit) return { didYouMean: hit, confidence: 'medium' };
+    }
+  }
+  return {};
+}
+
+/**
+ * The popular package `importName` is a near miss of, or `null`.
+ *
+ * PUBLIC because the deterministic rename fixer needs it (see above). The
+ * contract is deliberately narrow and fail-closed:
+ *   - `null` for anything the detector would not flag at all (a Node/Python
+ *     builtin, an import-name alias like `cv2`, a literally-known package),
+ *     so a fixer that walks every specifier on a line cannot rename an import
+ *     that was never the finding.
+ *   - `null` for a CURATED hallucination too: those are flagged with no
+ *     `didYouMean`, and inventing a target for them is exactly the "do not
+ *     invent data" line the fixer table refuses to cross.
+ *   - never a same-name result: a name equal to a known package is exempted
+ *     above, so the caller can treat a non-null return as a real edit.
+ *
+ * `language` is the analyzer's language string; only 'python' selects the PyPI
+ * index, mirroring `hallucinatedDeps` (js/ts and anything else → npm).
+ */
+export function nearestKnownPackage(importName: string, language: string): string | null {
+  const pkg = importName.trim().toLowerCase();
+  if (!pkg) return null;
+  return classifyImportName(pkg, language === 'python').didYouMean ?? null;
+}
+
+function hallucinatedDeps(content: string, lines: string[], language: string | undefined): RuleMatch[] {
+  const isPy = language === 'python';
   const candidates = isPy ? pyCandidates(content, language) : jsCandidates(content, language);
 
   const out: RuleMatch[] = [];
@@ -158,38 +232,8 @@ function hallucinatedDeps(content: string, lines: string[], language: string | u
     if (processed >= 100) break;
     processed += 1;
     if (seen.has(pkg)) continue;
-    // Cheap exemptions first.
-    if (builtins.has(pkg)) continue;
-    if (ALIAS_STOPLIST.has(pkg)) continue;
-    if (index.set.has(pkg)) continue;
 
-    let didYouMean: string | undefined;
-    let confidence: 'high' | 'medium' | undefined;
-
-    if (CURATED_HALLUCINATIONS.has(pkg)) {
-      confidence = 'high';
-    } else {
-      // Normalized-key collision: same name modulo -/_/. separators (pip/npm
-      // separator confusion), but not literally equal to a known name.
-      const canon = index.normKeys.get(normKey(pkg));
-      if (canon && canon !== pkg) {
-        didYouMean = canon;
-        confidence = 'medium';
-      } else if (pkg.length >= 5) {
-        // Edit-distance-1 of a popular name (length band avoids comparing against
-        // everything; the ≥5 floor stops short names from colliding constantly).
-        for (const len of [pkg.length - 1, pkg.length, pkg.length + 1]) {
-          const bucket = index.byLen.get(len);
-          if (!bucket) continue;
-          const hit = bucket.find((known) => withinEditDistance1(pkg, known));
-          if (hit) {
-            didYouMean = hit;
-            confidence = 'medium';
-            break;
-          }
-        }
-      }
-    }
+    const { didYouMean, confidence } = classifyImportName(pkg, isPy);
 
     if (!confidence) continue; // unknown-but-not-near-miss → SILENT (the contract)
     seen.add(pkg);

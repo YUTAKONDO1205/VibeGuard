@@ -1,10 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { allRules } from '@vibeguard/rules';
+import { allRules, getRule, nearestKnownPackage, type RuleMatch } from '@vibeguard/rules';
 import { fixers, buildFix, applyFixes } from './fixers.js';
 
 // A finding's match, minimal shape for the fixers (line-anchored).
 function match(startLine: number) {
   return { startLine, endLine: startLine, startColumn: 1, endColumn: 1, evidence: '' };
+}
+
+/** A match anchored at a specific 1-based column (what the CLI rebuilds). */
+function matchAt(startLine: number, startColumn: number) {
+  return { startLine, endLine: startLine, startColumn, endColumn: startColumn, evidence: '' };
+}
+
+/**
+ * Run the REAL rule over `content`. Used to prove two things a hand-built match
+ * cannot: that the fixer consumes the coordinates the detector actually emits,
+ * and that the rule goes silent once the fix is applied.
+ */
+function detect(ruleId: string, content: string, language: string): RuleMatch[] {
+  const rule = getRule(ruleId);
+  if (!rule) throw new Error(`rule ${ruleId} not found`);
+  return rule.match({ content, lines: content.split('\n'), language });
 }
 
 /** Apply the fix for the single finding a rule produces on `content`. */
@@ -105,5 +121,243 @@ describe('fix determinism and safety', () => {
     expect(built).not.toBeNull();
     const out = applyFixes(content, built!.edits);
     expect(out).toBe('a("http://x.io"); b("https://y.io");\n');
+  });
+});
+
+// --- VG-INJ-020 -----------------------------------------------------------------
+// The rule ships TWO shapes under one ID, and only one of them is fixable, so
+// most of these tests are about what the fixer REFUSES to do.
+
+const GUARD_K = 'if (k === "__proto__" || k === "constructor" || k === "prototype") continue;';
+
+describe('VG-INJ-020 prototype-pollution guard', () => {
+  const MERGE = [
+    'function merge(dst, src) {',
+    '  for (const k in src) {',
+    '    if (typeof src[k] === "object") merge(dst[k], src[k]);',
+    '    else dst[k] = src[k];',
+    '  }',
+    '  return dst;',
+    '}',
+    '',
+  ].join('\n');
+
+  it('inserts the guard using the detector’s own coordinates', () => {
+    const matches = detect('VG-INJ-020', MERGE, 'javascript');
+    expect(matches).toHaveLength(1);
+    const built = buildFix('VG-INJ-020', MERGE, matches[0]!);
+    expect(built).not.toBeNull();
+    expect(built!.safety).toBe('needs-review');
+    const out = applyFixes(MERGE, built!.edits)!;
+    expect(out.split('\n')[2]).toBe(`    ${GUARD_K}`);
+    // Body indentation is COPIED from the first statement of the loop, not
+    // guessed: the guard lines up with the `if` it now precedes.
+    expect(out.split('\n')[3]).toBe('    if (typeof src[k] === "object") merge(dst[k], src[k]);');
+  });
+
+  it('silences the rule after the fix (real re-scan, not a claim)', () => {
+    const matches = detect('VG-INJ-020', MERGE, 'javascript');
+    const out = applyFixes(MERGE, buildFix('VG-INJ-020', MERGE, matches[0]!)!.edits)!;
+    // The rule's guard vocabulary includes the literal string "__proto__", so
+    // the inserted guard is recognised. If this ever fails, the fix would be
+    // applied twice by a re-run and this test is the tripwire.
+    expect(detect('VG-INJ-020', out, 'javascript')).toEqual([]);
+  });
+
+  it('is a no-op on a second application (idempotent)', () => {
+    const matches = detect('VG-INJ-020', MERGE, 'javascript');
+    const once = applyFixes(MERGE, buildFix('VG-INJ-020', MERGE, matches[0]!)!.edits)!;
+    // Replay the SAME (now stale) finding against the fixed bytes: the guard is
+    // already there, so no second edit is offered.
+    expect(buildFix('VG-INJ-020', once, matches[0]!)).toBeNull();
+  });
+
+  it('returns null for a Branch A match (proto-sink write, not a loop)', () => {
+    const content = 'const o = {};\no.__proto__ = evil;\n';
+    const matches = detect('VG-INJ-020', content, 'javascript');
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.startLine).toBe(2);
+    expect(buildFix('VG-INJ-020', content, matches[0]!)).toBeNull();
+  });
+
+  it('returns null for a Branch A match that shares its line with a real for-in', () => {
+    // The adversarial case the column anchor exists for: a `constructor.prototype`
+    // sink (no "__proto__" text to short-circuit on) followed by a genuine merge
+    // loop. Searching forward from the column would guard the wrong construct.
+    const content = 'a.constructor.prototype.x = 1; for (const k in s) { d[k] = s[k]; }\n';
+    const col = content.indexOf('.constructor') + 1;
+    expect(buildFix('VG-INJ-020', content, matchAt(1, col))).toBeNull();
+  });
+
+  it('returns null for a brace-less loop body', () => {
+    const content = 'for (const k in src) dst[k] = src[k];\n';
+    expect(buildFix('VG-INJ-020', content, matchAt(1, 1))).toBeNull();
+  });
+
+  it('guards the loop at the finding column when a line holds two loops', () => {
+    const content = 'for (const a in x) { y[a] = x[a]; } for (const b in p) { q[b] = p[b]; }\n';
+    const second = content.indexOf('for (const b') + 1;
+    const out = applyFixes(content, buildFix('VG-INJ-020', content, matchAt(1, second))!.edits)!;
+    expect(out).toBe(
+      'for (const a in x) { y[a] = x[a]; } for (const b in p) { ' +
+        'if (b === "__proto__" || b === "constructor" || b === "prototype") continue; ' +
+        'q[b] = p[b]; }\n',
+    );
+    // …and the first loop is chosen when the column points there instead.
+    const first = content.indexOf('for (const a') + 1;
+    const out1 = applyFixes(content, buildFix('VG-INJ-020', content, matchAt(1, first))!.edits)!;
+    expect(out1).toBe(
+      'for (const a in x) { ' +
+        'if (a === "__proto__" || a === "constructor" || a === "prototype") continue; ' +
+        'y[a] = x[a]; } for (const b in p) { q[b] = p[b]; }\n',
+    );
+  });
+
+  it('handles a $-prefixed loop variable verbatim', () => {
+    // `$` is a regex/replacement metacharacter; edits are built by slicing, not
+    // by String.replace, so `$k` must survive as written.
+    const content = 'for (const $k in src) { dst[$k] = src[$k]; }\n';
+    const out = applyFixes(content, buildFix('VG-INJ-020', content, matchAt(1, 1))!.edits)!;
+    expect(out).toBe(
+      'for (const $k in src) { ' +
+        'if ($k === "__proto__" || $k === "constructor" || $k === "prototype") continue; ' +
+        'dst[$k] = src[$k]; }\n',
+    );
+  });
+
+  it('preserves CRLF line endings', () => {
+    const crlf = MERGE.split('\n').join('\r\n');
+    const matches = detect('VG-INJ-020', crlf, 'javascript');
+    expect(matches).toHaveLength(1);
+    const out = applyFixes(crlf, buildFix('VG-INJ-020', crlf, matches[0]!)!.edits)!;
+    expect(out).toContain(`\r\n    ${GUARD_K}\r\n`);
+    // No lone LF was introduced anywhere in the file.
+    expect(out).not.toMatch(/[^\r]\n/);
+  });
+
+  it('does not mistake a `var`-prefixed identifier for a declaration keyword', () => {
+    // `for (variable in src)` — the loop variable is `variable`, not `iable`.
+    const content = 'for (variable in src) { dst[variable] = src[variable]; }\n';
+    const out = applyFixes(content, buildFix('VG-INJ-020', content, matchAt(1, 1))!.edits)!;
+    expect(out).toBe(
+      'for (variable in src) { ' +
+        'if (variable === "__proto__" || variable === "constructor" || variable === "prototype") continue; ' +
+        'dst[variable] = src[variable]; }\n',
+    );
+  });
+
+  it('returns null when the column does not land on a loop header', () => {
+    const content = 'const x = 1;\nfor (const k in src) { dst[k] = src[k]; }\n';
+    // Column 5 on line 2 is inside `(const k…`, not at `for`.
+    expect(buildFix('VG-INJ-020', content, matchAt(2, 5))).toBeNull();
+  });
+});
+
+// --- VG-AISC-001 ----------------------------------------------------------------
+
+describe('VG-AISC-001 hallucinated-import rename', () => {
+  it('renames a near-miss npm import to the detector’s own suggestion', () => {
+    const content = 'const express = require("expresss");\n';
+    const matches = detect('VG-AISC-001', content, 'javascript');
+    expect(matches).toHaveLength(1);
+    const built = buildFix('VG-AISC-001', content, matches[0]!);
+    expect(built).not.toBeNull();
+    expect(built!.safety).toBe('needs-review');
+    // The replacement is not merely "some popular name": it is byte-identical to
+    // the suggestion the RULE produced for this very match, which is the whole
+    // point of sharing `nearestKnownPackage` instead of copying the logic.
+    expect(built!.edits).toHaveLength(1);
+    expect(built!.edits[0]!.replacement).toBe(matches[0]!.variables?.didYouMean);
+    expect(built!.edits[0]!.replacement).toBe(nearestKnownPackage('expresss', 'javascript'));
+    // The edit lands INSIDE the quotes. The specifier's start is computed from
+    // the match END rather than by indexOf, which is what keeps it right when
+    // the specifier text also occurs inside the word `require`.
+    const specStart = content.indexOf('"expresss"') + 1;
+    expect(built!.edits[0]!.start).toBe(specStart);
+    expect(built!.edits[0]!.end).toBe(specStart + 'expresss'.length);
+    expect(applyFixes(content, built!.edits)).toBe('const express = require("express");\n');
+  });
+
+  it('renames only the import-position occurrence, not other text on the line', () => {
+    const content = 'const expresss = require("expresss"); log("expresss");\n';
+    const matches = detect('VG-AISC-001', content, 'javascript');
+    expect(matches).toHaveLength(1);
+    const built = buildFix('VG-AISC-001', content, matches[0]!)!;
+    expect(built.edits).toHaveLength(1);
+    expect(applyFixes(content, built.edits)).toBe(
+      'const expresss = require("express"); log("expresss");\n',
+    );
+  });
+
+  it('renames only the first path segment inside the string literal', () => {
+    const content = 'import r from "expresss/lib/router";\n';
+    const matches = detect('VG-AISC-001', content, 'javascript');
+    expect(matches).toHaveLength(1);
+    const out = applyFixes(content, buildFix('VG-AISC-001', content, matches[0]!)!.edits);
+    expect(out).toBe('import r from "express/lib/router";\n');
+  });
+
+  it('renames a Python module (unquoted import syntax)', () => {
+    const content = 'from numpyy import array\n';
+    const matches = detect('VG-AISC-001', content, 'python');
+    expect(matches).toHaveLength(1);
+    const built = buildFix('VG-AISC-001', content, matches[0]!)!;
+    expect(built.edits[0]!.replacement).toBe(nearestKnownPackage('numpyy', 'python'));
+    expect(applyFixes(content, built.edits)).toBe('from numpy import array\n');
+  });
+
+  it('returns null for a curated hallucination (no suggestion exists)', () => {
+    const content = 'const hf = require("huggingface-cli");\n';
+    const matches = detect('VG-AISC-001', content, 'javascript');
+    expect(matches).toHaveLength(1);
+    // Flagged with high confidence but NO didYouMean — there is nothing to
+    // rename to, and inventing a target is the line this engine will not cross.
+    expect(matches[0]!.variables?.didYouMean).toBeUndefined();
+    expect(buildFix('VG-AISC-001', content, matches[0]!)).toBeNull();
+  });
+
+  it('fixes the single near-miss when a line also holds a known import', () => {
+    const content = 'const a = require("expresss"); const b = require("lodash");\n';
+    const matches = detect('VG-AISC-001', content, 'javascript');
+    expect(matches).toHaveLength(1);
+    const out = applyFixes(content, buildFix('VG-AISC-001', content, matches[0]!)!.edits);
+    expect(out).toBe('const a = require("express"); const b = require("lodash");\n');
+  });
+
+  it('returns null when one line holds two different near-miss imports', () => {
+    const content = 'const a = require("expresss"); const b = require("lodashh");\n';
+    const matches = detect('VG-AISC-001', content, 'javascript');
+    // Two findings, both spanning the same whole line: the column cannot say
+    // which is which, so neither is fixed.
+    expect(matches.length).toBe(2);
+    for (const m of matches) expect(buildFix('VG-AISC-001', content, m)).toBeNull();
+  });
+
+  it('renames every occurrence when the SAME near-miss appears twice on a line', () => {
+    const content = 'require("expresss"); require("expresss");\n';
+    const matches = detect('VG-AISC-001', content, 'javascript');
+    expect(matches).toHaveLength(1); // the rule de-dups by package name
+    const built = buildFix('VG-AISC-001', content, matches[0]!)!;
+    expect(built.edits).toHaveLength(2);
+    expect(applyFixes(content, built.edits)).toBe('require("express"); require("express");\n');
+  });
+
+  it('ignores relative and scoped specifiers', () => {
+    for (const spec of ['./expresss', '@acme/expresss', 'node:expresss']) {
+      const content = `import x from "${spec}";\n`;
+      expect(buildFix('VG-AISC-001', content, matchAt(1, 1))).toBeNull();
+    }
+  });
+
+  it('does not rename a quoted string that is not an import specifier', () => {
+    expect(buildFix('VG-AISC-001', 'log("expresss");\n', matchAt(1, 1))).toBeNull();
+  });
+
+  it('is a no-op on a second application (idempotent)', () => {
+    const content = 'const express = require("expresss");\n';
+    const matches = detect('VG-AISC-001', content, 'javascript');
+    const once = applyFixes(content, buildFix('VG-AISC-001', content, matches[0]!)!.edits)!;
+    expect(buildFix('VG-AISC-001', once, matches[0]!)).toBeNull();
+    expect(detect('VG-AISC-001', once, 'javascript')).toEqual([]);
   });
 });

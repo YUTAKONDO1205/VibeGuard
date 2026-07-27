@@ -1,7 +1,7 @@
 # Security
 
 This document describes what VibeGuard defends, what it does not, and where the
-limits are. It is written against **engine `0.2.0`** (`engineVersions.core` in
+limits are. It is written against **engine `0.2.1`** (`engineVersions.core` in
 every scan result). See [README.md](README.md#versioning) for how the engine
 version relates to the released tool version.
 
@@ -28,7 +28,7 @@ All four channels run the same analyzer, and CI asserts they agree.
 
 ## What can fail a build
 
-**Only severity.** `--fail-on` compares severity, and nothing else.
+**Severity, by default.** `--fail-on` compares severity, and nothing else.
 
 Confidence is a triage aid — it orders a reviewer's attention. It is deliberately
 **not** part of the gate decision. This matters because confidence is derived
@@ -37,6 +37,39 @@ attacker-controlled: anyone who can write the file can make code look like a
 test. If confidence gated CI, that would be a way to turn a real finding into a
 passing build by moving it. It does not, so the worst such an attempt achieves is
 a worse-ordered report.
+
+**The one exception, stated because it is opt-in and easy to miss.**
+`--min-confidence` (and the `min-confidence` input on the Action) hides findings
+below a threshold, and a hidden finding is absent from the exit-code decision as
+well as from the report — the CLI says so at the filter and the Action input
+documents it. So a build configured with `--min-confidence` *is* gated on
+confidence, by the operator's own choice.
+
+That does not hand the *attacker* the gate, and the reason is the floor rather
+than good luck: context-derived down-ranking cannot move a `critical`, `high` or
+`medium` finding below `medium`, so no sequence of attacker edits pushes a
+finding across a `medium` threshold that it started above. That is the security
+claim, and it holds.
+
+**It is not a claim that a `medium` threshold is safe to gate on.** Twelve
+shipped rules *declare* `low` confidence while carrying a security judgement, and
+three of them are `high` severity: `VG-INJ-011` (XXE), `VG-MEM-004` (double
+free), `VG-MEM-005` (use after free). Those sit outside a `medium` threshold from
+the moment they are written — a static property of the rule set, not something an
+attacker causes. Measured, on a file whose only finding is a double free:
+
+```
+vibeguard . --fail-on high                          → exit 1
+vibeguard . --fail-on high --min-confidence medium  → exit 0
+```
+
+A `high`-severity memory-corruption finding left the gate, and no attacker was
+involved. The same is true of a `high` threshold, which drops most rules
+entirely.
+
+**So: leave `--min-confidence` unset in anything that gates a build.** It is a
+triage flag. With it unset, none of this applies and `--fail-on` is severity and
+nothing else.
 
 The same principle applies to every mechanism that lowers or removes a finding:
 **down-ranking and suppression are conveniences for humans, never security

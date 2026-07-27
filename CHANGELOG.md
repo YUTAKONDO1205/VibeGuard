@@ -10,6 +10,81 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`VG-RTOS-003` — cross-file ISR `volatile`** (#20d). The half of the ISR
+  shared-variable check that `VG-RTOS-002` could not reach: the ISR writes the
+  variable in one file and the reader lives in another. Runs in
+  `@vibeguard/analysis-graph` behind `--include-design-smells`, and fires only
+  when the declaration is unique across the project's headers, carries a builtin
+  scalar type, is not `static`, and reaches the reader through a resolved quoted
+  include — every one of which is a way of refusing to guess when "the same name"
+  might be two different variables. `confidence` is capped at `medium`.
+- **Security Context Boost for `VG-SMELL-010`** (#22d): a finding is raised to
+  `high` when a check sits on a security-worded path or its handler writes to a
+  data store, in addition to the existing privilege-word condition. The
+  routing-layer condition from the design addendum is **detected and reported but
+  deliberately not wired to severity** — measured over 1,683 repositories it held
+  for 95.4% of sites, and a severity that is `high` for almost everything is not
+  a severity.
+- **`VG-SMELL-012` now covers Java, Go and Kotlin** (#17z-e), with positive and
+  negative corpora for each. Files carrying raw-string / text-block delimiters
+  the blanker does not model are skipped rather than guessed at.
+- **Two new deterministic fixers** (#17z-d): `VG-INJ-020` inserts the prototype-key
+  guard at the top of a `for…in` merge loop, and `VG-AISC-001` renames an import
+  to the package it near-misses. Both are `needs-review`; both are fixpoints (a
+  second `--fix` is a no-op). `VG-SMELL-012` deliberately gets **no** fixer.
+- **`declaredPackages` veto for `VG-AISC-001`** (#17z-b): the CLI reads the
+  project's lockfile and suppresses findings for packages it actually declares.
+  Lockfiles only — a `package.json` entry is not evidence a package exists, and
+  the case this rule exists for is an LLM writing the manifest too.
+- **`VG-AISC-001` data audit** (#17z-a/c): 38 real package names recovered by
+  scanning 2,683 repositories' manifests for names the rule would have called
+  near-misses, iterated to closure (`KNOWN_NPM` 283→298, `KNOWN_PYPI` 199→222);
+  and separately 12 curated hallucinations added from the disclosure set of
+  arXiv:2605.17062, each re-checked against the npm registry.
+
+### Changed
+
+- **`VG-SMELL-010` condition ③ narrowed.** `MUTATING_METHOD` no longer contains
+  the bare verbs `update`, `delete`, `insert`, `destroy`, and a SQL verb pair must
+  now be accompanied by SQL syntax. Measured: `createHash(…).update(…)`,
+  `req.session.destroy(…)`, `responseCache.delete(…)`, `progressBar.update(1)`
+  and the English sentences "You cannot delete from an empty catalogue" /
+  "Update your plan to set a higher listing limit" each raised the severity
+  sentinel from `medium` to `high` on their own. All six are pinned as tests.
+
+### Fixed
+
+- **First measured firmware footprints** (#18b). `scripts/emb-fix-footprint.mjs`
+  now drives the real pipeline (`match` → `buildFix` → `applyFixes`) and sizes the
+  result with `arm-none-eabi-size`, so the "after" side is the fixer's own output
+  rather than a hand-typed patch. The honest-null contract is unchanged: a row
+  with no toolchain stays `null` and is never rendered as `0`.
+
+  Measured 2026-07-28 on `arm-none-eabi-gcc 13.2.1 20231009` (Debian/Ubuntu
+  `15:13.2.rel1-2`) with `GNU size 2.42`, one translation unit per specimen,
+  `-mcpu=cortex-m4 -Os -Wall -c`. Reproduce with
+  `node scripts/emb-fix-footprint.mjs` on a machine that has the toolchain; every
+  row is `null` with reason `toolchain-absent` on a machine that does not.
+
+  | rule | fix | flash Δ | ram Δ | source of the "after" |
+  |---|---|---|---|---|
+  | `VG-EMB-020` | Set the debug define to 0 | −33 B | +0 B | fixer output |
+  | `VG-EMB-021` | Turn the bypass flag off | +10 B | +0 B | fixer output |
+  | `VG-EMB-010` | Use https for the endpoint | +1 B | +0 B | fixer output |
+  | `VG-EMB-011` | Require certificate verification | +0 B | +0 B | fixer output |
+  | `VG-RTOS-004` | Add `O_SYNC` for durability | +0 B | +0 B | fixer output |
+  | `VG-MEM-002` | `strcpy` → `snprintf` | +15 B | +0 B | **hand-written** (no fixer) |
+  | `VG-MEM-001` | `gets` → `fgets` | +12 B | +0 B | **hand-written** (no fixer) |
+
+  A `+0 B` here is a measured zero, not a missing measurement — `VG-EMB-011`
+  swaps one integer constant for another and the two encode identically. The
+  Arduino-API fixes (WiFi / Serial / HTTPClient) are absent rather than zero:
+  they need a board core to compile, and sizing a stub of ours would be sizing
+  the stub. This table, not a JSON artefact, is the record — the script writes
+  JSON only when given `--json <path>`.
+
 ## [0.2.1] - 2026-07-21
 
 ### Added — C/C++/Arduino embedded layer (engine 0.2.0 → 0.2.1)

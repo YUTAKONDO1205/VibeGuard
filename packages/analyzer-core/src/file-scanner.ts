@@ -71,6 +71,22 @@ export interface ScanPathOptions extends AnalyzerOptions {
   now?: Date;
 }
 
+/**
+ * §17z-b — how the declared-package veto reaches a directory walk.
+ *
+ * Inherited from `AnalyzerOptions` rather than declared here, and set on the
+ * request of every file rather than only on the Analyzer, so the value that
+ * ends up in effect is visible at the call site instead of hidden in a
+ * constructor two files away. Same list for the whole walk: the evidence is the
+ * scan target's lockfile, which is a statement about the project, not about a
+ * file. A monorepo whose sub-packages each carry their own lockfile therefore
+ * gets the ROOT one applied everywhere (or none, if the root has none) —
+ * accepted, because the alternative is a per-directory lockfile search whose
+ * behaviour nobody can predict from the command line they typed. Scanning a
+ * sub-package directly gives it its own lockfile, which is the escape hatch.
+ */
+
+
 export async function scanPath(target: string, options: ScanPathOptions = {}): Promise<ScanResponse> {
   const start = Date.now();
   const ignore = new Set([...DEFAULT_IGNORE, ...(options.ignore ?? [])]);
@@ -134,6 +150,7 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
       language,
       mode: options.mode ?? 'standard',
       includeRemediation: options.includeRemediation,
+      ...(options.declaredPackages ? { declaredPackages: options.declaredPackages } : {}),
     });
     const pathSuppressed = suppressionsForPath(config, relPath, now);
     for (const f of result.findings) {

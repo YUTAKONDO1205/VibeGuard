@@ -90,6 +90,31 @@ export {
 
 export { crossFileRules, scatteredAuthorization } from './design-smells-crossfile/index.js';
 
+/**
+ * VG-SMELL-010's pre-threshold population, for the recall / sensitivity analysis.
+ *
+ * Imported from the RULE MODULE rather than from `design-smells-crossfile/
+ * index.js`, and that is deliberate rather than an oversight. That barrel is the
+ * RULE REGISTRY — `crossFileRules` is what `runCrossFileRules` iterates, and
+ * everything re-exported beside it reads as "part of the rule set". This is not
+ * a rule and not part of one: it is an inspection affordance for a study that
+ * runs beside the engine, and filing it with the registry would invite the next
+ * reader to wonder which pass executes it.
+ *
+ * `CheckSite` comes with it because a `readonly CheckSite[]` a caller cannot
+ * name is a return type they have to re-declare, and a re-declared structural
+ * copy is a contract that silently stops matching the day a field is added.
+ *
+ * ★ The thresholds this deliberately does not apply (`MIN_SITES`, `MIN_FILES`)
+ * are NOT exported and must not be: an analysis that could read them would be
+ * one step from changing them, and the whole point of measuring sensitivity is
+ * that the shipped verdict stays fixed while the question moves.
+ */
+export {
+  collectScatteredAuthSites,
+  type CheckSite,
+} from './design-smells-crossfile/scattered-authorization.js';
+
 export {
   indexFile,
   isIndexableLanguage,
