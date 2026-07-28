@@ -5,6 +5,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-28
+
+No change to this extension. The repository releases every channel under one
+tool version, and `0.3.1` fixes the **Chrome** extension's icon; this build is
+`0.3.0` with the version number moved. Analyzer engine is unchanged at `0.3.0`.
+
 ## [0.3.0] - 2026-07-28
 
 > The extension version jumps `0.1.3` → `0.3.0` in this file because the `0.2.0`

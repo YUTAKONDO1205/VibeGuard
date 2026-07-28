@@ -1,7 +1,7 @@
 {
   "name": "vibeguard",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "VibeGuard - security diagnostics for AI-generated code",
   "license": "MIT",
   "workspaces": [
