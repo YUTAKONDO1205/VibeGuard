@@ -1,6 +1,6 @@
 {
   "name": "@vibeguard/analysis-graph",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -17,9 +17,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@vibeguard/analyzer-core": "0.3.0",
-    "@vibeguard/findings-schema": "0.3.0",
-    "@vibeguard/rules": "0.3.0"
+    "@vibeguard/analyzer-core": "0.3.1",
+    "@vibeguard/findings-schema": "0.3.1",
+    "@vibeguard/rules": "0.3.1"
   },
   "devDependencies": {
     "typescript": "^5.4.5",
