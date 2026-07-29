@@ -5,6 +5,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-07-29
+
+No change to this extension. The repository releases every channel under one tool version, and
+0.3.3 fixes the **Chrome** extension manifest version that blocked its 0.3.2 submission.
+This build is 0.3.2 with the version number moved. Analyzer engine is unchanged at `0.3.1`.
+
 ## [0.3.2] - 2026-07-29
 
 Analyzer engine moves to `0.3.1`, so **what this extension reports changes** —
