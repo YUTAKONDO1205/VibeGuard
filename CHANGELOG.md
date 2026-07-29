@@ -14,6 +14,28 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-07-29
+
+Packaging fix for 0.3.2. **Engine is unchanged at `0.3.1`** — nothing about detection moved.
+
+### Fixed
+
+- **The Chrome extension shipped 0.3.2 with a manifest still saying `0.3.1`.**
+  `extensions/chrome/manifest.json` is a hand-maintained static file that the build copies
+  verbatim into `dist/`; the 0.3.2 bump moved every `package.json` and missed it. The Chrome
+  Web Store reads the manifest and rejects an upload whose version is not greater than the
+  published one, so the 0.3.2 zip could not be submitted.
+
+  The failure arrived as late as it possibly could: the tag was pushed, the Release workflow
+  went green, and the VSIX published to both marketplaces at 0.3.2 — the mismatch surfaced only
+  when a human tried to upload the zip. `check-packaging-invariants.mjs` now asserts that the
+  manifest matches its `package.json`, and that all four shipped surfaces match the root
+  version — a source-only check, so it fails in seconds before anything is packaged. It was
+  verified to reproduce this exact failure before being kept.
+
+  0.3.2 stays published on the VS Code Marketplace and Open VSX; it is 0.3.3 minus this fix.
+  Chrome goes straight from 0.3.1 to 0.3.3.
+
 ## [0.3.2] - 2026-07-29
 
 **Engine moves to `0.3.1`, and this is the first bump that is not additive.**

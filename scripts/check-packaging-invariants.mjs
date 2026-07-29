@@ -147,6 +147,63 @@ const failures = [];
   }
 }
 
+// ── INVARIANT: the Chrome manifest version tracks the package version ───────
+//
+// `extensions/chrome/manifest.json` is a hand-maintained static file that
+// `copy-static.mjs` copies verbatim into `dist/`. Its `version` is what the
+// Chrome Web Store reads, and nothing kept it in step with the `package.json`
+// the rest of the release bumps.
+//
+// The failure mode is late and expensive: the tag is pushed, the Release
+// workflow goes green, the VSIX and the CLI tarball publish correctly, and the
+// mismatch only surfaces when a human uploads the zip to the Web Store and is
+// told "version 0.3.1 is not greater than the published 0.3.1". By then the
+// release exists and the fix means replacing an asset on it. That is exactly
+// the shape of failure this file was written for — something that only breaks
+// at release time, long after the change that caused it.
+//
+// It happened on 0.3.2. Source-only, so it runs in the `--pre-build` subset and
+// fails in seconds, before anything is packaged.
+{
+  const manifestPath = join(REPO_ROOT, 'extensions/chrome/manifest.json');
+  const chromePkgPath = join(REPO_ROOT, 'extensions/chrome/package.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  const chromePkg = JSON.parse(readFileSync(chromePkgPath, 'utf8'));
+
+  if (manifest.version !== chromePkg.version) {
+    failures.push(
+      `extensions/chrome: manifest.json version ${JSON.stringify(manifest.version)} does not match ` +
+        `package.json ${JSON.stringify(chromePkg.version)}.\n` +
+        '  The Chrome Web Store reads manifest.json, and it refuses an upload whose version is not\n' +
+        '  GREATER than the published one — so this is caught by a human at the very end of a\n' +
+        '  release, after the tag and the GitHub Release already exist. Bump manifest.json in the\n' +
+        '  same commit as every other version.',
+    );
+  }
+
+  // The root package.json is what the release is named after, and the tag check
+  // in release.yml compares against apps/cli. Every shipped surface should agree
+  // with it, so a partial bump cannot ship.
+  const rootVersion = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')).version;
+  const shipped = [
+    ['apps/cli/package.json', 'apps/cli'],
+    ['extensions/vscode/package.json', 'extensions/vscode'],
+    ['extensions/chrome/package.json', 'extensions/chrome'],
+    ['extensions/chrome/manifest.json', 'extensions/chrome (manifest)'],
+  ];
+  for (const [relPath, label] of shipped) {
+    const version = JSON.parse(readFileSync(join(REPO_ROOT, relPath), 'utf8')).version;
+    if (version !== rootVersion) {
+      failures.push(
+        `${label}: version ${JSON.stringify(version)} does not match the root package.json ` +
+          `${JSON.stringify(rootVersion)}.\n` +
+          '  All four channels ship under one tool version; a partial bump publishes a channel\n' +
+          '  under a number that names a different build.',
+      );
+    }
+  }
+}
+
 // ── Invariant 2: the CLI stays unpublishable ────────────────────────────────
 // Publishing to npm was abandoned permanently, and the package name is unclaimed
 // on the registry: a stray `npm publish` would not overwrite anything, it would
