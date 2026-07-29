@@ -12,7 +12,7 @@ export {
   type CanonicalizeResult,
   type CanonicalizeStats,
 } from './canonicalizer.js';
-export { scanPath, DEFAULT_IGNORE, type ScanPathOptions } from './file-scanner.js';
+export { scanPath, DEFAULT_IGNORE, MAX_FILE_BYTES, type ScanPathOptions } from './file-scanner.js';
 export { detectLanguageFromPath, detectLanguageFromContent } from './language-detect.js';
 export { extractSnippet, maskSecret } from './snippet.js';
 export {

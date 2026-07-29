@@ -51,7 +51,14 @@ export interface SarifRuleDescriptor {
   fullDescription: { text: string };
   help?: { text: string; markdown?: string };
   defaultConfiguration: { level: SarifLevel };
-  properties?: { tags?: string[]; category?: string };
+  properties?: {
+    tags?: string[];
+    category?: string;
+    /** GitHub code scanning severity band. See SEVERITY_TO_SECURITY_SEVERITY. */
+    'security-severity'?: string;
+    /** GitHub code scanning precision hint, derived from confidence. */
+    precision?: string;
+  };
 }
 
 export interface SarifResult {
@@ -114,8 +121,45 @@ const SEVERITY_TO_LEVEL: Record<Severity, SarifLevel> = {
   info: 'note',
 };
 
+// The OASIS publication location for the 2.1.0 Errata 01 schema. The previous
+// value pointed into the sarif-spec repo's `master` branch, which no longer
+// serves that path (404) — a `$schema` nobody can fetch is worse than none,
+// because validators report a load failure rather than a schema violation.
+// This URI is a published standard artefact, so it does not move with a branch.
 const SCHEMA_URI =
-  'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json';
+  'https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json';
+
+/** The repository this tool actually lives in. Used as the SARIF `informationUri`. */
+const DEFAULT_INFORMATION_URI = 'https://github.com/YUTAKONDO1205/VibeGuard';
+
+/**
+ * GitHub code scanning reads `security-severity` off the rule descriptor to
+ * place an alert in its own Critical/High/Medium/Low buckets; without it every
+ * alert lands in the same bucket regardless of what VibeGuard said. The numbers
+ * are GitHub's documented bands (critical >= 9.0, high >= 7.0, medium >= 4.0,
+ * low > 0.0), expressed as strings because that is what the property expects.
+ *
+ * This matters because `level` alone cannot carry the distinction: SARIF has
+ * four levels and VibeGuard has five severities, so `critical` and `high` both
+ * map to `error`. `security-severity` is where that collapse is undone.
+ */
+const SEVERITY_TO_SECURITY_SEVERITY: Record<Severity, string> = {
+  critical: '9.0',
+  high: '7.0',
+  medium: '5.0',
+  low: '3.0',
+  info: '1.0',
+};
+
+/**
+ * GitHub's `precision` hint, derived from the finding's confidence. VibeGuard is
+ * a regex-first scanner, so nothing here claims `very-high`.
+ */
+const CONFIDENCE_TO_PRECISION: Record<string, string> = {
+  high: 'high',
+  medium: 'medium',
+  low: 'low',
+};
 
 function buildRuleDescriptors(findings: Finding[]): SarifRuleDescriptor[] {
   const byId = new Map<string, SarifRuleDescriptor>();
@@ -135,13 +179,30 @@ function buildRuleDescriptors(findings: Finding[]): SarifRuleDescriptor[] {
       properties: {
         tags: f.tags,
         category: f.category,
+        'security-severity': SEVERITY_TO_SECURITY_SEVERITY[f.severity],
+        precision: CONFIDENCE_TO_PRECISION[f.confidence],
       },
     });
   }
   return Array.from(byId.values());
 }
 
-function findingToResult(f: Finding): SarifResult {
+/**
+ * `uri` for a path, lifted out of the target's basis into the repository's.
+ *
+ * The prefix is applied only to RELATIVE paths. An absolute path (a snippet
+ * scan carries the fsPath; `<inline>` carries no path at all) is left alone,
+ * because prefixing it would produce something that is neither.
+ */
+function toUri(filePath: string | undefined, prefix: string): string {
+  const p = filePath ?? '<inline>';
+  if (!prefix || p === '<inline>') return p;
+  // Already absolute, or already carrying the prefix — leave it.
+  if (/^([a-zA-Z]:[\\/]|\/)/.test(p) || p.startsWith(prefix)) return p;
+  return `${prefix}${p}`;
+}
+
+function findingToResult(f: Finding, uriPrefix = ''): SarifResult {
   const startLine = f.startLine ?? 1;
   return {
     ruleId: f.ruleId,
@@ -150,7 +211,7 @@ function findingToResult(f: Finding): SarifResult {
     locations: [
       {
         physicalLocation: {
-          artifactLocation: { uri: f.filePath ?? '<inline>' },
+          artifactLocation: { uri: toUri(f.filePath, uriPrefix) },
           region: {
             startLine,
             endLine: f.endLine,
@@ -173,7 +234,7 @@ function findingToResult(f: Finding): SarifResult {
             // producer's deterministic order.
             id: i + 1,
             physicalLocation: {
-              artifactLocation: { uri: loc.filePath },
+              artifactLocation: { uri: toUri(loc.filePath, uriPrefix) },
               region: {
                 startLine: loc.startLine,
                 endLine: loc.endLine,
@@ -209,17 +270,38 @@ export interface ToSarifOptions {
   toolName?: string;
   toolVersion?: string;
   informationUri?: string;
+  /**
+   * Prepended to every artifact URI, `/`-terminated. Use it to lift
+   * target-relative finding paths to repository-root-relative ones.
+   *
+   * A finding's `filePath` is relative to the SCAN TARGET, which is the right
+   * basis for the CLI's own output and for `--fix`. It is the wrong basis for
+   * SARIF: GitHub code scanning resolves `artifactLocation.uri` from the
+   * repository root, so `vibeguard packages/api --format sarif` emitted
+   * `routes.ts` for a file that lives at `packages/api/routes.ts`. Every alert
+   * then pointed at a path that does not exist, or — worse — at a different
+   * file that happens to share the name.
+   *
+   * Applied here rather than by changing `filePath` itself, because that field
+   * has three other consumers (`fix.ts` reads a finding back as
+   * `join(target, filePath)`, config `suppress[].paths` globs are written
+   * against it, and the CLI prints it) and moving its basis would break all of
+   * them to fix one.
+   */
+  uriPrefix?: string;
 }
 
 export function toSarif(scan: ScanResponse, options: ToSarifOptions = {}): SarifLog {
   const rules = buildRuleDescriptors(scan.findings);
-  const results = scan.findings.map(findingToResult);
+  // Normalised to a single trailing slash so callers may pass either form.
+  const uriPrefix = options.uriPrefix ? options.uriPrefix.replace(/\/*$/, '/') : '';
+  const results = scan.findings.map((f) => findingToResult(f, uriPrefix));
   const run: SarifRun = {
     tool: {
       driver: {
         name: options.toolName ?? 'VibeGuard',
-        version: options.toolVersion ?? scan.engineVersions.core ?? '0.3.0',
-        informationUri: options.informationUri ?? 'https://github.com/vibeguard/vibeguard',
+        version: options.toolVersion ?? scan.engineVersions.core ?? '0.3.1',
+        informationUri: options.informationUri ?? DEFAULT_INFORMATION_URI,
         rules,
       },
     },
@@ -228,7 +310,8 @@ export function toSarif(scan: ScanResponse, options: ToSarifOptions = {}): Sarif
   const ruleErrors = scan.ruleErrors ?? [];
   const degradations = scan.degradations ?? [];
   const suppressions = scan.suppressions ?? [];
-  if (ruleErrors.length || degradations.length || suppressions.length) {
+  const vetoes = scan.declaredPackageVetoes ?? [];
+  if (ruleErrors.length || degradations.length || suppressions.length || vetoes.length) {
     const notifications: SarifNotification[] = [
       // Rule crashes are errors: the rule produced nothing.
       ...ruleErrors.map((e) => ({
@@ -275,6 +358,29 @@ export function toSarif(scan: ScanResponse, options: ToSarifOptions = {}): Sarif
             `${s.scope} suppression${s.filePath ? ` (${s.filePath})` : ''} and are not reported above.`,
         },
         associatedRule: { id: s.ruleId },
+      })),
+      // The declared-package veto, on the same channel and for the same reason.
+      // It DELETES findings, and until this existed it reported itself only on
+      // the CLI's stderr — so the artifact the GitHub Action uploads, which is
+      // the one most projects actually read, could not tell "nothing was found"
+      // from "something was found and removed".
+      //
+      // The wording states what was OBSERVED. Nothing here contacted a registry
+      // and neither `resolved` nor `integrity` was checked, so a hand-written
+      // entry naming a package that was never published looks exactly like a
+      // real one. Saying "the package exists" would assert what the tool did not
+      // establish.
+      ...vetoes.map((v) => ({
+        level: 'note' as SarifLevel,
+        message: {
+          text:
+            `${v.count} finding(s) of ${v.ruleId} for package "${v.packageName}" ` +
+            `${v.filePath ? `in ${v.filePath} ` : ''}were not reported because ` +
+            `${v.source ?? 'a project manifest'} declares that package. ` +
+            'The manifest was read as written and not verified against a registry, ' +
+            'so this is a statement about the manifest, not evidence that the package exists or is safe.',
+        },
+        associatedRule: { id: v.ruleId },
       })),
     ];
     run.invocations = [

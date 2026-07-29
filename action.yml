@@ -112,10 +112,19 @@ runs:
       run: |
         set +e
         args=()
+        # `path` applies on BOTH branches. It used to be dropped whenever
+        # `diff` was set, so a workflow asking for `path: packages/api` plus a
+        # diff range silently scanned the whole repository instead — the
+        # opposite of what it wrote, and in the widening direction.
+        #
+        # This is safe only because the CLI now resolves diff paths against the
+        # repository root and treats the target as a filter. Before that, a
+        # subdirectory target made every read fail and the scan report clean, so
+        # passing `path` here would have converted a scope bug into a silent
+        # all-clear. Order matters: this line must not ship without that fix.
+        args+=("$VG_PATH")
         if [ -n "$VG_DIFF" ]; then
           args+=("--diff" "$VG_DIFF")
-        else
-          args+=("$VG_PATH")
         fi
         args+=("--mode" "$VG_MODE")
         args+=("--format" "$VG_FORMAT")

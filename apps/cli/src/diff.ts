@@ -16,11 +16,12 @@
  */
 
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   Analyzer,
   DEFAULT_IGNORE,
+  MAX_FILE_BYTES,
   ENGINE_VERSION,
   detectLanguageFromPath,
   collectSuppressions,
@@ -42,6 +43,7 @@ import {
   type ScanDegradation,
   type ScanMode,
   type ScanResponse,
+  type DeclaredPackageVetoRecord,
 } from '@vibeguard/findings-schema';
 
 const FILE_HEADER_RE = /^\+\+\+ b\/(.+)$/;
@@ -106,8 +108,77 @@ export function parseUnifiedDiff(diff: string): DiffMap {
   return out;
 }
 
+/**
+ * Run `git diff` in a format this parser can actually read.
+ *
+ * The `-c` flags are not cosmetic — each one pins a knob that a USER's
+ * gitconfig can otherwise flip out from under us, and every one of those flips
+ * is silent. `parseUnifiedDiff` recognises `+++ b/<path>` and nothing else, so
+ * a header in any other shape registers no file, contributes no added lines,
+ * and the scan reports a clean diff with exit 0. That is the worst failure mode
+ * a security tool has: not an error, an all-clear.
+ *
+ *  - `diff.noprefix=true` drops the `a/`/`b/` prefixes entirely, so headers
+ *    arrive as `+++ path`. A developer who set this once for copy-pasteable
+ *    patches turns every diff scan into a no-op — including in CI, because a
+ *    self-hosted runner or a Docker image with a baked-in gitconfig carries the
+ *    setting into the Action.
+ *  - `diff.mnemonicPrefix=true` rewrites the prefixes semantically (`i/`, `w/`,
+ *    `c/`, `o/`), which misses the regex the same way.
+ *  - `core.quotepath=true` (git's DEFAULT) octal-escapes any non-ASCII byte and
+ *    wraps the header in quotes: `+++ "b/src/\350\252\215..."`. Repositories
+ *    with non-ASCII filenames therefore skip exactly those files.
+ *
+ * Forcing the prefixes explicitly is deliberately preferred over teaching the
+ * parser every variant: there is one shape to parse, and it does not depend on
+ * ambient configuration. `-c` applies to this invocation only and does not
+ * touch the user's config.
+ */
 export async function gitDiff(range: string, cwd: string): Promise<string> {
-  return spawnCapture('git', ['diff', '--unified=0', '--no-color', range, '--'], cwd);
+  return spawnCapture(
+    'git',
+    [
+      '-c',
+      'core.quotepath=false',
+      '-c',
+      'diff.noprefix=false',
+      '-c',
+      'diff.mnemonicPrefix=false',
+      'diff',
+      '--unified=0',
+      '--no-color',
+      '--src-prefix=a/',
+      '--dst-prefix=b/',
+      range,
+      '--',
+    ],
+    cwd,
+  );
+}
+
+/**
+ * Absolute path of the repository root containing `cwd`, or `null` when `cwd`
+ * is not inside a work tree.
+ *
+ * Diff headers are ALWAYS repo-root-relative, whatever directory git ran in.
+ * Resolving files against the scan target instead — which is what this code did
+ * before — builds paths like `samples/vulnerable/apps/cli/src/x.ts` for a scan
+ * of `samples/vulnerable`. Those do not exist, every read fails, and the run
+ * reports zero findings and exits 0. The scan looks clean because nothing was
+ * read, which is indistinguishable from clean because nothing was wrong.
+ */
+export async function gitRepoRootOf(cwd: string): Promise<string | null> {
+  return gitRepoRoot(cwd);
+}
+
+async function gitRepoRoot(cwd: string): Promise<string | null> {
+  try {
+    const out = await spawnCapture('git', ['rev-parse', '--show-toplevel'], cwd);
+    const root = out.trim();
+    return root.length > 0 ? root : null;
+  } catch {
+    return null;
+  }
 }
 
 function spawnCapture(cmd: string, args: string[], cwd: string): Promise<string> {
@@ -136,10 +207,33 @@ export interface ScanDiffOptions extends AnalyzerOptions {
    * (default segments from DEFAULT_IGNORE plus these extras).
    */
   ignore?: string[];
+  /**
+   * Only scan files whose extension maps to a known language. Mirrors
+   * `--known-only` on `scanPath`, which is where it used to stop: the flag
+   * parsed, was accepted, and was then silently ignored on this path, so a
+   * diff run scanned exactly the files the user had asked it not to.
+   */
+  knownLanguagesOnly?: boolean;
   /** Pre-computed diff text instead of running git (for tests). */
   diffText?: string;
   /** Path to a vibeguard config file. `false` = skip discovery. */
   config?: string | false;
+}
+
+/**
+ * The repo-root-relative, `/`-separated prefix that `target` denotes, or `''`
+ * when the target IS the root (or sits outside it, where filtering would be
+ * meaningless). Diff paths are compared against this to decide what a scan of a
+ * subdirectory covers.
+ *
+ * The trailing slash matters: without it, a target of `app` would also admit
+ * `apps/`, which is a different directory.
+ */
+export function diffScopePrefix(repoRoot: string, target: string): string {
+  const rel = relative(resolve(repoRoot), resolve(target));
+  // Same directory, or target is above/outside the root — no filtering.
+  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return '';
+  return `${rel.split(sep).join('/')}/`;
 }
 
 /**
@@ -171,11 +265,31 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
   const startedAt = Date.now();
   const diffText = options.diffText ?? (await gitDiff(options.range, options.cwd));
   const diffMap = parseUnifiedDiff(diffText);
+
+  // Where diff paths are rooted, and which of them this scan was asked about.
+  //
+  // `options.cwd` is the TARGET the user named, which may be a subdirectory.
+  // Diff paths are repo-root-relative regardless, so reads resolve against the
+  // root; the target then acts as a FILTER. Naming a subdirectory therefore
+  // means "the part of this diff under here", which is what a user asking for
+  // `vibeguard packages/rules --diff main..HEAD` means — not "the whole diff"
+  // and, as it behaved before, not "nothing at all".
+  //
+  // `diffText` is the injected-for-tests path; those fixtures are already
+  // root-relative and have no repo to consult, so the target stays the base.
+  const repoRoot = options.diffText === undefined ? await gitRepoRoot(options.cwd) : null;
+  const readBase = repoRoot ?? options.cwd;
+  const scopePrefix = repoRoot ? diffScopePrefix(repoRoot, options.cwd) : '';
   const analyzer = new Analyzer(options);
   const findings: Finding[] = [];
   // Deduped by ruleId across the diffed files (see scanPath for the rationale).
   const ruleErrorsByRule = new Map<string, RuleError>();
   const degradationsByFileKind = new Map<string, ScanDegradation>();
+  // Aggregated across files for the same reason the suppression tally is: a
+  // channel that DELETES findings has to be visible in the artifact, not only
+  // on the CLI's stderr. Keyed rule|package|file, so a project depending on a
+  // dozen near-miss names gets a dozen lines and not one per match.
+  const vetoesByKey = new Map<string, DeclaredPackageVetoRecord>();
   // D8, mirroring `scanPath`: pragma records come up from the analyzer, config
   // records are added below. Observability only; nothing here gates anything.
   const suppressionTally: SuppressionTally = new Map();
@@ -192,23 +306,51 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
   for (const [relPath, added] of diffMap) {
     if (added.size === 0) continue;
     if (isIgnoredPath(relPath, ignore)) continue;
+    // Outside the directory the user named — not this scan's business.
+    if (scopePrefix && !relPath.startsWith(scopePrefix)) continue;
+    // Two different paths for two different jobs, and conflating them is what
+    // this whole block exists to avoid:
+    //  - `relPath` is repo-root-relative, because that is what git emits. It
+    //    addresses the file ON DISK and is used for nothing else.
+    //  - `displayPath` is relative to the TARGET the user named, because that
+    //    is what a directory scan reports and what every consumer downstream
+    //    already assumes. `fix.ts` reads a finding back as
+    //    `join(target, displayPath)`; config `suppress[].paths` globs are
+    //    written against it; the SARIF adapter emits it as the artifact URI.
+    //    Reporting root-relative paths here would silently change the meaning
+    //    of all three for a subdirectory scan.
+    // When the target IS the repository root, `scopePrefix` is empty and the
+    // two are identical — which is why this distinction never surfaced before.
+    const displayPath = scopePrefix ? relPath.slice(scopePrefix.length) : relPath;
     const language = detectLanguageFromPath(relPath);
+    // Mirrors `scanPath`. Both admission rules used to be missing here, so
+    // `--known-only` did nothing on a diff run and a 40 MB generated file in a
+    // commit was read into memory whole — the same input the directory scan
+    // caps at MAX_FILE_BYTES.
+    if (options.knownLanguagesOnly && !language) continue;
+    const absolute = join(readBase, relPath);
+    try {
+      const info = await stat(absolute);
+      if (info.size > MAX_FILE_BYTES) continue;
+    } catch {
+      // Deleted in the new revision, or unreadable — the read below reports it.
+    }
     let content: string;
     try {
-      content = await readFile(join(options.cwd, relPath), 'utf8');
+      content = await readFile(absolute, 'utf8');
     } catch {
       // File deleted in the new revision, or unreadable — skip.
       continue;
     }
     const result = analyzer.scan({
       targetType: 'diff',
-      filePath: relPath,
+      filePath: displayPath,
       content,
       language,
       mode: options.mode ?? 'standard',
       includeRemediation: options.includeRemediation,
     });
-    const pathSuppressed = suppressionsForPath(config, relPath, now);
+    const pathSuppressed = suppressionsForPath(config, displayPath, now);
     for (const f of result.findings) {
       // Mirrors scanPath: a config wildcard refused by the severity gate keeps
       // the finding and records the refusal instead of dropping it.
@@ -229,7 +371,7 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
             channel: 'config',
             scope: 'path',
             ruleId: f.ruleId,
-            filePath: f.filePath ?? relPath,
+            filePath: f.filePath ?? displayPath,
           });
         }
         continue;
@@ -241,6 +383,12 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
       if (overlapsAdded(kept, added)) findings.push(kept);
     }
     mergeSuppressions(suppressionTally, result.suppressions);
+    for (const v of result.declaredPackageVetoes ?? []) {
+      const k = `${v.ruleId}|${v.packageName}|${v.filePath ?? relPath}`;
+      const prev = vetoesByKey.get(k);
+      if (prev) prev.count += v.count;
+      else vetoesByKey.set(k, { ...v, filePath: v.filePath ?? relPath });
+    }
     for (const e of result.ruleErrors ?? []) {
       if (!ruleErrorsByRule.has(e.ruleId)) ruleErrorsByRule.set(e.ruleId, e);
     }
@@ -249,9 +397,9 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
     // pass review on a partial scan with nothing saying so. Keyed by file+kind,
     // not by rule — one oversized file trips the bound in dozens of rules.
     for (const d of result.degradations ?? []) {
-      const key = `${d.filePath ?? relPath}::${d.kind}`;
+      const key = `${d.filePath ?? displayPath}::${d.kind}`;
       if (!degradationsByFileKind.has(key)) {
-        degradationsByFileKind.set(key, { ...d, filePath: d.filePath ?? relPath });
+        degradationsByFileKind.set(key, { ...d, filePath: d.filePath ?? displayPath });
       }
     }
   }
@@ -274,5 +422,6 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
     ...(ruleErrorsByRule.size ? { ruleErrors: [...ruleErrorsByRule.values()] } : {}),
     ...(degradationsByFileKind.size ? { degradations: [...degradationsByFileKind.values()] } : {}),
     ...(suppressionTally.size ? { suppressions: collectSuppressions(suppressionTally) } : {}),
+    ...(vetoesByKey.size ? { declaredPackageVetoes: [...vetoesByKey.values()] } : {}),
   };
 }

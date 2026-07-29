@@ -358,7 +358,7 @@ export const embUseBeforeBegin: RuleDefinition = {
   match: (ctx) => {
     const raw =
       ctx.content.length > REGEX_INPUT_CAP ? ctx.content.slice(0, REGEX_INPUT_CAP) : ctx.content;
-    const scanText = blankCommentsAndStrings(raw);
+    const scanText = blankCommentsAndStrings(raw, ctx.language);
     const head = /\bvoid[ \t]{1,8}setup[ \t]{0,8}\([ \t]{0,8}\)/g.exec(scanText);
     if (!head) return [];
     const block = extractBlockAfter(scanText, head.index + head[0].length);

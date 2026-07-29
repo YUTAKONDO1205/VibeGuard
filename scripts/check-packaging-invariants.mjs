@@ -483,9 +483,25 @@ if (!PRE_BUILD) {
 // so these are stable between the Windows dev machine and Linux CI):
 //   extensions/chrome/dist   background.js 7,117 + sidepanel/index.js 201,933
 //   extensions/vscode/dist   extension.js  209,016
+//
+// REBASELINED after the 2026-07-29 audit fixes, which is the mechanism working
+// as designed: the vscode bundle crossed the ceiling by 154 bytes and that is
+// now a reviewed number rather than silent drift. What grew, and why it is
+// bundle weight rather than accident:
+//   - `maskSecret` gained two more redaction shapes plus a placeholder
+//     allowlist, so a credential that is not written as a long quoted token no
+//     longer reaches `snippet`/`evidence` verbatim (both extensions embed
+//     analyzer-core, so both pay for it);
+//   - `parseSuppressions` gained the per-line scan that stops a pragma quoted
+//     inside a string literal from silencing the file;
+//   - the VS Code extension gained `comment-syntax.ts`, the per-language table
+//     that stops the suppression Quick Fix from writing `//` into JSON.
+// Measured on the build immediately after those changes:
+//   extensions/chrome/dist   226,200
+//   extensions/vscode/dist   230,071
 if (!PRE_BUILD) {
-  const CHROME_DIST_JS_BASELINE_BYTES = 209_050;
-  const VSCODE_DIST_JS_BASELINE_BYTES = 209_016;
+  const CHROME_DIST_JS_BASELINE_BYTES = 226_200;
+  const VSCODE_DIST_JS_BASELINE_BYTES = 230_071;
   const GROWTH_TOLERANCE = 1.1;
 
   const SIZE_TARGETS = [
@@ -594,6 +610,108 @@ if (!PRE_BUILD) {
         );
       }
     }
+  }
+}
+
+// ── INVARIANT: the blanket-suppression surface does not grow unnoticed ──────
+//
+// `vibeguard:disable-file` turns a rule off for a whole file. Every current use
+// is legitimate — a test fixture is supposed to contain the pattern it tests,
+// and a rule's own source contains the strings it matches — and every one names
+// the rule IDs rather than wildcarding. That is exactly why the count needs a
+// guard: the mechanism is normal enough here that adding one more never looks
+// like an event, and a pragma added to silence a REAL finding is
+// indistinguishable in a diff from a pragma added for a fixture.
+//
+// Same mechanism as the bundle-size ceiling above, and the same instruction:
+// when the growth is legitimate, update the constant IN A COMMIT, so the new
+// number is something a reviewer saw rather than something that happened. This
+// is a source-only check, so it runs in the `--pre-build` subset too.
+{
+  const PRAGMA_FILE_BASELINE = 53; // measured 2026-07-29, counting directives only (prose mentions excluded)
+  const PRAGMA = 'vibeguard:disable-' + 'file';
+  // Comment-opening token, then the directive. `m` so it applies per line.
+  // Built from a raw source string, not a template literal: `\s` inside a
+  // backtick string is just `s`, which silently turns this into a regex that
+  // matches almost nothing — the kind of quiet miscompile a probe must not have.
+  const PRAGMA_LINE = new RegExp(
+    '(?:^|\\s)(?://|#|<!--|\\*)\\s*' + PRAGMA.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b',
+    'm',
+  );
+  const skipDirs = new Set([
+    'node_modules', '.git', 'dist', 'build', 'out', 'coverage',
+    '.claude', '.codex', 'paper_data', 'security-experiment', 'docs', 'dock', 'video', '.wrangler',
+  ]);
+  const withPragma = [];
+  const walkPragma = (dir) => {
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (skipDirs.has(e.name)) continue;
+      const full = `${dir}/${e.name}`;
+      if (e.isDirectory()) { walkPragma(full); continue; }
+      if (!/\.(ts|js|mjs|cjs|tsx|jsx|md|yml|yaml|html)$/.test(e.name)) continue;
+      let text;
+      try { text = readFileSync(full, 'utf8'); } catch { continue; }
+      // A file COUNTS only when the directive would actually parse — the
+      // parser matches raw line text, so prose ABOUT the pragma is
+      // indistinguishable from a use of it unless the check is stricter than
+      // `includes`. Requiring the directive to open a comment (or to follow
+      // code on the line, as `x(); // …` does) keeps documentation out while
+      // still catching every real one, including the accidental kind: this file
+      // found two live pragmas inside `suppress.ts`'s own doc comment.
+      if (PRAGMA_LINE.test(text)) withPragma.push(full.replace(/^\.\//, ''));
+    }
+  };
+  walkPragma('.');
+
+  if (withPragma.length > PRAGMA_FILE_BASELINE) {
+    failures.push(
+      `${withPragma.length} file(s) carry a file-scope suppression pragma, over the ` +
+        `${PRAGMA_FILE_BASELINE}-file baseline.\n` +
+        '  Adding one is often correct (a fixture must contain what it tests), but it is also how\n' +
+        '  a real finding gets silenced without anyone noticing. Check that the new one names its\n' +
+        '  rule IDs and is a fixture rather than a suppression, then raise the constant in\n' +
+        '  scripts/check-packaging-invariants.mjs in the same commit.\n' +
+        `  Newest by path: ${withPragma.slice(-3).join(', ')}`,
+    );
+  }
+
+  // A file-scope pragma with no rule IDs is a WILDCARD: it silences every rule
+  // in the file. Two exist today and both are deliberate, with the reason
+  // written on the line below them — an adversarial-string fixture, and the
+  // bundled package-name table. Neither is dangerous on its own, because the
+  // severity gate refuses a wildcard for critical/high/medium, so what they
+  // actually cover is low/info noise.
+  //
+  // So the check has the same shape as the count above: not "no wildcards", but
+  // "no NEW wildcards". A third one appearing is a decision someone should make
+  // on purpose, with the reason written next to it.
+  const WILDCARD_BASELINE = 2; // measured 2026-07-29
+  const wildcards = [];
+  for (const file of withPragma) {
+    let text;
+    try { text = readFileSync(file, 'utf8'); } catch { continue; }
+    for (const line of text.split(/\r\n|\r|\n/)) {
+      const at = line.indexOf(PRAGMA);
+      if (at === -1) continue;
+      if (!PRAGMA_LINE.test(line)) continue; // prose about the pragma, not a use of it
+      const rest = line.slice(at + PRAGMA.length);
+      if (!/VG-[A-Z]+-\d+/.test(rest)) {
+        wildcards.push(`${file}: ${line.trim().slice(0, 80)}`);
+      }
+    }
+  }
+  if (wildcards.length > WILDCARD_BASELINE) {
+    failures.push(
+      `${wildcards.length} file-scope WILDCARD pragma(s) (no rule IDs), over the ` +
+        `${WILDCARD_BASELINE} baseline.\n` +
+        '  A wildcard silences every rule in the file. The severity gate spares\n' +
+        '  critical/high/medium, so what one really covers is low/info — but that is a bound,\n' +
+        '  not a justification. If the new one is deliberate, write the reason beside it and\n' +
+        '  raise the constant in the same commit.\n' +
+        `  All: ${wildcards.join(' | ')}`,
+    );
   }
 }
 

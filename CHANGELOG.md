@@ -1,4 +1,8 @@
-<!-- vibeguard:disable-file VG-SEC-001 -->
+<!-- vibeguard:disable-file VG-SEC-001 VG-QUAL-006 -->
+<!-- This file quotes rule INPUTS to explain what changed — an AWS-shaped key
+     for the redaction work, a placeholder email for the fast-vs-standard mode
+     difference. Both rule IDs are named rather than blanket-suppressed. -->
+
 # Changelog
 
 All notable changes to VibeGuard across CLI / GitHub Action / VS Code extension /
@@ -9,6 +13,440 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [0.3.2] - 2026-07-29
+
+**Engine moves to `0.3.1`, and this is the first bump that is not additive.**
+Every release before it could say "no rule that already existed changed what it
+matches". This one cannot: it follows a deep audit whose subject was existing
+rules getting it wrong, and verdicts move in BOTH directions. Comparing a `0.3.0`
+run against a `0.3.2` run is not meaningful — that is what the engine axis is
+for.
+
+Findings from a deep audit of `f274ef9`, verified against the code before being
+acted on. Every item below was reproduced with a minimal PoC, fixed, and pinned
+with a regression test; three audit claims did **not** reproduce and are recorded
+at the end rather than "fixed".
+
+`samples/safe` stays at 0 findings and `samples/vulnerable` at 51
+(5 critical / 16 high / 27 medium / 3 low) — unchanged through every change
+below, which is the evidence that the corrections are targeted rather than broad.
+Test count 1,278 → 1,401.
+
+### Upgrading
+
+- **CI gates may move in either direction.** `VG-INJ-005` stops failing builds on
+  `Loader=SafeLoader`; the canonical/raw merge and `VG-SMELL-012` start reporting
+  findings that were being dropped. Re-baseline before assuming a regression.
+- **A suppression that lived in a string literal has stopped working**, because
+  it never should have. If a file went quiet after upgrading, look for prose that
+  quotes a `vibeguard:disable-…` directive.
+- **SARIF artifact URIs are now repository-root-relative** for a subdirectory
+  scan. GitHub code scanning will retire the old alerts (which pointed at paths
+  that did not exist) and open them at the correct locations.
+
+### Fixed — suppression could be triggered by prose
+
+- **A pragma quoted inside a string literal silenced the file.** `PRAGMA_RE`
+  matches raw line text and knows nothing about where that text sits, so a
+  string that merely QUOTED a suppression directive — a help message explaining
+  the feature, an error message, a doc comment's example — disabled the rule it
+  named for the whole file. The realistic trigger was not an attack but
+  documentation; the same mechanism also let a directive be smuggled in as
+  ordinary string data. `parseSuppressions` now rejects a directive that sits
+  inside a quoted string.
+
+  Quote state is tracked per line and stops at the first comment opener found
+  outside a string, so `// don't` cannot swallow the rest of the file. A pragma
+  inside a MULTI-line string (Python docstring, JS template literal, C++ raw
+  string) is still honoured — the same residual class the canonicalizer
+  documents. The error direction is the safe one either way: misjudging a real
+  pragma reports a finding someone wanted hidden, while the reverse hides a
+  finding nobody chose to hide.
+
+  Not in the audit. Found by asking what the symmetric case of the VS Code
+  comment-syntax bug was on the PARSING side.
+
+### Fixed — secret disclosure
+
+- **Secrets survived redaction whenever they were not written as quoted string
+  literals.** `maskSecret` keyed off quote characters — a property of the source
+  syntax, not of whether a value is a credential — so `aws_access_key_id: AKIA…`
+  in a YAML file, `AWS_ACCESS_KEY_ID=AKIA…` in a `.env`, and a rule's bare
+  `evidence` token all passed through verbatim. It now masks all three shapes.
+
+  This is a disclosure bug and not a cosmetic one because `snippet` is the field
+  the SARIF adapter emits, and `.github/workflows/security-scan.yml` and the
+  README both document uploading that SARIF to GitHub code scanning: a scan
+  published the key it had just found. It compounds with the scanner having no
+  `.gitignore` awareness (`DEFAULT_IGNORE` is a fixed set of directory names), so
+  a `.env` materialised during CI from repository secrets is scanned like any
+  other file.
+
+- **Length was the wrong discriminator, so every embedded credential leaked.**
+  The first pass at the above kept a 12-character minimum and an alphanumeric
+  character class, which walked straight past `WiFi.begin("HomeNet",
+  "Tsu9any0!")` and `#define OTA_PASSWORD "Tsu9any0!"` — nine characters with
+  punctuation, which is exactly what a password policy asks for. Embedded users
+  were still having WiFi and OTA passwords copied into SARIF. What separates a
+  credential from a placeholder is not length but whether the value is a known
+  public default, so the character class now covers password punctuation, the
+  minimum drops to six, and an explicit allowlist (`changeme`, `letmein`,
+  `password`, …) keeps readable the values whose identity IS the finding —
+  masking `changeme` to `chan***` deletes the entire message of `VG-AUTH-003`.
+
+### Fixed — diff scans that reported clean because they read nothing
+
+Both of these produced zero findings, exit 0, and no degradation, which is
+indistinguishable from a genuinely clean diff.
+
+- **A diff scan targeting a subdirectory found nothing, ever.** Diff headers are
+  repo-root-relative whatever directory git ran in, and those paths were joined
+  onto the scan TARGET — building `pkg/a/pkg/a/client.py` for a scan of `pkg/a`.
+  Every read failed and every failure was swallowed as "file deleted in the new
+  revision". Paths now resolve against `git rev-parse --show-toplevel`, and the
+  target acts as a filter, so naming a subdirectory means "the part of this diff
+  under here".
+
+  Note what is deliberately NOT changed: the path a finding REPORTS stays
+  relative to the target, matching a directory scan. Reading against the root
+  and reporting against the root are different decisions, and conflating them
+  breaks three consumers at once — `fix.ts` reads a finding back as
+  `join(target, displayPath)`, config `suppress[].paths` globs are written
+  against it, and the SARIF adapter emits it as the artifact URI. The first cut
+  of this fix did conflate them and would have made `--fix` on a subdirectory
+  diff look for `pkg/a/pkg/a/client.py`.
+
+- **A user's gitconfig could silently disable diff scanning entirely.** The
+  header parser recognises `+++ b/<path>` and nothing else, so `diff.noprefix`
+  (headers arrive as `+++ path`), `diff.mnemonicPrefix` (`i/`, `w/`, `c/`, `o/`)
+  and git's DEFAULT `core.quotepath=true` (non-ASCII names arrive octal-escaped
+  and quoted, `+++ "b/src/\350\252\215…"`) each made it register no files at all.
+  `gitDiff` now pins those knobs with `-c` for its own invocation and forces the
+  prefixes, so there is one header shape to parse and it does not depend on
+  ambient configuration.
+
+  Unlike the subdirectory bug this one fires at the repo root, so it reaches the
+  GitHub Action: a self-hosted runner or a Docker image with a baked-in gitconfig
+  carries the setting into CI. Repositories with non-ASCII filenames were
+  skipping exactly those files.
+
+### Fixed — options and caps that applied on one scan path only
+
+- **`--known-only` did nothing on a diff scan.** It reached `scanPath` and
+  stopped there, so a workflow passing it with `--diff` scanned exactly the
+  files it had asked to exclude — accepted, ignored, and silent about it. The
+  diff path now honours it, and applies `MAX_FILE_BYTES` too, which it also
+  lacked: a large generated file in a commit was read whole on the path where a
+  directory scan would have skipped it.
+
+- **`action.yml` dropped `path` whenever `diff` was set.** A workflow asking for
+  `path: packages/api` plus a diff range scanned the whole repository instead —
+  the opposite of what it wrote, in the widening direction. `path` now applies
+  on both branches.
+
+  This could only be fixed AFTER the diff path bug above. While a subdirectory
+  target made every read fail, passing `path` here would have turned a scope
+  error into a silent all-clear. The two changes ship together for that reason.
+
+- **The cross-file pass and the core scan disagreed about which files exist.**
+  `project.ts` declared `MAX_FILE_BYTES = 1024 * 1024` under a comment saying it
+  mirrored the core's `1_000_000`, which it did not: every file in the
+  48,576-byte gap was indexed by the cross-file pass and silently skipped by the
+  per-file scan, so a cross-file finding could cite a file the report showed as
+  clean. That is the exact failure the module header says its dependency on
+  `analyzer-core` exists to prevent — the ignore set and language mapping are
+  imported for that reason, and now the cap is too.
+
+### Fixed — false positives that break correct code
+
+- **`VG-INJ-005` reported `yaml.load(data, Loader=SafeLoader)` as critical.** The
+  veto matched only the `yaml.SafeLoader` spelling, so the form PyYAML's own
+  documentation uses — `from yaml import SafeLoader`, then a bare
+  `Loader=SafeLoader` — failed the default `--fail-on high` gate on code that had
+  already done the right thing. `CSafeLoader` and `BaseLoader` are now recognised
+  too, bare or module-qualified. `FullLoader` and `UnsafeLoader` are still
+  reported: both construct arbitrary Python objects.
+
+  Worth calling out because there is no layer downstream that could have softened
+  this: `SEVERITY_CONFIDENCE_FLOOR` pins critical/high findings to `high`
+  confidence, so context downgrade cannot reach them.
+
+- **`VG-SMELL-012` was disabled for a whole file by any mention of a
+  mitigation.** The veto ran against raw text, so `const doc = 'see
+  Object.freeze() docs';` — a doc string, a log line, an error message — silenced
+  every role comparison in the file, silently. It now tests blanked code, so a
+  real `Object.freeze({…})` still vetoes and a mention of one does not.
+
+### Fixed — a decoy in a comment could take the real finding's place
+
+- **The canonical/raw merge dropped a distinct payload as a duplicate.** The two
+  passes are deduplicated by SOURCE OVERLAP, which is right for the case it was
+  written for: normalisation MOVES a match, and the two faces are then
+  describing one finding. But blanking a comment also lets a canonical match
+  SPAN the blank run, and a raw match living inside that comment then overlaps
+  it. Those are not duplicates — one is the assignment that runs, the other is
+  text in a comment — and the merge kept the wrong one.
+
+  The executed finding disappeared and the comment match stood in its place,
+  wearing its position and its evidence. That inversion is what made it worth
+  fixing: a reviewer seeing one finding on a comment line does the obvious thing
+  and suppresses the false positive, which silenced the file completely.
+
+  A raw match may now veto a canonical one only when it sits on text that
+  SURVIVED normalisation. Both documented dedup cases still collapse to one
+  finding, because in both the original match is on real code. `samples/safe`
+  and `samples/vulnerable` are unchanged, and the canonicalizer soundness
+  corpus — which fails the build if normalisation MANUFACTURES a finding —
+  still passes: the extra finding appears only in the adversarial arrangement.
+
+### Changed — F-002's remaining false negative is now a stated limitation
+
+- Only the comment half of C's translation phase 2 is modelled. A splice inside
+  an identifier still evades, and that is now written down rather than left
+  implicit: a `KNOWN RESIDUAL` entry beside the code, an added note in the audit
+  report, and `f002-splice-canary.test.ts` pinning the current answer so that
+  implementing the splicing face breaks a test instead of passing quietly.
+
+  The reason it stays open is the cost of closing it. Recognising a spliced
+  identifier needs a transformed text whose offsets no longer match the source,
+  and every position VibeGuard reports — findings, snippets, `disable-line`
+  lookups, SARIF regions, the Quick Fix insertion point — is identity-mapped to
+  the source by construction. Same shelf as the `R"(…)"` and Unicode-escape
+  residuals: reachable only by someone writing the evasion.
+
+### Fixed — evaluation harnesses measured different populations on each side
+
+None of this ships in the tool; it changes what the research artifacts claim.
+
+- **E6's density divided findings by a KLOC it did not measure.** The numerator
+  came from a scan of everything on disk, the denominator from twelve source
+  extensions under a different skip list with no size cap — a three-way
+  mismatch. Both now come from ONE file manifest, built with the scanner's own
+  ignore set, language mapping and size cap, and a finding landing outside it is
+  counted and reported rather than silently included.
+- **`sast-baseline-eval.mjs` had the same defect twice.** Locations were
+  compared by BASENAME, so any two `utils.py` in different directories counted
+  as the same file and inflated the overlap; and "VibeGuard-only" was filtered
+  by extension, so a file the baseline never parsed counted as a miss by the
+  baseline. Now matched on full relative paths — reconciled across the two
+  tools' different bases, with ambiguous matches dropped and counted instead of
+  guessed — and restricted to the files the baseline reports having analysed.
+  The scope line naming what was excluded is part of the output.
+- **The matched-pair tests reported a p-value their data cannot support.**
+  McNemar assumes independent pairs; these pairs are repeated TRANSFORMS of the
+  same original findings, so `n` counts transforms rather than evidence. Both
+  harnesses now emit `inferentialValidity` beside the p-value, carrying the
+  cluster structure (114 pairs are 19 original findings over 9 files; the 15
+  discordant pairs are 7 originals over 4) and stating plainly that no general
+  claim about tool classes rests on it. Aggregating to one vote per finding
+  moves the value by an order of magnitude, and that sensitivity is the point.
+- **E1 compared less than its own documentation claimed.** The header said the
+  tuple included `category` and the end coordinates; the key did not, and the
+  comparison went through a `Set`, so a difference in multiplicity was invisible
+  too. Now a multiset comparison over the full tuple — still 0 divergences,
+  which is the first time that result means what it says. The report also
+  quantifies the mode gap it never mentioned: 40 findings on these corpora are
+  visible at `standard` and not at `fast`, which is the default VS Code scans
+  on save at.
+- E6 can now pin each corpus repository to a commit (`paper_data/e6_pins.json`),
+  so a published table can be regenerated rather than merely re-derived. Without
+  the file the run floats on upstream HEAD, and says so.
+
+### Fixed — the blankers decided the wrong things were code
+
+`VG-INJ-020` Branch A matches on RAW text and consults the blanked copy only as
+a veto (`if (blanked[m.index] !== content[m.index]) continue`). So blanking
+something that IS code loses a finding, and failing to blank something that is
+not keeps a bogus one. The comment claiming "fails to blank … is the same
+fail-safe direction" was wrong for that consumer: there it is fail-OPEN.
+
+- **`${…}` in a template literal was blanked wholesale.** A substitution is an
+  evaluated expression, so `` `${obj.__proto__.polluted = userInput}` `` reported
+  nothing while the identical assignment one line above reported `VG-INJ-020` at
+  `high`. The blanker now re-enters the code state inside a substitution, with a
+  brace stack so nested templates work. Ordinary template TEXT is still blanked.
+
+- **`return /re/` was read as division.** The preceding significant character is
+  `n`, an ordinary identifier char, so the regex state was never entered and the
+  pattern BODY was classified as code — reporting the contents of a regex
+  literal as a live prototype-pollution assignment. The division-vs-regex call
+  now also looks at the preceding WORD, for the keywords that cannot end an
+  expression (`return`, `typeof`, `case`, `throw`, …). Value positions —
+  identifier, `)`, `]`, `.x`, a number — still divide.
+
+- **A C line comment ending in a backslash did not continue.** C, C++ and
+  Arduino delete backslash-newline in translation phase 2, BEFORE comments are
+  recognised, so
+
+  ```c
+  // disabled call \
+  gets(buf);
+  ```
+
+  is entirely comment — and was reported as `VG-MEM-001` **critical**. Both
+  passes had to agree for the finding to go away, so the rule's blanker and the
+  canonicalizer now read one shared predicate, the same arrangement this
+  codebase already uses for comment SYNTAX. Splicing is off for every other
+  language, where a trailing backslash means nothing and continuing would blank
+  real code.
+
+  **The matching false negative is NOT fixed.** `ge\` + newline + `ts(buf);` is
+  `gets(buf)` to a compiler and still reports nothing. Recognising it needs a
+  real splicing face with its own position mapping, which is the one change most
+  likely to break the identity-mapped geometry every finding, snippet and
+  suppression depends on. The FP half needed no such thing — blanking is
+  length-preserving — so it ships now and the FN half is left open deliberately.
+
+  The regression tests for this build their backslash from `String.fromCharCode(92)`
+  rather than writing it as an escape. An escaping slip that loses it turns the
+  fixture into one ordinary comment line, which every assertion would then pass
+  for the wrong reason — as the first draft of those tests did. One test asserts
+  the fixture's own shape before the others use it.
+
+### Fixed — claims the tool could not support
+
+- **`match-limit` asserted that further matches existed.** `runRegex` halts AT
+  the cap without probing for a next match, so hitting the cap is not evidence
+  that anything follows: a file with exactly 1000 matches raised a degradation
+  reading "Further matches … exist and were NOT reported" while nothing had gone
+  unreported. Reworded to "MAY exist … whether any do, and how many, is unknown",
+  which is also what `REGEX_MATCH_LIMIT`'s own doc requires of consumers. The
+  contradicting sentence in `findings-schema` is corrected to match.
+- **`matchCount` was hardcoded to the global cap.** A rule passing its own
+  smaller `limit` to `runRegex` reported `matchCount: 1000` beside three
+  findings. It now carries the count the boundary event actually recorded.
+
+### Fixed — SARIF
+
+- `$schema` pointed at a sarif-spec branch path that 404s, and `informationUri`
+  named `github.com/vibeguard/vibeguard`, which does not exist. Both now resolve
+  (OASIS publication location, and this repository).
+- Rule descriptors carry `security-severity` and `precision`. SARIF has four
+  levels to VibeGuard's five severities, so `critical` and `high` both collapse
+  to `error`; `security-severity` is where GitHub code scanning recovers the
+  distinction, and without it every alert landed in one bucket.
+
+### Fixed — Chrome extension reported clean for things it never looked at
+
+Measured in a real browser against `rust-lang/rust#160102` (284 changed files),
+using the extension's own selector chain.
+
+- **A PR scan silently covered 43% of the PR.** GitHub collapses the diffs of a
+  large PR behind "Load diff" and never puts those rows in the DOM: 121 files
+  rendered, **163 not**. Scrolling to the bottom repeatedly does not change
+  those numbers, so this is not lazy loading a reviewer can wait out. The panel
+  reported "N file(s)" for whatever it got, with no hint that the rest existed.
+
+  Every changed file has a `data-path` element whether or not its diff was
+  drawn, so the page knows the full list even when it has only rendered part of
+  it. The extension now reports the difference: the status line reads "121 of
+  284 file(s)" and a banner names the files that went unread. Their NAMES, not
+  just a count — a count invites the reader to assume the unread ones were the
+  uninteresting ones.
+
+- **Mixed-language pages lost one language's findings.** Every `<pre><code>`
+  block was concatenated into a single snippet and scanned once, under a single
+  language — with `// --- block N ---` separators, a JavaScript comment injected
+  into text that might be Python, where `//` is floor division. Against the
+  shipped browser core, a Python block calling `subprocess.call(…, shell=True)`
+  next to a JavaScript block assigning to `innerHTML`:
+
+  ```
+  joined, scanned as python      -> 1 finding   (the JS sink is lost)
+  joined, scanned as javascript  -> 1 finding   (the Python sink is lost)
+  per block, per language        -> 2 findings
+  ```
+
+  Whichever language was picked, joining lost the other one's sinks — on AI chat
+  transcripts, tutorials and API docs, which is most of what this feature is
+  pointed at. Blocks are now their own unit of analysis, each with its own
+  language, rendered per block.
+
+- **"Could not scan" rendered as "✓ No issues".** A file whose scan threw was
+  turned into an empty finding list, which the panel drew with the same green
+  tick as a file that passed. There are three states, not two, and the tick is
+  now reserved for a block that was actually read.
+
+- **A crashed rule was invisible in BOTH extensions.** `analyzer.scan` catches a
+  throwing rule, records it in `ruleErrors` and lets the rest finish — the right
+  call, since a partial report beats none. But neither extension read that
+  field, so a rule that died contributed no findings and the result rendered
+  clean. Only the CLI surfaced it, which `analyzer.ts` itself notes.
+
+  The side panel now shows a banner and marks an empty result OK only when
+  nothing degraded AND nothing errored. The VS Code extension raises a line-1
+  Warning per broken rule, through the same channel it already used for
+  degradations and for the same stated reason: an incomplete scan must not look
+  like a clean one. Both are deduped by rule id, so one broken rule is one
+  warning however many times it threw.
+
+- **Two unbounded allocations reachable from a hostile page.** The extension
+  holds `<all_urls>`, so a page the user is merely steered to could return
+  unbounded text. Block collection is now capped (500 blocks, 200k chars each,
+  2M total; `innerText` forces layout per element, so the element count matters
+  as much as the bytes). And the diff pseudo-file was sized by the highest
+  `data-line-number` in the page — a page-supplied number, so a large enough one
+  asked for an array big enough to take the side panel down before any rule ran.
+  Now capped at 200,000 lines, and the cap is reported rather than applied
+  silently.
+
+### Fixed — VS Code
+
+- **The suppression Quick Fix corrupted the file it was suppressing in.** Comment
+  syntax was "`#` for nine languages, `//` for everything else", and the provider
+  is registered on every file. Several rules are language-agnostic
+  (`VG-CRYPTO-003` matches an `http://` URL in any text), so findings do appear
+  in JSON, CSS, HTML and PowerShell — and accepting the fix in a `.json` file
+  left a document `JSON.parse` rejects. Comment style is now per-language
+  (`extensions/vscode/src/comment-syntax.ts`), falling back to a block comment
+  where there is no line comment (CSS, HTML) and withholding the fix entirely for
+  strict JSON, which has no comment syntax at all. The extension gained a test
+  script; it had none.
+
+### Documentation
+
+- **`PRIVACY.md` contradicted the Chrome extension.** It described
+  `chrome.storage.session` hand-off as the only storage, while the side panel
+  persists up to 50 history entries in `chrome.storage.local` — including
+  `codePreview`, the first 200 characters of the scanned text stored verbatim.
+  The policy now describes what is stored, for how long, and how to clear it, and
+  says that scan reports carry `snippet`/`evidence` and should be treated as
+  sensitive as the code they describe. The README's history row said "summary +
+  finding metadata only — never the full code", which omitted the preview.
+- **"You'll get the same answer at every one of them" was not true by default.**
+  VS Code's on-save scan defaults to `fast`, every other surface to `standard`,
+  and they run different rule sets: `const email = "admin@example.com";` is clean
+  on save and flags in CI. The README now states the qualifier (same engine, same
+  input, same `mode`) and names both sources of divergence.
+- Corrected: `findings-schema` advertised "Zod-style validation" with no schema
+  library and no runtime validator, described a nested `location` the wire format
+  does not have, and gave `targetType` as `file|diff` rather than
+  `file|snippet|diff|repo`; `analyzer-core` documented a `detectLanguage` that
+  does not exist (the exports are `detectLanguageFromPath` /
+  `detectLanguageFromContent`); `remediation-engine` said `buildRemediation`
+  returns `undefined` without a template when it returns a fallback; the VS Code
+  README said **30 built-in rules** against an actual **71**.
+
+### Audit claims that did not reproduce
+
+Recorded rather than fixed, so they are not re-investigated from scratch later:
+
+- **Object-literal division misread as a regex start.** The report's own example
+  (`const n = {} / 2;` followed by a sink) detects normally, as do five variants
+  including cross-line division. The two neighbouring claims in the same finding
+  — template substitution `${…}` being blanked, and `return /re/` misread as
+  division — do reproduce and are fixed above.
+- **Chrome mixed-language extraction producing zero findings.** Joining blocks
+  does lose findings — two separate blocks report 2, the joined text reports 1,
+  in whichever language is chosen — but the "0 findings" figure was specific to
+  an example whose other block was benign.
+- **A subdirectory diff scan being the severe form of the path bug.** It is real
+  (fixed above) but reaches only direct CLI use: `action.yml` never passes `path`
+  when `diff` is set, so the Action always targets `.`. The severe form is the
+  gitconfig one. Note the ordering dependency this creates — fixing `action.yml`
+  to honour `path` would expose the subdirectory path bug to CI, so that fix must
+  come after this one, not before.
 
 ## [0.3.1] - 2026-07-28
 

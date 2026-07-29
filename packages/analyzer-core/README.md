@@ -21,8 +21,10 @@ rule dispatch, snippet extraction, and suppression-comment handling.
   `evaluatePathSuppression(...)` — the same policy on the config
   (`.vibeguardrc.json` `suppress[].paths`) channel. An entry that omits `rules`
   is a wildcard and is gated identically.
-- `detectLanguage(filePath, content)` — extension- and shebang-based
-  language detection feeding `RuleDefinition.languages`.
+- `detectLanguageFromPath(filePath)` / `detectLanguageFromContent(content)` —
+  extension-based and shebang-based language detection feeding
+  `RuleDefinition.languages`. They are two separate exports; there is no
+  combined `detectLanguage`.
 
 ## Where it sits
 

@@ -11,13 +11,18 @@ Author : Kondo Yuta（近藤 悠太）
 
 VibeGuard is a security scanner for AI-generated code. It catches the bugs that "looks fine, ships fine" code tends to hide: missing input checks, hard-coded passwords, skipped login checks, exceptions silently caught, and so on.
 
-You can run it at three places, and you'll get the same answer at every one of them:
+You can run it at three places:
 
 - **While you write** — VS Code extension. Save the file, see findings inline.
 - **While you read** — Chrome extension. Scan code snippets on any web page.
 - **Before you merge** — CLI and GitHub Action. Block a PR when something risky lands.
 
-The analysis engine is shared across all three, so a finding looks the same in your editor, in your browser, and in the PR comment.
+All three run the same analysis engine, so a finding looks the same in your editor, in your browser, and in the PR comment.
+
+**What "the same" does and does not mean.** Given the same engine version, the same input, and the same `mode`, the core returns the same verdict everywhere. Two things can still make one surface report differently from another, and neither is a bug:
+
+- **Mode defaults differ.** The VS Code on-save scan defaults to `fast`; the CLI, the Action, and the Chrome extension use `standard`. `standard` runs rules that `fast` skips, so a file can be clean on save and flag in CI. Set `vibeguard.mode` to `standard` in VS Code if you want them to agree, or use `VibeGuard: Scan File`, which always runs `standard`.
+- **What reaches the engine differs.** Each surface decides what counts as "the input": VS Code passes a file, the CLI walks a directory, the Chrome extension extracts code blocks from a page and joins them into one snippet. Same engine, different text in — so different findings out.
 
 For more detail: the design document is in [docs/DESIGN.ja.md](docs/DESIGN.ja.md) (Japanese). The privacy policy is in [PRIVACY.md](PRIVACY.md) — VibeGuard never sends your code anywhere.
 
@@ -284,7 +289,7 @@ The correction is **severity-gated**: a finding whose severity is `critical` or 
 | Extract from page | Side Panel → **Extract from page** collects `<pre><code>` blocks from the active tab and scans them. |
 | Scan PR diff | On a GitHub `/pull/<n>` (Files-changed) tab, Side Panel → **Scan PR diff** walks the diff table, scans each touched file as a reconstructed pseudo-content, and reports findings grouped by file. Findings are filtered to those that overlap an *added* line. Re-running the button rescans the current page. |
 | Selection scan | Select text on any page → context menu → `Scan with VibeGuard` (opens the Side Panel and scans immediately). |
-| History | The bottom **History** section persists the most recent 50 scan results (summary + finding metadata only — never the full code) in `chrome.storage.local`. Click **Clear** to wipe it. |
+| History | The bottom **History** section persists the most recent 50 scan results in `chrome.storage.local`, which survives browser restarts. Each entry holds the summary, finding metadata (rule/severity/path/line — no snippets, no remediation), **and `codePreview`: the first 200 characters of the scanned text, stored verbatim.** That preview is raw code for a pasted or extracted scan, so a credential in the first 200 characters is stored as written; for PR scans it is a file-name list instead. Click **Clear** to wipe it. See [PRIVACY.md](PRIVACY.md). |
 | Language picker | `auto-detect` or js / ts / python / go / java / ruby / php / csharp. |
 
 Build:
@@ -313,13 +318,13 @@ VibeGuard tracks **two independent version numbers**. Keeping them separate is i
 | Version | Where | Bumps when | Current |
 | --- | --- | --- | --- |
 | **Tool version** | `package.json` of each channel; CLI `--version`; SARIF `tool.version` | Any release of the published artifact — packaging, UX, docs, or detection changes. | `0.3.1` |
-| **Engine version** | `ENGINE_VERSION` in [`analyzer-core`](packages/analyzer-core); every scan result and SARIF report as `engineVersions.core` | Only when **detection behavior** changes (rules, analysis, finding schema). | `0.3.0` |
+| **Engine version** | `ENGINE_VERSION` in [`analyzer-core`](packages/analyzer-core); every scan result and SARIF report as `engineVersions.core` | Only when **detection behavior** changes (rules, analysis, finding schema). | `0.3.1` |
 
 A third number appears only on scans that ran the opt-in cross-file pass (`--include-design-smells`): `engineVersions['analysis-graph']`, currently `0.3.0-alpha.1`. It moves on its own axis, because nothing about it can change a scan that did not ask for it — and the `-alpha` is not decoration: the cross-file analysis is a skeleton that indexes lexically.
 
-The CLI prints the first two, e.g. `vibeguard 0.3.1 (engine 0.3.0)`. The tool version is read from `package.json` at runtime, so it always matches the published package. The engine stayed at `0.1.0` while the tool advanced to `0.1.3`, because those releases (vsce metadata fix, OK-state UX, license) did not change what VibeGuard detects, and it was then held there deliberately through a round of detection work so that one version would name one settled engine rather than several successive ones. `0.2.0` released that hold: context-window confidence and its severity gate, the canonicalizer pre-pass, regex time/length bounds with `degradations`, `confidenceAudit`, the suppression severity gate, `match-limit` reporting, and the suppression tally. `0.2.1` adds the C/C++/Arduino embedded layer (VG-MEM/VG-EMB/VG-RTOS, the `.ino`/`.hh`/`.cxx`/`.ipp` extensions, and the N_pp preprocessor face) — purely additive, so web-language verdicts are unchanged. `0.3.0` adds the single-file design smells (VG-SMELL-003/004/012), the hallucinated-dependency rule (VG-AISC-001) with its lockfile veto, prototype-polluting merges (VG-INJ-020), and per-match severity escalation — also additive: no rule that existed at `0.2.1` changed what it matches. See [CHANGELOG.md](CHANGELOG.md) for what each one changes. To compare against the engine from before that work, use the `paper-ses-v0.1.3` (pre-hold), `v0.2.0` (pre-embedded) or `paper-css-v0.2.0` tags.
+The CLI prints the first two, e.g. `vibeguard 0.3.2 (engine 0.3.1)`. The tool version is read from `package.json` at runtime, so it always matches the published package. The engine stayed at `0.1.0` while the tool advanced to `0.1.3`, because those releases (vsce metadata fix, OK-state UX, license) did not change what VibeGuard detects, and it was then held there deliberately through a round of detection work so that one version would name one settled engine rather than several successive ones. `0.2.0` released that hold: context-window confidence and its severity gate, the canonicalizer pre-pass, regex time/length bounds with `degradations`, `confidenceAudit`, the suppression severity gate, `match-limit` reporting, and the suppression tally. `0.2.1` adds the C/C++/Arduino embedded layer (VG-MEM/VG-EMB/VG-RTOS, the `.ino`/`.hh`/`.cxx`/`.ipp` extensions, and the N_pp preprocessor face) — purely additive, so web-language verdicts are unchanged. `0.3.0` adds the single-file design smells (VG-SMELL-003/004/012), the hallucinated-dependency rule (VG-AISC-001) with its lockfile veto, prototype-polluting merges (VG-INJ-020), and per-match severity escalation — also additive: no rule that existed at `0.2.1` changed what it matches. `0.3.1` is the first bump that is NOT additive: it corrects existing rules in both directions, after a deep audit found defects in them. `VG-INJ-005` stops reporting `Loader=SafeLoader` as critical (fewer findings); `VG-SMELL-012` stops being disabled by a string that merely mentions `Object.freeze` and the canonical/raw merge stops dropping a real finding as a duplicate of a comment (more findings); C/C++ line-continuation comments, JS template substitutions and `return /re/` are classified correctly. A file's verdict may therefore differ between `0.3.0` and `0.3.1` — which is exactly what this axis exists to tell you. See [CHANGELOG.md](CHANGELOG.md) for what each one changes. To compare against the engine from before that work, use the `paper-ses-v0.1.3` (pre-hold), `v0.2.0` (pre-embedded) or `paper-css-v0.2.0` tags.
 
-**Rule of thumb:** compare results across two runs by **engine version** (same engine ⇒ identical verdicts); report which build you installed by **tool version**.
+**Rule of thumb:** compare results across two runs by **engine version** (same engine, same input, same `mode` ⇒ identical verdicts); report which build you installed by **tool version**. The `mode` qualifier matters: `fast` and `standard` run different rule sets, and VS Code's on-save default is `fast` while every other surface defaults to `standard`.
 
 ## License
 

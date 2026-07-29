@@ -22,6 +22,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join as pathJoin, relative, resolve, sep } from 'node:path';
 import {
   DEFAULT_IGNORE,
+  MAX_FILE_BYTES,
   detectLanguageFromPath,
   evaluatePathSuppression,
   suppressionsForPath,
@@ -48,11 +49,13 @@ import type {
   SourceFile,
 } from './types.js';
 
-/**
- * Largest single file admitted, mirroring `MAX_FILE_BYTES` in the core file
- * scanner so the two passes agree on what counts as a source file.
- */
-const MAX_FILE_BYTES = 1024 * 1024;
+// The file-size cap comes from `@vibeguard/analyzer-core` (imported above) for
+// the same reason the ignore set and the language mapping do — see the header
+// of this file. It used to be redeclared here as `1024 * 1024` under a comment
+// claiming to mirror the core's `1_000_000`, which it did not: every file
+// between the two numbers was indexed by this pass and never opened by the core
+// scan, so a cross-file finding could cite a file the report showed as clean.
+// That is the precise failure the header says this dependency exists to prevent.
 
 export interface AnalyzeProjectOptions extends CreateBudgetOptions {
   /** Extra directory names to ignore, on top of `DEFAULT_IGNORE`. */

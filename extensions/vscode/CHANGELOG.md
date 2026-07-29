@@ -5,6 +5,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-07-29
+
+Analyzer engine moves to `0.3.1`, so **what this extension reports changes** —
+see the root CHANGELOG for the full list. Two fixes are specific to the editor:
+
+### Fixed
+
+- **The suppression Quick Fix no longer corrupts the file it suppresses in.**
+  Comment syntax was `#` for nine languages and `//` for everything else, and
+  the provider is registered on every file type. Several rules are
+  language-agnostic (`VG-CRYPTO-003` matches an `http://` URL in any text), so
+  findings do appear in JSON, CSS, HTML and PowerShell — and accepting the fix in
+  a `.json` file left a document `JSON.parse` rejects. Comment style is now
+  per-language, falling back to a block comment where there is no line comment
+  (CSS, HTML) and withholding the fix entirely for strict JSON, which has no
+  comment syntax at all.
+- **A rule that crashed used to leave the file green.** `ruleErrors` was never
+  read, so a rule dying contributed no findings and looked exactly like a rule
+  finding nothing. Each broken rule now raises a line-1 Warning, through the same
+  channel already used for partial scans and for the same stated reason: an
+  incomplete scan must not look like a clean one.
+
+### Changed
+
+- The README's rule count said **30**; there are **71**.
+
 ## [0.3.1] - 2026-07-28
 
 No change to this extension. The repository releases every channel under one

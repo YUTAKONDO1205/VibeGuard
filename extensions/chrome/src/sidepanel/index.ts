@@ -11,7 +11,17 @@
 // section renders the most-recent 50 entries.
 
 import { scan, detectLanguageFromContent } from '@vibeguard/analyzer-core/browser';
-import { summarize, type Finding, type ScanDegradation, type ScanSummary } from '@vibeguard/findings-schema';
+import {
+  summarize,
+  type Finding,
+  type RuleError,
+  type ScanDegradation,
+  type ScanSummary,
+} from '@vibeguard/findings-schema';
+import {
+  scanBlocks,
+  type ExtractedCodeBlock,
+} from '../shared/block-scan.js';
 import {
   addedLineSet,
   languageFromPath,
@@ -144,6 +154,33 @@ function buildFindingCard(f: Finding, opts: { showFilePath?: boolean } = {}): HT
   return card;
 }
 
+/**
+ * "These files are part of the PR and were never read."
+ *
+ * Deliberately lists the paths rather than only counting them. A count invites
+ * the reader to assume the unread files were the uninteresting ones; the names
+ * let them check. Capped at a readable number with the remainder counted, since
+ * a 163-entry list would push the findings off the panel.
+ */
+function buildSkippedFilesBanner(skipped: string[]): HTMLElement {
+  const banner = document.createElement('div');
+  banner.className = 'vg-degradation';
+  const SHOW = 10;
+  const head = document.createElement('div');
+  head.textContent =
+    `⚠ ${skipped.length} changed file(s) were NOT scanned: GitHub did not render their diffs ` +
+    `on this page (they sit behind "Load diff"). This review is PARTIAL — those files may ` +
+    `contain issues nobody has looked at. Open them individually, or scan the branch with the CLI.`;
+  banner.appendChild(head);
+  const list = document.createElement('div');
+  list.className = 'vg-file-meta';
+  list.textContent =
+    skipped.slice(0, SHOW).join(', ') +
+    (skipped.length > SHOW ? `, +${skipped.length - SHOW} more` : '');
+  banner.appendChild(list);
+  return banner;
+}
+
 function buildDegradationBanner(degradations: ScanDegradation[]): HTMLElement {
   // A partial scan must never read as a clean one. This banner is what stops
   // "✓ No security issues found." from being shown for a file the scanner only
@@ -173,17 +210,47 @@ function buildDegradationBanner(degradations: ScanDegradation[]): HTMLElement {
   return banner;
 }
 
-function renderFindings(findings: Finding[], degradations?: ScanDegradation[]): void {
+/**
+ * "A rule crashed and its findings are missing."
+ *
+ * `analyzer.scan` catches a throwing rule, records it in `ruleErrors` and lets
+ * the rest of the scan finish — the right call, because a partial report beats
+ * none. But the panel never read that field, so a rule that died contributed
+ * zero findings and the result rendered as a green tick. `analyzer.ts` says as
+ * much about the CLI ("renders `ruleErrors` under 'rule(s) errored and were
+ * skipped — findings may be missing'"); this is the browser surface catching up.
+ */
+function buildRuleErrorBanner(errors: RuleError[]): HTMLElement {
+  const banner = document.createElement('div');
+  banner.className = 'vg-degradation';
+  const ids = [...new Set(errors.map((e) => e.ruleId))];
+  banner.textContent =
+    `⚠ ${ids.length} rule(s) errored and were skipped — findings may be missing: ` +
+    `${ids.slice(0, 6).join(', ')}${ids.length > 6 ? `, +${ids.length - 6} more` : ''}.`;
+  return banner;
+}
+
+function renderFindings(
+  findings: Finding[],
+  degradations?: ScanDegradation[],
+  ruleErrors?: RuleError[],
+): void {
   findingsEl.replaceChildren();
 
   if (degradations?.length) {
     findingsEl.appendChild(buildDegradationBanner(degradations));
   }
+  if (ruleErrors?.length) {
+    findingsEl.appendChild(buildRuleErrorBanner(ruleErrors));
+  }
+
+  // An empty result is only CLEAN when nothing was cut short and nothing
+  // crashed. Either one makes it merely unproven.
+  const incomplete = Boolean(degradations?.length) || Boolean(ruleErrors?.length);
 
   if (findings.length === 0) {
     const empty = document.createElement('div');
-    // Only "OK" when nothing degraded — otherwise the empty result is unproven.
-    empty.className = degradations?.length ? 'vg-empty' : 'vg-empty vg-ok';
+    empty.className = incomplete ? 'vg-empty' : 'vg-empty vg-ok';
     empty.textContent = degradations?.length
       ? 'No issues found in the part of the input that was scanned.'
       : '✓ No security issues found.';
@@ -204,17 +271,37 @@ interface FileGroupResult {
   findings: Finding[];
   /** D3 bounds that cut this file's scan short, if any. */
   degradations?: ScanDegradation[];
+  /**
+   * Why this file produced no findings for a reason OTHER than being clean.
+   *
+   * An empty `findings` array used to mean both "scanned, nothing found" and
+   * "could not scan", and the panel rendered the same green tick for either. A
+   * rule that throws, or a file the page never rendered, then looks exactly
+   * like a file that passed. Set this and the group renders as unknown instead.
+   */
+  unscanned?: string;
 }
 
-function renderFileGroups(groups: FileGroupResult[]): void {
+function renderFileGroups(groups: FileGroupResult[], skippedFiles: string[] = []): void {
   findingsEl.replaceChildren();
   const allFindings = groups.flatMap((g) => g.findings);
-  if (groups.length === 0) {
+  if (groups.length === 0 && skippedFiles.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'vg-empty';
     empty.textContent = 'No diff rows found.';
     findingsEl.appendChild(empty);
     return;
+  }
+
+  // Files the PAGE never rendered. This is the largest completeness gap in the
+  // PR path and it is invisible from inside the scan: GitHub collapses the
+  // diffs of a large PR behind "Load diff" and never puts their rows in the
+  // DOM, so there is nothing to walk. Measured on rust-lang/rust#160102 — 284
+  // changed files, 121 rendered, 163 collapsed, and scrolling to the bottom
+  // does not change those numbers. Nothing the extension does can recover them
+  // from this page; the only honest move is to say which ones went unread.
+  if (skippedFiles.length > 0) {
+    findingsEl.appendChild(buildSkippedFilesBanner(skippedFiles));
   }
 
   // Any partially-scanned file in the diff degrades the whole review, so the
@@ -236,14 +323,22 @@ function renderFileGroups(groups: FileGroupResult[]): void {
     path.textContent = g.filePath;
     const meta = document.createElement('span');
     meta.className = 'vg-file-meta';
-    meta.textContent =
-      g.findings.length === 0
+    meta.textContent = g.unscanned
+      ? `${g.added} added · not scanned`
+      : g.findings.length === 0
         ? `${g.added} added · 0 findings`
         : `${g.added} added · ${g.findings.length} finding(s)`;
     header.append(path, meta);
     section.appendChild(header);
 
-    if (g.findings.length === 0) {
+    if (g.unscanned) {
+      // Three states, not two: clean, findings, and unknown. The tick is
+      // reserved for a file that was actually read.
+      const warn = document.createElement('div');
+      warn.className = 'vg-empty vg-degraded';
+      warn.textContent = `⚠ Not scanned — ${g.unscanned}. This file's verdict is unknown.`;
+      section.appendChild(warn);
+    } else if (g.findings.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'vg-empty vg-ok';
       empty.textContent = '✓ No issues on the added lines.';
@@ -281,7 +376,7 @@ function runSnippetScan(source: HistorySource, originLabel: string): void {
     });
     const ms = Math.round(performance.now() - t0);
     setStatus(`${result.findings.length} finding(s) in ${ms} ms · ${language}`);
-    renderFindings(result.findings, result.degradations);
+    renderFindings(result.findings, result.degradations, result.ruleErrors);
     void recordHistory({
       source,
       origin: originLabel,
@@ -299,6 +394,62 @@ function runSnippetScan(source: HistorySource, originLabel: string): void {
     e.textContent = err instanceof Error ? err.message : String(err);
     findingsEl.appendChild(e);
   }
+}
+
+/**
+ * Scan extracted code blocks ONE AT A TIME, each in its own language.
+ *
+ * They used to be concatenated into a single snippet and scanned once, under a
+ * single language. Two things went wrong with that, and both hid findings:
+ *
+ *  - A page mixing languages — an AI chat transcript, a tutorial, API docs —
+ *    got ONE verdict under ONE language. Measured with the shipped browser
+ *    core: a Python block calling `subprocess.call(..., shell=True)` and a JS
+ *    block assigning to `innerHTML` report two findings when scanned
+ *    separately and ONE when joined, whichever language is chosen. Joining
+ *    always loses the other language's sinks.
+ *  - The separator itself was `// --- block N ---`, a JavaScript comment
+ *    injected into text that might be Python, where `//` is floor division.
+ *
+ * Blocks are their own unit of analysis, so they get the file-group renderer:
+ * per-block language, per-block findings, and — since `FileGroupResult` carries
+ * it — per-block "not scanned" when one throws.
+ */
+function scanExtractedBlocks(
+  blocks: ExtractedCodeBlock[],
+  originLabel: string,
+  previewSource: string,
+): void {
+  const t0 = performance.now();
+  const results = scanBlocks(blocks, {
+    scan,
+    detectLanguageFromContent,
+    fallbackLanguage: langSelect.value || undefined,
+  });
+  const groups: FileGroupResult[] = results.map((r) => ({
+    filePath: r.label,
+    scanned: r.lineCount,
+    added: r.lineCount,
+    findings: r.findings,
+    ...(r.degradations ? { degradations: r.degradations } : {}),
+    ...(r.unscanned ? { unscanned: r.unscanned } : {}),
+  }));
+
+  const ms = Math.round(performance.now() - t0);
+  const all = groups.flatMap((g) => g.findings);
+  setStatus(`${all.length} finding(s) across ${blocks.length} block(s) in ${ms} ms`);
+  renderFileGroups(groups);
+
+  void recordHistory({
+    source: 'page-extract',
+    origin: originLabel,
+    language: groups.length === 1 ? undefined : 'multi',
+    summary: summarize(all),
+    findings: all,
+    codeForPreview: previewSource,
+    totalLines: previewSource.split('\n').length,
+    fileCount: blocks.length,
+  });
 }
 
 // --- GitHub PR diff scan --------------------------------------------------
@@ -332,8 +483,15 @@ async function runGithubDiffScan(): Promise<void> {
     const groups = scanDiffFiles(reply.files);
     const ms = Math.round(performance.now() - t0);
     const totalFindings = groups.reduce((n, g) => n + g.findings.length, 0);
-    setStatus(`${totalFindings} finding(s) across ${reply.files.length} file(s) in ${ms} ms`);
-    renderFileGroups(groups);
+    // The count has to name the DENOMINATOR when it is not the whole PR.
+    // "8 finding(s) across 121 file(s)" reads as a complete review of a PR that
+    // changes 284 — the reviewer has no way to know 163 were never read.
+    const skipped = reply.skippedFiles ?? [];
+    const scope = skipped.length
+      ? `${reply.files.length} of ${reply.files.length + skipped.length} file(s)`
+      : `${reply.files.length} file(s)`;
+    setStatus(`${totalFindings} finding(s) across ${scope} in ${ms} ms`);
+    renderFileGroups(groups, skipped);
 
     const allFindings = groups.flatMap((g) => g.findings);
     const previewPaths = reply.files
@@ -382,12 +540,16 @@ function scanDiffFiles(files: ParsedDiffFile[]): FileGroupResult[] {
         language,
         filePath: file.filePath,
       });
-    } catch {
+    } catch (err) {
+      // NOT the same as "no issues". The analyzer failed on this file, so its
+      // verdict is unknown; reporting an empty finding list without saying so
+      // turns an engine failure into a clean bill of health.
       groups.push({
         filePath: file.filePath,
         scanned: file.lines.length,
         added: added.size,
         findings: [],
+        unscanned: `scan failed: ${err instanceof Error ? err.message : String(err)}`,
       });
       continue;
     }
@@ -572,8 +734,8 @@ extractBtn.addEventListener('click', async () => {
       return;
     }
 
-    // Concatenate all blocks separated by a marker so a single scan can cover
-    // the page; the line numbers reported will reference the joined text.
+    // The textarea still shows everything, joined, so the user can see what was
+    // taken off the page. The SCAN no longer works from that joined text.
     const joined = reply.blocks
       .map((b, i) => `// --- block ${i + 1}${b.language ? ` (${b.language})` : ''} ---\n${b.text}`)
       .join('\n\n');
@@ -581,7 +743,7 @@ extractBtn.addEventListener('click', async () => {
     codeArea.value = joined;
     setOrigin(reply.origin);
 
-    // If every block agrees on a language, prefer that.
+    // If every block agrees on a language, reflect that in the picker.
     const langs = new Set(reply.blocks.map((b) => b.language).filter(Boolean));
     if (langs.size === 1) {
       const lang = [...langs][0]!;
@@ -590,7 +752,7 @@ extractBtn.addEventListener('click', async () => {
     }
 
     setStatus(`extracted ${reply.blocks.length} block(s)`);
-    runSnippetScan('page-extract', reply.origin);
+    scanExtractedBlocks(reply.blocks, reply.origin, joined);
   } catch (err) {
     setStatus(err instanceof Error ? err.message : String(err));
   }

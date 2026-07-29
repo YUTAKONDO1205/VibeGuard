@@ -388,3 +388,114 @@ describe('canonicalize — regex literals are code, not comment openers', () => 
     expect(canonicalize(src, 'ruby').content).toBe(src);
   });
 });
+
+/**
+ * C translation phase 2 — backslash-newline is deleted BEFORE comments and
+ * tokens are recognised, so a `//` comment ending in a backslash continues onto
+ * the next physical line.
+ *
+ * Ending the comment at the newline instead classified commented-out code as
+ * live code:
+ *
+ *   // disabled call \
+ *   gets(buf);          <- reported as VG-MEM-001 critical
+ *
+ * Two passes had to agree for the finding to disappear: the rule's own blanker
+ * and this one. They now read the same predicate out of @vibeguard/rules, which
+ * is the rule this file's header already states for comment SYNTAX and now also
+ * covers where a comment ENDS.
+ */
+describe('canonicalize — C line-continuation splicing in line comments', () => {
+  const nl = (s: string): number => [...s].filter((c) => c === '\n').length;
+
+  // A literal backslash, built by code point rather than written as an escape.
+  // Every fixture below turns on ONE backslash immediately before a newline,
+  // and an escaping slip that loses it makes the input a single ordinary
+  // comment line — which every assertion here would then pass for the wrong
+  // reason. Constructing it this way removes the failure mode.
+  const BS = String.fromCharCode(92);
+  const lines = (...parts: string[]): string => `${parts.join('\n')}\n`;
+
+  const SPLICED = lines('#include <stdio.h>', 'void f(void) {', `  // disabled ${BS}`, '  gets(buf);', '}');
+
+  it('the fixture really does end a comment line with a backslash', () => {
+    // Guards the guard: if this fails, every other test in this block is
+    // asserting something about a different input than it claims to.
+    expect(SPLICED).toContain(`disabled ${BS}\n  gets`);
+    expect(SPLICED.split('\n').length).toBe(6);
+  });
+
+  it('carries a C line comment across a spliced newline', () => {
+    const r = canonicalize(SPLICED, 'c');
+    // The continued line is comment, so `gets(` must not survive as code.
+    expect(r.content).not.toContain('gets(');
+  });
+
+  it.each(['c', 'cpp'])('applies to %s', (language) => {
+    expect(canonicalize(SPLICED, language).content).not.toContain('gets(');
+  });
+
+  it('does NOT splice in languages that have no such rule', () => {
+    // In JS a trailing backslash in a `//` comment means nothing; continuing
+    // would blank real code, which is the false-NEGATIVE direction.
+    const js = lines(`const a = 1; // note ${BS}`, 'const b = eval(userInput);');
+    expect(canonicalize(js, 'javascript').content).toContain('eval(userInput)');
+  });
+
+  it('leaves an ordinary C comment and the code after it alone', () => {
+    const plain = lines('#include <stdio.h>', 'void f(void) {', '  // disabled', '  gets(buf);', '}');
+    expect(canonicalize(plain, 'c').content).toContain('gets(buf)');
+  });
+
+  it('preserves length, newline count and idempotence', () => {
+    const r = canonicalize(SPLICED, 'c');
+    expect(r.content.length).toBe(SPLICED.length);
+    expect(nl(r.content)).toBe(nl(SPLICED));
+    expect(canonicalize(r.content, 'c').content).toBe(r.content);
+  });
+
+  it('handles CRLF input the same way', () => {
+    const crlf = SPLICED.replace(/\n/g, '\r\n');
+    const r = canonicalize(crlf, 'c');
+    expect(r.content.length).toBe(crlf.length);
+    expect(nl(r.content)).toBe(nl(crlf));
+    expect(r.content).not.toContain('gets(');
+  });
+
+  // The geometry invariant the whole design rests on, exercised over C inputs
+  // that mix splices, comments, strings and CRLF — the combination the splicing
+  // branch newly walks through. A source map would make every one of these an
+  // off-by-one; identity mapping makes them assertions instead.
+  it('keeps positions identity-mapped across generated C inputs', () => {
+    const PARTS = [
+      '  gets(buf);\n',
+      '  // note\n',
+      `  // note ${BS}\n`, // comment continued by a splice
+      `  char *s = "a${BS}${BS}b";\n`, // escaped backslash INSIDE a string
+      '  /* block */\n',
+      '  x = a / b;\n',
+      '\n',
+      `  // ${BS}\r\n`, // splice with CRLF
+      '  strcpy(d, s);\r\n',
+      `  int n = 1; ${BS}\n`, // splice on a line that is NOT a comment
+    ];
+    let checked = 0;
+    for (let a = 0; a < PARTS.length; a++) {
+      for (let b = 0; b < PARTS.length; b++) {
+        for (let c = 0; c < PARTS.length; c++) {
+          const src = `void f(void) {\n${PARTS[a]}${PARTS[b]}${PARTS[c]}}\n`;
+          const r = canonicalize(src, 'c');
+          expect(r.content.length).toBe(src.length);
+          expect(nl(r.content)).toBe(nl(src));
+          // Newlines must sit at exactly the same offsets, not merely the same count.
+          for (let k = 0; k < src.length; k++) {
+            if (src[k] === '\n' || src[k] === '\r') expect(r.content[k]).toBe(src[k]);
+          }
+          expect(canonicalize(r.content, 'c').content).toBe(r.content);
+          checked += 1;
+        }
+      }
+    }
+    expect(checked).toBe(PARTS.length ** 3);
+  });
+});

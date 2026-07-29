@@ -61,7 +61,12 @@
  * and undetected languages).
  */
 
-import { getLineCommentSpec, lineCommentStartsAt } from '@vibeguard/rules';
+import {
+  getLineCommentSpec,
+  languageSplicesLineContinuations,
+  lineCommentEnd,
+  lineCommentStartsAt,
+} from '@vibeguard/rules';
 
 /** Per-op counters — feed the audit trail and the evasion A/B harness. */
 export interface CanonicalizeStats {
@@ -374,6 +379,7 @@ export function canonicalize(content: string, language: string | undefined): Can
   if (!profile) return { content, changed: false, stats: { ...ZERO_STATS } };
 
   const spec = getLineCommentSpec(language);
+  const splicesLineComments = languageSplicesLineContinuations(language);
   const out = content.split('');
   const stats: CanonicalizeStats = { ...ZERO_STATS };
   const literals: StringLiteral[] = [];
@@ -442,9 +448,15 @@ export function canonicalize(content: string, language: string | undefined): Can
     // newline, so `startsWith(p, i)` over the whole content is equivalent to
     // asking within the line.
     if (lineCommentStartsAt(content, i, spec) && commentReallyStartsAt(content, i, profile)) {
-      let stop = content.indexOf('\n', i);
-      if (stop === -1) stop = n;
+      // Where the comment ENDS is a language question, not just "the next
+      // newline". In C, C++ and Arduino a trailing backslash splices the
+      // following physical line into this comment, so stopping at the newline
+      // left commented-out code classified as live code — `// disabled \` then
+      // `gets(buf);` was reported as VG-MEM-001 critical.
+      const stop = lineCommentEnd(content, i, splicesLineComments);
       blank(i, stop);
+      // The comment may now span several lines; keep the counter honest.
+      for (let k = i; k < stop; k++) if (content[k] === '\n') line += 1;
       i = stop;
       continue;
     }

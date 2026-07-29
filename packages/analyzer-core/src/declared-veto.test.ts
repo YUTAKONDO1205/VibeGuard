@@ -375,3 +375,74 @@ describe('declared-package index', () => {
     expect(declaredPackageOfMatch({ ...base, variables: { package: 'other' } }, index)).toBeUndefined();
   });
 });
+
+/**
+ * The veto DELETES findings, so it has to be visible in the artifact.
+ *
+ * Until this existed it reported itself through a callback that only the CLI's
+ * stderr consumed, so JSON and SARIF — the formats a machine reads, and the one
+ * the GitHub Action uploads — could not tell "nothing was found" apart from
+ * "something was found and removed". Same posture as the suppression tally, and
+ * for the same stated reason: this codebase does not allow a mechanism that
+ * deletes findings in silence.
+ */
+describe('declaredPackageVetoes is recorded on the response', () => {
+  // `declaredPackages` rides on the REQUEST; `declaredPackageSource` is an
+  // Analyzer option, because it describes the run and not the file.
+  const scanJs = (content: string, declaredPackages: string[], source?: string) =>
+    scan(
+      { targetType: 'file', content, filePath: 'app.js', mode: 'standard', declaredPackages },
+      source ? { declaredPackageSource: source } : undefined,
+    );
+
+  const HALLUCINATED = 'const e = require("expresss");\nmodule.exports = e;\n';
+
+  it('reports the finding when nothing declares the package', () => {
+    const r = scanJs(HALLUCINATED, []);
+    expect(r.findings.some((f) => f.ruleId === 'VG-AISC-001')).toBe(true);
+    expect(r.declaredPackageVetoes).toBeUndefined();
+  });
+
+  it('drops the finding AND records why when the package is declared', () => {
+    const r = scanJs(HALLUCINATED, ['expresss'], 'package-lock.json');
+    expect(r.findings.some((f) => f.ruleId === 'VG-AISC-001')).toBe(false);
+    expect(r.declaredPackageVetoes).toEqual([
+      {
+        ruleId: 'VG-AISC-001',
+        packageName: 'expresss',
+        filePath: 'app.js',
+        count: 1,
+        source: 'package-lock.json',
+      },
+    ]);
+  });
+
+  it('carries no line number, so the record cannot rebuild the finding', () => {
+    const r = scanJs(HALLUCINATED, ['expresss']);
+    const v = r.declaredPackageVetoes![0]!;
+    expect('startLine' in v).toBe(false);
+    expect(JSON.stringify(v)).not.toMatch(/line/i);
+  });
+
+  it('does not contribute to the summary or the finding list', () => {
+    const r = scanJs(HALLUCINATED, ['expresss']);
+    expect(r.summary.total).toBe(r.findings.length);
+  });
+
+  it('records one entry per package, not one per import site', () => {
+    // The rule already collapses repeated imports of one name to a single
+    // match, so the record is one line whether the package is required once or
+    // twice — which is the granularity a reviewer wants anyway.
+    const twice = 'const a = require("expresss");\nconst b = require("expresss");\n';
+    const r = scanJs(twice, ['expresss']);
+    expect(r.declaredPackageVetoes).toHaveLength(1);
+    expect(r.declaredPackageVetoes![0]!.packageName).toBe('expresss');
+  });
+
+  it('keeps separate packages in separate records', () => {
+    const two = 'const a = require("expresss");\nconst b = require("lodashh");\n';
+    const r = scanJs(two, ['expresss', 'lodashh']);
+    const names = (r.declaredPackageVetoes ?? []).map((v) => v.packageName).sort();
+    expect(names).toEqual(['expresss', 'lodashh']);
+  });
+});

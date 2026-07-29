@@ -115,10 +115,27 @@ export const dangerousDeserialization: RuleDefinition = {
   },
   match: (ctx) => [
     ...runRegex(ctx.content, /pickle\.(?:load|loads)\s*\(/g, { skipCommentLines: true, language: ctx.language }),
-    ...runRegex(ctx.content, /yaml\.load\s*\((?![^)]*Loader\s*=\s*yaml\.SafeLoader)/g, {
-      skipCommentLines: true,
-      language: ctx.language,
-    }),
+    // The negative lookahead spells out the SAFE loaders rather than just
+    // `yaml.SafeLoader`, because the qualified form is only one of the ways
+    // PyYAML's own docs write it. `from yaml import SafeLoader` then
+    // `yaml.load(data, Loader=SafeLoader)` is the same call with the same
+    // safety property, and reporting it as a critical arbitrary-code-execution
+    // finding is a false positive on code that already did the right thing —
+    // the kind that teaches people to ignore the rule.
+    //
+    // Covered: `SafeLoader`, `CSafeLoader` (the libyaml-backed equivalent), and
+    // `BaseLoader`, each bare or qualified by any module alias (`yaml.`,
+    // `_yaml.`, a local `y.`). NOT covered, deliberately: `FullLoader`, which
+    // still constructs arbitrary Python objects, and `UnsafeLoader`/`Loader`,
+    // which are the unsafe defaults this rule is about.
+    ...runRegex(
+      ctx.content,
+      /yaml\.load\s*\((?![^)]*Loader\s*=\s*(?:\w+\.)?(?:C?SafeLoader|BaseLoader)\b)/g,
+      {
+        skipCommentLines: true,
+        language: ctx.language,
+      },
+    ),
   ],
 };
 

@@ -155,7 +155,7 @@ export const rtosForbiddenApiInIsr: RuleDefinition = {
       ctx.content.length > REGEX_INPUT_CAP ? ctx.content.slice(0, REGEX_INPUT_CAP) : ctx.content;
     // Blank comments/strings so a `/* Serial.print old *\/` inside a handler is
     // not flagged; length-preserving so lines still map to the original.
-    const scanText = blankCommentsAndStrings(raw);
+    const scanText = blankCommentsAndStrings(raw, ctx.language);
     const out: RuleMatch[] = [];
     for (const block of collectIsrBlocks(scanText)) {
       scanIsrBody(scanText, block, ctx.lines, ctx.language, out);
@@ -204,7 +204,7 @@ export const rtosVolatileLeak: RuleDefinition = {
   match: (ctx) => {
     const raw =
       ctx.content.length > REGEX_INPUT_CAP ? ctx.content.slice(0, REGEX_INPUT_CAP) : ctx.content;
-    const scanText = blankCommentsAndStrings(raw);
+    const scanText = blankCommentsAndStrings(raw, ctx.language);
     const blocks = collectIsrBlocks(scanText);
     if (blocks.length === 0) return [];
 

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { Finding, ScanDegradation } from '@vibeguard/findings-schema';
+import type { Finding, RuleError, ScanDegradation } from '@vibeguard/findings-schema';
 
 function severityToVscode(sev: Finding['severity']): vscode.DiagnosticSeverity {
   if (sev === 'critical' || sev === 'high') return vscode.DiagnosticSeverity.Error;
@@ -47,6 +47,32 @@ export function degradationToDiagnostic(d: ScanDegradation): vscode.Diagnostic {
   const range = new vscode.Range(0, 0, 0, 0);
   const diag = new vscode.Diagnostic(range, `VibeGuard: ${d.detail}`, vscode.DiagnosticSeverity.Warning);
   diag.code = d.ruleId;
+  diag.source = 'VibeGuard';
+  return diag;
+}
+
+/**
+ * A rule that CRASHED, surfaced the same way a degradation is, for the same
+ * reason: an incomplete scan must not look like a clean one.
+ *
+ * `Analyzer.scan` catches a throwing rule, records it in `ruleErrors` and lets
+ * the rest of the scan finish — the right call, since a partial report beats
+ * none. But nothing here read that field, so a rule that died contributed zero
+ * findings and the file went green in the Problems panel. The distinction
+ * between "this rule found nothing" and "this rule never ran" was not
+ * observable from the editor at all.
+ *
+ * Warning rather than Error, matching `degradationToDiagnostic`: the file was
+ * scanned and most rules did run. What is missing is one rule's verdict.
+ */
+export function ruleErrorToDiagnostic(e: RuleError): vscode.Diagnostic {
+  const range = new vscode.Range(0, 0, 0, 0);
+  const diag = new vscode.Diagnostic(
+    range,
+    `VibeGuard: rule ${e.ruleId} errored and was skipped — findings from it may be missing (${e.message})`,
+    vscode.DiagnosticSeverity.Warning,
+  );
+  diag.code = e.ruleId;
   diag.source = 'VibeGuard';
   return diag;
 }

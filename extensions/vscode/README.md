@@ -20,7 +20,7 @@ so a finding here will look identical in PR comments and SARIF uploads.
   `VibeGuard: Scan Selection` to scope a scan to a region of code.
 - **Findings sidebar** — `VibeGuard Findings` view in the Explorer lists every
   finding in the active workspace with severity badges.
-- **30 built-in rules** — injection / auth / secrets / crypto / AI-quality
+- **71 built-in rules** — injection / auth / secrets / crypto / AI-quality
   heuristics. AI-quality rules (stub bodies, placeholder emails, mock data,
   debug flags, "for now" comments, empty validators) are VibeGuard's specialty.
 

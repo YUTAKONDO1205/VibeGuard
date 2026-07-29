@@ -753,7 +753,7 @@ export function indexFile(file: SourceFile): StructureIndex {
     return indexPython(bounded, blankPyLiterals(content), lineStarts);
   }
   if (C_LANGUAGES.has(file.language)) {
-    return indexC(bounded, blankCommentsAndStrings(content), lineStarts);
+    return indexC(bounded, blankCommentsAndStrings(content, file.language), lineStarts);
   }
   // Not a language this phase indexes. An empty index is the honest answer —
   // NOT an error, because a project legitimately contains YAML and Markdown, and

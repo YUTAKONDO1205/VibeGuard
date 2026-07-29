@@ -9,6 +9,7 @@ import {
   type ScanDegradation,
   type ScanMode,
   type ScanResponse,
+  type DeclaredPackageVetoRecord,
 } from '@vibeguard/findings-schema';
 import { Analyzer, ENGINE_VERSION, type AnalyzerOptions } from './analyzer.js';
 import { detectLanguageFromPath } from './language-detect.js';
@@ -32,7 +33,22 @@ export const DEFAULT_IGNORE = new Set([
   '.vscode',
 ]);
 
-const MAX_FILE_BYTES = 1_000_000; // 1 MB; skip larger files in MVP
+/**
+ * Largest single file a directory scan will open. Larger ones are skipped.
+ *
+ * Exported because it is a shared admission rule, not a private detail. The
+ * cross-file pass in `@vibeguard/analysis-graph` walks the SAME target and its
+ * findings land in the SAME report, so if the two disagree about which files
+ * exist, a cross-file finding can cite a file the per-file scan never opened.
+ * That is exactly what happened while this was private and the graph carried
+ * its own `1024 * 1024` under a comment claiming to mirror it: every file
+ * between 1,000,000 and 1,048,576 bytes was admitted by one pass and silently
+ * dropped by the other.
+ *
+ * Decimal MB rather than MiB is arbitrary but it is the number that shipped, so
+ * it is the one both passes now read.
+ */
+export const MAX_FILE_BYTES = 1_000_000;
 
 async function* walk(dir: string, ignore: Set<string>): AsyncGenerator<string> {
   let entries;
@@ -97,6 +113,11 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
   // in a single-snippet `Analyzer.scan` but silently lost across a directory scan.
   const ruleErrorsByRule = new Map<string, RuleError>();
   const degradationsByFileKind = new Map<string, ScanDegradation>();
+  // Aggregated across files for the same reason the suppression tally is: a
+  // channel that DELETES findings has to be visible in the artifact, not only
+  // on the CLI's stderr. Keyed rule|package|file, so a project depending on a
+  // dozen near-miss names gets a dozen lines and not one per match.
+  const vetoesByKey = new Map<string, DeclaredPackageVetoRecord>();
   // D8: both suppression channels land in one tally. The analyzer reports the
   // pragma half per file (and that per-file response is otherwise discarded
   // here), the loop below adds the config half.
@@ -182,6 +203,12 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
     // overwritten: these are counts, and two files suppressing the same rule are
     // two suppressions.
     mergeSuppressions(suppressionTally, result.suppressions);
+    for (const v of result.declaredPackageVetoes ?? []) {
+      const k = `${v.ruleId}|${v.packageName}|${v.filePath ?? relPath}`;
+      const prev = vetoesByKey.get(k);
+      if (prev) prev.count += v.count;
+      else vetoesByKey.set(k, { ...v, filePath: v.filePath ?? relPath });
+    }
     for (const e of result.ruleErrors ?? []) {
       if (!ruleErrorsByRule.has(e.ruleId)) ruleErrorsByRule.set(e.ruleId, e);
     }
@@ -222,5 +249,6 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
     ...(ruleErrorsByRule.size ? { ruleErrors: [...ruleErrorsByRule.values()] } : {}),
     ...(degradationsByFileKind.size ? { degradations: [...degradationsByFileKind.values()] } : {}),
     ...(suppressionTally.size ? { suppressions: collectSuppressions(suppressionTally) } : {}),
+    ...(vetoesByKey.size ? { declaredPackageVetoes: [...vetoesByKey.values()] } : {}),
   };
 }

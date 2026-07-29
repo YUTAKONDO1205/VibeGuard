@@ -7,8 +7,11 @@ and interpolates `${var}` placeholders from the rule match's
 
 ## Public surface
 
-- `buildRemediation(rule, match)` — returns the populated remediation
-  object, or `undefined` if the rule has no template.
+- `buildRemediation(rule, match)` — always returns a `Remediation`. When the
+  rule carries a template it is interpolated; when the rule has **no**
+  template the function falls back to the rule's own `description` plus a
+  generic "review this manually" instruction and the category's default
+  references. It never returns `undefined`.
 - Interpolation: `${target}` in the template is replaced by
   `match.variables.target`. Missing keys leave the placeholder visible
   (intentional — it surfaces template/match drift in tests).

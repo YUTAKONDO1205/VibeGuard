@@ -928,7 +928,7 @@ sequenceDiagram
   "findings": [],
   "executionTimeMs": 0,
   "engineVersions": {
-    "core": "0.3.0"
+    "core": "0.3.1"
   },
   "generatedAt": "2026-04-20T00:00:00Z"
 }
