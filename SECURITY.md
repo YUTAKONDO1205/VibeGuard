@@ -1,9 +1,10 @@
 # Security
 
 This document describes what VibeGuard defends, what it does not, and where the
-limits are. It is written against **engine `0.2.1`** (`engineVersions.core` in
-every scan result). See [README.md](README.md#versioning) for how the engine
-version relates to the released tool version.
+limits are. It is written against **engine `0.3.1`** (`engineVersions.core` in
+every scan result), as shipped in tool `0.3.3`. See
+[README.md](README.md#versioning) for how the engine version relates to the
+released tool version.
 
 ## Reporting a vulnerability
 
@@ -51,7 +52,7 @@ than good luck: context-derived down-ranking cannot move a `critical`, `high` or
 finding across a `medium` threshold that it started above. That is the security
 claim, and it holds.
 
-**It is not a claim that a `medium` threshold is safe to gate on.** Twelve
+**It is not a claim that a `medium` threshold is safe to gate on.** Seventeen
 shipped rules *declare* `low` confidence while carrying a security judgement, and
 three of them are `high` severity: `VG-INJ-011` (XXE), `VG-MEM-004` (double
 free), `VG-MEM-005` (use after free). Those sit outside a `medium` threshold from
@@ -90,6 +91,7 @@ being secret.
 | Break up the dangerous expression so no pattern matches it (`"ev" + "al"`, comments inside a call) | Rules run over normalized text as well as the original, and the results are unioned, so a normalization can only add findings | Normalization is lexical. Semantic rewrites — moving the call behind an alias, restructuring control flow — are not covered by pattern matching in principle |
 | Make the code look like a test or an example so its confidence is down-ranked | Findings that carry a security judgement (`critical`, `high`, `medium`) keep their declared confidence regardless of context | `low` and `info` are advisory bands and remain freely down-rankable, by design |
 | Suppress it with a blanket `vibeguard:disable`, or a config entry that names no rules | A wildcard suppression cannot silence `critical`, `high` or `medium`, on either the comment or the config channel. The finding is reported with a marker saying a suppression was refused | Naming the rule explicitly still suppresses at any severity — see below |
+| Smuggle a suppression in as ordinary string data, so the file goes quiet without any comment a reviewer would read as one | Since engine `0.3.1`, a directive that sits inside a quoted string is not a directive. The realistic trigger for this was never an attack but documentation — a help message or a doc example that merely *quoted* the syntax silenced the rule it named for the whole file | A directive in a real comment is still a directive, which is the point; the parser distinguishes where the text sits, not who wrote it |
 | Feed the scanner input that makes a rule run forever, so the scan never completes | Rule patterns are bounded, with time and input-length backstops. A scan that stopped early reports that it stopped, rather than returning a short list that looks clean | A bounded scan is an incomplete scan; the report says so, but the unscanned remainder is genuinely unexamined |
 | Bury the finding among thousands of matches so it falls past the per-file cap | Hitting the cap on a security-severity rule is reported as a degradation naming the rule and file | The number of findings beyond the cap is unknown and is not guessed |
 
@@ -130,7 +132,20 @@ Stated plainly, because a checked box that hides a gap is worse than an open one
   The VS Code and Chrome extensions receive it and do not yet display it.
 - **Pattern matching has a ceiling.** VibeGuard reads syntax, not data flow. A
   vulnerability that only exists across function or file boundaries is outside
-  what these rules can see, and no amount of rule-writing changes that.
+  what the default per-file rules can see, and no amount of rule-writing changes
+  that. The opt-in `--include-design-smells` pass raises the ceiling by a
+  measured amount rather than removing it: it indexes the project **lexically**,
+  not by parsing or by following data, which is why its version carries an
+  `-alpha` and why two of its four rules cap their confidence at `medium`. Do
+  not read a quiet cross-file pass as an absence of cross-file vulnerabilities.
+- **`--fix` writes files, and a fixer is not a proof.** Applied edits are
+  labelled `safe` or `needs-review`, and a fixer declines rather than edit under
+  an assumption it cannot check from the bytes it reads — but a rule that stops
+  matching after a fix is not evidence that the defect is gone. `--fail-on` in
+  fix mode is therefore evaluated against the **pre-fix** findings, so fix mode
+  can never turn a red gate green; the post-fix verdict has to come from a fresh
+  scan rather than from the process that did the writing. Run `--dry-run` and
+  read the plan before letting `--fix` touch a tree you care about.
 - **Rules that are not shipped are not checked.** The bounds above are enforced
   on the rules in this repository. Supplying your own rule set through the
   library API bypasses that, and is not a supported deployment.

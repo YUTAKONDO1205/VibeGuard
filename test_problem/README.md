@@ -2,7 +2,9 @@
 
 A single-file demo for **running VibeGuard locally and seeing what it flags, at a glance**.
 
-[test_problem.py](test_problem.py) packs the anti-patterns you should never ship into one Python file. The comment header above each block names the VibeGuard rule ID it is meant to trip (`VG-SECRET-*` / `VG-INJ-*` / `VG-CRYPTO-*` / `VG-AUTH-*` / `VG-FW-*` / `VG-QUAL-*`).
+[test_problem.py](test_problem.py) packs the anti-patterns you should never ship into one Python file. The comment header above each block names the VibeGuard rule ID it is meant to trip (`VG-SEC-*` / `VG-INJ-*` / `VG-CRYPTO-*` / `VG-AUTH-*` / `VG-FW-*` / `VG-QUAL-*`).
+
+One block is deliberately **not** detected: the `DVG-PY-001` sketch — an authorization check written as an `assert`, which `python -O` compiles away along with the authorization. It is a design note in the file, not a shipped rule, and it is there so the demo shows one thing the source-layer rules cannot see.
 
 ## Why this is separate from `samples/vulnerable/`
 

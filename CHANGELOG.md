@@ -75,6 +75,32 @@ leaves the prose remediation, which can describe changes a token swap cannot per
 > reproducible weakness against a version users are still running. The `--fail-on` change
 > above is stated in full because operators need it to audit their pipelines today.
 
+### Documentation
+
+A sweep of every tracked `.md` against the code it describes. No behaviour changed; several
+documents were describing a version of VibeGuard that no longer exists.
+
+- **A setting named in the README does not exist.** The README told VS Code users to set
+  `vibeguard.mode` to make the editor agree with CI. There is no such setting — the extension
+  contributes `vibeguard.scanOnSave` and `vibeguard.scanOnSaveMode`, and anyone who followed
+  the instruction got no error and no change, which is the worst shape this kind of mistake
+  can take. Corrected to `vibeguard.scanOnSaveMode`.
+- **`--fix` / `--dry-run` and `.vibeguardrc.json` were undocumented in the README** despite
+  shipping. Both now have sections, including the pre-fix `--fail-on` semantics above.
+- **Counts that had drifted.** `SECURITY.md` was written against engine `0.2.1` (now `0.3.1`)
+  and said twelve rules declare `low` confidence (seventeen do). The README's version table
+  still read `0.3.1` for the tool version (`0.3.3`). Two sample-corpus READMEs referred to
+  "the 47 rules" (71).
+- **Claims the code had outgrown.** `SECURITY.md` said cross-file vulnerabilities are outside
+  what the rules can see, which stopped being unqualified when `--include-design-smells`
+  landed; it now states what that pass does and does not raise. The README documented two CI
+  workflows (there are five) and two sample gate pairs (there are four, plus the cross-file
+  corpora that the `samples` job deliberately does not cover).
+- **`packages/analysis-graph` had no README** — the only package without one, and the one with
+  the packaging invariant most worth writing down. Added.
+- The VS Code extension README listed its shipped Quick Fixes under "Roadmap", and
+  `test_problem/README.md` named a rule prefix (`VG-SECRET-*`) that has never existed.
+
 ## [0.3.3] - 2026-07-29
 
 Packaging fix for 0.3.2. **Engine is unchanged at `0.3.1`** — nothing about detection moved.

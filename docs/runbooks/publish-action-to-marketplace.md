@@ -52,7 +52,10 @@ Release のドラフト画面で：
 7. **Set as the latest release** にチェック
 8. **Publish release** を押す
 
-公開後、`https://github.com/marketplace/actions/vibeguard` に出る（slug は `name:` から自動生成、衝突したら自動でサフィックス付与）。
+公開後、slug は `name:` から自動生成される（衝突したら自動でサフィックス付与）。**実際に発行された URL は
+<https://github.com/marketplace/actions/vibe-guard-aicoding>** — `action.yml` の `name: 'Vibe-Guard-AICoding'` を
+小文字化した形であって、素直に予想する `…/vibeguard` ではない。README のバッジ・リンクはこの実 URL を指している。
+`name:` を変えると slug も変わり、既存の Marketplace URL は追随しないので、公開後は変更しないこと。
 
 ---
 

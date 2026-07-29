@@ -71,8 +71,8 @@ Vitest ignores. See that directory's README for what this leaves uncovered.
 
 ## Observed baseline
 
-Scanned with the 0.2.x rule set (VG-SMELL-010 not yet implemented), via
-`node apps/cli/dist/index.js <dir> --format json --fail-on never`:
+Scanned via `node apps/cli/dist/index.js <dir> --format json --fail-on never`
+— i.e. **without** `--include-design-smells`, so only the single-file rules run:
 
 | directory | `summary.total` |
 | --- | --- |
@@ -81,6 +81,14 @@ Scanned with the 0.2.x rule set (VG-SMELL-010 not yet implemented), via
 | `single-file/` | 3 (all `VG-SMELL-012`, high) |
 | `not-handlers/` | 0 |
 | `test-paths/` | 0 |
+| `chat-roles/` | 0 |
+| `generic-receivers/` | 0 |
+
+First recorded against the 0.2.x rule set, when `VG-SMELL-010` did not yet
+exist; re-measured unchanged at engine `0.3.1`. That it survived the 0.3.x rule
+additions is part of what the table is for — these directories are near misses,
+so a new single-file rule that starts firing on one of them is reporting on the
+one condition the directory was built to be innocent of.
 
 The cross-file rules need `--include-design-smells`; without it none of the
 group 2 or group 3 directories reports anything, which is why the sample gates

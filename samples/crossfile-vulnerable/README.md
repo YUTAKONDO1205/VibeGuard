@@ -61,9 +61,10 @@ involved, and all three of those words appear across the four sites.
   regressed or a file here grew a third comparison — check the file counts before
   suspecting VG-SMELL-010.
 - **No ordinary vulnerability.** No secrets, no `eval`, no string-concatenated
-  SQL, no disabled TLS. A finding from any of the 47 non-design rules on this
-  directory is a bug in that rule or an accident in this corpus, not a feature of
-  the fixture.
+  SQL, no disabled TLS. A finding from any non-design rule on this directory is a
+  bug in that rule or an accident in this corpus, not a feature of the fixture.
+  (The count was 47 when this was written and is 71 today; the property is "none
+  of them fires here", which does not depend on the number.)
 
 ## Negative counterparts
 

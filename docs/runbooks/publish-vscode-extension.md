@@ -16,8 +16,11 @@
 | `.vscodeignore` | [extensions/vscode/.vscodeignore](../../extensions/vscode/.vscodeignore) | ✅ |
 | `CHANGELOG.md` | [extensions/vscode/CHANGELOG.md](../../extensions/vscode/CHANGELOG.md) | ✅ |
 | `README.md` (ユーザー向け) | [extensions/vscode/README.md](../../extensions/vscode/README.md) | ✅ |
-| `icon.png` (128×128) | `extensions/vscode/icon.png` | ❌ **未作成** — 公開前に必要 |
-| `LICENSE` | `extensions/vscode/LICENSE` | ❌ 未配置（任意。リポジトリルートに LICENSE が出来たら symlink/コピー）|
+| `icon.png` (128×128) | `extensions/vscode/icon.png` | ✅ 配置済み（`package.json` の `"icon"` からも参照済み）|
+| `LICENSE` | `extensions/vscode/LICENSE` | ✅ 配置済み（ルート LICENSE のコピー・MIT）|
+| パッケージング不変条件 | [scripts/check-packaging-invariants.mjs](../../scripts/check-packaging-invariants.mjs) | ✅ `npm test` に載っている。**ソースだけを読む検査**なので数秒で落ちる — 後述 §8.2 の理由から、パッケージングより先に必ず通すこと |
+
+> §2（アイコン作成）は初回公開時の手順として残してある。差し替えるときだけ読めばよい。
 
 ---
 
@@ -238,14 +241,28 @@ npx ovsx publish -p <openvsx_token>
    npm version <patch|minor|major> --workspaces --include-workspace-root
    ```
    現状 root と各 workspace を同じバージョンで揃える運用なのでまとめて bump する。
-3. **コミット & タグ**
+
+   > ⚠ **`extensions/chrome/manifest.json` は `npm version` で上がらない。**
+   > 手書きの静的ファイルで、ビルドが `dist/` にそのままコピーしているだけなので、
+   > bump のたびに手で合わせる必要がある。0.3.2 はこれを取りこぼした結果、
+   > タグを push し Release が緑になり VSIX が両マーケットに出たあとで、
+   > 人間が zip をアップロードしようとした瞬間に初めて弾かれた
+   > （Chrome Web Store は公開済みより大きいバージョンしか受け付けない）。
+   > **失敗が届きうる最も遅いタイミング**である。
+   >
+   > 現在は `check-packaging-invariants.mjs` が「manifest と自分の package.json が
+   > 一致すること」「出荷 4 面が root と一致すること」を検査する。ソースだけを
+   > 読む検査なので、パッケージングが始まる前に数秒で落ちる。
+3. **`npm test` を通す**（上記の不変条件検査がここで走る）
+4. **コミット & タグ**
    ```bash
    git add -A && git commit -m "chore: release v$(node -p "require('./package.json').version")"
    git tag "v$(node -p "require('./package.json').version")"
    git push && git push --tags
    ```
-4. タグ push をトリガーに **Release** ワークフローが走る。Actions タブで進行を確認。
-5. 完了後、GitHub の *Releases* に `vX.Y.Z` が出来ていて、`vibeguard-cli-X.Y.Z.tgz` / `vibeguard-aicoding-X.Y.Z.vsix` / `vibeguard-chrome-X.Y.Z.zip` が添付されている。
+5. タグ push をトリガーに **Release** ワークフローが走る。Actions タブで進行を確認。
+6. 完了後、GitHub の *Releases* に `vX.Y.Z` が出来ていて、`vibeguard-cli-X.Y.Z.tgz` / `vibeguard-aicoding-X.Y.Z.vsix` / `vibeguard-chrome-X.Y.Z.zip` が添付されている。
+7. **Chrome Web Store への zip アップロードは手動**。Release に添付された `vibeguard-chrome-X.Y.Z.zip` を [Developer Dashboard](https://chrome.google.com/webstore/devconsole) から上げる。ここだけワークフローが代行しないので、リリース完了の判定に含めること。
 
 ### 8.3 手動再実行
 

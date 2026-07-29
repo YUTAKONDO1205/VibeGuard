@@ -36,7 +36,9 @@ was written from the spec and not from any implementation.
 
 ## Why the ordinary rules must stay silent
 
-Written to keep clear of the existing 47: no secrets or credential literals
+Written to keep clear of every shipped single-file rule (47 when this fixture was
+written, 71 today — the contract is "no finding from any rule", not from a fixed
+list): no secrets or credential literals
 (`process.env.PORT` is the only environment read), no `eval` or dynamic code, no
 string-concatenated SQL — the data layer is in-memory array manipulation with no
 query language anywhere, no disabled TLS verification, no wildcard CORS, no empty
