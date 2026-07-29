@@ -1,5 +1,9 @@
-// vibeguard:disable-file VG-INJ-006
+// vibeguard:disable-file VG-INJ-006 VG-AUTH-004
 // Test fixtures contain intentional vulnerable code to exercise suppression.
+// VG-AUTH-004 is listed because the string-literal-pragma tests below need a
+// finding that a pragma would plausibly be written for, and a disabled TLS
+// check is the realistic one. Naming the rule ID keeps this an honest
+// suppression rather than a blanket one.
 import { describe, expect, it } from 'vitest';
 import { parseSuppressions, isSuppressed, evaluateSuppression } from './suppress.js';
 import { scan } from './analyzer.js';
@@ -374,5 +378,54 @@ describe('suppression tally (D8, pragma channel)', () => {
     });
     expect(r.findings.some((f) => f.ruleId === 'VG-INJ-004')).toBe(true);
     expect('suppressions' in (r as object)).toBe(false);
+  });
+});
+
+/**
+ * A pragma is a COMMENT directive. Text that merely quotes one is prose.
+ *
+ * `PRAGMA_RE` matches raw line text, so before this a string documenting the
+ * feature silenced the rule it named — for the whole file, with no warning. The
+ * realistic trigger is not an attack but a help message; the attack (one string
+ * added in a pull request) is the same mechanism.
+ */
+describe('a pragma inside a string literal is not a pragma', () => {
+  const scanJs = (content: string): ReturnType<typeof scan> =>
+    scan({ targetType: 'file', content, filePath: 'a.js', mode: 'standard' });
+
+  const VULN = 'function connect() {\n  return https.request({ rejectUnauthorized: false });\n}\n';
+
+  it('reports the finding when the directive is quoted as prose', () => {
+    const help =
+      "const HELP = 'To silence this, write vibeguard:disable-file VG-AUTH-004 at the top.';\n";
+    const r = scanJs(help + VULN);
+    expect(r.findings.some((f) => f.ruleId === 'VG-AUTH-004')).toBe(true);
+  });
+
+  it('still honours the same directive written as a comment', () => {
+    const r = scanJs('// vibeguard:disable-file VG-AUTH-004\n' + VULN);
+    expect(r.findings.some((f) => f.ruleId === 'VG-AUTH-004')).toBe(false);
+  });
+
+  it('honours a directive in a comment that follows code on the same line', () => {
+    const r = scanJs(
+      'const opts = { rejectUnauthorized: false }; // vibeguard:disable-line VG-AUTH-004\n',
+    );
+    expect(r.findings.some((f) => f.ruleId === 'VG-AUTH-004')).toBe(false);
+  });
+
+  // An apostrophe in a comment must not open a string that swallows later
+  // pragmas: quote state is per line and stops at the comment opener.
+  it('is not confused by an apostrophe in an earlier comment', () => {
+    const r = scanJs(
+      "// don't scan this one\n// vibeguard:disable-file VG-AUTH-004\n" + VULN,
+    );
+    expect(r.findings.some((f) => f.ruleId === 'VG-AUTH-004')).toBe(false);
+  });
+
+  it('parses the directive out of a comment but not out of a string', () => {
+    expect(parseSuppressions('// vibeguard:disable-file VG-INJ-004\n').fileWide.length).toBe(1);
+    expect(parseSuppressions("const s = 'vibeguard:disable-file VG-INJ-004';\n").fileWide.length)
+      .toBe(0);
   });
 });

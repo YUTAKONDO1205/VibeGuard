@@ -50,18 +50,52 @@ export interface ParsedDiffFile {
  * That keeps `f.startLine` from the analyzer aligned with the line numbers
  * the user reads on GitHub.
  */
-export function reconstructPseudoContent(file: ParsedDiffFile): string {
-  if (file.lines.length === 0) return '';
+/**
+ * Largest line number this reconstruction will honour.
+ *
+ * The buffer is sized by the HIGHEST line number seen, because that is what
+ * keeps `startLine` aligned with what GitHub shows. That number comes from a
+ * `data-line-number` attribute in the page, which is attacker-controlled on any
+ * site the user can be sent to: `data-line-number="999999999"` asks for a
+ * billion-element array and takes the side panel down before a single rule
+ * runs.
+ *
+ * Set well above any real diff — `REGEX_INPUT_CAP` is 50,000 CHARACTERS, so a
+ * file whose line numbers pass 200,000 is already far past anything the
+ * analyzer would read in full — and reported rather than applied silently.
+ */
+export const MAX_PSEUDO_LINES = 200_000;
+
+export interface PseudoFile {
+  content: string;
+  /**
+   * Set when line numbers ran past {@link MAX_PSEUDO_LINES}; the value is the
+   * highest line number claimed. Lines above the cap are not in `content`, so a
+   * caller that ignores this reports a partial file as a whole one.
+   */
+  truncatedAt?: number;
+}
+
+export function reconstructPseudoFile(file: ParsedDiffFile): PseudoFile {
+  if (file.lines.length === 0) return { content: '' };
   // Sort defensively — extractor may emit hunks out of order in odd DOMs.
   const sorted = [...file.lines].sort((a, b) => a.ln - b.ln);
-  const max = sorted[sorted.length - 1]!.ln;
+  const claimed = sorted[sorted.length - 1]!.ln;
+  const max = Math.min(claimed, MAX_PSEUDO_LINES);
   const buf = new Array<string>(max).fill('');
   for (const line of sorted) {
     if (line.ln >= 1 && line.ln <= max) {
       buf[line.ln - 1] = line.text;
     }
   }
-  return buf.join('\n');
+  return {
+    content: buf.join('\n'),
+    ...(claimed > MAX_PSEUDO_LINES ? { truncatedAt: claimed } : {}),
+  };
+}
+
+export function reconstructPseudoContent(file: ParsedDiffFile): string {
+  return reconstructPseudoFile(file).content;
 }
 
 /** Set of 1-based added line numbers in the new file. */

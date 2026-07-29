@@ -626,6 +626,30 @@ function block(rowSet) {
   return out;
 }
 
+/**
+ * The cluster structure the exact test does NOT account for.
+ *
+ * `pairId` is `file#transform#rule@line`, so several pairs can be the SAME
+ * original finding put through different transforms. McNemar's exact test
+ * assumes the matched pairs are independent; repeated transforms of one finding
+ * are not, and treating them as if they were understates the variance.
+ *
+ * Emitted next to the p-value so anyone quoting the number from this artifact
+ * sees what it rests on. On the shipped run 114 pairs reduce to 19 original
+ * findings over 9 files, and the 15 discordant pairs to 7 originals over 4
+ * files — so the effective sample is roughly a sixth of `n`.
+ */
+function clusterCounts(pairIds) {
+  const original = new Set();
+  const file = new Set();
+  for (const id of pairIds) {
+    const parts = String(id).split('#');
+    file.add(parts[0]);
+    original.add(`${parts[0]}#${parts[2] ?? ''}`);
+  }
+  return { pairs: pairIds.length, originalFindings: original.size, files: file.size };
+}
+
 /** McNemar exact binomial on the matched fileLevel basis. */
 function mcnemarExactP(b, c) {
   const n = b + c;
@@ -670,6 +694,35 @@ function mcnemar(rowSet, toolA, toolB, reading = 'fileLevel') {
     discordant: b + c,
     pValueExact: mcnemarExactP(b, c),
     formula: 'two-sided exact binomial on the discordant pairs: p = min(1, 2 * P(X >= max(b,c))), X ~ Bin(b+c, 0.5)',
+    // ── THE P-VALUE ABOVE IS NOT AN INFERENTIAL RESULT ──────────────────────
+    //
+    // Read it as a description of THIS transform artifact and nothing wider.
+    // The exact test assumes the matched pairs are independent; these are not.
+    // One original finding contributes between 2 and 11 pairs, so `n` counts
+    // transforms rather than evidence, and the variance is understated by
+    // however much the transforms of one finding agree — which, in the shipped
+    // run, is completely: every discordant cluster points the same way.
+    //
+    // Aggregating the discordant pairs to one vote per original finding gives
+    // b=2, c=5, exact p = 0.453 — an order of magnitude away from the pair-level
+    // number and on the other side of any conventional threshold. That
+    // sensitivity IS the finding: the value depends on the unit of analysis, so
+    // no claim about tool classes in general can rest on it.
+    //
+    // Fixing this properly needs a cluster-aware design (a bootstrap over
+    // findings, or a mixed model). Until that exists, quote the DESCRIPTIVE
+    // rates and this structure, not the p-value.
+    inferentialValidity: {
+      independenceAssumptionHolds: false,
+      reason:
+        'matched pairs are repeated transforms of the same original findings (clustered matched-pair data); '
+        + 'an unadjusted exact test understates variance',
+      allPairs: clusterCounts(onMatchedBasis(rowSet, reading).map((r) => r.pairId)),
+      discordant: clusterCounts([...bIds, ...cIds]),
+      guidance:
+        'report as a descriptive rate over this fixed transform artifact; '
+        + 'do not infer a general advantage of one tool class over another from this p-value',
+    },
     evadedAOnlyPairIds: bIds.sort(),
     evadedBOnlyPairIds: cIds.sort(),
   };
@@ -1046,6 +1099,16 @@ log(`  dER shipped - semgrep = ${dShipped}`);
 log(`  dER regex   - semgrep = ${dRegex}`);
 log(`  McNemar (shipped vs semgrep): b=${mainMcnemar.b_evadedAOnly} c=${mainMcnemar.c_evadedBOnly} exact p=${mainMcnemar.pValueExact}\n`);
 
+// Printed on the same screen as the p-value, so the caveat cannot be read
+// separately from the number it qualifies.
+log(
+  `  ^ DESCRIPTIVE ONLY: ${mainMcnemar.inferentialValidity.allPairs.pairs} pair(s) are `
+    + `${mainMcnemar.inferentialValidity.allPairs.originalFindings} original finding(s) over `
+    + `${mainMcnemar.inferentialValidity.allPairs.files} file(s); discordant `
+    + `${mainMcnemar.inferentialValidity.discordant.pairs} -> `
+    + `${mainMcnemar.inferentialValidity.discordant.originalFindings} original(s). `
+    + `Pairs are NOT independent; do not infer a general tool-class advantage from this p.`,
+);
 log(`by language — fileLevel/matched`);
 log(`  ${pad('language', 12)}${padL('n', 5)}  ${padL('regex', 9)}${padL('shipped', 10)}${padL('semgrep', 9)}`);
 for (const lang of Object.keys(byLanguage).sort()) {

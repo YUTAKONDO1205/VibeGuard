@@ -29,6 +29,61 @@ const wrap = (findings: Finding[]): ScanResponse => ({
   generatedAt: '2026-05-04T00:00:00Z',
 });
 
+/**
+ * The envelope has to point somewhere real, and it has to carry the fields the
+ * one consumer that matters actually reads.
+ *
+ * Both URLs used to 404: `$schema` pointed into a branch of the sarif-spec repo
+ * that no longer serves that path, and `informationUri` named a repository
+ * (`github.com/vibeguard/vibeguard`) that does not exist. A `$schema` nobody can
+ * fetch is worse than none — validators report a load failure instead of a
+ * schema violation.
+ */
+describe('SARIF envelope metadata', () => {
+  it('points $schema at the OASIS publication location, not a moving branch', () => {
+    const log = toSarif(wrap([fakeFinding()]));
+    expect(log.$schema).toBe(
+      'https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json',
+    );
+  });
+
+  it('names the repository this tool is actually published from', () => {
+    const log = toSarif(wrap([fakeFinding()]));
+    expect(log.runs[0]?.tool.driver.informationUri).toBe(
+      'https://github.com/YUTAKONDO1205/VibeGuard',
+    );
+  });
+
+  // SARIF has four levels and VibeGuard has five severities, so `critical` and
+  // `high` both collapse to `error`. `security-severity` is where GitHub code
+  // scanning recovers the distinction; without it every alert lands in one bucket.
+  it('carries security-severity so critical outranks high in code scanning', () => {
+    const log = toSarif(
+      wrap([
+        fakeFinding({ ruleId: 'VG-CRIT', severity: 'critical' }),
+        fakeFinding({ ruleId: 'VG-HIGH', severity: 'high' }),
+      ]),
+    );
+    const rules = log.runs[0]?.tool.driver.rules ?? [];
+    const sev = (id: string): string | undefined =>
+      rules.find((r) => r.id === id)?.properties?.['security-severity'];
+
+    expect(sev('VG-CRIT')).toBe('9.0');
+    expect(sev('VG-HIGH')).toBe('7.0');
+    expect(Number(sev('VG-CRIT'))).toBeGreaterThan(Number(sev('VG-HIGH')));
+    // The collapse this compensates for is still there, by design.
+    const level = (id: string): string | undefined => rules.find((r) => r.id === id)
+      ?.defaultConfiguration.level;
+    expect(level('VG-CRIT')).toBe(level('VG-HIGH'));
+  });
+
+  it('derives precision from confidence', () => {
+    const log = toSarif(wrap([fakeFinding({ ruleId: 'VG-LOWC', confidence: 'low' })]));
+    const rule = log.runs[0]?.tool.driver.rules.find((r) => r.id === 'VG-LOWC');
+    expect(rule?.properties?.precision).toBe('low');
+  });
+});
+
 describe('toSarif', () => {
   it('produces a valid 2.1.0 envelope', () => {
     const sarif = toSarif(wrap([fakeFinding()]));
@@ -217,5 +272,59 @@ describe('design-smell findings in SARIF', () => {
     expect('relatedLocations' in r).toBe(false);
     expect('scope' in (r.properties ?? {})).toBe(false);
     expect('metrics' in (r.properties ?? {})).toBe(false);
+  });
+});
+
+/**
+ * SARIF URIs and finding paths answer to different masters.
+ *
+ * GitHub code scanning resolves `artifactLocation.uri` from the REPOSITORY
+ * ROOT. A finding's `filePath` is relative to the SCAN TARGET, and three other
+ * consumers depend on that basis (`fix.ts` reads a finding back as
+ * `join(target, filePath)`, config `suppress[].paths` globs are written against
+ * it, the human formatter prints it). For a scan of the repo root the two
+ * coincide, which is why this went unnoticed; for `vibeguard packages/api` the
+ * SARIF named `routes.ts` for a file that lives at `packages/api/routes.ts`, so
+ * every alert pointed somewhere that does not exist.
+ */
+describe('uriPrefix lifts SARIF URIs to the repository root', () => {
+  const uriOf = (log: ReturnType<typeof toSarif>): string =>
+    log.runs[0]!.results[0]!.locations[0]!.physicalLocation.artifactLocation.uri;
+
+  it('is a no-op without a prefix', () => {
+    expect(uriOf(toSarif(wrap([fakeFinding({ filePath: 'a.ts' })])))).toBe('a.ts');
+  });
+
+  it('prefixes a target-relative path', () => {
+    const log = toSarif(wrap([fakeFinding({ filePath: 'a.ts' })]), { uriPrefix: 'packages/api/' });
+    expect(uriOf(log)).toBe('packages/api/a.ts');
+  });
+
+  it('accepts a prefix with or without its trailing slash', () => {
+    const a = toSarif(wrap([fakeFinding({ filePath: 'a.ts' })]), { uriPrefix: 'pkg' });
+    const b = toSarif(wrap([fakeFinding({ filePath: 'a.ts' })]), { uriPrefix: 'pkg/' });
+    expect(uriOf(a)).toBe('pkg/a.ts');
+    expect(uriOf(b)).toBe('pkg/a.ts');
+  });
+
+  it('does not double-apply a prefix the path already carries', () => {
+    const log = toSarif(wrap([fakeFinding({ filePath: 'pkg/a.ts' })]), { uriPrefix: 'pkg/' });
+    expect(uriOf(log)).toBe('pkg/a.ts');
+  });
+
+  it('leaves an absolute path alone', () => {
+    // The Windows form is built from its code point rather than written as an
+    // escape: `'C:	mp'` in source is `C:`+TAB, which is not a path at all and
+    // would make this assertion test a different string than it claims to.
+    const BS = String.fromCharCode(92);
+    for (const p of ['/tmp/a.ts', 'C:/tmp/a.ts', `C:${BS}tmp${BS}a.ts`]) {
+      const log = toSarif(wrap([fakeFinding({ filePath: p })]), { uriPrefix: 'pkg/' });
+      expect(uriOf(log)).toBe(p);
+    }
+  });
+
+  it('leaves a finding with no path alone', () => {
+    const log = toSarif(wrap([fakeFinding({ filePath: undefined })]), { uriPrefix: 'pkg/' });
+    expect(uriOf(log)).toBe('<inline>');
   });
 });

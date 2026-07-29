@@ -215,3 +215,90 @@ describe('A1-LIMIT — security-severity truncation is reported', () => {
     expect(r.findings.length).toBe(REGEX_MATCH_LIMIT);
   });
 });
+
+/**
+ * The degradation may report that matching STOPPED. It may not report what it
+ * did not look at.
+ *
+ * `runRegex` halts AT the cap without probing for a next match, so hitting the
+ * cap is not evidence that anything follows it. The old wording — "Further
+ * matches of a {severity}-severity rule exist and were NOT reported" — asserted
+ * a fact the scan had never established, and was flatly false at the boundary:
+ * a file with exactly REGEX_MATCH_LIMIT matches raised the degradation while
+ * nothing whatsoever went unreported.
+ *
+ * `REGEX_MATCH_LIMIT`'s own doc states the rule this pins ("nothing may claim to
+ * know the excess"), so this is not a style preference — it is the producing
+ * side's contract, which the message used to break.
+ */
+describe('A1-LIMIT — the report claims only what was measured', () => {
+  const scanTokens = (count: number): ReturnType<typeof scan> => {
+    const analyzer = new Analyzer({ rules: [tokenRule('VG-TEST-CAP', 'high')] });
+    return analyzer.scan({
+      targetType: 'file',
+      content: tokenSource(count),
+      filePath: 'cap.js',
+      mode: 'standard',
+    });
+  };
+
+  const limitOf = (r: ReturnType<typeof scan>): { detail: string; matchCount?: number } | undefined =>
+    (r.degradations ?? []).find((d) => d.kind === 'match-limit') as
+      | { detail: string; matchCount?: number }
+      | undefined;
+
+  it('says nothing when the file stays under the cap', () => {
+    const r = scanTokens(REGEX_MATCH_LIMIT - 1);
+    expect(r.findings.length).toBe(REGEX_MATCH_LIMIT - 1);
+    expect(limitOf(r)).toBeUndefined();
+  });
+
+  // The boundary case that made the old wording a false statement.
+  it('does not assert that further matches exist when exactly the cap was reached', () => {
+    const r = scanTokens(REGEX_MATCH_LIMIT);
+    const limit = limitOf(r);
+    expect(limit).toBeDefined();
+    // "MAY exist" is the whole point; a bare "exist" is the assertion that was
+    // wrong here, so the lookbehind is what makes this test mean anything.
+    expect(limit!.detail).not.toMatch(/(?<!MAY )\bexist\b/);
+    expect(limit!.detail).toMatch(/MAY exist/);
+    expect(limit!.detail).toMatch(/unknown/i);
+  });
+
+  it('still marks the result partial when the cap was genuinely exceeded', () => {
+    const r = scanTokens(REGEX_MATCH_LIMIT + 1);
+    expect(r.findings.length).toBe(REGEX_MATCH_LIMIT);
+    expect(limitOf(r)!.detail).toMatch(/PARTIAL/);
+  });
+
+  // `matchCount` used to be hardcoded to REGEX_MATCH_LIMIT, so a rule that
+  // passed its own smaller `limit` to `runRegex` reported 1000 while producing
+  // three findings — a number its own output contradicted.
+  it('reports the count the boundary event carried, not the global cap', () => {
+    const SMALL = 3;
+    const cappedRule: RuleDefinition = {
+      ruleId: 'VG-TEST-SMALLCAP',
+      name: 'small cap',
+      description: 'test rule with its own limit',
+      languages: ['*'],
+      category: 'quality',
+      severity: 'high',
+      defaultConfidence: 'high',
+      match: (ctx: RuleContext) => runRegex(ctx.content, /VGTOKEN/g, { limit: SMALL }),
+    };
+    const analyzer = new Analyzer({ rules: [cappedRule] });
+    const r = analyzer.scan({
+      targetType: 'file',
+      content: tokenSource(50),
+      filePath: 'small.js',
+      mode: 'standard',
+    });
+
+    expect(r.findings.length).toBe(SMALL);
+    const limit = limitOf(r);
+    expect(limit).toBeDefined();
+    expect(limit!.matchCount).toBe(SMALL);
+    expect(limit!.matchCount).not.toBe(REGEX_MATCH_LIMIT);
+    expect(limit!.detail).toContain(`first ${SMALL} match(es)`);
+  });
+});

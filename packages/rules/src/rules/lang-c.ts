@@ -51,7 +51,7 @@ export const cGets: RuleDefinition = {
   // `"use gets"` do not fire — block comments are the dominant C comment style
   // and `skipCommentLines` only knows `//`.
   match: (ctx) =>
-    runRegex(blankCommentsAndStrings(ctx.content), /(?<![\w.>])gets[ \t]{0,8}\(/g, {
+    runRegex(blankCommentsAndStrings(ctx.content, ctx.language), /(?<![\w.>])gets[ \t]{0,8}\(/g, {
       skipCommentLines: true,
       language: ctx.language,
     }),
@@ -78,7 +78,7 @@ export const cUnboundedCopy: RuleDefinition = {
   // or string literal (`/* strcpy(...) */`, `"use strcpy"`) does not fire.
   match: (ctx) =>
     runRegex(
-      blankCommentsAndStrings(ctx.content),
+      blankCommentsAndStrings(ctx.content, ctx.language),
       /(?<![\w.>])(?:strcpy|strcat|sprintf|vsprintf)[ \t]{0,8}\(/g,
       { skipCommentLines: true, language: ctx.language },
     ),
@@ -104,7 +104,7 @@ export const cMemcpyFromStrlen: RuleDefinition = {
   // calls are a declared miss.
   match: (ctx) =>
     runRegex(
-      blankCommentsAndStrings(ctx.content),
+      blankCommentsAndStrings(ctx.content, ctx.language),
       /(?<![\w.>])mem(?:cpy|move)[ \t]{0,8}\([^;\n]{0,160}?\bstrlen[ \t]{0,8}\(/g,
       { skipCommentLines: true, language: ctx.language },
     ),
@@ -151,7 +151,7 @@ function scanFreeSites(ctx: { content: string; lines: string[]; language?: strin
   // Scan over comment- and string-blanked text so a `free`/deref inside a
   // comment (`/* free(p) old *\/`) or a string (`"p->x"`) is not a match.
   // Length-preserving, so offsets and lines still refer to the original.
-  const scanText = blankCommentsAndStrings(raw);
+  const scanText = blankCommentsAndStrings(raw, ctx.language);
   const freeRe = /(?<![\w.>])free[ \t]{0,8}\([ \t]{0,8}(\w{1,40})[ \t]{0,8}\)/g;
   const frees: FreeSite[] = [];
   let m: RegExpExecArray | null;

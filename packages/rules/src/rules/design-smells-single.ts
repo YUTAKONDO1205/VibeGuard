@@ -439,12 +439,37 @@ const ASSERT_LINE = /^[^\S\r\n]*(?:assert\b|expect[^\S\r\n]{0,2}\(|it[^\S\r\n]{0
 const ADMIN_FAMILY = /^(?:admin|administrator|superadmin|super_admin|superuser|root)$/i;
 
 function primitiveRoleChecks(content: string, lines: string[], language: string | undefined): RuleMatch[] {
-  if (ROLE_MITIGATION.test(content)) return [];
+  // Mitigation is a claim about CODE, so it is tested against code.
+  //
+  // These patterns used to run on the raw file, where anything that merely
+  // MENTIONS a mitigation counts as having one. A string literal was enough:
+  //
+  //   const doc = 'see Object.freeze() docs';
+  //
+  // vetoed every role comparison in the file, silently, because
+  // `ROLE_MITIGATION` ends in an `Object.freeze(` alternative and `.test()` does
+  // not care that the match sits inside a quoted string. Documentation prose, a
+  // log message, an error string naming the fix — each one disabled the rule for
+  // the whole file. The failure is invisible: the file simply reports nothing.
+  //
+  // Blanking hollows out string and comment INTERIORS while preserving offsets,
+  // so a real `Object.freeze({…})` still vetoes and a mention of one no longer
+  // does. Comments were already safe by a different route — the canonical pass
+  // blanks them before rules run — but relying on that left the raw pass one
+  // arrangement away from the same bug, so both are handled here explicitly.
+  //
+  // Blanking can only REMOVE a match (it overwrites with spaces, never inserts),
+  // so the worst it can do to a language it models imperfectly — Python's `#`
+  // comments and triple quotes are not in its state machine — is fail to veto
+  // and let the finding through. That is the safe direction for a rule about
+  // missing authorization structure.
+  const codeOnly = blankCommentsAndStrings(content);
+  if (ROLE_MITIGATION.test(codeOnly)) return [];
   // 17z-e — per-language veto and raw-string skip, both no-ops for js/ts/python
   // (neither map has an entry for them), so those three languages take exactly
   // the path they took before this arm existed.
   const langVeto = ownEntry(ROLE_MITIGATION_BY_LANGUAGE, language);
-  if (langVeto?.test(content)) return [];
+  if (langVeto?.test(codeOnly)) return [];
   const rawDelimiter = ownEntry(UNMODELLED_RAW_STRING, language);
   if (rawDelimiter !== undefined && content.includes(rawDelimiter)) return [];
   const raw = [

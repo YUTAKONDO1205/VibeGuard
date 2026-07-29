@@ -118,8 +118,44 @@ import {
  * is opt-in, the core path never imports it, and it reports its own axis as
  * `engineVersions['analysis-graph']` (held at `0.3.0-alpha.1`, because the
  * cross-file pass is an alpha skeleton and says so).
+ *
+ * 0.3.1 (2026-07-29) is the first bump that is NOT additive. Every release
+ * before it could say "no rule that already existed changed what it matches";
+ * this one cannot, because it follows a deep audit whose whole subject was
+ * existing rules getting it wrong. A file's verdict may differ between 0.3.0
+ * and 0.3.1 in BOTH directions, which is precisely what this axis exists to
+ * signal — comparing two runs across it is not meaningful.
+ *
+ * Fewer findings:
+ *   - `VG-INJ-005` no longer reports `yaml.load(…, Loader=SafeLoader)`. The
+ *     veto recognised only the `yaml.`-qualified spelling, so the form PyYAML's
+ *     own documentation uses failed the default `--fail-on high` gate on code
+ *     that had already done the right thing. `CSafeLoader` and `BaseLoader` are
+ *     recognised too; `FullLoader` and `UnsafeLoader` still report.
+ *   - A `//` comment continued by a backslash no longer reports its continuation
+ *     line as live code (C/C++/Arduino translation phase 2).
+ *   - `return /re/` is read as a regex literal, so its BODY is no longer
+ *     reported as code.
+ *
+ * More findings:
+ *   - The canonical/raw merge no longer drops a distinct payload as a duplicate.
+ *     A raw match may veto a canonical one only when it sits on text that
+ *     survived normalisation — before, a match inside a blanked comment could
+ *     displace the assignment that actually ran.
+ *   - `VG-SMELL-012` is no longer disabled for a whole file by a STRING that
+ *     merely mentions `Object.freeze(`.
+ *   - A sink written inside a template substitution (`${…}`) is visible; the
+ *     substitution is evaluated code, not template text.
+ *   - A suppression pragma quoted inside a string literal no longer silences the
+ *     file, so findings it was hiding reappear.
+ *
+ * Output, not detection, but shipped here: `category: secrets` findings are
+ * redacted by shape rather than by quoting, so an unquoted or short credential
+ * no longer reaches `snippet`/`evidence` — and therefore no longer reaches an
+ * uploaded SARIF report. `declaredPackageVetoes` records what the lockfile veto
+ * removed, on the response instead of only on stderr.
  */
-export const ENGINE_VERSION = '0.3.0';
+export const ENGINE_VERSION = '0.3.1';
 
 let counter = 0;
 function findingId(): string {
@@ -262,18 +298,30 @@ function recordMatchLimit(
   );
   if (already) return;
 
+  // What was REPORTED, taken from the event that fired rather than assumed to be
+  // the global cap. A rule may pass its own `limit` to `runRegex`, and hardcoding
+  // REGEX_MATCH_LIMIT here reported `matchCount: 1000` for a rule that had in
+  // fact stopped at 3 — a number contradicted by the findings in the same file.
+  const reported = Math.max(...events.map((e) => e.matchCount));
+
   degradations.push({
     kind: 'match-limit',
     ruleId,
     filePath,
-    // What was REPORTED, not what existed. See REGEX_MATCH_LIMIT: the matches
-    // past the cap are never enumerated, so the excess has no honest number.
-    matchCount: REGEX_MATCH_LIMIT,
+    matchCount: reported,
+    // Phrased as POSSIBILITY, not fact. `runRegex` stops AT the cap without
+    // probing for a next match, so hitting it is not evidence that anything
+    // follows: a file with exactly `reported` matches produces this degradation
+    // while nothing whatsoever went unreported. The old wording ("Further
+    // matches ... exist and were NOT reported") asserted a fact the scan had
+    // not established, and contradicted REGEX_MATCH_LIMIT's own rule that
+    // nothing downstream may claim to know the excess.
     detail:
-      `Match limit: this rule reported the first ${REGEX_MATCH_LIMIT} match(es) in this file and stopped. ` +
-      `Further matches of a ${severity}-severity rule exist and were NOT reported — their count is unknown, ` +
-      `because matching stops at the cap. This result is PARTIAL. The cap is a deliberate availability bound ` +
-      `and is not raised; split the file or scan the region directly to see the rest.`,
+      `Match limit: this rule reported the first ${reported} match(es) in this file and stopped. ` +
+      `Matching halted AT the cap without checking whether more follow, so further matches of this ` +
+      `${severity}-severity rule MAY exist and would not have been reported; whether any do, and how ` +
+      `many, is unknown. Treat this result as PARTIAL. The cap is a deliberate availability bound and ` +
+      `is not raised; split the file or scan the region directly to see the rest.`,
   });
 }
 
@@ -348,6 +396,13 @@ export interface AnalyzerOptions {
    * as a design.
    */
   onDeclaredPackageVeto?: (veto: DeclaredPackageVeto) => void;
+  /**
+   * Which manifest `declaredPackages` was read from, e.g. `package-lock.json`.
+   * Recorded on every `declaredPackageVetoes` entry so a reader can weigh the
+   * claim: a lockfile arriving in the same pull request as the code it vouches
+   * for is not evidence about the outside world.
+   */
+  declaredPackageSource?: string;
 }
 
 /**
@@ -389,6 +444,55 @@ function anchorMatch(m: RuleMatch): RuleMatch {
   };
 }
 
+/** Offset of the first character of each 1-based line. */
+function lineStartOffsets(content: string): number[] {
+  const starts = [0];
+  for (let i = 0; i < content.length; i += 1) {
+    if (content[i] === '\n') starts.push(i + 1);
+  }
+  return starts;
+}
+
+/**
+ * True when every character `m` matched was REMOVED by the normalisation that
+ * produced `transformed` — i.e. the match sits entirely in text the normalised
+ * face treats as non-code (a comment, or a string the folder rewrote away).
+ *
+ * This is what separates the two dedup cases that are legitimate from the one
+ * that is not. When normalisation MOVES a match, the original still sits on
+ * real code and both faces are describing one finding. When a raw match sits
+ * inside a comment that normalisation blanked, the canonical match that now
+ * spans that blank run is describing something ELSE — and letting the comment
+ * match veto it loses the real finding.
+ *
+ * Safe by construction: both faces are length- and newline-preserving and
+ * identity-mapped (see canonicalizer.ts), so an offset means the same thing in
+ * both strings. A degenerate span with no non-whitespace at all returns false,
+ * which keeps the previous behaviour rather than inventing a new one.
+ */
+function spanWasRemoved(
+  m: RuleMatch,
+  original: string,
+  transformed: string,
+  lineStarts: number[],
+): boolean {
+  const startLine = lineStarts[m.startLine - 1];
+  const endLine = lineStarts[m.endLine - 1];
+  if (startLine === undefined || endLine === undefined) return false;
+  const from = startLine + Math.max(0, (m.startColumn ?? 1) - 1);
+  const to = Math.min(original.length, endLine + Math.max(0, (m.endColumn ?? 1) - 1));
+  let sawRemoved = false;
+  for (let i = from; i < to; i += 1) {
+    const ch = original[i]!;
+    if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') continue;
+    // A character that survived normalisation is real code; the match is not
+    // confined to removed text.
+    if (transformed[i] === ch) return false;
+    sawRemoved = true;
+  }
+  return sawRemoved;
+}
+
 /** True when two matches of the same rule cover overlapping source. */
 function overlaps(a: RuleMatch, b: RuleMatch): boolean {
   const before = (l1: number, c1: number, l2: number, c2: number): boolean =>
@@ -421,12 +525,48 @@ function overlaps(a: RuleMatch, b: RuleMatch): boolean {
  * blank run the pattern happened to start in. Without that, a canonical-only
  * finding on CRLF input lands on the wrong line and no `vibeguard:disable-line`
  * on the payload line can suppress it.
+ *
+ * WHAT OVERLAP ALONE GOT WRONG. Blanking a comment does not only let a pattern
+ * reach further BACK — it also lets a canonical match SPAN the blank run, and a
+ * raw match living inside that comment then overlaps it. Those two matches are
+ * not one finding; they are a real one and a match on comment text. Dropping
+ * the canonical one loses the real detection and leaves the comment match
+ * standing in its place, wearing its position and its evidence.
+ *
+ * The shape is an object literal whose key and value are split by a BLOCK
+ * COMMENT, with a second, unrelated match for the same rule written inside that
+ * comment. The raw pass matches the comment text on its own line. The canonical
+ * pass matches the property assignment that actually runs, and because the
+ * comment between the key and the value is now blank, that match SPANS the
+ * comment line. Overlap read the two as one finding and kept the original — so
+ * the executed assignment vanished and a comment was reported in its place.
+ *
+ * A reviewer's natural response to that report — suppress what looks like a
+ * false positive on a comment line — then silences the file completely. The
+ * worked example is `merge-payload.test.ts`, which keeps it where a fixture
+ * belongs rather than in a doc comment the scanner has to read.
+ *
+ * So a raw match may only veto a canonical one when it sits on text that
+ * SURVIVED normalisation. `spanWasRemoved` is that test. Both legitimate cases
+ * above still dedup, because in both the original match is on real code.
  */
-function mergeCanonicalMatches(original: RuleMatch[], canonical: RuleMatch[]): RuleMatch[] {
+function mergeCanonicalMatches(
+  original: RuleMatch[],
+  canonical: RuleMatch[],
+  ctx?: { originalContent: string; transformedContent: string; lineStarts: number[] },
+): RuleMatch[] {
   if (canonical.length === 0) return original;
   const merged = [...original];
   for (const m of canonical) {
-    if (merged.some((o) => overlaps(o, m))) continue;
+    const vetoed = merged.some(
+      (o) =>
+        overlaps(o, m) &&
+        !(
+          ctx !== undefined &&
+          spanWasRemoved(o, ctx.originalContent, ctx.transformedContent, ctx.lineStarts)
+        ),
+    );
+    if (vetoed) continue;
     merged.push(anchorMatch(m));
   }
   return merged;
@@ -438,11 +578,13 @@ export class Analyzer {
   private readonly preprocessorFaceEnabled: boolean;
   private readonly declaredPackages: readonly string[] | undefined;
   private readonly onDeclaredPackageVeto: ((veto: DeclaredPackageVeto) => void) | undefined;
+  private readonly declaredPackageSource: string | undefined;
 
   constructor(options: AnalyzerOptions = {}) {
     this.rules = options.rules ?? allRules;
     this.declaredPackages = options.declaredPackages;
     this.onDeclaredPackageVeto = options.onDeclaredPackageVeto;
+    this.declaredPackageSource = options.declaredPackageSource;
     this.canonicalizeEnabled = options.canonicalize !== false;
     // Gated by BOTH switches: N_pp is a face of the same normalization, so
     // `canonicalize: false` turns it off regardless, and `preprocessorFace:
@@ -459,6 +601,8 @@ export class Analyzer {
     // findings counted in here are dropped either way; the only difference is
     // that the drop is now countable by whoever reads the response.
     const suppressionTally: SuppressionTally = new Map();
+    /** `ruleId|packageName|filePath` → count. See `declaredPackageVetoes`. */
+    const vetoTally = new Map<string, number>();
 
     if (!request.content) {
       return {
@@ -501,6 +645,13 @@ export class Analyzer {
     // canonicalization is a no-op for this input there is nothing a second pass
     // could find, so it is skipped entirely.
     const canonical = this.canonicalizeEnabled ? canonicalize(request.content, language) : undefined;
+    // Computed once per scan, not per rule: `mergeCanonicalMatches` needs to
+    // turn a match's line/column back into an offset to ask whether the text it
+    // matched survived normalisation.
+    const lineStarts = lineStartOffsets(request.content);
+    // Bound to a const because the rule loop runs inside a closure, where TS
+    // drops the narrowing the `!request.content` guard above established.
+    const sourceContent: string = request.content;
     const canonicalCtx = canonical?.changed
       ? buildRuleContext(canonical.content, language, request.filePath)
       : undefined;
@@ -573,7 +724,11 @@ export class Analyzer {
             request.filePath,
             'canonical text',
           );
-          matches = mergeCanonicalMatches(matches, capturedCanonical.result);
+          matches = mergeCanonicalMatches(matches, capturedCanonical.result, {
+            originalContent: sourceContent,
+            transformedContent: canonical!.content,
+            lineStarts,
+          });
         } catch (err) {
           // eslint-disable-next-line no-console
           console.error(`[vibeguard] rule ${rule.ruleId} threw on canonical text:`, err);
@@ -604,7 +759,11 @@ export class Analyzer {
             request.filePath,
             'preprocessor text',
           );
-          matches = mergeCanonicalMatches(matches, capturedPp.result);
+          matches = mergeCanonicalMatches(matches, capturedPp.result, {
+            originalContent: sourceContent,
+            transformedContent: pp!.content,
+            lineStarts,
+          });
         } catch (err) {
           // eslint-disable-next-line no-console
           console.error(`[vibeguard] rule ${rule.ruleId} threw on preprocessor text:`, err);
@@ -646,6 +805,14 @@ export class Analyzer {
             ...(request.filePath !== undefined ? { filePath: request.filePath } : {}),
             startLine: m.startLine,
           });
+          // Also recorded ON THE RESPONSE, not only through the callback. The
+          // callback reaches the CLI's stderr and nothing else, so JSON and
+          // SARIF — the formats a machine reads, and the one the Action uploads
+          // — could not distinguish "clean" from "vetoed". Aggregated per
+          // rule+package+file, with no line number, for the same reason the
+          // suppression tally carries none.
+          const vk = `${rule.ruleId}|${pkg}|${request.filePath ?? ''}`;
+          vetoTally.set(vk, (vetoTally.get(vk) ?? 0) + 1);
           return false;
         });
       }
@@ -778,6 +945,28 @@ export class Analyzer {
       ...(ruleErrors.length ? { ruleErrors } : {}),
       ...(degradations.length ? { degradations } : {}),
       ...(suppressionTally.size ? { suppressions: collectSuppressions(suppressionTally) } : {}),
+      ...(vetoTally.size
+        ? {
+            declaredPackageVetoes: [...vetoTally.entries()]
+              .map(([k, count]) => {
+                const [ruleId, packageName, filePath] = k.split('|');
+                return {
+                  ruleId: ruleId!,
+                  packageName: packageName!,
+                  ...(filePath ? { filePath } : {}),
+                  count,
+                  ...(this.declaredPackageSource !== undefined
+                    ? { source: this.declaredPackageSource }
+                    : {}),
+                };
+              })
+              .sort((a, b) =>
+                a.ruleId === b.ruleId
+                  ? a.packageName.localeCompare(b.packageName)
+                  : a.ruleId.localeCompare(b.ruleId),
+              ),
+          }
+        : {}),
     };
   }
 }

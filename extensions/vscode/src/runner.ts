@@ -2,11 +2,12 @@ import * as vscode from 'vscode';
 import { Analyzer } from '@vibeguard/analyzer-core';
 import type {
   Finding,
+  RuleError,
   ScanDegradation,
   ScanMode,
   SuppressionRecord,
 } from '@vibeguard/findings-schema';
-import { toDiagnostic, degradationToDiagnostic } from './diagnostics.js';
+import { toDiagnostic, degradationToDiagnostic, ruleErrorToDiagnostic } from './diagnostics.js';
 
 /**
  * ScanRunner wraps the analyzer and manages two pieces of per-document state:
@@ -47,7 +48,13 @@ export class ScanRunner {
       filePath: doc.uri.fsPath,
       mode,
     });
-    this.applyFindings(doc, response.findings, response.degradations, response.suppressions);
+    this.applyFindings(
+      doc,
+      response.findings,
+      response.degradations,
+      response.suppressions,
+      response.ruleErrors,
+    );
   }
 
   /**
@@ -74,7 +81,13 @@ export class ScanRunner {
     // Degradations passed through here too: a selection scan runs the rules over
     // the WHOLE document, so an oversized file is just as partial as it is on a
     // full scan, and the user needs to know before trusting an empty result.
-    this.applyFindings(doc, filtered, response.degradations, response.suppressions);
+    this.applyFindings(
+      doc,
+      filtered,
+      response.degradations,
+      response.suppressions,
+      response.ruleErrors,
+    );
     return filtered.length;
   }
 
@@ -83,6 +96,7 @@ export class ScanRunner {
     findings: Finding[],
     degradations?: ScanDegradation[],
     suppressions?: SuppressionRecord[],
+    ruleErrors?: RuleError[],
   ): void {
     const diagnostics = findings.map((f) => toDiagnostic(f, doc));
     // A partial scan must be visible, not silently dropped. Dedup by kind so one
@@ -93,6 +107,18 @@ export class ScanRunner {
         if (seen.has(d.kind)) continue;
         seen.add(d.kind);
         diagnostics.push(degradationToDiagnostic(d));
+      }
+    }
+    // A rule that CRASHED is the other way a scan can be incomplete, and it was
+    // the invisible one: its findings are simply absent, so the file goes green.
+    // Deduped by rule id — one broken rule is one line-1 warning, however many
+    // times it threw.
+    if (ruleErrors?.length) {
+      const seenRules = new Set<string>();
+      for (const e of ruleErrors) {
+        if (seenRules.has(e.ruleId)) continue;
+        seenRules.add(e.ruleId);
+        diagnostics.push(ruleErrorToDiagnostic(e));
       }
     }
     this.collection.set(doc.uri, diagnostics);

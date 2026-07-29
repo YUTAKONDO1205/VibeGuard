@@ -44,6 +44,20 @@ export interface GithubDiffResultMessage {
   /** PR URL the diff came from, when available. */
   origin: string;
   files: ParsedDiffFile[];
+  /**
+   * Files this PR changes that the page did NOT render, so nothing could be
+   * read from them.
+   *
+   * GitHub collapses the diffs of a large PR behind "Load diff" and never puts
+   * their rows in the DOM. Measured on rust-lang/rust#160102: 284 changed
+   * files, 121 with diff tables, 163 collapsed — and scrolling to the bottom
+   * does not change those numbers, so this is not lazy loading a user can wait
+   * out. Without this field the side panel reported "121 file(s)" and a clean
+   * verdict for a PR it had seen 43% of.
+   *
+   * Empty when the page rendered everything.
+   */
+  skippedFiles: string[];
   /** Soft error: nothing to scan, wrong page, etc. */
   error?: string;
 }

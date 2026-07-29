@@ -145,6 +145,25 @@ function chiSquarePValueDf1(chi2) {
 }
 
 /**
+ * The cluster structure the matched-pair tests do NOT account for.
+ *
+ * `pairId` is `file#transform#rule@line`: several pairs can be one original
+ * finding put through different transforms. Both tests below assume the pairs
+ * are independent, and repeated transforms of one finding are not. Emitted
+ * beside every p-value so the number cannot be quoted without its basis.
+ */
+function clusterCounts(pairIds) {
+  const original = new Set();
+  const file = new Set();
+  for (const id of pairIds) {
+    const parts = String(id).split('#');
+    file.add(parts[0]);
+    original.add(`${parts[0]}#${parts[2] ?? ''}`);
+  }
+  return { pairs: pairIds.length, originalFindings: original.size, files: file.size };
+}
+
+/**
  * Exact binomial (sign) test for McNemar — the small-sample-safe alternative to
  * the chi-square approximation. Under H0 the discordant split is Binomial(b+c,
  * 0.5); two-sided p = min(1, 2·P(X ≥ max(b,c))). Preferred when discordant pairs
@@ -691,6 +710,26 @@ function scorePairs(pairs) {
       // Exact binomial p — small-sample-safe, reported alongside so a reviewer
       // does not have to trust the chi-square approximation at c=0.
       pValueExact: mcnemarExactP(b, c),
+      // ── NOT AN INFERENTIAL RESULT ─────────────────────────────────────
+      //
+      // Same defect as the transfer harness: these matched pairs are repeated
+      // TRANSFORMS of the same original findings, so they are not independent
+      // and the exact test understates the variance. `n` counts transforms, not
+      // evidence. On the shipped B1 run, b=12/c=0 over 114 pairs reduces to 7
+      // original findings across 5 files.
+      //
+      // Report the DESCRIPTIVE rate over this fixed artifact. A general claim
+      // ("D2 significantly reduces evasion") needs a cluster-aware design — a
+      // bootstrap over findings or a mixed model — which does not exist yet.
+      inferentialValidity: {
+        independenceAssumptionHolds: false,
+        reason:
+          'matched pairs are repeated transforms of the same original findings (clustered matched-pair data)',
+        allPairs: clusterCounts(population.map((r) => r.pairId)),
+        discordant: clusterCounts([...bIds, ...cIds]),
+        guidance:
+          'descriptive over this transform artifact only; do not infer a general effect from this p-value',
+      },
       // c > 0 means D2 dropped a finding the pre-D2 engine had — the same event
       // structuralViolations catches, surfaced here so the two agree.
       evadedFalseDetectedTruePairIds: bIds.sort(),

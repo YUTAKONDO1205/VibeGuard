@@ -84,8 +84,19 @@ function collectCodeBlocksInPage(): ExtractedBlock[] {
   const out: ExtractedBlock[] = [];
   const seen = new Set<Element>();
 
+  // Bounds on what one page may hand back. `host_permissions` is `<all_urls>`
+  // and the panel runs in the extension process, so a page the user was merely
+  // steered to could otherwise return unbounded text and hang the side panel
+  // before any rule ran. Reading `innerText` also forces layout per element, so
+  // the element count matters as much as the byte count.
+  const MAX_BLOCKS = 500;
+  const MAX_TOTAL_CHARS = 2_000_000;
+  const MAX_BLOCK_CHARS = 200_000;
+  let totalChars = 0;
+
   // Prefer <pre><code> structures (GitHub, Stack Overflow, ChatGPT).
   document.querySelectorAll('pre code, pre').forEach((el) => {
+    if (out.length >= MAX_BLOCKS || totalChars >= MAX_TOTAL_CHARS) return;
     if (seen.has(el)) return;
     // If <pre> contains a <code>, prefer the <code> child to avoid double
     // capture.
@@ -94,8 +105,10 @@ function collectCodeBlocksInPage(): ExtractedBlock[] {
     }
     seen.add(el);
 
-    const text = (el as HTMLElement).innerText ?? el.textContent ?? '';
-    if (!text.trim()) return;
+    const raw = (el as HTMLElement).innerText ?? el.textContent ?? '';
+    if (!raw.trim()) return;
+    const text = raw.length > MAX_BLOCK_CHARS ? raw.slice(0, MAX_BLOCK_CHARS) : raw;
+    totalChars += text.length;
 
     let language: string | undefined;
     const classes = (el.className || '').split(/\s+/);
@@ -138,20 +151,39 @@ function collectCodeBlocksInPage(): ExtractedBlock[] {
  * then read the new-side line number from the last blob-num td that has
  * data-line-number. Deletion-only rows are ignored.
  */
-function collectGithubDiffInPage(): { files: ParsedDiffFile[]; error?: string } {
+function collectGithubDiffInPage(): {
+  files: ParsedDiffFile[];
+  skippedFiles: string[];
+  error?: string;
+} {
   // Only run on PR pages — Issues / Commits also use blob-* classes but the
   // diff semantics differ.
   if (!/\/pull\/\d+/.test(location.pathname)) {
-    return { files: [], error: 'Not on a GitHub PR page (need /pull/<n>).' };
+    return { files: [], skippedFiles: [], error: 'Not on a GitHub PR page (need /pull/<n>).' };
   }
 
   const files: ParsedDiffFile[] = [];
 
   // GitHub wraps each file in a div with data-path; fall back to data-tagsearch-path
   // (rolled out alongside the search overhaul).
-  const fileBlocks = Array.from(
+  const pathOf = (el: HTMLElement): string =>
+    el.getAttribute('data-path') ?? el.getAttribute('data-tagsearch-path') ?? '';
+  const allBlocks = Array.from(
     document.querySelectorAll<HTMLElement>('[data-path], [data-tagsearch-path]'),
-  ).filter((el) => el.querySelector('table.diff-table, table.js-file-line-container'));
+  );
+  const fileBlocks = allBlocks.filter((el) =>
+    el.querySelector('table.diff-table, table.js-file-line-container'),
+  );
+
+  // Every changed file has a `data-path` element — the header — whether or not
+  // its diff was rendered. So the page knows the full list even when it has
+  // only drawn part of it, and the difference is exactly what this scan cannot
+  // see. Collected as NAMES rather than a count so the panel can say which
+  // files went unread; a bare number invites the reader to assume they were
+  // uninteresting ones.
+  const allPaths = new Set(allBlocks.map(pathOf).filter(Boolean));
+  const renderedPaths = new Set(fileBlocks.map(pathOf).filter(Boolean));
+  const skippedFiles = [...allPaths].filter((p) => !renderedPaths.has(p)).sort();
 
   for (const block of fileBlocks) {
     const filePath =
@@ -225,12 +257,15 @@ function collectGithubDiffInPage(): { files: ParsedDiffFile[]; error?: string } 
   if (files.length === 0) {
     return {
       files: [],
+      skippedFiles,
       error:
-        'No diff rows found. Open the "Files changed" tab on a PR (the classic table view).',
+        skippedFiles.length > 0
+          ? `This PR changes ${skippedFiles.length} file(s), but GitHub rendered none of their diffs on this page (they are collapsed behind "Load diff"). Nothing could be scanned.`
+          : 'No diff rows found. Open the "Files changed" tab on a PR (the classic table view).',
     };
   }
 
-  return { files };
+  return { files, skippedFiles };
 }
 
 // --- message routing -----------------------------------------------------
@@ -283,6 +318,7 @@ chrome.runtime.onMessage.addListener((message: VibeGuardMessage, _sender, sendRe
             type: 'vibeguard.githubDiffResult',
             origin: 'unknown',
             files: [],
+            skippedFiles: [],
             error: 'No active tab',
           };
           sendResponse(reply);
@@ -292,11 +328,14 @@ chrome.runtime.onMessage.addListener((message: VibeGuardMessage, _sender, sendRe
           target: { tabId: tab.id, allFrames: false },
           func: collectGithubDiffInPage,
         });
-        const out = results[0]?.result as { files: ParsedDiffFile[]; error?: string } | undefined;
+        const out = results[0]?.result as
+          | { files: ParsedDiffFile[]; skippedFiles?: string[]; error?: string }
+          | undefined;
         const reply: GithubDiffResultMessage = {
           type: 'vibeguard.githubDiffResult',
           origin: tab.url ?? 'active tab',
           files: out?.files ?? [],
+          skippedFiles: out?.skippedFiles ?? [],
           error: out?.error,
         };
         sendResponse(reply);
@@ -305,6 +344,7 @@ chrome.runtime.onMessage.addListener((message: VibeGuardMessage, _sender, sendRe
           type: 'vibeguard.githubDiffResult',
           origin: 'active tab',
           files: [],
+          skippedFiles: [],
           error: err instanceof Error ? err.message : String(err),
         };
         sendResponse(reply);

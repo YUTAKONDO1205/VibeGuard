@@ -30,6 +30,8 @@ export {
   extractBlockAfter,
   blankCommentsAndStrings,
   blankJsLiterals,
+  lineCommentEnd,
+  languageSplicesLineContinuations,
   blankPyLiterals,
   REGEX_INPUT_CAP,
   REGEX_DEADLINE_MS,

@@ -1,27 +1,7 @@
 import * as vscode from 'vscode';
 import type { Finding } from '@vibeguard/findings-schema';
 import type { ScanRunner } from './runner.js';
-
-/**
- * Languages that use `#` for line comments. Everything else falls back to `//`.
- * (Block-comment-only languages like CSS/HTML are uncommon for our rules and
- * not worth special-casing yet.)
- */
-const HASH_COMMENT = new Set([
-  'python',
-  'ruby',
-  'shellscript',
-  'perl',
-  'r',
-  'yaml',
-  'dockerfile',
-  'makefile',
-  'toml',
-]);
-
-function commentToken(languageId: string): string {
-  return HASH_COMMENT.has(languageId) ? '#' : '//';
-}
+import { suppressionComment } from './comment-syntax.js';
 
 export class VibeGuardCodeActionProvider implements vscode.CodeActionProvider {
   static readonly providedKinds = [vscode.CodeActionKind.QuickFix];
@@ -49,7 +29,11 @@ export class VibeGuardCodeActionProvider implements vscode.CodeActionProvider {
       );
       const finding: Finding | undefined = matched[0];
 
-      actions.push(this.suppressLineAction(document, diag, ruleId));
+      // `null` when the language has no comment syntax that survives a
+      // re-parse (strict JSON). Offering nothing beats offering a fix that
+      // silences the finding by corrupting the file.
+      const suppress = this.suppressLineAction(document, diag, ruleId);
+      if (suppress) actions.push(suppress);
 
       if (finding?.remediation) {
         actions.push(this.showRemediationAction(finding));
@@ -63,7 +47,10 @@ export class VibeGuardCodeActionProvider implements vscode.CodeActionProvider {
     document: vscode.TextDocument,
     diag: vscode.Diagnostic,
     ruleId: string,
-  ): vscode.CodeAction {
+  ): vscode.CodeAction | null {
+    const comment = suppressionComment(document.languageId, ruleId);
+    if (comment === null) return null;
+
     const action = new vscode.CodeAction(
       `VibeGuard: suppress ${ruleId} on this line`,
       vscode.CodeActionKind.QuickFix,
@@ -75,8 +62,7 @@ export class VibeGuardCodeActionProvider implements vscode.CodeActionProvider {
     const lineText = document.lineAt(targetLine).text;
     const indentMatch = /^[ \t]*/.exec(lineText);
     const indent = indentMatch ? indentMatch[0] : '';
-    const token = commentToken(document.languageId);
-    const insertion = `${indent}${token} vibeguard:disable-next-line ${ruleId}\n`;
+    const insertion = `${indent}${comment}\n`;
 
     const edit = new vscode.WorkspaceEdit();
     edit.insert(document.uri, new vscode.Position(targetLine, 0), insertion);

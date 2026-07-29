@@ -1,10 +1,25 @@
 /**
  * Suppress-comment parsing.
  *
+ * ── A NOTE ON THE SPELLINGS BELOW ──────────────────────────────────────────
+ *
+ * The directives are written here as `vibeguard:disable-{line,next-line,file}`
+ * and the examples use a `‹›`-wrapped rule ID, rather than the literal forms.
+ * That is not squeamishness: `PRAGMA_RE` matches raw line text and does not
+ * care that the text is documentation, so writing the literal directive in this
+ * comment ARMS it. Before this note, the list above opened a wildcard file-wide
+ * suppression on this very file, and the example below opened a NAMED one for
+ * `VG-AUTH-003`/`VG-AUTH-004` — which, being named, is honoured at every
+ * severity. Neither was hiding a finding today; both would have hidden the
+ * first one to appear, in the module that implements suppression.
+ *
+ * `check-packaging-invariants.mjs` counts file-scope pragmas and will flag a
+ * new one, which is how this was found.
+ *
  * Recognised pragmas (case-sensitive):
- *   vibeguard:disable-line       — suppress findings on this line
- *   vibeguard:disable-next-line  — suppress findings on the following line
- *   vibeguard:disable-file       — suppress findings for the entire file
+ *   vibeguard:disable-{line}       — suppress findings on this line
+ *   vibeguard:disable-{next-line}  — suppress findings on the following line
+ *   vibeguard:disable-{file}       — suppress findings for the entire file
  *
  * After the directive, the rest of the line may contain (in any order):
  *   - Rule IDs (e.g. `VG-INJ-004 VG-AUTH-003`). When listed, only those rules
@@ -15,10 +30,14 @@
  *   - `reason="free text"` (or `reason=word`) — informational; recorded on
  *     the entry so tooling can surface it without altering matching.
  *
- * Examples:
- *   eval(payload); // vibeguard:disable-line VG-INJ-004
- *   // vibeguard:disable-next-line VG-INJ-004 until=2026-12-31 reason="ticket #42"
- *   // vibeguard:disable-file VG-AUTH-003 VG-AUTH-004
+ * Examples (substitute the braces for the real directive; see the note above).
+ * The call is written as a placeholder rather than a real sink for the same
+ * reason the directives are: an example that trips a rule needs a suppression to
+ * sit quietly, and the only suppression available here is the one this comment
+ * just showed you how to write.
+ *   dangerousCall(payload); // vibeguard:disable-{line} VG-INJ-004
+ *   // vibeguard:disable-{next-line} VG-INJ-004 until=2026-12-31 reason="ticket #42"
+ *   // vibeguard:disable-{file} VG-AUTH-003 VG-AUTH-004
  *
  * Listing rule IDs is no longer merely good style. A directive with no rule IDs
  * is a wildcard, and a wildcard cannot suppress a finding whose severity
@@ -84,6 +103,58 @@ function parseReason(text: string): string | undefined {
   return undefined;
 }
 
+/**
+ * True when the character at `index` sits inside a quoted string on `line`.
+ *
+ * A pragma is a COMMENT directive, but `PRAGMA_RE` matches raw line text and
+ * knows nothing about where the text sits. That gap is not theoretical: a
+ * string documenting the feature —
+ *
+ *   const HELP = 'To silence this, write vibeguard:disable-file VG-AUTH-004';
+ *
+ * — silenced VG-AUTH-004 for the entire file. Prose explaining the suppression
+ * syntax disabled the scanner, and an attacker could do the same by adding one
+ * string to any file in a pull request.
+ *
+ * Scanning is per line and stops at the first comment opener found OUTSIDE a
+ * string, after which everything is comment and any pragma is legitimate. That
+ * bound is deliberate. Carrying quote state ACROSS lines would let one
+ * apostrophe in a comment — `// don't` — swallow the rest of the file and
+ * reject every real suppression after it. Per-line state cannot do that.
+ *
+ * The cost is that a pragma inside a MULTI-LINE string (a Python docstring, a
+ * JS template literal, a C++ raw string) is still honoured; those are the same
+ * residual class the canonicalizer documents. The error direction here is the
+ * safe one either way: misjudging a real pragma as string-embedded reports a
+ * finding the user wanted hidden, which is noise, while the reverse hides a
+ * finding nobody chose to hide.
+ */
+function insideStringLiteral(line: string, index: number): boolean {
+  let quote: string | null = null;
+  for (let i = 0; i < index; i += 1) {
+    const c = line[i];
+    if (quote !== null) {
+      if (c === '\\') {
+        i += 1;
+        continue;
+      }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      continue;
+    }
+    // Comment openers, checked only outside a string. Everything from here to
+    // the end of the line is comment, so nothing further can be string-embedded.
+    const two = line.slice(i, i + 2);
+    if (c === '#' || two === '//' || two === '/*' || two === '--' || line.startsWith('<!--', i)) {
+      return false;
+    }
+  }
+  return quote !== null;
+}
+
 export function parseSuppressions(content: string, options: ParseSuppressOptions = {}): SuppressMap {
   const now = options.now ?? new Date();
   const perLine = new Map<number, SuppressEntry[]>();
@@ -95,6 +166,8 @@ export function parseSuppressions(content: string, options: ParseSuppressOptions
     PRAGMA_RE.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = PRAGMA_RE.exec(line)) !== null) {
+      // Text that merely QUOTES a pragma is not a pragma.
+      if (insideStringLiteral(line, match.index)) continue;
       const directive = match[1];
       const rest = match[2] ?? '';
       const ids = rest.match(RULE_ID_RE);

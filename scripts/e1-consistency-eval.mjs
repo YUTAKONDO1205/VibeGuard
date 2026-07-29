@@ -71,7 +71,43 @@ function canonical(findings) {
     );
 }
 
-const key = (f) => `${f.filePath}|${f.ruleId}|${f.severity}|${f.confidence}|${f.startLine}:${f.startColumn}`;
+// ── THE FULL TUPLE, AND THE MULTIPLICITY ────────────────────────────────────
+//
+// The header above has always said this compares `category` and the end
+// coordinates. The key did not include them, so two findings differing only in
+// `category`, `endLine` or `endColumn` compared EQUAL and the check passed. It
+// also went through `Set`, which collapses duplicates: a channel emitting one
+// finding where the other emitted three was invisible.
+//
+// Both are closed here. Comparison is a multiset over the full tuple, so a
+// divergence in count is a divergence.
+const key = (f) =>
+  [
+    f.filePath,
+    f.ruleId,
+    f.severity,
+    f.confidence,
+    f.category,
+    `${f.startLine}:${f.startColumn}`,
+    `${f.endLine}:${f.endColumn}`,
+  ].join('|');
+
+/** Multiset difference: entries of `a` that `b` does not have AS MANY OF. */
+function multisetOnly(a, b) {
+  const counts = new Map();
+  for (const f of b) {
+    const k = key(f);
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  const out = [];
+  for (const f of a) {
+    const k = key(f);
+    const n = counts.get(k) ?? 0;
+    if (n > 0) counts.set(k, n - 1);
+    else out.push(f);
+  }
+  return out;
+}
 
 const lines = [];
 const log = (s = '') => {
@@ -101,10 +137,8 @@ for (const { label, target } of CORPORA) {
     ),
   );
 
-  const nodeKeys = new Set(node.map(key));
-  const browserKeys = new Set(browser.map(key));
-  const onlyNode = node.filter((f) => !browserKeys.has(key(f)));
-  const onlyBrowser = browser.filter((f) => !nodeKeys.has(key(f)));
+  const onlyNode = multisetOnly(node, browser);
+  const onlyBrowser = multisetOnly(browser, node);
   const divergences = onlyNode.length + onlyBrowser.length;
   totalDivergences += divergences;
 
@@ -116,9 +150,45 @@ for (const { label, target } of CORPORA) {
 log('');
 log(
   totalDivergences === 0
-    ? `**Result: 0 divergences — node and browser paths are byte-identical on the detection tuple. ✓**`
+    ? `**Result: 0 divergences — the node and browser CORES agree on the full detection tuple, with multiplicity, at \`mode: standard\`. ✓**`
     : `**Result: ${totalDivergences} divergences. ⚠**`,
 );
+
+// ── WHAT THIS CHECK DOES NOT COVER ──────────────────────────────────────────
+//
+// Two cores agreeing is not four channels agreeing, and the earlier wording
+// ("byte-identical") invited that reading. What is compared here is
+// `scanPath` against the browser `scan` at ONE mode. What reaches each of them
+// differs by surface, and the biggest difference is not subtle: VS Code scans
+// on save at `fast`, everything else at `standard`, and the two run different
+// rule sets. A file can be clean in the editor and flag in CI without anything
+// being wrong.
+//
+// Measured rather than asserted, so the gap is a number in the artifact.
+log('');
+log('## Mode is part of the answer');
+log('');
+log('`fast` runs only critical/high rules. A surface defaulting to `fast` therefore reports');
+log('a SUBSET, by design — this table is what that costs on the same corpora.');
+log('');
+log('| corpus | standard | fast | rules only `standard` sees |');
+log('|---|---:|---:|---:|');
+let modeDelta = 0;
+for (const { label, target } of CORPORA) {
+  const std = (await scanPath(target, { mode: 'standard', config: false })).findings;
+  const fast = (await scanPath(target, { mode: 'fast', config: false })).findings;
+  const onlyStd = new Set(std.map((f) => f.ruleId));
+  for (const f of fast) onlyStd.delete(f.ruleId);
+  modeDelta += std.length - fast.length;
+  log(`| ${label} | ${std.length} | ${fast.length} | ${[...onlyStd].sort().join(', ') || '—'} |`);
+}
+log('');
+log(`**${modeDelta} finding(s) are visible at \`standard\` and not at \`fast\`.** The channels`);
+log('agree on a verdict only when the engine version, the input AND the mode all match.');
+log('');
+log('Still outside this harness: the CLI formatter, the Action, the VS Code cache and');
+log('selection scan, and the Chrome DOM extraction — each decides what text reaches the');
+log('core, and `scanBlocks` in the Chrome extension is a worked example of that mattering.');
 
 // Persist the report next to the other paper artifacts.
 try {

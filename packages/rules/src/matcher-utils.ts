@@ -759,13 +759,97 @@ export function extractBlockAfter(
  * `printf("p->x")` is not a use-after-free. Because it preserves geometry, any
  * offset computed over the blanked text is valid in the original.
  */
-export function blankCommentsAndStrings(content: string): string {
+/** Languages whose preprocessor deletes a backslash-newline before tokenising. */
+const SPLICING_LANGUAGES = new Set(['c', 'cpp', 'arduino']);
+
+/**
+ * KNOWN RESIDUAL: only the COMMENT half of translation phase 2 is modelled.
+ *
+ * Phase 2 deletes backslash-newline before anything else is recognised, which
+ * has two consequences. The one handled here is that a `//` comment ending in a
+ * backslash continues onto the next line — modelled, because failing to model
+ * it reported commented-out code as live code (a false POSITIVE at `critical`).
+ *
+ * The other consequence is that a splice inside an IDENTIFIER joins it:
+ *
+ *     ge\
+ *     ts(buf);
+ *
+ * is `gets(buf)` to a compiler, and every rule here sees two lines that spell
+ * nothing. That is a false NEGATIVE and it is NOT closed. Recognising it needs
+ * a real splicing face — a transformed text whose offsets no longer line up
+ * with the original — and every position this codebase reports (findings,
+ * snippets, `vibeguard:disable-line` lookups, SARIF regions, the VS Code Quick
+ * Fix insertion point) is identity-mapped to the source by construction. A face
+ * that breaks that mapping puts a translation seam in front of all of them.
+ *
+ * Same shelf as the residuals above: `R"(…)"` raw strings, JS Unicode-escape
+ * identifiers. Deliberate, written down, and reachable only by someone WRITING
+ * the evasion — a spliced identifier does not occur in code anyone maintains.
+ * `f002-splice-canary.test.ts` pins the current answer so that implementing the
+ * face flips a test rather than passing silently.
+ *
+ * True when `language` deletes backslash-newline before comments and tokens are
+ * recognised — C's translation phase 2, which C++ and Arduino inherit.
+ *
+ * Exported for the same reason `getLineCommentSpec` is: the canonicalizer runs
+ * its OWN comment removal, and if the two disagree about where a comment ends
+ * then one pass reports a line the other treated as commented out. Comment
+ * syntax has a single source of truth in this module; so does this.
+ */
+export function languageSplicesLineContinuations(language: string | undefined): boolean {
+  return language !== undefined && SPLICING_LANGUAGES.has(language);
+}
+
+/** True when `content[i]` is a backslash that a C compiler would splice away. */
+export function isLineContinuation(content: string, i: number): boolean {
+  if (content[i] !== '\\') return false;
+  const a = content[i + 1];
+  if (a === '\n') return true;
+  return a === '\r' && content[i + 2] === '\n';
+}
+
+/**
+ * Offset just past the end of the line comment starting at `i`.
+ *
+ * Normally the next `\n`. Under {@link languageSplicesLineContinuations} a
+ * trailing backslash carries the comment onto the following physical line, so
+ * the scan continues — which is what the compiler does, and what decides
+ * whether the next line is code or commented-out text.
+ */
+export function lineCommentEnd(content: string, i: number, splices: boolean): number {
+  const n = content.length;
+  let k = i;
+  for (;;) {
+    let stop = content.indexOf('\n', k);
+    if (stop === -1) return n;
+    if (!splices) return stop;
+    // Look back past the newline for a splicing backslash.
+    const back = content[stop - 1] === '\r' ? stop - 2 : stop - 1;
+    if (back < i || !isLineContinuation(content, back)) return stop;
+    k = stop + 1;
+  }
+}
+
+export function blankCommentsAndStrings(content: string, language?: string): string {
   const n = content.length;
   const out = content.split('');
   let state: 'code' | 'line' | 'block' | 'dq' | 'sq' = 'code';
   const blank = (k: number): void => {
     if (content[k] !== '\n' && content[k] !== '\r') out[k] = ' ';
   };
+  // C, C++ and Arduino delete a backslash-newline in translation phase 2 —
+  // BEFORE comments and tokens are recognised — so a `//` comment ending in a
+  // backslash continues onto the next physical line. Ending it at the newline
+  // instead reported the continued line as live code:
+  //
+  //   // disabled call \
+  //   gets(buf);        <- not code; was reported as VG-MEM-001 critical
+  //
+  // Off for every other language, where a trailing backslash in a `//` comment
+  // means nothing and continuing would blank real code — a false NEGATIVE, and
+  // the worse direction of the two.
+  const splice = language !== undefined && SPLICING_LANGUAGES.has(language);
   for (let i = 0; i < n; i += 1) {
     const c = content[i];
     const next = content[i + 1];
@@ -777,6 +861,18 @@ export function blankCommentsAndStrings(content: string): string {
         else if (c === "'") state = 'sq';
         break;
       case 'line':
+        // Stay in the comment across a spliced newline. The newline itself is
+        // left intact — this function is geometry-preserving, so line and
+        // column offsets computed over the result stay valid in the original.
+        if (splice && isLineContinuation(content, i)) {
+          blank(i);
+          // Step onto the `\n` so the loop's own increment lands past it. The
+          // newline is never blanked, and the state is not reset, so the
+          // comment continues onto the next physical line exactly as the
+          // compiler sees it after phase 2.
+          i += content[i + 1] === '\r' ? 2 : 1;
+          break;
+        }
         if (c === '\n') state = 'code';
         else blank(i);
         break;
@@ -812,13 +908,48 @@ export function blankCommentsAndStrings(content: string): string {
 /**
  * Code chars after which a `/` begins a REGEX literal rather than a division.
  * The standard lexical heuristic: a regex can follow an operator/opener/keyword
- * position but not a value position. Kept conservative — a rare misread
- * (`return /re/`, whose `prev` is the identifier char `n`) at worst fails to
- * blank a regex, which is the same fail-safe direction as the shared blanker.
+ * position but not a value position.
+ *
+ * Chars alone are not enough, which is what {@link JS_REGEX_PREV_WORD} exists
+ * for — see the note there about why "fails to blank" is not the safe direction
+ * it was once documented to be.
  */
 const JS_REGEX_PREV = new Set([
   '(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';', '+', '-', '*', '%', '^', '~', '<', '>',
 ]);
+
+/**
+ * Keywords after which a `/` begins a REGEX literal.
+ *
+ * `return /re/` is the shape that matters. Its preceding significant char is
+ * `n`, an ordinary identifier char, so a char-only heuristic reads the `/` as
+ * division, never enters the regex state, and leaves the pattern's BODY
+ * classified as code.
+ *
+ * That was documented as harmless — "at worst fails to blank a regex, which is
+ * the same fail-safe direction as the shared blanker". It is not, for at least
+ * one consumer. `VG-INJ-020` Branch A matches on RAW content and uses the
+ * blanked copy ONLY as a veto (`if (blanked[m.index] !== content[m.index])
+ * continue`), so a region that should have been blanked and was not simply
+ * keeps its match. Failing to blank there is fail-OPEN: it reports the contents
+ * of a regex literal as a live prototype-pollution assignment, at `high`.
+ *
+ * Only keywords that cannot end an expression belong here. `this`, `super`, an
+ * identifier, `)`, `]` and a literal are all VALUE positions where `/` is
+ * division, and adding any of them would turn `a / b` into an unterminated
+ * regex that swallows the rest of the line.
+ */
+const JS_REGEX_PREV_WORD = new Set([
+  'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw',
+  'case', 'do', 'else', 'yield', 'await',
+]);
+
+/** The identifier ending at `end` (exclusive), or `''` when none does. */
+function wordEndingAt(content: string, end: number): string {
+  let i = end;
+  while (i > 0 && /[\w$]/.test(content[i - 1]!)) i -= 1;
+  return content.slice(i, end);
+}
 
 /**
  * Like `blankCommentsAndStrings`, but JS-AWARE: it additionally blanks BACKTICK
@@ -845,6 +976,10 @@ export function blankJsLiterals(content: string): string {
   let state: 'code' | 'line' | 'block' | 'dq' | 'sq' | 'tpl' | 'regex' = 'code';
   let prev = '';
   let inClass = false;
+  // Brace nesting in code, and the depths at which an enclosing `${…}` ends.
+  // A stack rather than a flag because templates nest: `` `${ `${x}` }` ``.
+  let braceDepth = 0;
+  const tplReturnDepth: number[] = [];
   for (let i = 0; i < n; i += 1) {
     const c = content[i]!; // i < n, always defined
     const next = content[i + 1];
@@ -855,8 +990,28 @@ export function blankJsLiterals(content: string): string {
         else if (c === '"') state = 'dq';
         else if (c === "'") state = 'sq';
         else if (c === '`') state = 'tpl';
-        else if (c === '/' && (prev === '' || JS_REGEX_PREV.has(prev))) { state = 'regex'; inClass = false; }
-        else if (c !== ' ' && c !== '\t' && c !== '\n' && c !== '\r') prev = c;
+        else if (
+          c === '/' &&
+          (prev === '' ||
+            JS_REGEX_PREV.has(prev) ||
+            JS_REGEX_PREV_WORD.has(wordEndingAt(content, i)) ||
+            // `return`/`case`/… may be followed by whitespace before the `/`.
+            JS_REGEX_PREV_WORD.has(wordEndingAt(content, content.slice(0, i).trimEnd().length)))
+        ) { state = 'regex'; inClass = false; }
+        else {
+          if (c === '{') braceDepth += 1;
+          else if (c === '}') {
+            braceDepth -= 1;
+            // Closed the `{` that opened a `${…}` — back inside the template.
+            if (tplReturnDepth.length > 0 && braceDepth === tplReturnDepth[tplReturnDepth.length - 1]) {
+              tplReturnDepth.pop();
+              state = 'tpl';
+              prev = ')';
+              break;
+            }
+          }
+          if (c !== ' ' && c !== '\t' && c !== '\n' && c !== '\r') prev = c;
+        }
         break;
       case 'line':
         if (c === '\n') state = 'code';
@@ -879,6 +1034,18 @@ export function blankJsLiterals(content: string): string {
       case 'tpl':
         if (c === '\\') { blank(i); blank(i + 1); i += 1; }
         else if (c === '`') { state = 'code'; prev = ')'; }
+        // `${…}` is CODE, not template text. Blanking it wholesale hid every
+        // sink written inside an interpolation — `` `${obj.__proto__.polluted =
+        // userInput}` `` reported nothing, while the identical assignment one
+        // line up reported `VG-INJ-020` at high. The expression is evaluated;
+        // it belongs to the code face.
+        else if (c === '$' && next === '{') {
+          tplReturnDepth.push(braceDepth);
+          braceDepth += 1;
+          state = 'code';
+          prev = '{';
+          i += 1; // consume the `{` too
+        }
         else blank(i);
         break;
       case 'regex':

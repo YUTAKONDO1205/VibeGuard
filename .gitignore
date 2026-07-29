@@ -50,6 +50,7 @@ vibeguard-cli-*.tgz
 # contain machine-specific paths and a stray nested git repo)
 paper_data/
 docs/EVALUATION.md
+docs/reports/*.md
 
 # Design / paper drafts exported as Office / PDF (local-only, e.g. 追加設計書案)
 docs/*.docx

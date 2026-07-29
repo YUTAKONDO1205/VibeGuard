@@ -520,8 +520,13 @@ export interface RuleError {
  *    prefix was scanned (`scannedChars` of `totalChars`).
  *  - `deadline-exceeded`: a rule's matching passed the scan-wide time budget and
  *    was cut off after `matchCount` matches.
- *  - `match-limit`: a rule hit the per-file match ceiling, so an UNKNOWN number
- *    of further matches of that rule exist in the file and were never reported.
+ *  - `match-limit`: a rule hit the per-file match ceiling and stopped there.
+ *    Matching halts AT the cap without probing for a next match, so further
+ *    matches MAY exist and would not have been reported — but hitting the cap
+ *    is not evidence that any do. A file with exactly `matchCount` matches
+ *    raises this while nothing went unreported. Whether the file holds more,
+ *    and how many, is unknown. (`REGEX_MATCH_LIMIT` states the same rule from
+ *    the producing side: nothing downstream may claim to know the excess.)
  *    A1-LIMIT. Emitted only for rules whose severity is a security judgement
  *    (`isSecurityJudgementSeverity`); low/info rules hit this cap routinely and
  *    benignly, and reporting those would bury the cases that matter. The cap
@@ -568,6 +573,54 @@ export interface ScanResponse {
    * nothing is byte-identical to what it produced before D8.
    */
   suppressions?: SuppressionRecord[];
+  /**
+   * Supply-chain findings dropped because the project's lockfile declares the
+   * package, aggregated per rule+package+file.
+   *
+   * Same posture and the same reason as `suppressions`: this channel DELETES
+   * findings, and a mechanism that deletes findings in silence is one this
+   * codebase does not allow. Until now the veto reported itself only through a
+   * callback and one aggregate line on the CLI's stderr, so JSON and SARIF —
+   * the two formats a machine reads, and the format the GitHub Action uploads —
+   * could not tell "nothing was found" apart from "something was found and
+   * removed".
+   *
+   * What it does NOT assert is that the package exists. Nothing contacts a
+   * registry, and `resolved` / `integrity` are not checked; a hand-written entry
+   * naming a package that was never published is indistinguishable from a real
+   * one at this layer. `source` says which file the claim was read from so a
+   * reviewer can judge how much that file is worth — a lockfile arriving in the
+   * same pull request as the code it vouches for is not evidence about the
+   * outside world.
+   *
+   * Does not contribute to `summary`, does not appear in `findings`, does not
+   * affect the exit code. Present only when non-empty.
+   */
+  declaredPackageVetoes?: DeclaredPackageVetoRecord[];
+}
+
+/**
+ * One aggregated line of "a supply-chain finding is gone because a lockfile
+ * declared the package".
+ *
+ * Carries no line number, for the same reason `SuppressionRecord` does not:
+ * `ruleId` plus a file is enough for a reviewer to go and look, and a line
+ * number would rebuild the finding inside the artifact.
+ */
+export interface DeclaredPackageVetoRecord {
+  /** The rule whose match was dropped — `VG-AISC-001` today. */
+  ruleId: string;
+  /** The package name as written in the source. */
+  packageName: string;
+  /** File the dropped match was in. Absent for snippet scans. */
+  filePath?: string;
+  /** How many matches this rule+package+file combination removed. */
+  count: number;
+  /**
+   * The manifest the declaration was read from, e.g. `package-lock.json`.
+   * Absent when the caller did not say.
+   */
+  source?: string;
 }
 
 export function emptySummary(): ScanSummary {

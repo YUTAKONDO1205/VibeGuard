@@ -13,7 +13,7 @@ import {
 import { toSarif } from '@vibeguard/sarif-adapter';
 import { parseArgs, HELP_TEXT } from './args.js';
 import { formatHuman, formatMarkdown } from './format.js';
-import { scanDiff } from './diff.js';
+import { diffScopePrefix, gitRepoRootOf, scanDiff } from './diff.js';
 import { runFix } from './fix.js';
 import { readDeclaredPackages } from './declared-packages.js';
 
@@ -26,6 +26,24 @@ const VERSION = (
     readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
   ) as { version: string }
 ).version;
+
+/**
+ * The repository-root-relative prefix for `target`, or `''` when there is none.
+ *
+ * Only SARIF needs this. `filePath` on a finding is relative to the scan target
+ * — the basis `--fix`, the config `suppress[].paths` globs and the human
+ * formatter all read — but GitHub code scanning resolves
+ * `artifactLocation.uri` from the repository root. For a scan of the repo root
+ * the two coincide, which is why this went unnoticed; for a scan of a
+ * subdirectory every emitted URI named a path that does not exist.
+ *
+ * Returns `''` outside a work tree, so a scan of a plain directory still
+ * produces the URIs it always did.
+ */
+async function sarifUriPrefix(target: string): Promise<string> {
+  const root = await gitRepoRootOf(target);
+  return root ? diffScopePrefix(root, target) : '';
+}
 
 const FAIL_LEVEL: Record<string, Severity | null> = {
   critical: 'critical',
@@ -96,6 +114,10 @@ async function main(): Promise<number> {
         mode: args.mode,
         includeRemediation: !args.noRemediation,
         ignore: args.ignore,
+        // Passed on BOTH paths. It used to reach `scanPath` only, so
+        // `--known-only` was accepted and ignored whenever `--diff` was given —
+        // a flag that changes what gets scanned, doing nothing, without saying so.
+        knownLanguagesOnly: args.knownLanguagesOnly,
         config: args.noConfig ? false : args.config,
         // `ScanDiffOptions extends AnalyzerOptions`, so the declared set rides
         // in as the Analyzer-level default and reaches the requests `scanDiff`
@@ -105,6 +127,7 @@ async function main(): Promise<number> {
         // be given the evidence without rewriting a module this change does not
         // own.
         declaredPackages: declared.packages,
+        declaredPackageSource: declared.sources.map((x) => x.file).join(', ') || undefined,
         onDeclaredPackageVeto,
       });
     } else {
@@ -115,6 +138,7 @@ async function main(): Promise<number> {
         knownLanguagesOnly: args.knownLanguagesOnly,
         config: args.noConfig ? false : args.config,
         declaredPackages: declared.packages,
+        declaredPackageSource: declared.sources.map((x) => x.file).join(', ') || undefined,
         onDeclaredPackageVeto,
       });
     }
@@ -126,9 +150,17 @@ async function main(): Promise<number> {
 
   if (vetoed > 0) {
     const from = declared.sources.map((s) => s.file).join(', ');
+    // Phrased as what was OBSERVED, not what it proves. The lockfile is read as
+    // written; nothing here contacts a registry, and nothing checks `resolved`
+    // or `integrity`. A hand-written entry naming a package that was never
+    // published is indistinguishable from a real one at this layer — so the old
+    // wording ("This says the package EXISTS") asserted a fact the tool had not
+    // established, the same over-claim `match-limit` used to make.
     process.stderr.write(
-      `note: ${vetoed} supply-chain finding(s) not reported — the package is resolved in ${from}, ` +
-        'so the name is not a hallucination. This says the package EXISTS, not that it is safe.\n',
+      `note: ${vetoed} supply-chain finding(s) not reported — ${from} declares the package, ` +
+        'so the name is not treated as invented. That is a statement about the lockfile, ' +
+        'not evidence that the package exists or is safe; the entry is read as written and ' +
+        'is not verified against a registry.\n',
     );
   }
 
@@ -245,7 +277,17 @@ async function main(): Promise<number> {
   if (args.format === 'json') {
     output = JSON.stringify(scan, null, 2);
   } else if (args.format === 'sarif') {
-    output = JSON.stringify(toSarif(scan, { toolVersion: VERSION }), null, 2);
+    // SARIF URIs are resolved from the REPOSITORY ROOT by GitHub code scanning,
+    // while a finding's `filePath` is relative to the scan target. For a scan of
+    // the repo root those coincide; for `vibeguard packages/api` they do not,
+    // and every alert pointed at a path that does not exist. The prefix closes
+    // that gap in the SARIF output alone, leaving `filePath` — which `--fix`,
+    // the config globs and the human formatter all read — on its own basis.
+    output = JSON.stringify(
+      toSarif(scan, { toolVersion: VERSION, uriPrefix: await sarifUriPrefix(args.target) }),
+      null,
+      2,
+    );
   } else if (args.format === 'markdown') {
     output = formatMarkdown(scan);
   } else {
