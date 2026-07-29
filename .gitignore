@@ -56,6 +56,7 @@ docs/reports/*.md
 docs/*.docx
 docs/*.pdf
 docs/*.md
+docs/*.txt
 
 # Research roadmap report + its template (local-only planning docs)
 docs/20260401_report_template.html

@@ -65,7 +65,11 @@ describe('planFixes — single-file target', () => {
     const file = join(d, 'fw.c');
     const original = 'http.begin("http://api.example.com/x");\n';
     await writeFile(file, original, 'utf8');
-    const findings = [finding('VG-EMB-010', 1, { file })];
+    // col 12 is the `"` — where the rule's own pattern starts, and therefore what
+    // a real finding carries. The fixer is anchored (B4/A2) and declines when the
+    // reported column does not hold the token, so column 1 is no longer a valid
+    // stand-in for a detector-produced coordinate.
+    const findings = [finding('VG-EMB-010', 1, { file, col: 12 })];
 
     // dry-run: file untouched
     const dry = await runFix(findings, { target: file, targetIsFile: true }, false);
@@ -150,8 +154,9 @@ describe('planFixes — overlap safety', () => {
     const original = 'http.begin("http://api.example.com/x");\n';
     await writeFile(file, original, 'utf8');
     // Two identical findings on the same token → identical edits → overlap.
+    // Both carry the detector's real column (the `"`); see the anchoring note above.
     const res = await planFixes(
-      [finding('VG-EMB-010', 1, { file }), finding('VG-EMB-010', 1, { file })],
+      [finding('VG-EMB-010', 1, { file, col: 12 }), finding('VG-EMB-010', 1, { file, col: 12 })],
       { target: file, targetIsFile: true },
     );
     expect(res.plans).toHaveLength(1);

@@ -14,6 +14,67 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Remediation-side hardening. **Engine is unchanged at `0.3.1`** — no rule changed what it
+matches or at what severity. What changed is what `--fix` is willing to write, and what a
+fix run reports back to CI.
+
+The theme is one rule: **a fixer must be stricter than the detector that fed it.** Each item
+below is a place where it was not, and where the result was worse than no fix at all — the
+finding disappeared while the defect stayed.
+
+### Changed
+
+- **BREAKING — `--fail-on` now applies in fix mode.** `--fix` and `--dry-run` previously
+  returned exit code 0 unconditionally, so adding either to a command turned a red gate
+  green. This happened even for findings whose rule has no fixer, and even for `--dry-run`,
+  which writes nothing: a scan that failed `--fail-on high` on its own passed the moment
+  `--fix` was appended.
+
+  Fix mode now evaluates `--fail-on` against the same finding set the non-fix path would
+  have used, and returns the worse of the two exit codes. It is deliberately gated on the
+  PRE-fix findings: that a fix was applied is not evidence that the finding is gone (the two
+  items below are counterexamples), so the guarantee is only that **fix mode never weakens
+  the gate**. Re-run the scan to get the post-fix verdict — an observation, rather than a
+  claim by the process that did the writing.
+
+  **If you run `--fix` in CI**, a job that was passing may now fail. That is the intended
+  correction: it was passing because the gate was off, not because the code was clean. To keep
+  a fix run advisory on purpose, pass `--fail-on never`, which is the supported way to say
+  "report, do not gate" — rather than relying on fix mode to suppress the exit code.
+
+- **`VG-EMB-020`'s remediation no longer prescribes `#define DEBUG 0` as a paste-ready fix.**
+  Setting the flag to `0` disables it only where the code reads its VALUE (`#if DEBUG`).
+  Where the code tests whether it is DEFINED (`#ifdef DEBUG`, `#if defined(DEBUG)`), a zero
+  is still a definition and the debug path still compiles. The `how` text now names that
+  condition and leads with the unconditional remedy (drop the define from release builds,
+  select it from the build system); `exampleFix` is removed, because no single line is
+  correct for both consumption styles and a paste-ready line is what gets pasted.
+
+### Fixed
+
+Three fixers could report a fix as applied while the finding's underlying defect survived —
+in two of them the rule also stopped matching afterwards, so the file scanned clean. Each now
+**declines** rather than edit under an assumption it cannot check from the bytes it reads, and
+leaves the prose remediation, which can describe changes a token swap cannot perform.
+
+- **`VG-EMB-010`** edited a URL the rule had deliberately passed over. The fixer's pattern
+  lacked the loopback exclusion the rule's own pattern carries, and it searched forward from
+  the reported column rather than requiring the token to start there. It now carries the same
+  exclusion and only edits at the reported column. A payload the rule found through
+  normalization no longer receives an automatic fix at all — the finding still reports, and
+  the edit is left to a human.
+- **`VG-INJ-020`** could guard a loop other than the one the finding was about. It now
+  declines when the loop the finding refers to cannot be identified from the reported line
+  alone.
+- **`VG-EMB-020` / `VG-EMB-021`** assumed a preprocessor flag is consumed by value. Both
+  fixers now decline when the file tests whether the macro is defined (see *Changed*, above).
+  **This narrows what `--fix` will write; it does not change what the rules detect.**
+
+> Each entry states what the fixer now refuses to do. Fuller technical write-ups follow once
+> this release has reached all four channels, per the project's practice of not publishing a
+> reproducible weakness against a version users are still running. The `--fail-on` change
+> above is stated in full because operators need it to audit their pipelines today.
+
 ## [0.3.3] - 2026-07-29
 
 Packaging fix for 0.3.2. **Engine is unchanged at `0.3.1`** — nothing about detection moved.

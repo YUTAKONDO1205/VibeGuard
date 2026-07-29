@@ -224,8 +224,18 @@ export const embDebugDefineOn: RuleDefinition = {
   tags: ['embedded', 'ai-prone'],
   remediation: {
     why: 'Debug-on ships internal state (and sometimes bypasses) to anyone with a serial cable or network access to the device.',
-    how: 'Default the debug flag OFF and gate it behind a build type: #define DEBUG 0, or select it from the build system for dev builds only.',
-    exampleFix: '#define DEBUG 0',
+    // `#define DEBUG 0` USED TO BE THE WHOLE ADVICE, and as an exampleFix it was
+    // wrong often enough to matter: it disables the flag only where the code
+    // reads its VALUE (`#if DEBUG`). Where the code asks whether it is DEFINED —
+    // `#ifdef DEBUG`, `#if defined(DEBUG)` — a zero is still a definition, the
+    // branch is still compiled, and the debug path ships. Worse, this rule then
+    // matches nothing (it looks for `#define … 1|true|TRUE`), so following the
+    // advice turned a reported finding into a clean scan over unchanged
+    // behaviour. The `how` now names the condition and puts the unconditional
+    // remedy first; `exampleFix` is gone because no single line is correct for
+    // both consumption styles, and a paste-ready line is exactly what gets
+    // pasted. The fixer declines on the `#ifdef` form for the same reason.
+    how: 'Remove the #define from release builds and select it from the build system for dev builds only. Setting it to 0 is enough ONLY if the code reads its value (#if DEBUG); if the code tests whether it is defined (#ifdef DEBUG, #if defined(DEBUG)), a zero still leaves the debug path compiled in.',
   },
   // skipCommentLines ON: a commented-out `// #define DEBUG 1` is the FIXED state.
   match: (ctx) =>

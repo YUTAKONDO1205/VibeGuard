@@ -60,11 +60,56 @@ describe('golden fixes', () => {
   it('VG-EMB-011: returns null for setInsecure() (no safe token swap)', () => {
     expect(buildFix('VG-EMB-011', 'client.setInsecure();\n', match(1))).toBeNull();
   });
+  // Driven from the DETECTOR's coordinates rather than a hand-built column 1.
+  // The fixer is anchored (B4/A2): it edits the token that starts at the reported
+  // column and declines otherwise, so a synthetic column that does not point at
+  // the URL is no longer a valid stand-in for a real finding.
   it('VG-EMB-010: http:// → https://', () => {
-    expect(fixOne('VG-EMB-010', 'http.begin("http://api.example.com/x");\n')).toBe(
-      'http.begin("https://api.example.com/x");\n',
+    const content = 'http.begin("http://api.example.com/x");\n';
+    const found = detect('VG-EMB-010', content, 'cpp');
+    expect(found).toHaveLength(1);
+    const built = buildFix('VG-EMB-010', content, found[0]!)!;
+    expect(applyFixes(content, built.edits)).toBe('http.begin("https://api.example.com/x");\n');
+  });
+
+  // The anchoring contract itself: a column that does not hold the token is not
+  // a coordinate this fixer will act on. Without this, a finding raised on the
+  // CANONICAL face — whose column is a valid offset but whose original bytes are
+  // not the payload — would send the edit forward onto an unrelated URL.
+  it('VG-EMB-010: declines a column that does not start the token', () => {
+    const content = 'http.begin("http://api.example.com/x");\n';
+    expect(buildFix('VG-EMB-010', content, matchAt(1, 1))).toBeNull();
+  });
+
+  // The rule excludes loopback with a negative lookahead; the fixer carries the
+  // same exclusion, so it can never rewrite a URL the detector passed over.
+  it('VG-EMB-010: declines a loopback URL the rule deliberately excludes', () => {
+    const content = 'local_get("http://localhost/health");\n';
+    expect(detect('VG-EMB-010', content, 'cpp')).toHaveLength(0);
+    expect(buildFix('VG-EMB-010', content, matchAt(1, 11))).toBeNull();
+  });
+  // B4: value semantics vs definedness semantics. Flipping the define to 0 does
+  // NOT disable a flag the code consults with #ifdef / defined(), and the rule
+  // stops matching afterwards — so the fix would trade a reported finding for a
+  // clean scan over an unchanged backdoor. The fixer declines instead.
+  it('VG-EMB-021: declines when the flag is consumed by #ifdef', () => {
+    const content = '#define BYPASS_AUTH 1\n#ifdef BYPASS_AUTH\n  return AUTH_OK;\n#endif\n';
+    expect(detect('VG-EMB-021', content, 'c')).toHaveLength(1);
+    expect(buildFix('VG-EMB-021', content, match(1))).toBeNull();
+  });
+
+  it('VG-EMB-020: declines when the flag is consumed by #if defined()', () => {
+    const content = '#define DEBUG 1\n#if defined(DEBUG)\n  serial_print(secret);\n#endif\n';
+    expect(buildFix('VG-EMB-020', content, match(1))).toBeNull();
+  });
+
+  // …and still fixes the value-consumed form, which is what the swap is for.
+  it('VG-EMB-020: still fixes the value-consumed form', () => {
+    expect(fixOne('VG-EMB-020', '#define DEBUG 1\n#if DEBUG\n  x();\n#endif\n')).toBe(
+      '#define DEBUG 0\n#if DEBUG\n  x();\n#endif\n',
     );
   });
+
   it('VG-RTOS-004: O_DIRECT → O_DIRECT | O_SYNC', () => {
     expect(fixOne('VG-RTOS-004', 'fd = open(path, O_DIRECT);\n')).toBe(
       'fd = open(path, O_DIRECT | O_SYNC);\n',

@@ -250,7 +250,22 @@ async function main(): Promise<number> {
   // Fix mode (--fix / --dry-run) replaces the normal findings report with a fix
   // plan. It operates on the post-filter finding set, so --min-confidence also
   // narrows what gets fixed. --dry-run previews without writing; bare --fix
-  // writes. Fixing is not a gate, so this never returns the --fail-on exit code.
+  // writes.
+  //
+  // FIX MODE MUST NOT WEAKEN THE GATE. It used to return a hardcoded 0, so
+  // adding --fix to a red CI command turned it green — even for a finding whose
+  // rule has no fixer at all, and even for --dry-run, which by definition
+  // changes nothing. The gate is therefore evaluated on the SAME finding set the
+  // non-fix path would have gated on, and the worse of the two codes is
+  // returned.
+  //
+  // Deliberately NOT "gate on what survived the fix": `--fix` reporting a fix as
+  // applied is not evidence that the finding is gone. A fixer can edit a token
+  // other than the reported one and leave the defect in place (B4/A2), and the
+  // detector can go quiet for a reason unrelated to the repair (B4/A1). Both
+  // would produce a green gate over live code. The post-fix verdict comes from
+  // re-running the scan on the written tree — an observation, not a claim by the
+  // thing that did the writing.
   if (args.fix || args.dryRun) {
     let targetIsFile = false;
     try {
@@ -269,6 +284,13 @@ async function main(): Promise<number> {
       return 2;
     }
     process.stdout.write(fixResult.output);
+    const fixGate = FAIL_LEVEL[args.failOn];
+    if (fixGate && scan.findings.some((f) => compareSeverity(f.severity, fixGate) <= 0)) {
+      process.stderr.write(
+        `note: --fail-on ${args.failOn} still applies in fix mode; re-scan to get the post-fix verdict\n`,
+      );
+      return Math.max(fixResult.code, 1);
+    }
     return fixResult.code;
   }
 

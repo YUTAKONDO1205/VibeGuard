@@ -63,6 +63,7 @@ function tokenSwap(
   match: RuleMatch,
   re: RegExp,
   replacement: string,
+  options: { anchored?: boolean } = {},
 ): FixEdit[] | null {
   const { text, offset } = lineOf(content, match);
   // Seed the search at the finding's COLUMN, not the line start, so a line with
@@ -72,6 +73,16 @@ function tokenSwap(
   const sub = text.slice(col0);
   const m = re.exec(sub);
   if (!m || m.index === undefined) return null;
+  // ANCHORED MODE (B4/A2): forward search assumes the reported column and the
+  // token to edit are the same thing. That assumption breaks for findings raised
+  // on the CANONICAL face: `canonicalize` folds `"htt" "p://x"` into one literal
+  // length-preservingly, so the column is a VALID offset into the original bytes
+  // but the text there is not the payload. Searching forward from it then walks
+  // past the payload and lands on the next matching token on the line — which,
+  // for VG-EMB-010, was a loopback URL the rule's own negative lookahead
+  // deliberately excludes. An anchored fixer declines instead of editing a token
+  // nobody reported: position disagreement is ambiguity, and ambiguity is fatal.
+  if (options.anchored && m.index !== 0) return null;
   // Offset of group 1 within the searched substring.
   const g1 = m[1]!;
   const g1Local = sub.indexOf(g1, m.index);
@@ -100,6 +111,13 @@ function tokenSwap(
 // disjoint character class, so there is nothing to backtrack over.
 const FOR_IN_HEAD =
   /^for[^\S\r\n]{0,4}\([^\S\r\n]{0,4}(?:(?:const|let|var)[^\S\r\n]{1,4})?(?<k>[\w$]{1,40})[^\S\r\n]{1,4}in[^\S\r\n]{1,4}[\w$.]{1,60}[^\S\r\n]{0,4}\)[^\S\r\n]{0,4}\{/;
+
+// The same shape UNANCHORED and global, used only to COUNT loops — see
+// `protoGuardEdits`. Bounded quantifiers throughout (D3), each adjacent to a
+// disjoint class, so counting cannot be turned into a backtracking bomb by the
+// file being counted.
+const FOR_IN_ANY =
+  /\bfor[^\S\r\n]{0,4}\([^\S\r\n]{0,4}(?:(?:const|let|var)[^\S\r\n]{1,4})?[\w$]{1,40}[^\S\r\n]{1,4}in[^\S\r\n]{1,4}[\w$.]{1,60}/g;
 
 /** Leading horizontal whitespace of a line (its indentation), verbatim. */
 function indentOf(line: string): string {
@@ -156,6 +174,32 @@ function protoGuardEdits(content: string, match: RuleMatch): FixEdit[] | null {
   // fixer is never asked again. The check is belt-and-braces for a stale finding
   // replayed against already-fixed bytes (inline form lands on this line…).
   if (text.includes('__proto__')) return null;
+  // FAIL-CLOSED ON AMBIGUOUS LOOP IDENTITY. The rule's `FOR_IN` is NOT global:
+  // `FOR_IN.exec(body)` returns the FIRST for-in in the function, while the
+  // dynamic-write and self-recursion conjuncts are tested against the WHOLE
+  // body. So when a harmless loop precedes the recursive merge, the finding is
+  // raised at the harmless one — and this fixer, anchored at the reported
+  // column, would guard THAT loop, leaving the dangerous one untouched while
+  // the report says a fix was applied. A fix that only removes the warning is
+  // worse than no fix.
+  //
+  // WHY THE TEST IS PER-LINE, not per-file. The column is this fixer's entire
+  // disambiguation power, and a column only adjudicates WITHIN its own line —
+  // two loops on one line are told apart exactly (that is what anchoring at the
+  // column buys, and it is covered by a golden test). A loop on ANOTHER line is
+  // outside what the column can decide: choosing between them needs the function
+  // block and a self-recursion test, i.e. the detector's own analysis, and a
+  // fixer must be stricter than its detector rather than a reimplementation of
+  // it. So the presence of a for-in on any other line makes the identity
+  // ambiguous, and ambiguity is fatal, not guessed. Over-declining costs a
+  // convenience; guessing costs the finding.
+  const allLines = content.split('\n');
+  const here = match.startLine - 1;
+  for (let i = 0; i < allLines.length; i += 1) {
+    if (i === here) continue;
+    FOR_IN_ANY.lastIndex = 0;
+    if (FOR_IN_ANY.test(allLines[i] ?? '')) return null;
+  }
   const col0 = Math.max(0, (match.startColumn ?? 1) - 1);
   if (col0 >= text.length) return null;
   const head = FOR_IN_HEAD.exec(text.slice(col0));
@@ -339,13 +383,59 @@ function renameHallucinatedImport(content: string, match: RuleMatch): FixEdit[] 
 // The rule keeps prose remediation only. This comment exists so the next person
 // re-deriving "surely this one is mechanical" finds the answer before the work.
 
+// The macro name a `#define` line binds, or null when the line is not one.
+// Bounded runs against literal anchors (D3).
+const DEFINE_NAME = /^[^\S\r\n]{0,20}#[^\S\r\n]{0,8}define[^\S\r\n]{1,8}(?<name>[A-Za-z_]\w{0,60})\b/;
+
+/**
+ * VALUE SEMANTICS vs DEFINEDNESS SEMANTICS (B4).
+ *
+ * Flipping `#define FLAG 1` to `0` disables the flag only where it is consumed
+ * BY VALUE (`#if FLAG`). Where it is consumed by DEFINEDNESS — `#ifdef FLAG`,
+ * `#ifndef FLAG`, `#if defined(FLAG)` — the macro is still defined, the branch
+ * is still taken, and the code the flag guarded still compiles. C says so:
+ * `defined(X)` asks whether X has a definition, not what it expands to.
+ *
+ * The edit is locally correct on the bytes it reads and globally insufficient,
+ * which is exactly the gap a fixer must refuse to guess across: a fixer sees one
+ * line and cannot know how a macro is consumed, and deciding that is the
+ * preprocessor's job. So when the file consults the macro's DEFINEDNESS
+ * anywhere, decline and leave the prose remediation — which can explain the
+ * build-system move that a token swap cannot perform — to the human.
+ *
+ * The detection side of the same distinction is a separate, open question and is
+ * tracked outside this file; nothing here should be read as closing it.
+ */
+function definednessConsumed(content: string, name: string): boolean {
+  const n = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(
+    `#[^\\S\\r\\n]{0,8}(?:ifdef|ifndef)[^\\S\\r\\n]{1,8}${n}\\b|\\bdefined[^\\S\\r\\n]{0,4}\\(?[^\\S\\r\\n]{0,4}${n}\\b`,
+  ).test(content);
+}
+
+/** `tokenSwap`, but declining when the `#define`d name is consumed by definedness. */
+function defineSwap(
+  content: string,
+  match: RuleMatch,
+  re: RegExp,
+  replacement: string,
+): FixEdit[] | null {
+  const { text } = lineOf(content, match);
+  const name = DEFINE_NAME.exec(text)?.groups?.name;
+  // No `#define` on the reported line: this is the runtime `if (FLAG)` shape of
+  // VG-EMB-021, which has no safe token to flip. `tokenSwap` already returns
+  // null there; keep that path unchanged.
+  if (name && definednessConsumed(content, name)) return null;
+  return tokenSwap(content, match, re, replacement);
+}
+
 export const fixers: Record<string, Fixer> = {
   // #define DEBUG 1 → #define DEBUG 0. Strictly-stronger: turns debug OFF.
   'VG-EMB-020': {
     title: 'Set the debug define to 0',
     safety: 'safe',
     build: (content, match) =>
-      tokenSwap(
+      defineSwap(
         content,
         match,
         /#[ \t]*define[ \t]+(?:DEBUG|DEBUG_MODE|ENABLE_DEBUG|DEBUG_ENABLED|VERBOSE(?:_DEBUG)?)[ \t]+(1|true|TRUE)\b/,
@@ -360,7 +450,7 @@ export const fixers: Record<string, Fixer> = {
     title: 'Turn the bypass flag off',
     safety: 'needs-review',
     build: (content, match) =>
-      tokenSwap(
+      defineSwap(
         content,
         match,
         /#[ \t]*define[ \t]+(?:BYPASS|SKIP|DISABLE)_(?:AUTH|LOGIN|SECURITY|VERIFY|TLS|SSL)\w*[ \t]+(1|true)\b/,
@@ -380,10 +470,23 @@ export const fixers: Record<string, Fixer> = {
 
   // "http://…" → "https://…". Behaviour-changing: the endpoint must serve TLS
   // and the device must trust its CA, hence needs-review, not safe.
+  //
+  // The pattern carries the SAME loopback exclusion as the rule that raises the
+  // finding (`embedded-ai.ts`, VG-EMB-010: `"http:\/\/(?!localhost[/:"]|127\.0\.0\.1)`).
+  // Keeping them in step is not cosmetic — a fixer whose domain is WIDER than its
+  // detector's can rewrite a token the detector examined and deliberately passed
+  // over, i.e. edit code nobody was warned about. `localhost` over TLS is a
+  // working endpoint turned into a broken one, so the widening was also a defect
+  // injection. `anchored` closes the other half: the edit must begin at the
+  // reported column, so a canonical-face (folded) finding declines rather than
+  // walking forward onto an unrelated URL.
   'VG-EMB-010': {
     title: 'Use https for the endpoint',
     safety: 'needs-review',
-    build: (content, match) => tokenSwap(content, match, /"(http):\/\//, 'https'),
+    build: (content, match) =>
+      tokenSwap(content, match, /"(http):\/\/(?!localhost[/:"]|127\.0\.0\.1)/, 'https', {
+        anchored: true,
+      }),
   },
 
   // O_DIRECT → O_DIRECT | O_SYNC. Adds durability; a perf change, so review.
