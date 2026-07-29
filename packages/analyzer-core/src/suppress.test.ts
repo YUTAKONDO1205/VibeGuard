@@ -1,9 +1,20 @@
-// vibeguard:disable-file VG-INJ-006 VG-AUTH-004
+// vibeguard:disable-file VG-INJ-006 VG-AUTH-004 VG-INJ-004
 // Test fixtures contain intentional vulnerable code to exercise suppression.
+//
 // VG-AUTH-004 is listed because the string-literal-pragma tests below need a
 // finding that a pragma would plausibly be written for, and a disabled TLS
-// check is the realistic one. Naming the rule ID keeps this an honest
-// suppression rather than a blanket one.
+// check is the realistic one.
+//
+// VG-INJ-004 is listed because this file's fixtures embed `eval(…)` inside TS
+// STRING LITERALS, next to the pragma each case is exercising. Those inner
+// pragmas used to suppress the `eval(` beside them — the parser matched raw
+// line text and could not tell a fixture from a directive. Now that a pragma
+// inside a string literal is correctly ignored, the fixtures' own `eval(` calls
+// surface: 26 of them, all inert data in test literals. This line is the honest
+// way to say that, and it is a real comment, so it actually applies.
+//
+// Every ID is named. A blanket suppression here would be the one place in the
+// repository where it is least defensible.
 import { describe, expect, it } from 'vitest';
 import { parseSuppressions, isSuppressed, evaluateSuppression } from './suppress.js';
 import { scan } from './analyzer.js';
