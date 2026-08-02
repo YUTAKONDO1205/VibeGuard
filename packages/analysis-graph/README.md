@@ -36,8 +36,36 @@ needle — including a first version of the check that was convincing and wrong.
 | `VG-AISC-002` | A call into a **known SDK namespace whose member no member header declares** — the hallucinated-API shape. Reported only when the project's own quoted includes all resolve. | capped at `medium` |
 | `VG-AISC-003` | A **security initialiser that is defined and never named anywhere else** in the project. | capped at `medium` |
 | `VG-RTOS-003` | An **ISR-written shared variable missing `volatile`, where the reader is in another file** — the cross-file half of `VG-RTOS-002`. | capped at `medium` |
+| `VG-SMELL-020` | A **security-relevant module inside an import cycle**, where every edge is a runtime import. Initialisation order in a cycle is decided by which member is imported first, so a key can be read before it is set. | capped at `medium` |
+| `VG-SMELL-021` | A **security module that depends on an unusually large number of others** — attack surface and initialisation complexity concentrated in the one file that can least afford it. Uses `fanMetrics`. | capped at `medium` |
+| `VG-SMELL-041` | **Temporal security coupling** — a taint flow whose protecting call cannot have protected it, because it runs after the sink in the same block. Backed by `taint/`, so the report carries the source → hops → sink chain. | capped at `medium` |
+| `VG-SMELL-052` | **Generated boilerplate never wired in** — an exported security helper that no route mounts and no taint path crosses, in a project that has unguarded routes reached by tainted input. Backed by `taint/`. | capped at `medium` |
 
-Three of the four never reach `high` confidence, and it is the same reason each
+### What the β four cost to admit, measured
+
+The bar was not "the tests pass". `VG-SMELL-041` and `VG-SMELL-052` both had
+green tests and full negative-fixture sets on their first submission and were
+**rejected**: swept across the 1000 repositories in `paper_data/corpus1k`, 041
+produced three findings and none were true — one of them a guard in the sibling
+arm of an `if`/`else`, the exact failure its own header claimed to be designed
+against — and 052 fired on a correctly-mounted guard reached through an
+`export *` barrel. Both were reworked until that sweep came back clean.
+
+| Rule | Real-corpus sweep (630 repos with source) |
+|---|---|
+| `VG-SMELL-020` | 6 findings, spot-checked against the sources: real runtime cycles |
+| `VG-SMELL-021` | 3 findings, spot-checked: real high-fan-out security modules |
+| `VG-SMELL-041` | 0 findings — was 3, all false, before the rework |
+| `VG-SMELL-052` | 0 findings — was firing on barrels, before the rework |
+
+The two zeroes are honest about their limits. They show the reworked rules no
+longer fire on a large body of real code, which is what `samples/safe == 0`
+generalises to. They show **nothing about recall**: neither produced a true
+positive on that corpus either, so their only evidence of usefulness is their own
+fixtures. That is a weaker claim than 020 and 021 can make, and it is written
+down here rather than averaged away.
+
+Six of the eight never reach `high` confidence, and it is the same reason each
 time: the evidence is that a **lexical** scan did not find something. "No header
 declares this member", "this token never appears elsewhere", "this declaration
 has no `volatile`" — a generated header, a linker-supplied symbol, a declaration
@@ -59,8 +87,8 @@ src/
 ├── dependency-graph/        what points at what    (import edges, #include edges)
 ├── symbol-table/            what identifiers mean  (role / guard / token inference)
 ├── metrics/                 what the numbers are   (DesignMetrics)
-├── design-smells-crossfile/ the four rules that need all of the above
-├── taint/                   intra-procedural source → sink (skeleton)
+├── design-smells-crossfile/ the eight rules that need all of the above
+├── taint/                   intra-procedural source → sink (H1; read by 041/052)
 ├── budget.ts                the cost ceiling for a whole-tree pass
 ├── project.ts               analyzeProject / buildProjectIndex / runCrossFileRules
 └── version.ts               ANALYSIS_GRAPH_VERSION

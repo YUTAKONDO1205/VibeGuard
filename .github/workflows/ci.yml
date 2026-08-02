@@ -66,6 +66,80 @@ jobs:
       - name: Assert node/browser paths agree
         run: node scripts/e1-consistency-eval.mjs >> "$GITHUB_STEP_SUMMARY"
 
+  # H2 — the self-hardening gate (実装設計手順書 §5.5・§9.4). VibeGuard
+  # regression-tests its OWN attack surface here: the ReDoS surface of the rule
+  # regexes (A1), the evasion rate of rewrites against the shipped detector (B1),
+  # the concealment rate of triage-abuse disguises (B3), and the finding SETS of
+  # the sample corpora. Thresholds live in the tracked
+  # scripts/sec-selftest-baseline.json, so moving one is a reviewed diff.
+  #
+  # BLOCKING, deliberately, and with no `continue-on-error`: unlike perf-bench
+  # below, every number this job compares is deterministic — the generators
+  # declare (and were measured to have) no clock and no RNG — so a red run means
+  # a real regression, never CI weather. The one arm that WOULD be weather-
+  # dependent, wall-clock ReDoS timing, is deliberately not a gate here; that
+  # property is asserted in packages/analyzer-core/src/redos-invariant.test.ts
+  # under `npm test`, where a generous per-test budget is affordable.
+  #
+  # The B1/B3 corpora are REGENERATED here rather than checked out: they live
+  # under security-experiment/, which .gitignore excludes on purpose (attack
+  # premises stay out of the public service repo), so on a runner they do not
+  # exist. Their inputs — samples/vulnerable and test_problem — are tracked, and
+  # the generators are deterministic, which is what makes the tracked baseline
+  # comparable run to run. Budget ~30 s, dominated by B1 corpus generation.
+  #
+  # ⚠ Making this a REQUIRED status check is a branch-protection setting in the
+  # GitHub repository configuration. It cannot be expressed in this file, and
+  # nothing here should be read as having done it.
+  security-selftest:
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+      - run: npm run build
+
+      # `tee` into RUNNER_TEMP rather than the workspace so the log cannot show
+      # up as an untracked file in a later step. `set -o pipefail` is what keeps
+      # the gate's exit code from being swallowed by tee — without it this job
+      # would report the exit status of `tee`, i.e. always success, which is the
+      # exact failure mode a self-hardening gate must not have.
+      - name: Self-hardening gate (A1 / B1 / B3 / corpora)
+        shell: bash
+        run: |
+          set -o pipefail
+          node scripts/sec-selftest.mjs | tee "$RUNNER_TEMP/selftest.log"
+
+      - name: Render self-hardening report
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## VibeGuard self-hardening selftest (H2)'
+            echo ''
+            echo '```'
+            cat "$RUNNER_TEMP/selftest.log" 2>/dev/null || echo '(the gate produced no output — it failed before reporting)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The robustness metrics themselves, for trend-watching across runs. This
+      # is the local record (§5.5's `_results/manifest.json`), NOT the gate's
+      # authority — the authority is the tracked baseline, and nothing in CI ever
+      # writes back to it.
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: security-selftest-manifest
+          path: security-experiment/_results/manifest.json
+          retention-days: 30
+          if-no-files-found: warn
+
   # Performance benchmark. Non-blocking by default — it fails only when a
   # workload exceeds 2× its design-§11.1 target (see scripts/perf-bench.mjs).
   # The JSON output is uploaded as an artifact so a future PR can plot trends.

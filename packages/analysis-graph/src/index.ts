@@ -134,6 +134,55 @@ export {
 
 export { buildSymbolTable } from './symbol-table/index.js';
 
+/**
+ * H1 — intraprocedural taint (`taint/`), promoted from skeleton to load-bearing.
+ *
+ * ★ WHY THIS EXPORT IS ITSELF A DESIGN DECISION, NOT PLUMBING
+ *
+ * 0.3.0-α landed the taint engine and deliberately did not export it. That was
+ * correct then and is wrong now, and the difference is worth stating because the
+ * same question recurs for every module built ahead of its consumer.
+ *
+ * Unexported, the module was verifiable but not falsifiable: its own tests
+ * proved it computed what it claimed, and nothing proved that what it claimed
+ * was what a rule needs. A source→sink engine with no rule reading it is a
+ * hypothesis about the shape of evidence, held at arm's length from the only
+ * thing that could refute it. The 0.3.0-β catalogue supplies the refutation
+ * surface — VG-SMELL-041 and VG-SMELL-052 are specified as taint-backed rather
+ * than structural precisely so that "the flow is real" stops being this module's
+ * private claim and becomes a finding a user can check line by line.
+ *
+ * So the export is what makes H1 done. Shipping the engine was necessary and is
+ * not sufficient: until a finding carries a `hops` chain a developer can read,
+ * the difference between a working dataflow engine and a plausible one is not
+ * observable from outside this package.
+ *
+ * ★ WHAT THIS EXPORT MUST NOT BECOME
+ *
+ * The package boundary above applies unchanged: this reaches the CLI and the
+ * Action, never a browser or editor bundle. `analyzeProjectTaint` walks every
+ * symbol of every file and is budgeted per project (`MAX_FLOWS_PER_PROJECT`),
+ * which is the opposite of the per-keystroke, per-textarea contract the core
+ * engine holds. `scripts/check-packaging-invariants.mjs` enforces this
+ * empirically rather than by convention, so the guarantee does not depend on
+ * this comment being read.
+ *
+ * `analyzeFunction` is exported alongside the project-level entry point because
+ * a rule that has already located one symbol should not have to re-walk the
+ * project to ask about it — and because the nested-symbol containment argument
+ * in `AnalyzeFunctionOptions` is a trap a caller can fall into silently. Naming
+ * the option in the public surface is what makes the trap visible.
+ */
+export {
+  analyzeFunction,
+  analyzeProjectTaint,
+  type AnalyzeFunctionOptions,
+  type SinkKind,
+  type TaintFlow,
+  type TaintSink,
+  type TaintSource,
+} from './taint/index.js';
+
 export {
   admitFiles,
   createBudget,

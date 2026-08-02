@@ -1,0 +1,278 @@
+{
+  "$schema": "none — hand-maintained; every number below was MEASURED, never copied from a plan",
+  "recordedAt": "2026-08-02",
+  "recordedFrom": {
+    "note": "Values produced by `node scripts/sec-selftest.mjs` on a clean tree at the commit this file landed in. They are OBSERVATIONS, not targets: nothing here was transcribed from a design document. Re-record deliberately (run the selftest, read the diff, justify every moved number in the PR) — never regenerate it to make a red build green.",
+    "nodeVersion": "v24.14.1",
+    "platform": "win32",
+    "engineVersion": "0.3.3"
+  },
+  "optionalGates": [
+    "a1:recheck-superlinear"
+  ],
+  "optionalGatesNote": "Gates listed here may come back `unmeasured` without failing the build. They are still NOT counted as passes: the run reports them as UNMEASURED and `verdict.allGatesPassed` goes false. Only recheck qualifies, because it ships a JVM jar that is installed with `npm install --no-save recheck` and is therefore absent on a default CI runner (sec-a1-catalog.mjs header). Everything else that cannot be measured is a failure.",
+  "gates": {
+    "corpus:samples/safe": {
+      "_why": "E3. The false-positive contract: correct code must produce nothing. Pinned as a multiset of ruleId@file rather than as `length === 0` so the failure names the rule that started firing.",
+      "snapshot": [],
+      "files": [
+        "django_settings_safe.py",
+        "express_session_safe.js",
+        "good_examples.py",
+        "safe_crypto.php"
+      ],
+      "_filesWhy": "Directory census, checked BEFORE the finding snapshot. Without it an emptied or renamed fixture set makes the [] snapshot of a false-positive corpus compare equal and pass, reporting that the zero-false-positive contract holds having scanned nothing. Same argument as b1/b3 corpus-scale."
+    },
+    "corpus:samples/vulnerable": {
+      "_why": "E2 = 51 findings. The scalar 51 is the number everyone quotes; the SET is what a regression actually moves. A rule that stops firing while another starts leaves 51 intact.",
+      "snapshot": [
+        "VG-AUTH-001@auth_bypass.py",
+        "VG-AUTH-002@ai_artifacts.js",
+        "VG-AUTH-002@auth_bypass.py",
+        "VG-AUTH-003@auth_bypass.py",
+        "VG-AUTH-003@secrets.js",
+        "VG-AUTH-004@auth_bypass.py",
+        "VG-AUTH-005@django_settings.py",
+        "VG-AUTH-006@express_session.js",
+        "VG-AUTH-006@express_session.js",
+        "VG-CRYPTO-001@weak_crypto.cs",
+        "VG-CRYPTO-001@weak_crypto.cs",
+        "VG-CRYPTO-001@weak_crypto.php",
+        "VG-CRYPTO-001@weak_crypto.php",
+        "VG-CRYPTO-001@weak_crypto.rb",
+        "VG-CRYPTO-001@weak_crypto.rb",
+        "VG-CRYPTO-002@weak_crypto.cs",
+        "VG-CRYPTO-002@weak_crypto.php",
+        "VG-CRYPTO-002@weak_crypto.php",
+        "VG-CRYPTO-002@weak_crypto.rb",
+        "VG-CRYPTO-002@weak_random.go",
+        "VG-CRYPTO-002@weak_random.go",
+        "VG-CRYPTO-002@xss.js",
+        "VG-CRYPTO-003@secrets.js",
+        "VG-FW-001@django_settings.py",
+        "VG-FW-002@flask_app.py",
+        "VG-FW-003@express_session.js",
+        "VG-FW-003@flask_app.py",
+        "VG-INJ-001@sql_injection.py",
+        "VG-INJ-001@sql_injection.py",
+        "VG-INJ-002@command_injection.py",
+        "VG-INJ-003@command_injection.py",
+        "VG-INJ-004@xss.js",
+        "VG-INJ-005@auth_bypass.py",
+        "VG-INJ-006@xss.js",
+        "VG-QUAL-001@auth_bypass.py",
+        "VG-QUAL-005@ai_artifacts.js",
+        "VG-QUAL-005@ai_artifacts.js",
+        "VG-QUAL-005@auth_bypass.py",
+        "VG-QUAL-006@ai_artifacts.js",
+        "VG-QUAL-006@ai_artifacts.js",
+        "VG-QUAL-007@ai_artifacts.js",
+        "VG-QUAL-007@ai_artifacts.js",
+        "VG-QUAL-008@ai_artifacts.js",
+        "VG-QUAL-008@ai_artifacts.js",
+        "VG-QUAL-008@django_settings.py",
+        "VG-QUAL-009@ai_artifacts.js",
+        "VG-QUAL-010@ai_artifacts.js",
+        "VG-QUAL-010@ai_artifacts.js",
+        "VG-SEC-001@secrets.js",
+        "VG-SEC-003@secrets.js",
+        "VG-SEC-003@secrets.js"
+      ],
+      "files": [
+        "ai_artifacts.js",
+        "auth_bypass.py",
+        "command_injection.py",
+        "django_settings.py",
+        "express_session.js",
+        "flask_app.py",
+        "secrets.js",
+        "sql_injection.py",
+        "weak_crypto.cs",
+        "weak_crypto.php",
+        "weak_crypto.rb",
+        "weak_random.go",
+        "xss.js"
+      ],
+      "_filesWhy": "Directory census, checked BEFORE the finding snapshot. Without it an emptied or renamed fixture set makes the [] snapshot of a false-positive corpus compare equal and pass, reporting that the zero-false-positive contract holds having scanned nothing. Same argument as b1/b3 corpus-scale."
+    },
+    "corpus:samples/embedded/safe": {
+      "_why": "E7 safe side (実装順 #17g). Zero findings, including from the init-order tripwire, which is the loudest embedded rule.",
+      "snapshot": [],
+      "files": [
+        "ble_secure.ino",
+        "clean_config.ino",
+        "init_helper.ino",
+        "isr_good.ino",
+        "memory_good.c",
+        "net_secure.ino",
+        "shared_var_good.ino",
+        "storage_good.c",
+        "wifi_provisioned.ino"
+      ],
+      "_filesWhy": "Directory census, checked BEFORE the finding snapshot. Without it an emptied or renamed fixture set makes the [] snapshot of a false-positive corpus compare equal and pass, reporting that the zero-false-positive contract holds having scanned nothing. Same argument as b1/b3 corpus-scale."
+    },
+    "corpus:samples/embedded/vulnerable": {
+      "_why": "E7 vulnerable side. packages/analyzer-core/src/embedded-samples.test.ts gates this corpus with `toBeGreaterThanOrEqual(18)` — a floor, deliberately, so adding a rule does not break it. This snapshot is the complement the floor structurally cannot see: which findings, in which file, how many times.",
+      "snapshot": [
+        "VG-CRYPTO-003@net_insecure.ino",
+        "VG-EMB-001@wifi_secrets.ino",
+        "VG-EMB-002@debug_remnants.ino",
+        "VG-EMB-002@wifi_secrets.ino",
+        "VG-EMB-003@ble_weak.ino",
+        "VG-EMB-010@net_insecure.ino",
+        "VG-EMB-011@net_insecure.ino",
+        "VG-EMB-012@ble_weak.ino",
+        "VG-EMB-020@debug_remnants.ino",
+        "VG-EMB-021@debug_remnants.ino",
+        "VG-EMB-022@debug_remnants.ino",
+        "VG-EMB-023@debug_remnants.ino",
+        "VG-EMB-031@init_order_bad.ino",
+        "VG-EMB-031@init_order_bad.ino",
+        "VG-MEM-001@memory_bad.c",
+        "VG-MEM-002@memory_bad.c",
+        "VG-MEM-002@memory_bad.c",
+        "VG-MEM-003@memory_bad.c",
+        "VG-MEM-004@memory_bad.c",
+        "VG-MEM-005@memory_bad.c",
+        "VG-RTOS-001@isr_bad.ino",
+        "VG-RTOS-001@isr_bad.ino",
+        "VG-RTOS-001@isr_bad.ino",
+        "VG-RTOS-001@isr_bad.ino",
+        "VG-RTOS-002@shared_var_bad.ino",
+        "VG-RTOS-004@storage_bad.c"
+      ],
+      "files": [
+        "ble_weak.ino",
+        "debug_remnants.ino",
+        "init_order_bad.ino",
+        "isr_bad.ino",
+        "memory_bad.c",
+        "net_insecure.ino",
+        "shared_var_bad.ino",
+        "storage_bad.c",
+        "wifi_secrets.ino"
+      ],
+      "_filesWhy": "Directory census, checked BEFORE the finding snapshot. Without it an emptied or renamed fixture set makes the [] snapshot of a false-positive corpus compare equal and pass, reporting that the zero-false-positive contract holds having scanned nothing. Same argument as b1/b3 corpus-scale."
+    },
+    "a1:surface-census": {
+      "_why": "The ReDoS attack surface, counted. A new rule adds patterns; this is what makes that visible the day it lands rather than the day someone writes an attack string for it.",
+      "expected": {
+        "totalRules": 71,
+        "rulesWithPatterns": 71,
+        "totalPatterns": 127
+      },
+      "_measuredNote": "rulesWithPatterns === totalRules is load-bearing: sec-a1-catalog.mjs found that a source-literal scan misses VG-CRYPTO-002 (it builds its patterns with `new RegExp(...)`), so the catalogue hooks RegExp.prototype.exec instead. A rule that stops reporting patterns would shrink the surface silently."
+    },
+    "a1:shape-suspicious-set": {
+      "_why": "§9.4「新ルールで super-linear が混入したら fail」. Grain is (ruleId, patternIndex, hit-ids): the catalogue summary reports 4 suspicious RULES but those rules carry 7 suspicious PATTERNS (VG-QUAL-007 alone has three), so a rule-count pin would miss an eighth added to an already-suspicious rule.",
+      "_measuredNote": "These 7 are the residue of the L1 rewrite, all `adjacent-unbounded` except VG-QUAL-001#0. They are heuristic hits, NOT proven super-linear: the wall-clock property is asserted separately by packages/analyzer-core/src/redos-invariant.test.ts. This gate pins the SHAPE census, not safety.",
+      "patterns": [
+        "VG-QUAL-001#0=nested-quantifier+quantified-alternation",
+        "VG-QUAL-004#0=adjacent-unbounded",
+        "VG-QUAL-007#0=adjacent-unbounded",
+        "VG-QUAL-007#1=adjacent-unbounded",
+        "VG-QUAL-007#2=adjacent-unbounded",
+        "VG-QUAL-010#0=adjacent-unbounded",
+        "VG-QUAL-010#1=adjacent-unbounded"
+      ]
+    },
+    "a1:unreached-literals": {
+      "_why": "Source literals the runtime hook never executed on the probe. They still run on real input, so they are attack surface the n–T harness cannot reach; growth of this multiset must be a deliberate edit.",
+      "ruleIds": [
+        "VG-RTOS-002",
+        "VG-RTOS-002",
+        "VG-RTOS-004",
+        "VG-SEC-003",
+        "VG-SEC-003",
+        "VG-SEC-003"
+      ]
+    },
+    "a1:catalog-errors": {
+      "_why": "A rule that throws on the probe, or a pattern that does not compile, silently shrinks the measured surface and flatters every A1 number.",
+      "expected": {
+        "rulesWithoutLiteral": 0,
+        "patternsFailingToCompile": 0,
+        "ruleInvocationErrors": 0
+      }
+    },
+    "a1:recheck-superlinear": {
+      "_why": "The automaton oracle. OPTIONAL and recorded here as UNMEASURED: recheck is not a devDependency (JVM jar, `npm install --no-save recheck`), so on CI it is absent and this gate reports `unmeasured`. It is never a pass.",
+      "measured": false,
+      "reason": "recheck is not installed in CI; sec-a1-catalog.mjs reports recheck.available=false and falls back to the shape heuristic only",
+      "superLinearRuleIds": null
+    },
+    "b1:corpus-scale": {
+      "_why": "The vacuous-pass guard. A generator that silently degrades emits a tiny corpus, ER lands at 0.0, and the ceiling gate goes green over nothing. Pinned EXACTLY (not as a floor) because a floor still allows one transform to stop applying while another compensates. corpusFiles is read back off disk, so a manifest that claims 416 pairs while 3 files landed is caught too.",
+      "expected": {
+        "sourceFiles": 14,
+        "pairs": 416,
+        "transformedFiles": 416,
+        "transforms": 19,
+        "corpusFiles": 416
+      }
+    },
+    "b1:er-true-ceiling": {
+      "_why": "ER of the SHIPPED engine (canonicalize:true) on the headline basis the evaluator designates: matched pairs, one shared denominator, `exists` observation, negative controls excluded. Higher = an attacker can rewrite more real findings away.",
+      "maxEr": 0.189873,
+      "minDenominator": 237
+    },
+    "b1:er-false-ceiling": {
+      "_why": "ER of the pre-D2 CONTROL arm. Gated too, because ΔER is only interpretable if the control holds still: a drifting control can make D2 look better or worse without D2 changing at all.",
+      "maxEr": 0.240506,
+      "minDenominator": 237
+    },
+    "b1:delta-er-floor": {
+      "_why": "ΔER = ER(pre-D2) − ER(shipped): the share of evasion the D2 canonicalization pre-pass absorbs. This is the gate that catches D2 being disabled — that leaves both arms equal and BOTH ceilings satisfied.",
+      "minDeltaEr": 0.050633
+    },
+    "b1:harness-integrity": {
+      "_why": "MEASURED: sec-b1-er-eval.mjs exits 0 even when its own rescan assertions are BROKEN (its tail writes the JSON and prints \"⚠ BROKEN\" with no process.exit). Gating on the child exit code alone is therefore a vacuous pass, so the verdict is read out of the JSON. NC2 is the noop transform: any evasion it shows means the harness fabricates concealment, which would invalidate every ER number above it.",
+      "expected": {
+        "censusAllAgree": true,
+        "mutationAllLive": true,
+        "assertionsAllOk": true,
+        "assertionsBroken": 0,
+        "assertionsUnmeasured": 0,
+        "structuralViolations": 0,
+        "unusablePairs": 0,
+        "negativeControlNC2Ok": true,
+        "negativeControlNC1Ok": true
+      }
+    },
+    "b3:corpus-scale": {
+      "_why": "Same vacuous-pass hazard as B1: an empty disguise corpus makes CR 0 and every ceiling green.",
+      "expected": {
+        "pairs": 394,
+        "transforms": 7,
+        "corpusFiles": 147
+      }
+    },
+    "b3:cr-gated-ceiling": {
+      "_why": "CR after D1, at the WORST-CASE (transform, severity) row — never a pooled mean, for the reason sec-b3-cr-eval.mjs gives: an attack that works on one row is not diluted by the rows it does not touch. The row identity is pinned too, so the threshold cannot silently start describing a different attack.",
+      "threshold": "medium",
+      "worstCaseRow": "path-tests/medium",
+      "maxCrGated": 0,
+      "minDenominator": 13
+    },
+    "b3:d1-reduction-floor": {
+      "_why": "CR_ungated − CR_gated at the same worst-case row: how much concealment the D1 severity floor removes. This is the quantity with a genuine LOWER bound. Reading 「CR が baseline 下限を割ったら fail」 as \"gated CR must not fall\" would be backwards — a falling CR is the defence working. Removing D1 does not push CR above a ceiling it was already under; it collapses this reduction.",
+      "minReduction": 1
+    },
+    "b3:undeclared-cr-ceiling": {
+      "_why": "D1's declared defence target: a disguise the attacker never declares must be worth nothing after the severity floor. DECLARED suppression is a legitimate product feature (its CR is 0.5 and is deliberately NOT gated to 0) — gating the pooled number would have forced that feature to look like a vulnerability.",
+      "maxCrGated": 0,
+      "minDenominator": 132
+    },
+    "b3:harness-integrity": {
+      "_why": "sideConstraintsAllOk is a genuine CROSS-CHECK, not a duplicate of the corpus arm: sec-b3-cr-eval.mjs reaches the rule layer directly (allRules + explainContextConfidence) while the corpus arm goes through scanPath. Two independent paths agreeing on samples/safe=0 and samples/vulnerable=51 is worth more than either alone, and a disagreement between them would itself be the finding. pairingAgreement is a FLOOR (a re-derived SCOPE §2.1 pairing that agrees less often means the manifest and the evaluator are drifting).",
+      "expected": {
+        "ruleErrors": 0,
+        "unresolvedOriginal": 0,
+        "excludedOptOut": 0,
+        "severityRegistryViolations": 0,
+        "sideConstraintsAllOk": true,
+        "minPairingAgreement": 0.979695
+      }
+    }
+  }
+}
