@@ -124,6 +124,23 @@ Stated plainly, because a checked box that hides a gap is worse than an open one
   get past it. It is sound against accidental egress and against a dependency
   quietly acquiring one, which is what it is for. Reviewing the diff is what
   covers the rest.
+- **Large files are only scanned up to a character cap, and the part past it is
+  not examined.** Every rule pattern runs against at most the first 50,000
+  characters of a file, a bound that exists so a crafted input cannot hang the
+  scanner. A finding whose evidence lies beyond that point is not reported, and
+  this is a false negative rather than a judgement that the code is clean.
+  Measured on this repository: 21 tracked files exceed the cap, and about a third
+  of their combined text sits past it. The effect is not theoretical — a function
+  in VibeGuard's own source went undetected until an unrelated edit shortened the
+  file around it, at which point the same 214-line function was reported. Note
+  that the unit is characters, not bytes, and that whether a file crosses the cap
+  can depend on its line endings, so a CRLF checkout and an LF checkout of the
+  same file can disagree. The JSON output does report this: a `degradations`
+  entry of kind `input-truncated` gives the file, the characters scanned, the
+  total, and states that the result is partial. Read it — the finding list alone
+  cannot tell you a file was cut. One caveat when you do: the `ruleId` on that
+  entry names the first rule to reach the bound on that file, not the rule whose
+  finding went missing, so do not read it as naming what was lost.
 - **Suppression restrictions apply to the default gate.** They are keyed to the
   severities that carry a security judgement. A project that lowers its threshold
   to report `low` findings will find wildcard suppressions effective again in
