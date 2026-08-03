@@ -687,6 +687,33 @@ function targets(opts) {
       minFiles: 10,
       packageName: '@vibeguard/analysis-graph',
     },
+    // The external-report adapters (0.3.0-β). Added 2026-08-03 BECAUSE THIS
+    // CHECK CAUGHT ITS ABSENCE — the paragraph above predicted the exact failure
+    // and then it happened: `apps/cli` took a production dependency on
+    // `@vibeguard/external-adapters`, the `@vibeguard/*` allowlist accepted the
+    // name, and no target read the code, so for one commit the closure trusted a
+    // package it had never scanned. CI said:
+    //
+    //   [FAIL] closure … production dependencies trusted by name but not covered
+    //   by an AST scan: @vibeguard/external-adapters
+    //
+    // Worth recording that NOTHING ELSE caught it. The package has zero
+    // third-party dependencies, its own README asserts "no spawn, no exec, no
+    // node:child_process anywhere under src/", `check-packaging-invariants.mjs`
+    // was green, and 2,025 tests passed. The completeness assertion is the only
+    // thing in the repository that knows the difference between "we trust this
+    // name" and "we have read this code".
+    //
+    // `@vibeguard/mcp-guard` is deliberately NOT here: it is not a dependency of
+    // any shipped artefact (it is a standalone server), so it is outside the
+    // execution closure this file asserts over. If the CLI ever depends on it,
+    // this check fails again, by design.
+    {
+      id: 'pkg-external-adapters',
+      dir: resolve(REPO_ROOT, 'packages/external-adapters/dist'),
+      minFiles: 5,
+      packageName: '@vibeguard/external-adapters',
+    },
   ];
 }
 
