@@ -5,6 +5,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-08-04
+
+No change to this extension's own code, and none to what it reports on save. Analyzer engine is
+unchanged at `0.3.1`, so a file that was clean on save before is clean on save now.
+
+0.3.4 is mostly a remediation-side release: it narrows what the CLI's `--fix` will write and
+makes `--fail-on` apply in fix mode. Neither is reachable from the editor — this extension's
+Quick Fixes insert a `vibeguard:disable-line` comment or display a finding's remediation text,
+and it never applies a deterministic fixer.
+
+**One thing you will see**, because the extension shows remediation prose: `VG-EMB-020` no
+longer suggests `#define DEBUG 0` as a paste-ready fix. Setting the flag to `0` only disables a
+debug path that reads its VALUE; where the code tests whether it is DEFINED, a zero is still a
+definition and the path still compiles. The remediation now says so and leads with dropping the
+define from release builds instead.
+
+The cross-file analysis that 0.3.4 promotes to beta (`0.3.0-alpha.1` → `0.3.0-beta.3`, four
+rules → eleven) is **not** part of the on-save scan; it is opt-in behind the CLI's
+`--include-design-smells`. If your editor and your CI disagree about a design smell, that flag
+is why, and it is the intended difference rather than drift.
+
 ## [0.3.3] - 2026-07-29
 
 No change to this extension. The repository releases every channel under one tool version, and

@@ -118,8 +118,10 @@ import {
  * is opt-in, the core path never imports it, and it reports its own axis as
  * `engineVersions['analysis-graph']`.
  *
- * ★ That axis reads `0.3.0-beta.2` as of 0.3.0-β (it moved again for #35, which
- * changed what `VG-SMELL-021` counts), and the correction matters
+ * ★ That axis reads `0.3.0-beta.3` as of 0.3.0-β (it moved for #35, which changed
+ * what `VG-SMELL-021` counts, and again for #41, which stopped the type-erasure
+ * filter depending on a defect in how the indexer records exports), and the
+ * correction matters
  * more than the number does. It was left at `0.3.0-alpha.1` — described here as
  * "held at", as though standing still were the decision — through a wave that
  * added `VG-SMELL-020/021/041/052`. A scan running those four therefore

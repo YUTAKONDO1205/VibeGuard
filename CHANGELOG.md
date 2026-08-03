@@ -14,9 +14,16 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [0.3.4] - 2026-08-04
 
-Remediation-side hardening. **Engine is unchanged at `0.3.1`** — no rule changed what it
-matches or at what severity. What changed is what `--fix` is willing to write, and what a
-fix run reports back to CI.
+Remediation-side hardening, **plus the first release of the cross-file analysis beta.**
+
+**In the default scan, nothing moved.** `ENGINE_VERSION` is unchanged at `0.3.1`: no rule that
+runs without `--include-design-smells` changed what it matches or at what severity. What changed
+there is what `--fix` is willing to write, and what a fix run reports back to CI.
+
+**Behind `--include-design-smells`, a great deal moved** — and this is the release that delivers
+it. `0.3.3` shipped that pass as `0.3.0-alpha.1` with four rules. This one ships
+`0.3.0-beta.3` with eleven. If you do not pass that flag, skip to *Changed*; if you do, read
+*Added* first, because your finding counts will move.
 
 > **Why this release exists as a release.** The fixes below landed in the repository on
 > 2026-07-30 and have been readable there ever since, while every published artifact — the
@@ -24,7 +31,52 @@ fix run reports back to CI.
 > them. That gap is the wrong way round: the reasoning is public and the remedy is not.
 > Cutting the release closes it.
 
-The theme is one rule: **a fixer must be stricter than the detector that fed it.** Each item
+### Added
+
+**The opt-in cross-file pass goes from four rules to eleven, and from `alpha` to `beta`.**
+`engineVersions['analysis-graph']`: `0.3.0-alpha.1` → `0.3.0-beta.3`. This axis is versioned
+separately precisely so that this paragraph is possible: the default scan is untouched, and
+only runs that asked for `--include-design-smells` see any of it.
+
+Already shipped in `0.3.3`: `VG-SMELL-010` (scattered authorization), `VG-AISC-002`
+(hallucinated API/symbol), `VG-AISC-003` (unintegrated generated security), `VG-RTOS-003`
+(cross-file missing `volatile`).
+
+New in this release:
+
+- **`VG-SMELL-011` Missing Central Auth Boundary** — authorization spread across entry points
+  with no single place that decides.
+- **`VG-SMELL-013` Inline Authorization Logic** — authorization decided inside handlers rather
+  than at a boundary.
+- **`VG-SMELL-020` Cyclic Security Dependency** — security-relevant modules that depend on each
+  other in a cycle.
+- **`VG-SMELL-021` High Fan-out Security Module** — a security module depended on by so much of
+  the project that no change to it is local.
+- **`VG-SMELL-030` Refused Security Inheritance** — a subclass overriding an inherited check
+  with a weaker one.
+- **`VG-SMELL-041` Temporal Security Coupling** — security that works only if initialisation
+  happens in a particular order.
+- **`VG-SMELL-052` Generated Boilerplate Without Integration** — generated security scaffolding
+  that was never wired into the execution path.
+
+A `VG-SMELL-010` Python arm, and a `--include-design-smells` pass over Python as well as
+TypeScript/JavaScript, land with them.
+
+**Why `beta` and not a stable number.** The cross-file pass indexes lexically rather than
+parsing. It resolves imports, exports and symbols with bounded regular expressions over the
+source text, which is fast and language-agnostic and *will* be wrong on shapes a parser would
+get right. The pre-release marker is a statement about that, not decoration, and it is why the
+pass stays opt-in.
+
+**What it does with TypeScript types** is worth one line, because it is the most recent
+correction: an import the compiler erases is not a runtime dependency, so `import { Cfg }` of a
+type-only export no longer contributes to fan-out or to a cycle. Declaration merging — a name
+that is both a type and a value — is treated as a value and keeps its edge.
+
+### Changed
+
+The theme of the fixes below is one rule: **a fixer must be stricter than the detector that fed
+it.** Each item
 below is a place where it was not, and where the result was worse than no fix at all — the
 finding disappeared while the defect stayed.
 
