@@ -95,6 +95,12 @@ docs/VibeGuard_可視化実験_設計書.md
 # service repo until mitigations + write-up ship — see the folder's scope doc)
 security-experiment/
 
+# Compiler-toolchain experiment workspace (local-only; synthetic fixtures,
+# per-machine toolchain digests and regenerable measurement dumps. The real
+# working copy lives on the WSL ext4 side — this entry keeps an accidental
+# Windows-side copy out of the public repo)
+compiler-experiment/
+
 # Remotion product-explainer video project (local-only; the rendered mp4 and its
 # ~500MB of Remotion/Chrome dependencies do not belong in the service repo)
 video/
