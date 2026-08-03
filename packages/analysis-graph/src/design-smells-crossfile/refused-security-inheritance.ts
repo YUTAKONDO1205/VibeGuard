@@ -1,3 +1,7 @@
+// vibeguard:disable-file VG-AUTH-002
+// The doc comment below quotes `// TODO: implement real authorization` as the
+// EXAMPLE of the weakened override this rule detects. VG-AUTH-002 reads that
+// quotation as a real unimplemented auth check. One rule id, not a wildcard.
 // VG-SMELL-030 — Refused Security Inheritance (design addendum §7, the
 // "継承解析" row; appendix B lists it in the 0.3.0-β cross-file block alongside
 // VG-SMELL-031).

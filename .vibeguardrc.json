@@ -1,0 +1,21 @@
+{
+  "suppress": [
+    {
+      "paths": ["**/*.test.ts", "**/*.test.js"],
+      "rules": [
+        "VG-AISC-001",
+        "VG-AUTH-002",
+        "VG-CRYPTO-003",
+        "VG-INJ-007",
+        "VG-QUAL-003",
+        "VG-QUAL-006"
+      ],
+      "reason": "A rule's test suite has to contain the pattern the rule matches. These six fire on the INPUTS the suites feed the analyzer — an AWS-shaped key, a weak hash, a bundled-package name, a TODO-authorization comment — and every one was verified against the source before being listed here. Rule IDs are named rather than wildcarded so a genuinely new finding in a test file still reports."
+    },
+    {
+      "paths": ["scripts/**"],
+      "rules": ["VG-CRYPTO-003", "VG-INJ-007", "VG-QUAL-005", "VG-SMELL-003"],
+      "reason": "Research harnesses, not shipped code: they generate adversarial corpora and evaluation figures, so they quote payloads and weak primitives on purpose. scripts/ is absent from every published artifact — the CLI tarball is apps/cli only, and the extensions are bundled."
+    }
+  ]
+}

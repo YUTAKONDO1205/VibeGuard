@@ -1,3 +1,8 @@
+// vibeguard:disable-file VG-AISC-001
+// The doc comment below quotes `require('bodyparser')` — a typosquat of
+// body-parser — to explain what the lockfile veto is FOR. VG-AISC-001 reads the
+// quotation as a real hallucinated dependency, which is the rule working on
+// prose about itself. One rule id, not a wildcard.
 import type { RuleMatch } from '@vibeguard/rules';
 
 /**

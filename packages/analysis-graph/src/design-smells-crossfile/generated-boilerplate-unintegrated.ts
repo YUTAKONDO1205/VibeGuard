@@ -1,3 +1,8 @@
+// vibeguard:disable-file VG-AUTH-002
+// The doc comment below quotes `// TODO: mount validateInput` as the EXAMPLE of
+// the unmounted-guard shape this rule detects. VG-AUTH-002 reads that quotation
+// as a real unimplemented auth check. Naming the one rule rather than
+// wildcarding, same as the other rule sources in this directory.
 // VG-SMELL-052 — Generated Boilerplate Without Integration.
 //
 // WHAT IT CLAIMS

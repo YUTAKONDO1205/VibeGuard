@@ -774,7 +774,26 @@ if (!PRE_BUILD) {
   //     documents actually occurs. Same exemption, same reason, as CHANGELOG.md:1.
   // The count is 53 + 3. Raising it is the designed workflow — this invariant
   // exists so the raise appears in a diff a human reads.
-  const PRAGMA_FILE_BASELINE = 56; // measured 2026-08-03, counting directives only (prose mentions excluded)
+  // 2026-08-04: 56 → 59 (#46 CODESCAN). Three more file-scope exemptions, all
+  // three the same shape as the ones above — a rule firing on PROSE THAT QUOTES
+  // THE PATTERN THE RULE DETECTS — and each naming one rule id:
+  //   · packages/analysis-graph/src/design-smells-crossfile/generated-boilerplate-unintegrated.ts  VG-AUTH-002
+  //   · packages/analysis-graph/src/design-smells-crossfile/refused-security-inheritance.ts        VG-AUTH-002
+  //     Both doc comments quote an unfinished-authorization marker as the
+  //     EXAMPLE of the shape being detected, and VG-AUTH-002 reads the quotation
+  //     as a real unimplemented check. (Described rather than quoted here on
+  //     purpose: writing the marker itself made THIS file the 60th pragma
+  //     candidate, which is the same trap MEASURED LIMIT 8e records for the A1
+  //     census. The comment was reworded rather than the baseline raised.)
+  //   · packages/analyzer-core/src/declared-veto.ts                                                VG-AISC-001
+  //     The doc comment quotes `require('bodyparser')`, a typosquat of
+  //     body-parser, to explain what the lockfile veto is for.
+  // These were the last three open code-scanning alerts attributed to product
+  // code after the test-suite noise moved to .vibeguardrc.json; the remaining
+  // 32 were suppressed by path there rather than by pragma, so this count grew
+  // by three rather than by eighteen. Measured before and after: the
+  // CI-equivalent self-scan goes 39 findings → 0.
+  const PRAGMA_FILE_BASELINE = 59; // measured 2026-08-04, counting directives only (prose mentions excluded)
   const PRAGMA = 'vibeguard:disable-' + 'file';
   // Comment-opening token, then the directive. `m` so it applies per line.
   // Built from a raw source string, not a template literal: `\s` inside a
