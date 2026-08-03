@@ -48,6 +48,8 @@ import type {
   CrossFileFinding,
   CrossFileRule,
   CrossFileRuleContext,
+  IndexedSymbol,
+  ProjectIndex,
   SourceFile,
   StructureIndex,
 } from '../types.js';
@@ -191,11 +193,38 @@ function analyze(ctx: CrossFileRuleContext): CrossFileFinding[] {
     if (HEADER.test(structure.filePath)) continue;
 
     for (const symbol of structure.symbols) {
-      if (!isSecurityInit(symbol.name)) continue;
-      if (isWeakDefinition(structure, symbol.bodyStart)) continue;
+      const finding = findingForSymbol(symbol, structure, structures, project);
+      if (finding) findings.push(finding);
+    }
+  }
+
+  return findings;
+}
+
+/**
+ * One indexed symbol, turned into a finding — or `null` when it is not one.
+ *
+ * ★ WHY THIS IS A SEPARATE FUNCTION. It was the body of `analyze`'s inner loop,
+ * and `analyze` was long enough to trip this project's own VG-SMELL-003. The
+ * same argument applies as in `cyclic-security-dependency.ts`: a detector that
+ * exempts itself from its own advice is making an argument it does not believe.
+ *
+ * Every `continue` in the original body was a decision about THIS symbol alone
+ * and becomes `return null`. The three numbered requirements below are the
+ * rule's precision contract and are unchanged in order and in content — the
+ * order matters because each is cheaper than the one after it.
+ */
+function findingForSymbol(
+  symbol: IndexedSymbol,
+  structure: StructureIndex,
+  structures: StructureIndex[],
+  project: ProjectIndex,
+): CrossFileFinding | null {
+      if (!isSecurityInit(symbol.name)) return null;
+      if (isWeakDefinition(structure, symbol.bodyStart)) return null;
       // A `static` function is file-local by definition, so "declared in a
       // header for others to call" cannot apply and the intent is different.
-      if (!symbol.exported) continue;
+      if (!symbol.exported) return null;
 
       const source: SourceFile | undefined = project.files.find(
         (f) => f.filePath === symbol.filePath,
@@ -206,7 +235,7 @@ function analyze(ctx: CrossFileRuleContext): CrossFileFinding[] {
       // is no evidence anyone was ever meant to call it from elsewhere, and a
       // file-local helper that happens to match the allowlist is not this
       // finding.
-      if (declarations.length === 0) continue;
+      if (declarations.length === 0) return null;
 
       // Requirement 2: mentioned nowhere outside its own file and its
       // declarations. `nonDefiningFiles` is every file naming it that does not
@@ -214,7 +243,7 @@ function analyze(ctx: CrossFileRuleContext): CrossFileFinding[] {
       // is a use.
       const declaringFiles = new Set(declarations.map((d) => d.filePath));
       const usingFiles = nonDefiningFiles.filter((f) => !declaringFiles.has(f));
-      if (usingFiles.length > 0) continue;
+      if (usingFiles.length > 0) return null;
 
       // Requirement 3: within its own file, the only occurrence is the
       // definition head itself. A local call, an address-of, or a designated
@@ -229,9 +258,9 @@ function analyze(ctx: CrossFileRuleContext): CrossFileFinding[] {
         }
         return n;
       })();
-      if (ownFileHits > 1) continue;
+      if (ownFileHits > 1) return null;
       // And nothing else in the project may mention it beyond the declarations.
-      if (total > 1 + declarations.length) continue;
+      if (total > 1 + declarations.length) return null;
 
       const severity: Severity = 'high';
       /**
@@ -247,7 +276,7 @@ function analyze(ctx: CrossFileRuleContext): CrossFileFinding[] {
        */
       const confidence: Confidence = 'medium';
 
-      findings.push({
+      return {
         ruleId: 'VG-AISC-003',
         title: 'Unintegrated Generated Security',
         description:
@@ -305,11 +334,7 @@ function analyze(ctx: CrossFileRuleContext): CrossFileFinding[] {
             'declaration so the code stops advertising protection it does not provide.',
           exampleFix: `int main(void) {\n  ${symbol.name}();  // must run before anything uses the subsystem\n  ...\n}`,
         },
-      });
-    }
-  }
-
-  return findings;
+      };
 }
 
 export const unintegratedSecurityInit: CrossFileRule = {

@@ -881,7 +881,34 @@ function analyze(ctx: CrossFileRuleContext): CrossFileFinding[] {
     // Between components, not inside one: a component that has started should
     // finish, so a half-built finding never reaches a report.
     if (budget.expired()) break;
+    const finding = findingForComponent(component, graph, project);
+    if (finding) findings.push(finding);
+  }
 
+  return findings;
+}
+
+/**
+ * One strongly-connected component of the runtime import graph, turned into a
+ * finding — or `null` when it is not one.
+ *
+ * ★ WHY THIS IS A SEPARATE FUNCTION. It was the body of `analyze`'s loop, and
+ * `analyze` was 214 lines deep enough to trip this project's own VG-SMELL-003.
+ * Splitting it is the remedy that rule recommends, applied to the rule's own
+ * source: a long body is where an unwritten branch hides, and a detector that
+ * exempts itself from its own advice is making an argument it does not believe.
+ *
+ * The seam is chosen so the split cannot change a verdict. Every `continue` in
+ * the original loop body was a decision about THIS component alone and becomes
+ * `return null`; nothing accumulated across components was read here; the budget
+ * check stays in the caller, because it is a decision about whether to start a
+ * component rather than about the component itself.
+ */
+function findingForComponent(
+  component: string[],
+  graph: RuntimeGraph,
+  project: ProjectIndex,
+): CrossFileFinding | null {
     const members = new Set(component);
     const secure: SecurityModule[] = [];
     for (const member of component) {
@@ -890,7 +917,7 @@ function analyze(ctx: CrossFileRuleContext): CrossFileFinding[] {
       const found = securityModule(memberStructure);
       if (found) secure.push(found);
     }
-    if (secure.length === 0) continue;
+    if (secure.length === 0) return null;
 
     // `component` is sorted, and `secure` was filled in that order, so the first
     // element is the lexicographically first security module — the canonical
@@ -902,7 +929,7 @@ function analyze(ctx: CrossFileRuleContext): CrossFileFinding[] {
     // member. It is written because `shortestCycleThrough` documents an empty
     // return and a caller that assumes an invariant without checking it is how a
     // later refactor turns a changed precondition into an out-of-bounds read.
-    if (cycle.length < 2) continue;
+    if (cycle.length < 2) return null;
 
     const shown = cycle.slice(0, MAX_PATH_SHOWN);
     const truncated = cycle.length > shown.length;
@@ -920,7 +947,7 @@ function analyze(ctx: CrossFileRuleContext): CrossFileFinding[] {
     // not a project shape. Report nothing rather than a cycle whose cited lines
     // do not spell out the cycle. ★ Unreachable today and recorded as such: a
     // mutation pass finds no test that this line changes.
-    if (steps.length !== cycle.length) continue;
+    if (steps.length !== cycle.length) return null;
 
     const primaryStep = steps[0]!;
     const securityOnPath = cycle.filter((p) => secure.some((s) => s.filePath === p));
@@ -972,7 +999,7 @@ function analyze(ctx: CrossFileRuleContext): CrossFileFinding[] {
       evidence: `imports '${step.edge.specifier}' → ${step.to}`,
     }));
 
-    findings.push({
+    return {
       ruleId: 'VG-SMELL-020',
       title: 'Cyclic Security Dependency',
       description:
@@ -1055,10 +1082,7 @@ function analyze(ctx: CrossFileRuleContext): CrossFileFinding[] {
           `// before: import { thing } from '${primaryStep.edge.specifier}'  // ${primaryStep.to} imports this file back\n` +
           '// after:  move `thing` into a leaf module that both files import, so neither depends on the other.',
       },
-    });
-  }
-
-  return findings;
+    };
 }
 
 /**

@@ -813,6 +813,89 @@ function decidesOwnershipNear(
  * `@vibeguard/rules` is length-preserving, so `evidence` and the elevated-word
  * test read the real text at the same positions.
  */
+/**
+ * Whether one pattern match inside one handler is an inline authorization
+ * decision, and if so what to report for it.
+ *
+ * The negatives are ordered cheapest-first and the expensive one is last, which
+ * is why this reads as a run of early returns rather than a single condition.
+ * `seenOffsets` is threaded in and MUTATED here on purpose: the three patterns
+ * overlap, so de-duplication has to happen per handler and at the moment a match
+ * is accepted, not afterwards over the results.
+ *
+ * Lifted out of `inlineAuthorizationDecisions` because that function reached
+ * seven levels of nesting and tripped this project's own VG-SMELL-003 — the rule
+ * being enforced here is that a long, deeply nested body hides the branch you
+ * did not write, and the loop nest was exactly the shape it describes. The
+ * evaluation is per-match and depends on nothing accumulated across matches
+ * except `seenOffsets`, so moving it cannot change a verdict.
+ */
+function decisionFromMatch(
+  filePath: string,
+  structure: StructureIndex,
+  source: { content: string },
+  handler: { name: string; bodyStart: number; bodyEnd: number },
+  m: RegExpExecArray,
+  seenOffsets: Set<number>,
+): InlineDecision | null {
+  const groups = m.groups ?? {};
+  const prop = groups.prop;
+  if (!prop) return null;
+
+  const propOffsetInMatch = m[0].lastIndexOf(prop);
+  const propOffset = handler.bodyStart + m.index + Math.max(0, propOffsetInMatch);
+  // The three patterns overlap — `user.isAdmin === false` matches both the
+  // comparison and the flag shape — and counting one check twice would inflate
+  // the number a reviewer is being asked to trust.
+  if (seenOffsets.has(propOffset)) return null;
+  seenOffsets.add(propOffset);
+
+  // ── Negative: a method CALL is delegation, not an inline check. ────────────
+  //
+  // `auth.isAdmin(user)` is the well-factored shape this rule exists to
+  // recommend; counting it inverts the rule's meaning. Byte-identical to the
+  // test `scattered-authorization.ts`'s `checksIn` performs, down to the
+  // six-character lookahead, because the two rules must agree about what
+  // delegation looks like — 010 found this one by evaluation on a real
+  // repository whose handlers all delegate to one `auth_mgr`.
+  const afterProp = propOffset + prop.length;
+  if (/^[^\S\r\n]{0,4}\(/.test(structure.blanked.slice(afterProp, afterProp + 6))) return null;
+
+  // ── Negative: the receiver must name a subject. `SUBJECT_WORD`. ────────────
+  const receiver = groups.recv ?? '';
+  if (!isSubjectReceiver(receiver)) return null;
+
+  const checkStart = handler.bodyStart + m.index;
+
+  // ── Negative: no ownership decision alongside. See the constant. ───────────
+  if (decidesOwnershipNear(structure.blanked, checkStart, handler.bodyStart, handler.bodyEnd)) {
+    return null;
+  }
+
+  // ── Positive, and last because it is the most expensive: the check has to
+  //    REFUSE. See `DENIAL_WINDOW` for the correct code this keeps the rule
+  //    away from.
+  if (!refusesAfter(structure.blanked, checkStart, handler.bodyEnd)) return null;
+
+  const text = evidenceAt(source.content, checkStart);
+  const { line, column } = positionOf(source.content, checkStart);
+  const shortReceiver = receiver.split('.').pop() ?? '';
+  return {
+    filePath,
+    line,
+    column,
+    evidence: text,
+    signature: `${shortReceiver}.${prop}${groups.op ? ` ${groups.op}` : ''}${
+      groups.call ? `.${groups.call}()` : ''
+    }`,
+    // Matched against the ORIGINAL text, not the blanked copy: the privilege
+    // word almost always lives inside the string literal being compared
+    // against, which blanking erases by design.
+    elevated: ELEVATED.test(text),
+    handlerName: handler.name,
+  };
+}
+
 export function inlineAuthorizationDecisions(project: ProjectIndex): readonly InlineDecision[] {
   const found: InlineDecision[] = [];
 
@@ -838,64 +921,8 @@ export function inlineAuthorizationDecisions(project: ProjectIndex): readonly In
         pattern.lastIndex = 0;
         for (let m = pattern.exec(body); m; m = pattern.exec(body)) {
           if (pattern.lastIndex === m.index) pattern.lastIndex += 1;
-          const groups = m.groups ?? {};
-          const prop = groups.prop;
-          if (!prop) continue;
-
-          const propOffsetInMatch = m[0].lastIndexOf(prop);
-          const propOffset = handler.bodyStart + m.index + Math.max(0, propOffsetInMatch);
-          // The three patterns overlap — `user.isAdmin === false` matches both
-          // the comparison and the flag shape — and counting one check twice
-          // would inflate the number a reviewer is being asked to trust.
-          if (seenOffsets.has(propOffset)) continue;
-          seenOffsets.add(propOffset);
-
-          // ── Negative: a method CALL is delegation, not an inline check. ────
-          //
-          // `auth.isAdmin(user)` is the well-factored shape this rule exists to
-          // recommend; counting it inverts the rule's meaning. Byte-identical to
-          // the test `scattered-authorization.ts`'s `checksIn` performs, down to
-          // the six-character lookahead, because the two rules must agree about
-          // what delegation looks like — 010 found this one by evaluation on a
-          // real repository whose handlers all delegate to one `auth_mgr`.
-          const afterProp = propOffset + prop.length;
-          if (/^[^\S\r\n]{0,4}\(/.test(structure.blanked.slice(afterProp, afterProp + 6))) continue;
-
-          // ── Negative: the receiver must name a subject. `SUBJECT_WORD`. ────
-          const receiver = groups.recv ?? '';
-          if (!isSubjectReceiver(receiver)) continue;
-
-          const checkStart = handler.bodyStart + m.index;
-
-          // ── Negative: no ownership decision alongside. See the constant. ───
-          if (
-            decidesOwnershipNear(structure.blanked, checkStart, handler.bodyStart, handler.bodyEnd)
-          ) {
-            continue;
-          }
-
-          // ── Positive, and last because it is the most expensive: the check
-          //    has to REFUSE. See `DENIAL_WINDOW` for the correct code this
-          //    keeps the rule away from.
-          if (!refusesAfter(structure.blanked, checkStart, handler.bodyEnd)) continue;
-
-          const text = evidenceAt(source.content, checkStart);
-          const { line, column } = positionOf(source.content, checkStart);
-          const shortReceiver = receiver.split('.').pop() ?? '';
-          found.push({
-            filePath,
-            line,
-            column,
-            evidence: text,
-            signature: `${shortReceiver}.${prop}${groups.op ? ` ${groups.op}` : ''}${
-              groups.call ? `.${groups.call}()` : ''
-            }`,
-            // Matched against the ORIGINAL text, not the blanked copy: the
-            // privilege word almost always lives inside the string literal being
-            // compared against, which blanking erases by design.
-            elevated: ELEVATED.test(text),
-            handlerName: handler.name,
-          });
+          const decision = decisionFromMatch(filePath, structure, source, handler, m, seenOffsets);
+          if (decision) found.push(decision);
         }
       }
     }

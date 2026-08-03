@@ -686,39 +686,43 @@ function evidenceAt(content: string, offset: number): string {
  * rather than answered with a fixture invented to kill it; the guard stays
  * because "first evidence wins" is the behaviour the evidence strings describe.
  */
-export function securityOperations(
+/** How `securityOperations` reports one operation: family plus where it is. */
+type RecordOperation = (family: OperationFamily, offset: number) => void;
+
+/**
+ * Calls on bindings imported from a known security package.
+ *
+ * The binding name is what is searched for, not the package name: `import jwt
+ * from 'jsonwebtoken'` binds `jwt`, and it is `jwt.verify(...)` that appears in
+ * the code. A bare import with no binding (`import 'passport'`) names nothing
+ * and therefore contributes nothing, which is correct — a side-effect import is
+ * not an operation.
+ *
+ * The import statement itself mentions the binding, and an earlier draft skipped
+ * the edge's own line to keep that mention from counting as a call. The skip is
+ * gone: the pattern requires a `.` or `(` within four spaces of the name, and no
+ * import syntax the indexer recognises puts either there — `import jwt from`,
+ * `const jwt = require(`, `import { hash } from` all continue with something
+ * else. The branch could therefore never change a verdict, and in the one shape
+ * where it could have — `import jwt from 'jsonwebtoken'; jwt.verify(t)` written
+ * on a single line — it would have discarded a real operation.
+ *
+ * Split out of `securityOperations` rather than inlined, because that function
+ * was long enough to trip this project's own VG-SMELL-003. The arms it collects
+ * are independent by construction — each contributes offsets to the same
+ * `record`, and `record` keeps the first evidence for an offset — so lifting one
+ * out cannot change which operations are found or what they are labelled.
+ */
+function recordImportedBindingCalls(
   structure: StructureIndex,
-  content: string,
-): SecurityOperation[] {
-  const blanked = structure.blanked;
-  const found = new Map<number, SecurityOperation>();
-
-  const record = (family: OperationFamily, offset: number): void => {
-    if (found.has(offset)) return;
-    found.set(offset, { family, line: lineOf(blanked, offset), evidence: evidenceAt(content, offset) });
-  };
-
-  // ── Bindings imported from a known security package. ───────────────────────
-  //
-  // The binding name is what is searched for, not the package name: `import jwt
-  // from 'jsonwebtoken'` binds `jwt`, and it is `jwt.verify(...)` that appears in
-  // the code. A bare import with no binding (`import 'passport'`) names nothing
-  // and therefore contributes nothing, which is correct — a side-effect import
-  // is not an operation.
+  blanked: string,
+  record: RecordOperation,
+): void {
   for (const edge of structure.imports) {
     const family = SECURITY_PACKAGE.get(edge.specifier);
     if (family === undefined) continue;
     for (const binding of edge.names) {
       if (binding.length === 0) continue;
-      // The import statement itself mentions the binding, and an earlier draft
-      // skipped the edge's own line to keep that mention from counting as a
-      // call. The skip is gone: the pattern requires a `.` or `(` within four
-      // spaces of the name, and no import syntax the indexer recognises puts
-      // either there — `import jwt from`, `const jwt = require(`, `import {
-      // hash } from` all continue with something else. The branch could
-      // therefore never change a verdict, and in the one shape where it could
-      // have — `import jwt from 'jsonwebtoken'; jwt.verify(t)` written on a
-      // single line — it would have discarded a real operation.
       const pattern = bareCallPattern(binding);
       for (let m = pattern.exec(blanked); m; m = pattern.exec(blanked)) {
         if (!PRECEDED_BY_NEW.test(blanked.slice(Math.max(0, m.index - 8), m.index))) {
@@ -728,6 +732,21 @@ export function securityOperations(
       }
     }
   }
+}
+
+export function securityOperations(
+  structure: StructureIndex,
+  content: string,
+): SecurityOperation[] {
+  const blanked = structure.blanked;
+  const found = new Map<number, SecurityOperation>();
+
+  const record: RecordOperation = (family, offset) => {
+    if (found.has(offset)) return;
+    found.set(offset, { family, line: lineOf(blanked, offset), evidence: evidenceAt(content, offset) });
+  };
+
+  recordImportedBindingCalls(structure, blanked, record);
 
   // ── Cryptographic primitives, and token calls on a token-named receiver. ───
   METHOD_CALL.lastIndex = 0;
