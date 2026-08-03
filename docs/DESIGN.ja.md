@@ -24,7 +24,7 @@
 > **クロスファイル解析（`@vibeguard/analysis-graph`, 0.3.0-α）** は別パッケージ・別軸として分離した。
 > `--include-design-smells` を付けたときだけ走り、依存グラフ・構造インデックス・メトリクスの上で
 > `VG-SMELL-010`（散在した認可判定）/ `VG-AISC-002` / `VG-AISC-003` / `VG-RTOS-003` を判定する。
-> 版数は `engineVersions["analysis-graph"]`（現在 `0.3.0-alpha.1`）として `core` とは独立に報告される。
+> 版数は `engineVersions["analysis-graph"]`（現在 `0.3.0-beta.2`）として `core` とは独立に報告される。
 
 > **実装追記（engine 0.3.1・2026-07-29）**：**加算的でない初めての engine bump**。0.2.1 も 0.3.0 も
 > 「既存ルールの判定は変えていない」と書けたが、これは書けない。`f274ef9` の深掘り監査が既存ルール側の

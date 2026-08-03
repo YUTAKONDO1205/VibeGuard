@@ -58,7 +58,7 @@
 // because the number is the argument:
 //
 //   VG-SMELL-020   6 findings / 630 repos with source   adjudicated: 5 true, 1 FALSE
-//   VG-SMELL-021   3 findings / 630 repos               adjudicated: 2 true, 1 FALSE
+//   VG-SMELL-021   2 findings / 1000 repos              adjudicated: 2 true, 0 false (#35)
 //   VG-SMELL-041   0 findings / 630 repos               was 3, all false, before rework
 //   VG-SMELL-052   0 findings / 630 repos               was firing on barrels, before rework
 //   VG-SMELL-011   0 findings / 1000 repos              β; decision point reached 2×, declined both
@@ -84,8 +84,17 @@
 //     `AuthInfo` (an `interface`) and `AppScope` (a `type`). TypeScript erases
 //     both, so the runtime fan-out is 7, below `MIN_FAN_OUT`. VG-SMELL-020
 //     already defends against this with `isTypeOnlyImport` / `importsOnlyTypes`;
-//     VG-SMELL-021 reads `fanMetrics` edges raw and has no such filter. Two
-//     rules in this directory disagree about what TypeScript deletes.
+//     VG-SMELL-021 read `fanMetrics` edges raw and had no such filter. Two rules
+//     in this directory disagreed about what TypeScript deletes.
+//     ✅ FIXED (#35, 2026-08-03). The two functions were extracted verbatim into
+//     `./type-erasure.js` — a shared module rather than a copy, so a third answer
+//     is not possible — and VG-SMELL-021 now thresholds, reports and lists
+//     evidence on the erasure-filtered count. Re-measured on the full 1,000
+//     repositories: 021 3 → 2, the finding that left is qinglong, Dokploy (8, on
+//     the threshold) and docmost (15) are unmoved, and no other registered rule
+//     changed by a single finding. The population's p90 is recounted the same
+//     way, which is the one direction this change could have ADDED findings; the
+//     re-run is how that was answered instead of argued.
 // Both are recorded rather than quietly fixed, because "spot-checked" reading as
 // "checked" is the reusable lesson: a sample is not a census, and the sentence
 // that summarises a sample must say which it was.

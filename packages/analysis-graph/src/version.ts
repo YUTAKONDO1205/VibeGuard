@@ -36,4 +36,15 @@
  * directions across this boundary, which is what a version change on this axis
  * means.
  */
-export const ANALYSIS_GRAPH_VERSION = '0.3.0-beta.1';
+/**
+ * ★ 0.3.0-beta.1 → 0.3.0-beta.2 (#35 TYPEERASE).
+ *
+ * VG-SMELL-021 no longer counts imports the TypeScript compiler deletes. Two
+ * builds either side of this line answer differently about the same input —
+ * measured on `paper_data/corpus1k`, 1,000 repositories: 021 goes 3 → 2 and the
+ * finding that leaves is `whyour/qinglong back/loaders/express.ts`, whose
+ * reported fan-out of 9 included an `interface` and a `type`. Nothing else in
+ * the registry moved. A verdict change in either direction is exactly what this
+ * axis exists to make visible, so it moves with the rule and not after it.
+ */
+export const ANALYSIS_GRAPH_VERSION = '0.3.0-beta.2';

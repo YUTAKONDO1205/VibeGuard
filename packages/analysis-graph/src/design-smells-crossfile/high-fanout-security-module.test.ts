@@ -664,3 +664,121 @@ describe('VG-SMELL-021 — determinism', () => {
     expect(highFanoutSecurityModule.cwe).toContain('CWE-1047');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Type erasure (#35)
+// ---------------------------------------------------------------------------
+
+/**
+ * A security module with `values` value dependencies and `types` dependencies
+ * that TypeScript deletes, written in whichever erasure form the test names.
+ *
+ * The shape is `whyour/qinglong back/loaders/express.ts` reduced to its
+ * arithmetic: nine resolved edges, two of them erased, threshold eight. That
+ * corpus finding is the reason this block exists, so the generator reproduces
+ * the way it was written — `form: 'target'` is a PLAIN named import whose target
+ * declares the name with `interface`/`type`, which no statement-level test can
+ * see.
+ */
+async function erasureProject(opts: {
+  values: number;
+  types: number;
+  form: 'target' | 'statement' | 'inline' | 'mixed' | 'doubled';
+  modules: number;
+}): Promise<string> {
+  const files: Record<string, string> = {};
+  const imports: string[] = [];
+
+  for (let i = 0; i < opts.values; i += 1) {
+    files[`src/dep-${i}.ts`] = `export const value${i} = ${i};\n`;
+    imports.push(`import { value${i} } from '../dep-${i}.js';`);
+  }
+  for (let i = 0; i < opts.types; i += 1) {
+    files[`src/shape-${i}.ts`] =
+      opts.form === 'target' || opts.form === 'mixed' || opts.form === 'doubled'
+        ? `export interface Shape${i} { id: string }\nexport const shapeName${i} = 'shape${i}';\n`
+        : `export interface Shape${i} { id: string }\n`;
+    if (opts.form === 'statement') imports.push(`import type { Shape${i} } from '../shape-${i}.js';`);
+    else if (opts.form === 'inline') imports.push(`import { type Shape${i} } from '../shape-${i}.js';`);
+    else if (opts.form === 'mixed') imports.push(`import { type Shape${i}, shapeName${i} } from '../shape-${i}.js';`);
+    else if (opts.form === 'doubled') {
+      imports.push(`import type { Shape${i} } from '../shape-${i}.js';`);
+      imports.push(`import { shapeName${i} } from '../shape-${i}.js';`);
+    } else imports.push(`import { Shape${i} } from '../shape-${i}.js';`);
+  }
+
+  files['src/security/decide.ts'] = `${[
+    ...imports,
+    '',
+    'export function decide(user: { role: string; permissions: string[] }): boolean {',
+    "  if (user.role === 'admin') return true;",
+    "  return user.permissions.includes('read');",
+    '}',
+  ].join('\n')}\n`;
+  files['src/consumer.ts'] = "import { decide } from './security/decide.js';\n\nexport const gate = decide;\n";
+
+  let filler = 0;
+  const used = (): number => Object.keys(files).filter((f) => /\.ts$/.test(f)).length;
+  while (used() < opts.modules) {
+    files[`src/filler-${filler}.ts`] = `export const filler${filler} = '${filler}';\n`;
+    filler += 1;
+  }
+  return writeProject(files);
+}
+
+describe('VG-SMELL-021 — imports the compiler deletes are not fan-out', () => {
+  const SECURITY = 'src/security/decide.ts';
+
+  it('is silent at 7 value + 2 type-by-target imports, and says so about a RAW fan-out of 9', async () => {
+    const analysis = await analyse(await erasureProject({ values: 7, types: 2, form: 'target', modules: 30 }));
+    // ★ The premise, asserted first: the graph really does hold nine edges. This
+    // is the number the rule used to threshold on, and the number that made
+    // qinglong a finding. If the indexer ever stops producing these edges the
+    // silence below would be vacuous, and this line is what fails instead.
+    expect(fanOut(analysis, SECURITY)).toBe(9);
+    expect(operationsOf(analysis, SECURITY).length).toBeGreaterThanOrEqual(2);
+    expect(analysis.findings).toEqual([]);
+  });
+
+  it('fires at 8 value + 2 type-by-target imports — erasure removes edges, it does not disable the rule', async () => {
+    const analysis = await analyse(await erasureProject({ values: 8, types: 2, form: 'target', modules: 30 }));
+    expect(fanOut(analysis, SECURITY)).toBe(10);
+    expect(analysis.findings).toHaveLength(1);
+    // What the finding REPORTS is the filtered count, not the raw one — the
+    // header's rule that the thresholded quantity and the published quantity are
+    // the same number.
+    expect(analysis.findings[0]!.metrics).toMatchObject({ fanOut: 8 });
+    expect((analysis.findings[0]!.relatedLocations ?? []).length).toBeGreaterThan(0);
+    for (const related of analysis.findings[0]!.relatedLocations ?? []) {
+      expect(related.filePath).not.toMatch(/shape-\d+\.ts$/);
+    }
+  });
+
+  it('erases the statement form `import type { X }`', async () => {
+    const analysis = await analyse(await erasureProject({ values: 7, types: 2, form: 'statement', modules: 30 }));
+    expect(fanOut(analysis, SECURITY)).toBe(9);
+    expect(analysis.findings).toEqual([]);
+  });
+
+  it('erases the inline form `import { type X }`', async () => {
+    const analysis = await analyse(await erasureProject({ values: 7, types: 2, form: 'inline', modules: 30 }));
+    expect(fanOut(analysis, SECURITY)).toBe(9);
+    expect(analysis.findings).toEqual([]);
+  });
+
+  it('keeps a mixed clause `import { type X, value }` — it still loads the module', async () => {
+    const analysis = await analyse(await erasureProject({ values: 6, types: 2, form: 'mixed', modules: 30 }));
+    expect(fanOut(analysis, SECURITY)).toBe(8);
+    expect(analysis.findings).toHaveLength(1);
+    expect(analysis.findings[0]!.metrics).toMatchObject({ fanOut: 8 });
+  });
+
+  it('counts a target imported twice — once for a type, once for a value — exactly once, and keeps it', async () => {
+    // The failure this guards against is subtracting erased EDGES from a count of
+    // TARGETS: two statements, one module, and the module is loaded.
+    const analysis = await analyse(await erasureProject({ values: 6, types: 2, form: 'doubled', modules: 30 }));
+    expect(fanOut(analysis, SECURITY)).toBe(8);
+    expect(analysis.findings).toHaveLength(1);
+    expect(analysis.findings[0]!.metrics).toMatchObject({ fanOut: 8 });
+  });
+});

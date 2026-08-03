@@ -53,8 +53,8 @@ against — and 052 fired on a correctly-mounted guard reached through an
 
 | Rule | Real-corpus sweep (630 repos with source) |
 |---|---|
-| `VG-SMELL-020` | 6 findings, spot-checked against the sources: real runtime cycles |
-| `VG-SMELL-021` | 3 findings, spot-checked: real high-fan-out security modules |
+| `VG-SMELL-020` | 6 findings, all adjudicated: 5 true, 1 false (a `from . import x` resolver artifact) |
+| `VG-SMELL-021` | 2 findings, all adjudicated: 2 true. Was 3 — the third counted imports TypeScript erases, fixed in `type-erasure.ts` |
 | `VG-SMELL-041` | 0 findings — was 3, all false, before the rework |
 | `VG-SMELL-052` | 0 findings — was firing on barrels, before the rework |
 

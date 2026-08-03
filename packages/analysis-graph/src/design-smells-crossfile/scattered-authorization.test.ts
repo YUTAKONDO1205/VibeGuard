@@ -136,8 +136,12 @@ describe('analyzeProject — plumbing', () => {
     // version an alpha build announced running four. Asserting the exact
     // prerelease rather than a loose prefix is what makes the next omission fail
     // here instead of shipping silently.
+    // ★ It worked. `0.3.0-beta.1` → `0.3.0-beta.2` was caught HERE, by this
+    // assertion, when #35 changed what VG-SMELL-021 counts — a verdict change on
+    // the axis this constant describes, made while nobody was thinking about the
+    // constant. That is the exact omission the paragraph above was written after.
     const result = await analyzeProject(sample('crossfile-vulnerable'));
-    expect(result.engineVersion).toBe('0.3.0-beta.1');
+    expect(result.engineVersion).toBe('0.3.0-beta.2');
   });
 
   it('reports no degradations for a corpus well inside every budget', async () => {

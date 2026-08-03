@@ -276,12 +276,34 @@
 //     `recordedFrom.{nodeVersion,platform}` so a first-run CI failure can be read
 //     as "recorded elsewhere" instead of as a regression. If it does diverge, the
 //     fix is to re-record on the CI platform — never to loosen the pin.
-//  7. THE CROSS-FILE CORPORA ARE OUT OF SCOPE HERE, deliberately.
-//     samples/crossfile-safe and samples/design-safe are scanned by
-//     packages/analysis-graph, a package this script does not load; folding them
-//     in would put a graph dependency in the middle of the rule-layer gate. They
-//     have their own suites. Recorded so "the corpus arm covers the corpora"
-//     is not read as covering all of them.
+//  7. THE CROSS-FILE LAYER IS OUT OF SCOPE HERE, deliberately — BUT THE RULE
+//     LAYER'S BEHAVIOUR OVER THE CROSS-FILE CORPORA IS NOT, AND USED TO BE.
+//     `packages/analysis-graph` is a package this script does not load; folding
+//     the graph in would put a graph dependency in the middle of a rule-layer
+//     gate, so the cross-file RULES stay in their own suites. That much is
+//     unchanged.
+//     ★ What changed (#34 CFGATE, 2026-08-03): the corpora those rules are
+//     calibrated against are still ordinary directories of source, and
+//     `vibeguard <dir>` in its default mode runs the RULE layer over them. That
+//     output is what a user sees, and nothing was checking it. Measured before
+//     deciding: the rule layer produces 8 findings over the 734 files of
+//     `samples/crossfile-fixtures` (4 of them the Django negative control
+//     described at CORPUS_DIRS), and 0 over `samples/crossfile-safe` and
+//     `samples/design-safe` — which is why only the first is pinned here.
+//     `samples/design-safe` is left to `security-scan.yml`, which already gates
+//     it at zero through the packaged CLI; adding a second authority for the
+//     same contract is how two numbers with the same name start disagreeing.
+//     ⚠ CORRECTED — `samples/crossfile-safe` IS NOT GATED ANYWHERE. This comment
+//     originally said `security-scan.yml` covered both, and it does not: the
+//     samples job has eight steps (safe, vulnerable, embedded × 2, design-safe,
+//     design-smells, proto-safe, proto-pollution) and none of them names
+//     `crossfile-safe`. The zero is real and nothing holds it. Left unpinned
+//     here rather than fixed in passing, because the fix belongs in the job that
+//     owns the packaged-CLI contract and adding it here would put the same
+//     contract under two authorities — the thing the sentence above argues
+//     against. Tracked as its own item so it does not survive on a comment.
+//     Recorded so "the corpus arm covers the corpora" is not read as covering
+//     the cross-file RULES — it does not, and limit 8 is where that gap lives.
 //  8. THE A1 CENSUS NOW COVERS BOTH RULE LAYERS — THIS IS WHAT IT STILL MISSES.
 //     This limit used to read "the census covers `packages/rules` only … a
 //     super-linear pattern added to a cross-file rule passes every gate here",
@@ -360,6 +382,31 @@ const CORPUS_DIRS = [
   'samples/vulnerable',
   'samples/embedded/safe',
   'samples/embedded/vulnerable',
+  // ★ #34 CFGATE — the cross-file fixture tree, scanned by the RULE LAYER.
+  //
+  // This corpus exists for `packages/analysis-graph`, and its own suites run the
+  // cross-file rules over it. Nothing ran the SINGLE-FILE rules over it, which is
+  // a different question and the one a user actually asks: `vibeguard <dir>` in
+  // its default mode runs the rule layer, so whatever the rule layer says about
+  // these 734 files is output somebody sees, and no gate was looking at it.
+  //
+  // It was not empty. `smell-010-py-neg-django/shop/views.py` produces four
+  // `VG-SMELL-012` at medium — a fixture whose docstring declares that
+  // authorization is centralised in `urls.py` and `LoginRequiredMixin`. Both
+  // things are true at once: it is a valid negative control for VG-SMELL-010
+  // (which stays silent), and it really does compare a role to a string literal
+  // four times, which is what VG-SMELL-012 is about. The finding is not the
+  // defect; the defect was that nobody would have noticed either way.
+  //
+  // Pinned as a SNAPSHOT rather than gated as `-eq 0` deliberately. A count floor
+  // of zero over a directory of negative controls is the vacuous-pass shape this
+  // file already had to close once (see `files` below): it passes on an empty
+  // tree, and it also forces the reading that every finding here is a bug, which
+  // the Django case shows is false. The snapshot says what the rule layer says
+  // TODAY, and any movement — a new fixture that fires, a rule that starts
+  // reaching in here, a negative control that stops being negative — is a diff a
+  // human reads.
+  'samples/crossfile-fixtures',
 ];
 
 export const ARMS = ['corpus', 'a1', 'b1', 'b3'];

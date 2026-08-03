@@ -117,6 +117,7 @@ import type {
   SourceFile,
   StructureIndex,
 } from '../types.js';
+import { type ExportKinds, runtimeImportTargets } from './type-erasure.js';
 
 // ---------------------------------------------------------------------------
 // Thresholds
@@ -837,10 +838,46 @@ function analyze(ctx: CrossFileRuleContext): CrossFileFinding[] {
   // return 0 and make the outlier condition vacuous.
   if (modules.length === 0) return [];
 
-  const fanOutOf = new Map<string, number>();
+  /**
+   * ── Fan-out, counted as the RUNNING program has it. ──────────────────────
+   *
+   * ★ MEASURED CORRECTION (#35). This used to be
+   * `fanMetrics(filePath, project.graph).fanOut`, which is the number of edges
+   * the graph RESOLVED — including the ones TypeScript deletes. On
+   * `paper_data/corpus1k` that produced a false positive the rule's own threshold
+   * argument had already ruled out: `whyour/qinglong back/loaders/express.ts` was
+   * reported at fan-out 9, and two of the nine were `AuthInfo` (an `interface`)
+   * and `AppScope` (a `type`). Seven modules can change what that decision says.
+   * The threshold is eight. The finding existed because of two imports that are
+   * not in the program.
+   *
+   * Neither import is written `import type`: both are plain named imports whose
+   * TARGET declares the name with `type`/`interface`, which is the form
+   * `importsOnlyTypes` exists to catch and the form no statement-level test can.
+   * `VG-SMELL-020` had both tests already — privately — so the correction here is
+   * mostly the extraction that made them shareable (`./type-erasure.js`).
+   *
+   * ★ THE POPULATION IS RECOUNTED THE SAME WAY, and that is a decision with a
+   * direction. The header of this file argues that a threshold is only meaningful
+   * if the quantity being thresholded is the quantity being reported; the same
+   * argument applies to `tail`, which is the p90 of this map. Leaving the
+   * distribution on raw counts while the candidate is judged on filtered ones
+   * compares two different quantities. Recounting lowers the p90 in any project
+   * that has type-only imports, so condition (3) `fanOut <= tail` gets EASIER to
+   * clear — this is the one direction in which this change can ADD findings, and
+   * it is why the corpus was re-run rather than reasoned about: 1,000
+   * repositories, VG-SMELL-021 3 → 2, and the one that left is qinglong.
+   */
+  const filesByPath = new Map(project.files.map((f) => [f.filePath, f]));
+  const erasureCache = new Map<string, ExportKinds>();
+  const runtimeDeps = new Map<string, Set<string>>();
   for (const structure of modules) {
-    fanOutOf.set(structure.filePath, fanMetrics(structure.filePath, project.graph).fanOut ?? 0);
+    runtimeDeps.set(
+      structure.filePath,
+      runtimeImportTargets(structure, project, filesByPath.get(structure.filePath), erasureCache),
+    );
   }
+  const fanOutOf = new Map<string, number>([...runtimeDeps].map(([p, deps]) => [p, deps.size]));
   const sortedFanOut = [...fanOutOf.values()].sort((a, b) => a - b);
   const tail = percentile(sortedFanOut, PROJECT_TAIL_PERCENTILE);
 
@@ -930,7 +967,12 @@ function analyze(ctx: CrossFileRuleContext): CrossFileFinding[] {
     // graph stores them in a `Set` whose iteration order is insertion order —
     // which is scan order — and a finding whose evidence reorders itself is one
     // no baseline can track.
-    const dependencies = [...(project.graph.importsOf.get(filePath) ?? [])].sort();
+    // Read from the same filtered map the threshold used (#35). Taking these from
+    // `project.graph.importsOf` would list a dependency the finding did not count,
+    // which is the disagreement between the thresholded and the reported quantity
+    // that this file's header forbids — visible to a reader as evidence with more
+    // entries than the number in the sentence above it.
+    const dependencies = [...(runtimeDeps.get(filePath) ?? [])].sort();
 
     const importLineOf = new Map<string, number>();
     for (const edge of structure.imports) {
@@ -1010,15 +1052,24 @@ function analyze(ctx: CrossFileRuleContext): CrossFileFinding[] {
       /**
        * The finding's own threshold quantities, from the shared producers.
        *
-       * `fanMetrics` supplies the number the rule thresholded on, so a reader
-       * checking the verdict reads the same `fanOut` the decision used.
+       * `fanMetrics` supplies `fanIn` — still the raw graph number, and correctly
+       * so: condition (4) above thresholds on the raw `fanIn`, and a metric that
+       * disagreed with the condition it came from would be the very confusion
+       * this comment used to prevent.
+       *
+       * ★ `fanOut` IS OVERRIDDEN (#35). `fanMetrics().fanOut` counts erased
+       * imports; the rule no longer thresholds on that number, so publishing it
+       * here would put a different `fanOut` in `metrics` than the one in
+       * `evidence` and in the message. `mergeMetrics` lets the last part win, so
+       * the filtered count is written last and deliberately.
+       *
        * `fileMetrics` adds `loc`, `methodCount` and `importCount`, and the last
        * of those is the one worth having next to `fanOut`: `importCount` counts
        * every import statement including packages, `fanOut` counts only edges
-       * that resolved inside the project, and a reader who does not see both
-       * will assume the rule counted `express`.
+       * that resolved inside the project AND survive compilation, and a reader
+       * who does not see both will assume the rule counted `express`.
        */
-      metrics: mergeMetrics(fileMetrics(structure, source), fanMetrics(filePath, project.graph)),
+      metrics: mergeMetrics(fileMetrics(structure, source), fanMetrics(filePath, project.graph), { fanOut }),
       securityContext: {
         containsAuthLogic: families.has('authentication'),
         containsAuthorizationLogic: families.has('authorization'),
@@ -1069,25 +1120,45 @@ function analyze(ctx: CrossFileRuleContext): CrossFileFinding[] {
  * ★★ MEASURED ON REAL REPOSITORIES — `paper_data/corpus1k`, all 1,000
  * directories walked, 630 of which yielded source the graph admitted.
  *
- *   findings                       3
- *   repositories with a finding    3
- *   read at the source, TP/FP      3 TP / 0 FP
- *   severity                       2 high / 1 medium
- *   confidence                     1 high / 2 medium
+ * ⚠ THIS BLOCK RECORDED "3 TP / 0 FP" FOR TWO WAVES AND IT WAS NOT TRUE. The
+ * adjudication behind it was a SPOT CHECK — one of the three read at the source,
+ * the other two accepted — and `design-smells-crossfile/index.ts` said
+ * "spot-checked" while this block said "read at the source". When the remaining
+ * two were read, one was false. The numbers below are the post-#35 re-run, and
+ * the sentence that was wrong is left visible rather than deleted, because the
+ * failure was not the false positive: it was a smaller sample described in the
+ * words of a bigger one.
  *
- * The three:
+ *   findings                       2   (was 3 before #35)
+ *   repositories with a finding    2
+ *   read at the source, TP/FP      2 TP / 0 FP   (of 3 adjudicated: 2 TP, 1 FP)
+ *   severity                       1 high / 1 medium
+ *   confidence                     1 high / 1 medium
+ *
+ * The two:
  *
  *   Dokploy__dokploy  packages/server/src/lib/auth.ts        fan-out 8 of 800
  *     `bcrypt.hashSync` / `bcrypt.compareSync`, reaching into the db, the
  *     schema, access-control, the auth secret, an audit log and a HubSpot
- *     tracking module. medium/high.
+ *     tracking module. medium/high. ★ Sits ON the threshold: all eight of its
+ *     resolved edges are value imports, so type erasure removes none of them.
+ *     A filter one edge too aggressive would delete this true positive, which is
+ *     why #35 was gated on a corpus re-run and not on a code reading.
  *   docmost__docmost  …/core/workspace/services/workspace.service.ts  15 of 1319
  *     Owner/admin enforcement — "there must be at least one workspace owner",
  *     "an admin may not act on an owner" — inside a service coupled to fifteen
- *     modules. high/medium.
- *   whyour__qinglong  back/loaders/express.ts                fan-out 9 of 165
- *     The whole app's JWT verification, API-token check and OAuth-style scope
- *     enforcement written into the Express loader. high/medium.
+ *     modules. high/medium. Its type-looking imports (`SpaceRole`, `UserRole`,
+ *     `Feature`) are `enum`/`const` — values — so it too is unmoved.
+ *
+ * ★ AND THE ONE THAT LEFT — the false positive #35 removed:
+ *
+ *   whyour__qinglong  back/loaders/express.ts   reported at fan-out 9 of 165
+ *     Real security code (JWT verification, API-token check, scope enforcement
+ *     in the Express loader), but the fan-out was not real: `AuthInfo` is an
+ *     `interface` in `back/data/system.ts` and `AppScope` is a `type` in
+ *     `back/data/open.ts`, both imported without the `type` keyword and used
+ *     only in type position. Seven modules can change what that decision says.
+ *     The threshold is eight. See `./type-erasure.js`.
  *
  * ★ AND THE FALSE NEGATIVE THE SAME RUN PRODUCED, recorded because a precision
  * figure quoted without one is half a measurement. `whyour__qinglong`'s
