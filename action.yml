@@ -90,6 +90,7 @@ runs:
         npm run build -w @vibeguard/sarif-adapter
         npm run build -w @vibeguard/analyzer-core
         npm run build -w @vibeguard/analysis-graph
+        npm run build -w @vibeguard/external-adapters
         npm run build -w @vibeguard/cli
 
     - name: Run VibeGuard

@@ -129,8 +129,15 @@ describe('VG-SMELL-010 — the precision contract', () => {
 
 describe('analyzeProject — plumbing', () => {
   it('stamps the analysis-graph version on the result', async () => {
+    // ★ Pinned to the β prerelease, and the change is the point rather than an
+    // update. This axis answers "would this build produce the same cross-file
+    // verdicts", and it sat at `0.3.0-alpha.1` through the whole wave that added
+    // VG-SMELL-020/021/041/052 — so a scan running eight rules announced the
+    // version an alpha build announced running four. Asserting the exact
+    // prerelease rather than a loose prefix is what makes the next omission fail
+    // here instead of shipping silently.
     const result = await analyzeProject(sample('crossfile-vulnerable'));
-    expect(result.engineVersion).toMatch(/^0\.3\.0-alpha/);
+    expect(result.engineVersion).toBe('0.3.0-beta.1');
   });
 
   it('reports no degradations for a corpus well inside every budget', async () => {
@@ -504,6 +511,534 @@ describe('collectScatteredAuthSites — the pre-threshold population (#22e)', ()
     const sites = await sitesIn('crossfile-fixtures/two-sites');
     expect(sites.length).toBeLessThan(3);
     expect(sites.length).toBeGreaterThan(0);
+  });
+});
+
+describe('VG-SMELL-010 — the Python arm (#27b)', () => {
+  // ★ WHY EVERY NEGATIVE HERE IS TESTED IN A PAIR.
+  //
+  // This repository has already been bitten by a gate that passed with its
+  // fixtures deleted. A fixture asserted only to be SILENT proves nothing on its
+  // own: it is silent when the negative condition works, and equally silent when
+  // the rule cannot see the file at all, when the threshold is not met, or when
+  // `languages` does not list the language. So each negative below is asserted
+  // twice — silent as committed, and FIRING once the centralising element is
+  // removed from a throwaway copy. The second half is the one that would fail if
+  // the arm quietly died.
+  //
+  // The removals are string edits against text asserted to be present first, so
+  // an edit that stops matching the fixture fails loudly instead of producing a
+  // silent no-op copy that then "passes" the silence half.
+
+  /** Copy a fixture, apply one text edit per file, and analyse the result. */
+  const smellsInEdited = async (
+    fixture: string,
+    edits: ReadonlyArray<readonly [string, string, string]>,
+  ): Promise<DesignSmellFinding[]> => {
+    const dir = await mkdtemp(join(tmpdir(), 'vg-py-'));
+    try {
+      await cpSample(`crossfile-fixtures/${fixture}`, dir);
+      for (const [relative, from, to] of edits) {
+        const target = join(dir, ...relative.split('/'));
+        const source = await readFile(target, 'utf8');
+        // The graft point must exist. Without this the whole pair degenerates
+        // into "the fixture is silent, twice".
+        expect(source, `${fixture}/${relative} must contain: ${from}`).toContain(from);
+        await writeFile(target, source.split(from).join(to));
+      }
+      return await smellsIn(dir);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  };
+
+  describe('Flask — a guard decorator stacked with the route decorator', () => {
+    it('stays silent on the documented view-decorator layout', async () => {
+      expect(await smellsIn(sample('crossfile-fixtures/smell-010-py-neg-flask'))).toEqual([]);
+    });
+
+    it('fires once the guard decorators are removed', async () => {
+      // Same three handlers, same three role comparisons, same two files — the
+      // ONLY difference is that nothing above the route says a check belongs
+      // there any more. That is precisely the smell.
+      const findings = await smellsInEdited('smell-010-py-neg-flask', [
+        ['blog/posts.py', '@login_required\n', ''],
+        ['blog/admin_area.py', '@role_required("admin")\n', ''],
+      ]);
+      expect(findings).toHaveLength(1);
+      expect(findings[0]!.metrics?.duplicatedCheckCount).toBe(3);
+      const cited = new Set([
+        findings[0]!.filePath,
+        ...(findings[0]!.relatedLocations ?? []).map((l) => l.filePath),
+      ]);
+      expect([...cited].sort()).toEqual(['blog/admin_area.py', 'blog/posts.py']);
+    });
+
+    it('is silenced by an unrecognised decorator name that refuses requests', async () => {
+      // The vocabulary arm cannot be the only one: a project's guard may be
+      // called anything. Renaming `role_required` to `ensure_ok` takes it out of
+      // every word list — `ensure`, `ok` are not guard words here — and the
+      // decorator is still recognised, because the def it names contains
+      // `abort(403)`. Applied to the copy that otherwise FIRES, so the assertion
+      // is about this mechanism and not about the fixture being quiet.
+      const findings = await smellsInEdited('smell-010-py-neg-flask', [
+        ['blog/posts.py', '@login_required\n', ''],
+        ['blog/security.py', 'def role_required(role):', 'def ensure_ok(role):'],
+        ['blog/admin_area.py', 'role_required', 'ensure_ok'],
+      ]);
+      expect(findings).toEqual([]);
+    });
+  });
+
+  describe('FastAPI — dependency injection at two different scopes', () => {
+    it('stays silent on the documented router + signature layout', async () => {
+      expect(await smellsIn(sample('crossfile-fixtures/smell-010-py-neg-fastapi'))).toEqual([]);
+    });
+
+    it('fires once the router-level dependency list is removed', async () => {
+      // `items` and `orders` carry `dependencies=[Depends(get_token_header)]` on
+      // their `APIRouter(...)`. Removing it from both leaves four inline checks
+      // across two files; `reports` and `exports` stay silent on their
+      // signature-level dependency, which is what makes this test about the
+      // ROUTER mechanism alone.
+      const findings = await smellsInEdited('smell-010-py-neg-fastapi', [
+        ['app/routers/items.py', '    dependencies=[Depends(get_token_header)],\n', ''],
+        ['app/routers/orders.py', '    dependencies=[Depends(get_token_header)],\n', ''],
+      ]);
+      expect(findings).toHaveLength(1);
+      expect(findings[0]!.metrics?.duplicatedCheckCount).toBe(4);
+      const cited = new Set([
+        findings[0]!.filePath,
+        ...(findings[0]!.relatedLocations ?? []).map((l) => l.filePath),
+      ]);
+      expect([...cited].sort()).toEqual(['app/routers/items.py', 'app/routers/orders.py']);
+    });
+
+    it('fires once the signature-level dependencies are removed', async () => {
+      // The mirror image: `reports` and `exports` lose `Depends(...)` from their
+      // multi-line signatures and become four sites across two files, while
+      // `items` and `orders` stay silent on their router-level list.
+      const findings = await smellsInEdited('smell-010-py-neg-fastapi', [
+        [
+          'app/routers/reports.py',
+          'current_user: Annotated[User, Depends(get_current_active_user)]',
+          'current_user',
+        ],
+        [
+          'app/routers/exports.py',
+          'current_user: Annotated[User, Depends(get_current_active_user)]',
+          'current_user',
+        ],
+      ]);
+      expect(findings).toHaveLength(1);
+      expect(findings[0]!.metrics?.duplicatedCheckCount).toBe(4);
+      const cited = new Set([
+        findings[0]!.filePath,
+        ...(findings[0]!.relatedLocations ?? []).map((l) => l.filePath),
+      ]);
+      expect([...cited].sort()).toEqual(['app/routers/exports.py', 'app/routers/reports.py']);
+    });
+
+    it('is silenced again by a dependency list on include_router', async () => {
+      // Router-level lists stripped — so the fixture fires — and the same
+      // declaration re-added at the mount point in `main.py` instead. Silence
+      // here means the `include_router(items.router, dependencies=[…])` arm
+      // resolved `items` back through `from .routers import items` to
+      // `app/routers/items.py`, which is the only way it could know which file
+      // the list covers.
+      const findings = await smellsInEdited('smell-010-py-neg-fastapi', [
+        ['app/routers/items.py', '    dependencies=[Depends(get_token_header)],\n', ''],
+        ['app/routers/orders.py', '    dependencies=[Depends(get_token_header)],\n', ''],
+        [
+          'app/main.py',
+          'from fastapi import FastAPI',
+          'from fastapi import Depends, FastAPI\n\nfrom .dependencies import get_token_header',
+        ],
+        [
+          'app/main.py',
+          'app.include_router(items.router)\napp.include_router(orders.router)',
+          'app.include_router(items.router, dependencies=[Depends(get_token_header)])\n' +
+            'app.include_router(orders.router, dependencies=[Depends(get_token_header)])',
+        ],
+      ]);
+      expect(findings).toEqual([]);
+    });
+
+    it('does not treat a non-security dependency as a guard', async () => {
+      // ★ THE TEST THAT KEEPS THE FASTAPI ARM FROM BEING DEAD CODE. Silencing on
+      // the bare presence of `Depends(` would pass every other test in this
+      // block and make the arm incapable of ever firing on a framework where
+      // essentially every handler takes an injected parameter.
+      //
+      // `common_parameters` is FastAPI's own documented non-security dependency.
+      // The handlers keep it, lose the security one, and the four inline checks
+      // become a finding.
+      //
+      // `Depends(get_session)` was the first choice here and it does NOT work:
+      // `session` is an authentication guard word in `authz-lexicon`, so
+      // `get_session` reaches `guardNames` and silences the handler. That is an
+      // over-silence — a database session is not a checkpoint — and it is
+      // recorded on `PY_SECURITY_DEPENDENCY_WORD` rather than worked around,
+      // because the fix belongs in the shared lexicon and would move VG-SMELL-011
+      // and 013 with it.
+      const findings = await smellsInEdited('smell-010-py-neg-fastapi', [
+        [
+          'app/routers/reports.py',
+          'from ..dependencies import get_current_active_user',
+          'from ..store import common_parameters',
+        ],
+        [
+          'app/routers/exports.py',
+          'from ..dependencies import get_current_active_user',
+          'from ..store import common_parameters',
+        ],
+        [
+          'app/routers/reports.py',
+          'current_user: Annotated[User, Depends(get_current_active_user)]',
+          'current_user, commons: dict = Depends(common_parameters)',
+        ],
+        [
+          'app/routers/exports.py',
+          'current_user: Annotated[User, Depends(get_current_active_user)]',
+          'current_user, commons: dict = Depends(common_parameters)',
+        ],
+      ]);
+      expect(findings).toHaveLength(1);
+      expect(findings[0]!.metrics?.duplicatedCheckCount).toBe(4);
+    });
+
+    it('accepts Security(...) where it rejects the same argument under Depends(...)', async () => {
+      // ★ AN A/B PAIR AGAINST THE TEST DIRECTLY ABOVE. Same fixture, same edit,
+      // same argument — `common_parameters`, which carries no security word —
+      // and the only difference is `Security` in place of `Depends`. FastAPI's
+      // `Security` exists solely to declare scopes, so it is accepted without
+      // looking at the argument; `Depends` is not. The row above fires, this one
+      // does not, and neither could pass if the two were treated alike.
+      const findings = await smellsInEdited('smell-010-py-neg-fastapi', [
+        [
+          'app/routers/reports.py',
+          'from ..dependencies import get_current_active_user',
+          'from ..store import common_parameters',
+        ],
+        [
+          'app/routers/exports.py',
+          'from ..dependencies import get_current_active_user',
+          'from ..store import common_parameters',
+        ],
+        [
+          'app/routers/reports.py',
+          'current_user: Annotated[User, Depends(get_current_active_user)]',
+          'current_user = Security(common_parameters)',
+        ],
+        [
+          'app/routers/exports.py',
+          'current_user: Annotated[User, Depends(get_current_active_user)]',
+          'current_user = Security(common_parameters)',
+        ],
+      ]);
+      expect(findings).toEqual([]);
+    });
+
+    it('is silenced by a dependency list on the route decorator itself', async () => {
+      // The per-route form, which `IndexedSymbol.decorators` cannot see because
+      // it records only decorator NAMES — the guard is in an argument. Applied to
+      // the copy that otherwise fires, so this is about the decorator block being
+      // re-read and not about the fixture.
+      const findings = await smellsInEdited('smell-010-py-neg-fastapi', [
+        ['app/routers/items.py', '    dependencies=[Depends(get_token_header)],\n', ''],
+        ['app/routers/orders.py', '    dependencies=[Depends(get_token_header)],\n', ''],
+        ['app/routers/items.py', '@router.get("/")', '@router.get("/", dependencies=[Depends(get_token_header)])'],
+        [
+          'app/routers/items.py',
+          '@router.put("/{item_id}")',
+          '@router.put("/{item_id}", dependencies=[Depends(get_token_header)])',
+        ],
+        ['app/routers/orders.py', '@router.get("/")', '@router.get("/", dependencies=[Depends(get_token_header)])'],
+        [
+          'app/routers/orders.py',
+          '@router.post("/{order_id}/rename")',
+          '@router.post("/{order_id}/rename", dependencies=[Depends(get_token_header)])',
+        ],
+      ]);
+      expect(findings).toEqual([]);
+    });
+
+    it('is silenced project-wide by a dependency list on FastAPI(...)', async () => {
+      // BOTH mechanisms stripped first, so all eight checks across all four
+      // router files are live and the copy fires. One `dependencies=` on the
+      // application constructor silences every one of them, which is the honest
+      // scope: an application-level dependency runs before every path operation.
+      const stripped: ReadonlyArray<readonly [string, string, string]> = [
+        ['app/routers/items.py', '    dependencies=[Depends(get_token_header)],\n', ''],
+        ['app/routers/orders.py', '    dependencies=[Depends(get_token_header)],\n', ''],
+        [
+          'app/routers/reports.py',
+          'current_user: Annotated[User, Depends(get_current_active_user)]',
+          'current_user',
+        ],
+        [
+          'app/routers/exports.py',
+          'current_user: Annotated[User, Depends(get_current_active_user)]',
+          'current_user',
+        ],
+      ];
+      const loud = await smellsInEdited('smell-010-py-neg-fastapi', stripped);
+      expect(loud).toHaveLength(1);
+      expect(loud[0]!.metrics?.duplicatedCheckCount).toBe(8);
+
+      const quiet = await smellsInEdited('smell-010-py-neg-fastapi', [
+        ...stripped,
+        [
+          'app/main.py',
+          'from fastapi import FastAPI',
+          'from fastapi import Depends, FastAPI\n\nfrom .dependencies import get_token_header',
+        ],
+        ['app/main.py', 'app = FastAPI()', 'app = FastAPI(dependencies=[Depends(get_token_header)])'],
+      ]);
+      expect(quiet).toEqual([]);
+    });
+  });
+
+  describe('FastAPI — the dependency ALIAS, found by a corpus sweep', () => {
+    // ★ THE ONLY FINDING THE FIRST VERSION OF THIS ARM PRODUCED OVER
+    // `paper_data/corpus1k`, AND IT WAS FALSE.
+    //
+    // 1,000 repositories, 630 with source, 236 containing Python, one finding:
+    // `fastapi/full-stack-fastapi-template`, six `current_user.is_superuser`
+    // checks across `api/routes/items.py` and `api/routes/users.py`. The
+    // template's handlers never write `Depends(...)` — `api/deps.py` declares
+    // `CurrentUser = Annotated[User, Depends(get_current_user)]` and every
+    // handler writes `current_user: CurrentUser`.
+    //
+    // This fixture is that shape, and it is the most valuable one in the set,
+    // because it is the only one whose failure mode was found by real code
+    // rather than by the author of the detector.
+
+    it('stays silent when the dependency is declared through a type alias', async () => {
+      expect(await smellsIn(sample('crossfile-fixtures/smell-010-py-neg-fastapi-alias'))).toEqual([]);
+    });
+
+    it('fires once the alias annotation is dropped from the handlers', async () => {
+      // The four superuser checks are untouched; only the declaration that a
+      // dependency produced `current_user` is gone. Without it there is nothing
+      // in the file, or in any other, that says these endpoints are guarded.
+      const findings = await smellsInEdited('smell-010-py-neg-fastapi-alias', [
+        ['app/api/routes/items.py', 'current_user: CurrentUser', 'current_user'],
+        ['app/api/routes/users.py', 'current_user: CurrentUser', 'current_user'],
+      ]);
+      expect(findings).toHaveLength(1);
+      expect(findings[0]!.metrics?.duplicatedCheckCount).toBe(4);
+      const cited = new Set([
+        findings[0]!.filePath,
+        ...(findings[0]!.relatedLocations ?? []).map((l) => l.filePath),
+      ]);
+      expect([...cited].sort()).toEqual(['app/api/routes/items.py', 'app/api/routes/users.py']);
+    });
+
+    it('does not silence on SessionDep, which is a dependency alias and not a guard', async () => {
+      // ★ THE SENTINEL FOR THE ALIAS ARM. `SessionDep` is declared exactly the
+      // same way as `CurrentUser` — `Annotated[…, Depends(…)]` at module scope —
+      // and it must NOT silence, or the arm degenerates into "any alias at all",
+      // which would make the FastAPI half of this rule unable to fire. The
+      // handlers keep `session: SessionDep` in the edit above and the finding
+      // still appears; here the alias is kept and `CurrentUser` swapped for it,
+      // so `SessionDep` is the only alias left and the rule still speaks.
+      const findings = await smellsInEdited('smell-010-py-neg-fastapi-alias', [
+        ['app/api/routes/items.py', 'current_user: CurrentUser', 'current_user: SessionDep'],
+        ['app/api/routes/users.py', 'current_user: CurrentUser', 'current_user: SessionDep'],
+      ]);
+      expect(findings).toHaveLength(1);
+      expect(findings[0]!.metrics?.duplicatedCheckCount).toBe(4);
+    });
+  });
+
+  describe('Django — URLconf wrappers, CBV mixins, and MIDDLEWARE', () => {
+    it('stays silent on the documented URLconf + mixin layout', async () => {
+      expect(await smellsIn(sample('crossfile-fixtures/smell-010-py-neg-django'))).toEqual([]);
+    });
+
+    it('fires once the URLconf wrappers are removed', async () => {
+      // The four function views lose `login_required(...)` /
+      // `permission_required(...)(...)` and become four sites across two files.
+      // The two class-based views stay silent on their mixins, which keeps this
+      // test about the URLCONF mechanism alone.
+      const findings = await smellsInEdited('smell-010-py-neg-django', [
+        ['shop/urls.py', 'login_required(views.order_list)', 'views.order_list'],
+        [
+          'shop/urls.py',
+          'permission_required("shop.export_order")(views.order_export)',
+          'views.order_export',
+        ],
+        ['support/urls.py', 'login_required(views.ticket_list)', 'views.ticket_list'],
+        [
+          'support/urls.py',
+          'permission_required("support.close_ticket")(views.ticket_close)',
+          'views.ticket_close',
+        ],
+      ]);
+      expect(findings).toHaveLength(1);
+      expect(findings[0]!.metrics?.duplicatedCheckCount).toBe(4);
+      const cited = new Set([
+        findings[0]!.filePath,
+        ...(findings[0]!.relatedLocations ?? []).map((l) => l.filePath),
+      ]);
+      expect([...cited].sort()).toEqual(['shop/views.py', 'support/views.py']);
+    });
+
+    it('fires once the class-based-view mixins are removed', async () => {
+      // `LoginRequiredMixin` and `PermissionRequiredMixin` come off the bases and
+      // the four overridden methods become four sites across two files. The
+      // function views keep their URLconf wrappers, so this is about the MIXIN
+      // mechanism alone — and it is the one that reads
+      // `IndexedSymbol.baseClasses`, which is new in 0.3.0-β.
+      const findings = await smellsInEdited('smell-010-py-neg-django', [
+        ['shop/views.py', 'class OrderAuditView(LoginRequiredMixin, TemplateView):', 'class OrderAuditView(TemplateView):'],
+        [
+          'support/views.py',
+          'class TicketAuditView(PermissionRequiredMixin, TemplateView):',
+          'class TicketAuditView(TemplateView):',
+        ],
+      ]);
+      expect(findings).toHaveLength(1);
+      expect(findings[0]!.metrics?.duplicatedCheckCount).toBe(4);
+      const cited = new Set([
+        findings[0]!.filePath,
+        ...(findings[0]!.relatedLocations ?? []).map((l) => l.filePath),
+      ]);
+      expect([...cited].sort()).toEqual(['shop/views.py', 'support/views.py']);
+    });
+
+    it('is silenced project-wide by a security middleware in settings', async () => {
+      // Applied to the copy that FIRES, so the assertion is about the middleware
+      // and not about the fixture. One line in `settings.py` silences every
+      // Python file in the project, which is the honest scope for a component
+      // that runs before every view there is.
+      const findings = await smellsInEdited('smell-010-py-neg-django', [
+        ['shop/urls.py', 'login_required(views.order_list)', 'views.order_list'],
+        [
+          'shop/urls.py',
+          'permission_required("shop.export_order")(views.order_export)',
+          'views.order_export',
+        ],
+        ['support/urls.py', 'login_required(views.ticket_list)', 'views.ticket_list'],
+        [
+          'support/urls.py',
+          'permission_required("support.close_ticket")(views.ticket_close)',
+          'views.ticket_close',
+        ],
+        [
+          'mysite/settings.py',
+          '    "django.middleware.clickjacking.XFrameOptionsMiddleware",\n',
+          '    "django.middleware.clickjacking.XFrameOptionsMiddleware",\n' +
+            '    "shop.middleware.EnforceStaffMiddleware",\n',
+        ],
+      ]);
+      expect(findings).toEqual([]);
+    });
+
+    it('is NOT silenced by an ordinary third-party middleware', async () => {
+      // ★ THE SENTINEL FOR THE MIDDLEWARE ARM. "Any entry not under `django.`"
+      // was the obvious rule and would have silenced the Django arm on nearly
+      // every real project, since almost all of them append `corsheaders` or
+      // `whitenoise`. Same edit as the test above with a CORS middleware in
+      // place of a staff one; the finding must survive.
+      const findings = await smellsInEdited('smell-010-py-neg-django', [
+        ['shop/urls.py', 'login_required(views.order_list)', 'views.order_list'],
+        [
+          'shop/urls.py',
+          'permission_required("shop.export_order")(views.order_export)',
+          'views.order_export',
+        ],
+        ['support/urls.py', 'login_required(views.ticket_list)', 'views.ticket_list'],
+        [
+          'support/urls.py',
+          'permission_required("support.close_ticket")(views.ticket_close)',
+          'views.ticket_close',
+        ],
+        [
+          'mysite/settings.py',
+          '    "django.middleware.clickjacking.XFrameOptionsMiddleware",\n',
+          '    "django.middleware.clickjacking.XFrameOptionsMiddleware",\n' +
+            '    "corsheaders.middleware.CorsMiddleware",\n',
+        ],
+      ]);
+      expect(findings).toHaveLength(1);
+    });
+  });
+
+  describe('the positive control', () => {
+    it('fires on a Flask application that inlines the same check three times', async () => {
+      // ★ THE PROOF THAT THE ARM IS ALIVE. Everything else in this block is a
+      // silence assertion, and a `languages` array that had never been changed
+      // would satisfy all of them.
+      const findings = await smellsIn(sample('crossfile-fixtures/smell-010-py-positive'));
+      expect(findings).toHaveLength(1);
+      expect(findings[0]!.metrics?.duplicatedCheckCount).toBe(3);
+      expect(findings[0]!.severity).toBe('high');
+      const cited = new Set([
+        findings[0]!.filePath,
+        ...(findings[0]!.relatedLocations ?? []).map((l) => l.filePath),
+      ]);
+      expect([...cited].sort()).toEqual(['catalogue/orders.py', 'catalogue/reports.py']);
+    });
+
+    it('goes silent project-wide behind a Flask before_request hook', async () => {
+      // The application-wide Flask checkpoint. It is grafted at module scope
+      // rather than inside `create_app`, which is where Flask's own single-module
+      // examples put it; the factory below then shadows `app` locally, which is
+      // meaningless to a lexical reader and keeps the edit to one replacement.
+      //
+      // The hook has to REFUSE to count: a `before_request` that only populates
+      // `g.user` decides nothing, and silencing on the hook's existence alone
+      // would silence every Flask application there is.
+      const findings = await smellsInEdited('smell-010-py-positive', [
+        [
+          'catalogue/app.py',
+          'from flask import Flask',
+          'from flask import Flask, abort, request\n' +
+            '\n' +
+            'app = Flask(__name__)\n' +
+            '\n' +
+            '\n' +
+            '@app.before_request\n' +
+            'def require_signed_in_actor():\n' +
+            '    if request.environ.get("actor") is None:\n' +
+            '        abort(401)',
+        ],
+      ]);
+      expect(findings).toEqual([]);
+    });
+
+    it('goes silent as soon as one guard decorator is added', async () => {
+      // Two sites left is below MIN_SITES, so this is a threshold result as much
+      // as a guard result — recorded rather than dressed up, because the pair
+      // that carries the guard claim on its own is the Flask block above.
+      const findings = await smellsInEdited('smell-010-py-positive', [
+        ['catalogue/orders.py', '@bp.route("/")\n', '@bp.route("/")\n@login_required\n'],
+      ]);
+      expect(findings).toEqual([]);
+    });
+  });
+
+  describe('the TS/JS arm is untouched by any of this', () => {
+    it('keeps every pre-existing verdict', async () => {
+      // Stated here as well as in the blocks above so a Python-arm regression
+      // that leaked into the shared path names itself as one.
+      const [vulnerable] = await smellsIn(sample('crossfile-vulnerable'));
+      expect(vulnerable!.severity).toBe('high');
+      expect(vulnerable!.metrics?.duplicatedCheckCount).toBe(5);
+      for (const dir of [
+        'crossfile-safe',
+        'crossfile-fixtures/delegated',
+        'crossfile-fixtures/two-sites',
+        'crossfile-fixtures/single-file',
+        'crossfile-fixtures/not-handlers',
+        'crossfile-fixtures/test-paths',
+        'crossfile-fixtures/chat-roles',
+      ]) {
+        expect(await smellsIn(sample(dir)), dir).toEqual([]);
+      }
+    });
   });
 });
 

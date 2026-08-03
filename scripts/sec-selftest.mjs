@@ -9,6 +9,17 @@
 // and the only way it is worth anything is if a regression FAILS THE BUILD rather
 // than being written to a report nobody opens.
 //
+// ⚠ RUN ONE AT A TIME. This script REGENERATES its corpora into
+// `security-experiment/_results/` on every run, so two concurrent invocations
+// overwrite each other's inputs mid-flight and the B1 arm reports failures that
+// have nothing to do with the tree. Measured 2026-08-03: a background
+// `npm test && sec-selftest` overlapping a foreground `sec-selftest` produced
+// `5 failed — b1:corpus-scale, b1:delta-er-floor, b1:er-false-ceiling,
+// b1:er-true-ceiling, b1:harness-integrity`, while `--arms b1` alone and a clean
+// solo run both gave 5/5 and 21/22 · 0 failed. CI is safe (one job, one run), but
+// a human or an agent running this in two terminals gets a red self-hardening
+// gate for no reason — and a gate that cries wolf is a gate people stop reading.
+//
 // Run from the repo root, after `npm run build`:
 //   node scripts/sec-selftest.mjs
 //   node scripts/sec-selftest.mjs --arms corpus,a1        (subset; marks the run
@@ -110,29 +121,39 @@
 // is already covered: packages/analyzer-core/src/redos-invariant.test.ts scans a
 // large adversarial battery under `npm test` and asserts the scan stays inside
 // DESIGN §11.1's budget. That test can only see patterns its battery happens to
-// attack; this census sees every pattern that compiles IN THE RULE LAYER.
-// Neither subsumes the other, and the timing half deliberately lives where a
-// generous per-test budget is affordable rather than inside a gate that must
-// never flake.
+// attack; this census sees every pattern that compiles IN THE TWO RULE LAYERS,
+// under the coverage statement below. Neither subsumes the other, and the timing
+// half deliberately lives where a generous per-test budget is affordable rather
+// than inside a gate that must never flake.
 //
-// ★ MEASURED CORRECTION — the sentence above used to read "every pattern that
-// compiles", full stop, and that was false in a way that mattered more each
-// week. `scripts/sec-a1-catalog.mjs:82` sets
-// `RULES_ENTRY = 'packages/rules/dist/index.js'` and enumerates `allRules` from
-// it. `packages/analysis-graph` — the cross-file design-smell layer, which ships
-// in the CLI and the Action and whose rules are regex-driven just like the core
-// ones — is never loaded, so a catastrophic pattern added to a cross-file rule
-// leaves all nineteen gates green. The claim was not merely incomplete: it
-// pointed a reader at the opposite conclusion ("the rule layer is covered")
-// during the exact phase (0.3.0-β) that adds eight cross-file rules.
+// ★ WHICH LAYERS, EXACTLY — the history of this sentence is the reason it is now
+// this specific.
 //
-// This is stated rather than fixed here on purpose. Extending the census means
-// giving `analysis-graph` rules the reflective `match`-probe surface the core
-// rules have — they expose `analyze(ctx)` over a project, not `match(ctx)` over
-// a string, so the runtime `RegExp.prototype.exec` hook the catalogue relies on
-// has nothing to hook. That is a change to the cross-file rule interface, not a
-// change to this gate, and doing it under cover of a comment fix would be the
-// wrong order. See MEASURED LIMIT 8.
+// It used to read "every pattern that compiles", full stop, and that was false.
+// `scripts/sec-a1-catalog.mjs:82` sets `RULES_ENTRY =
+// 'packages/rules/dist/index.js'` and enumerates `allRules` from it;
+// `packages/analysis-graph` — the cross-file design-smell layer, which ships in
+// the CLI and the Action and whose rules are regex-driven just like the core ones
+// — was never loaded, so a catastrophic pattern added to a cross-file rule left
+// every gate green. That was recorded as MEASURED LIMIT 8 and left standing,
+// with the argument that extending the census needed a reflective probe surface
+// on `CrossFileRule` and was therefore a rule-interface change.
+//
+// ★ THAT ARGUMENT WAS WRONG, AND IT WAS MEASURED TO BE WRONG. No interface
+// change was needed. `analyze(ctx)` takes a `ProjectIndex`, and the package
+// already exports `collectProjectFiles` / `buildProjectIndex` / `createBudget`;
+// building an index over `samples/crossfile-fixtures` and calling `analyze`
+// directly gives the `RegExp.prototype.exec` hook exactly as much to hook as
+// `match(ctx)` does — measured, 332 (rule, pattern) pairs across all 11
+// registered cross-file rules, 0 rules silent, 0 invocation errors. The limit
+// was a design claim held without an experiment, and it survived two releases
+// while the cross-file registry grew from four rules to eleven.
+//
+// `scripts/sec-a1-crossfile-catalog.mjs` is that census, gated here by
+// `a1:crossfile-surface-census`, `a1:crossfile-shape-suspicious-set` and
+// `a1:crossfile-probe-liveness`. What it does NOT cover is written down in
+// MEASURED LIMIT 8, which is now a statement of the residue rather than of the
+// whole hole.
 //
 // recheck is still wired in: when it IS available the gate additionally checks
 // its super-linear rule set against the baseline. When it is not, that ONE gate
@@ -261,16 +282,55 @@
 //     in would put a graph dependency in the middle of the rule-layer gate. They
 //     have their own suites. Recorded so "the corpus arm covers the corpora"
 //     is not read as covering all of them.
-//  8. THE A1 ATTACK-SURFACE CENSUS COVERS `packages/rules` ONLY.
-//     `sec-a1-catalog.mjs` loads `packages/rules/dist/index.js` and enumerates
-//     `allRules`; the regexes inside `packages/analysis-graph` cross-file rules
-//     are NOT counted, NOT shape-checked, and NOT in `a1:surface-census`. A
-//     super-linear pattern added to a cross-file rule passes every gate here.
-//     This is the largest known hole in the self-hardening claim, and it grows
-//     with each cross-file rule 0.3.0-β adds. Closing it requires a reflective
-//     probe surface on `CrossFileRule` (see the correction above the A1 section)
-//     — a rule-interface change, tracked separately. Until then, a cross-file
-//     rule's ReDoS safety rests on review, not on this gate.
+//  8. THE A1 CENSUS NOW COVERS BOTH RULE LAYERS — THIS IS WHAT IT STILL MISSES.
+//     This limit used to read "the census covers `packages/rules` only … a
+//     super-linear pattern added to a cross-file rule passes every gate here",
+//     and that was true and growing: `packages/analysis-graph` held 4 cross-file
+//     rules when it was written and 11 when it was closed.
+//     `scripts/sec-a1-crossfile-catalog.mjs` closes it in two arms and three
+//     gates. MEASURED at the time of writing: 11 registered cross-file rules,
+//     0 rule-shaped exports outside the registry, 23 built files carrying 194
+//     regex literals and 24 `new RegExp(` construction sites, 332 (rule, pattern)
+//     pairs executed over 130 fixture projects, and 0 shape-suspicious patterns
+//     in either arm. Falsified by construction, on a scratchpad copy: injecting
+//     `/(\s+)+$/` as a literal moves `staticLiterals` 194→195 and puts 4 entries
+//     in the suspicious set (both new gates fail); injecting the same pattern via
+//     `new RegExp(String.raw`(\s+)+$`)` leaves `staticLiterals` at 194 — no
+//     literal scan can see it — and is caught by the runtime arm instead.
+//     ★ THE RESIDUE, which is what this limit now records:
+//      8a. A pattern CONSTRUCTED in a branch no fixture reaches is counted (its
+//          `new RegExp(` site is in the static census) but NOT shape-checked,
+//          because nothing resolves its interpolations. Measured: injecting
+//          `(\s+)+$` into a function no fixture calls moves
+//          `staticConstructionSites` 24→25, so `a1:crossfile-surface-census`
+//          FAILS and forces a deliberate baseline edit — but
+//          `a1:crossfile-shape-suspicious-set` stays green and the catalogue's
+//          own `--check` exits 0. The count is the whole defence there.
+//      8b. The dynamic pattern COUNT is a function of the fixture tree, not of
+//          the build (332 pairs over 130 fixture projects in the working tree
+//          that recorded this, 270 over the 86 tracked in git at that moment), so
+//          it is FLOORED, not pinned. A driver that half-degrades stays green
+//          until it crosses the floor; the exact checks beside it (every rule
+//          executed a pattern, four named product regexes observed) are what make
+//          a degradation legible before then.
+//      8c. No automaton oracle. `recheck` is wired into the CORE catalogue only;
+//          the cross-file arm is shape-heuristic only, so its 0 suspicious
+//          patterns is a claim about SHAPES and not a proof of linearity.
+//      8e. The construction-site count is TEXTUAL and does not know what a
+//          comment is: the scan counts occurrences of the constructor token in
+//          the built JS, so PROSE mentioning it moves the number. Found the
+//          hard way on 2026-08-03 — a comment added to `authz-lexicon.ts`,
+//          explaining that the patterns below are constructed rather than
+//          literal, took `staticConstructionSites` 24 → 25 and failed this gate.
+//          The gate was right to fail (it cannot tell prose from code) and the
+//          comment was reworded rather than the baseline raised. If this gate
+//          fails and the delta is 1, check whether someone just wrote the token
+//          in a sentence before assuming a regex was added.
+//      8d. `packages/analysis-graph`'s non-rule regexes (structure indexer,
+//          dependency graph, symbol table, taint) ARE in the static census — they
+//          run over attacker-sized file content too — and are captured at runtime
+//          under the pseudo-rule `(project-index)`. They are NOT attributed to any
+//          rule, because they belong to none.
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -291,6 +351,7 @@ const B3_MANIFEST = `${RESULTS_DIR}/b3-corpus-manifest.json`;
 const B3_EVAL = `${RESULTS_DIR}/b3-cr.json`;
 const B3_CORPUS_DIR = 'security-experiment/track-b-detection-robustness/b3-suppression-abuse/corpus';
 const A1_CATALOG = `${RESULTS_DIR}/a1-regex-catalog.json`;
+const A1_CROSSFILE_CATALOG = `${RESULTS_DIR}/a1-crossfile-regex-catalog.json`;
 
 // The corpora the rule layer is calibrated against. Order is fixed because it is
 // the reporting order; the gate ids are derived from these paths.
@@ -550,13 +611,88 @@ async function runCorpusArm() {
   return dirs;
 }
 
+/**
+ * A1, cross-file half — the census over `packages/analysis-graph`.
+ *
+ * ★ WHY THIS IS A SEPARATE CHILD AND A SEPARATE SET OF GATES.
+ *
+ * MEASURED LIMIT 8 used to say the A1 census covers `packages/rules` only, and
+ * that a super-linear pattern added to a cross-file rule passes every gate here.
+ * This closes most of that; what it deliberately does NOT do is fold the
+ * cross-file numbers into `a1:surface-census`, because the two layers are not
+ * measurable on the same axis:
+ *
+ *   - a core rule's pattern set is a function of the BUILD (one inert probe
+ *     string reaches all of them), so it can be pinned exactly;
+ *   - a cross-file rule builds patterns FROM THE INPUT it analyses
+ *     (`new RegExp(String.raw`\b${escaped}\b`)` over identifiers read out of the
+ *     file), so the count of patterns it executes is a function of the FIXTURE
+ *     TREE. Measured: 332 (rule, pattern) pairs over the 130 fixture projects in
+ *     a working tree, 270 over the 86 that were tracked at the time of writing.
+ *
+ * Pinning that number exactly would produce a gate that fails whenever a fixture
+ * is added — and a gate people re-record without reading is worse than no gate.
+ * So the cross-file arm is pinned on the axis that IS a function of the build
+ * (regex literals and `new RegExp(` construction sites in the built package) and
+ * floored on the axis that is not, with the liveness properties that make a low
+ * number legible — every rule executed at least one pattern, and four named
+ * product regexes were observed — checked exactly.
+ */
+function runA1CrossFileArm() {
+  const run = runScript('scripts/sec-a1-crossfile-catalog.mjs', []);
+  if (!run.ok) return { ran: false, run, summary: null, shapeSuspicious: null };
+  let cat;
+  try {
+    cat = readJson(A1_CROSSFILE_CATALOG);
+  } catch (err) {
+    return { ran: false, run: { ...run, spawnError: err.message }, summary: null, shapeSuspicious: null };
+  }
+  const s = cat.summary ?? {};
+  return {
+    ran: true,
+    run,
+    summary: {
+      crossFileRules: s.crossFileRules ?? null,
+      // A rule-shaped export that is NOT in `crossFileRules` is a candidate rule
+      // (index.ts documents the state). It is un-shipped, so it is not gated as
+      // surface — but its APPEARANCE is gated, because a candidate silently
+      // joining the registry is exactly the event this census exists to notice.
+      exportedUnregisteredRuleIds: (s.exportedUnregisteredRuleIds ?? []).length,
+      staticFilesScanned: s.static?.filesScanned ?? null,
+      staticLiterals: s.static?.literals ?? null,
+      staticConstructionSites: s.static?.constructionSites ?? null,
+      staticUncompilable: s.static?.uncompilable ?? null,
+      dynamicPatternPairs: s.dynamic?.distinctRulePatternPairs ?? null,
+      dynamicFixtureProjects: s.dynamic?.fixtureProjects ?? null,
+      dynamicRulesWithNoPattern: (s.dynamic?.rulesWithNoPattern ?? []).length,
+      dynamicAnalyzeErrors: s.dynamic?.analyzeErrors ?? null,
+      positiveControlOk: s.positiveControl?.ok === true,
+      positiveControlMissing: [...(s.positiveControl?.missing ?? [])].sort(),
+      crossCheckDynamicNotStatic: s.crossCheck?.dynamicNotStatic ?? null,
+      crossCheckStaticNotDynamic: s.crossCheck?.staticNotDynamic ?? null,
+      // Carried verbatim (not reduced to a boolean) so a FAIL can name which
+      // canary went missing. `?? null` rather than `?? {ok:true}`: an older
+      // catalogue that predates the canary must FAIL this gate, not inherit a
+      // pass — the whole point is that silence is not evidence.
+      shapeChecker: s.shapeChecker ?? null,
+    },
+    shapeSuspicious: [...(cat.shapeSuspicious ?? [])].sort((a, b) => String(a).localeCompare(String(b))),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Arm: A1 — static attack-surface census over the shipped rule regexes
 // ---------------------------------------------------------------------------
 function runA1Arm() {
+  // Independent of the core census, and computed FIRST so it is present on every
+  // return path below. The two censuses cover different packages and fail for
+  // different reasons; a broken `packages/rules` build must not make the
+  // cross-file gates report "did not run" and hide which half is actually
+  // broken.
+  const crossFile = runA1CrossFileArm();
   const run = runScript('scripts/sec-a1-catalog.mjs', []);
   if (!run.ok) {
-    return { ran: false, run, recheckReason: null, summary: null, shapeSuspicious: null, unreachedRuleIds: null };
+    return { ran: false, run, crossFile, recheckReason: null, summary: null, shapeSuspicious: null, unreachedRuleIds: null };
   }
   let cat;
   try {
@@ -565,6 +701,7 @@ function runA1Arm() {
     return {
       ran: false,
       run: { ...run, spawnError: err.message },
+      crossFile,
       recheckReason: null,
       summary: null,
       shapeSuspicious: null,
@@ -595,6 +732,7 @@ function runA1Arm() {
   return {
     ran: true,
     run,
+    crossFile,
     // `recheck.reason` is deliberately NOT part of `summary`: on this host it is
     // "Cannot find package 'recheck' imported from C:\Users\…", an ABSOLUTE PATH.
     // Anything host-specific inside the gated observation would make the digest
@@ -1051,6 +1189,125 @@ export function evaluateGates(observed, baseline, armsRun) {
         why,
       });
     });
+
+    // ------------------------------------------- A1, cross-file (0.3.0-β) ----
+    // These three close most of MEASURED LIMIT 8. `pushCf` has its own deadness
+    // check rather than reusing `push`: the cross-file census runs as a separate
+    // child over a separate package, and a failure of the CORE catalogue must not
+    // report the cross-file gates as "did not run" — that would hide which half
+    // of the rule surface is actually unmeasured.
+    const cf = a1?.crossFile ?? null;
+    const cfDead = !cf || cf.ran !== true;
+    const cfDetail = cfDead
+      ? `the cross-file catalogue did not run: ${cf?.run?.spawnError ?? cf?.run?.stderrTail ?? 'unknown reason'}`
+      : null;
+    const pushCf = (id, fn) => {
+      if (!has(id)) {
+        produced.push(gate(id, FAIL, { detail: 'no baseline entry for this gate — the baseline is out of date' }));
+        return;
+      }
+      if (cfDead) {
+        produced.push(gate(id, FAIL, { detail: cfDetail, why: 'an arm that cannot run is a failure, never a skip' }));
+        return;
+      }
+      produced.push(fn(B[id]));
+    };
+
+    pushCf('a1:crossfile-surface-census', (b) => {
+      const id = 'a1:crossfile-surface-census';
+      const actual = {
+        crossFileRules: cf.summary.crossFileRules,
+        exportedUnregisteredRuleIds: cf.summary.exportedUnregisteredRuleIds,
+        staticFilesScanned: cf.summary.staticFilesScanned,
+        staticLiterals: cf.summary.staticLiterals,
+        staticConstructionSites: cf.summary.staticConstructionSites,
+        staticUncompilable: cf.summary.staticUncompilable,
+      };
+      const moved = diffRecord(actual, b.expected ?? {});
+      const why =
+        'the half of the regex attack surface that lives in packages/analysis-graph. Pinned on the STATIC axis ' +
+        '(literals + `new RegExp(` sites in the built package) because that is a function of the build alone; ' +
+        'the runtime pattern count is a function of the fixture tree and is floored, not pinned.';
+      return moved.length === 0
+        ? gate(id, PASS, { expected: b.expected, actual, why })
+        : gate(id, FAIL, { expected: b.expected, actual, detail: moved.join('; '), why });
+    });
+
+    pushCf('a1:crossfile-shape-suspicious-set', (b) => {
+      const id = 'a1:crossfile-shape-suspicious-set';
+      const exp = b.patterns ?? [];
+      const why =
+        '§9.4 「新ルールで super-linear が混入したら fail」, extended to the cross-file layer. The set is EMPTY today, ' +
+        'and empty is the one value that is stable across both arms: the pattern population of any subset of the ' +
+        'fixture tree is a subset of the population measured here, so an empty set on a working tree stays empty on CI. ' +
+        '★ An empty expectation cannot tell "examined and clean" from "not examined", so the catalogue also reports a ' +
+        'CANARY: three probe strings that must trip exactly their own shape check, plus a benign literal that must trip ' +
+        'none. Measured 2026-08-03: stubbing shapeHits() to `return []` left this gate green and the catalogue exit 0. ' +
+        'The canary is what makes the empty set mean something.';
+      // The canary is checked FIRST. A dead judge reports an empty suspicious
+      // set, which would otherwise satisfy the comparison below.
+      const canary = cf.summary?.shapeChecker;
+      if (!canary || canary.ok !== true) {
+        return gate(id, FAIL, {
+          expected: { shapeCheckerOk: true, fired: ['adjacent-unbounded', 'nested-quantifier', 'quantified-alternation'] },
+          actual: canary ?? null,
+          detail: canary
+            ? `canary missing: ${(canary.missing ?? []).join(', ') || '(none)'}; benign hits: ${(canary.benignHits ?? []).join(', ') || '(none)'}`
+            : 'the catalogue reported no shapeChecker canary at all (stale script or an older catalogue on PATH)',
+          why,
+        });
+      }
+      if (canonicalJson(cf.shapeSuspicious) === canonicalJson(exp)) {
+        return gate(id, PASS, { expected: exp.length, actual: cf.shapeSuspicious.length, why });
+      }
+      const d = diffMultiset(cf.shapeSuspicious, exp);
+      return gate(id, FAIL, {
+        expected: exp,
+        actual: cf.shapeSuspicious,
+        detail: `appeared: ${d.added.join(', ') || '(none)'} | disappeared: ${d.removed.join(', ') || '(none)'}`,
+        why,
+      });
+    });
+
+    pushCf('a1:crossfile-probe-liveness', (b) => {
+      const id = 'a1:crossfile-probe-liveness';
+      const why =
+        'a census that observed nothing is the strongest possible pass on the weakest possible evidence — this project has ' +
+        'already shipped a gate that passed with its fixtures deleted, and an A1 probe that measured 0 patterns and reported PASS. ' +
+        'The exact half of this gate is the positive control (four named product regexes, three of them `new RegExp`-built and ' +
+        'therefore invisible to any literal scan); the floors exist because the fixture tree is bigger in a working copy than on CI.';
+      const exact = {
+        positiveControlOk: cf.summary.positiveControlOk,
+        positiveControlMissing: cf.summary.positiveControlMissing,
+        dynamicRulesWithNoPattern: cf.summary.dynamicRulesWithNoPattern,
+        dynamicAnalyzeErrors: cf.summary.dynamicAnalyzeErrors,
+      };
+      const moved = diffRecord(exact, b.expected ?? {});
+      const floors = [
+        ['dynamicPatternPairs', b.minDynamicPatternPairs],
+        ['dynamicFixtureProjects', b.minFixtureProjects],
+        ['crossCheckDynamicNotStatic', b.minRuntimeOnlyPatterns],
+      ];
+      for (const [key, min] of floors) {
+        if (typeof min !== 'number') {
+          moved.push(`${key}: the baseline declares no floor for it — an unfloored liveness number governs nothing`);
+          continue;
+        }
+        const v = cf.summary[key];
+        if (typeof v !== 'number') moved.push(`${key}: expected a number >= ${min}, got ${JSON.stringify(v)}`);
+        else if (v < min) moved.push(`${key}: expected >= ${min}, got ${v}`);
+      }
+      const actual = {
+        ...exact,
+        dynamicPatternPairs: cf.summary.dynamicPatternPairs,
+        dynamicFixtureProjects: cf.summary.dynamicFixtureProjects,
+        crossCheckDynamicNotStatic: cf.summary.crossCheckDynamicNotStatic,
+        crossCheckStaticNotDynamic: cf.summary.crossCheckStaticNotDynamic,
+      };
+      return moved.length === 0
+        ? gate(id, PASS, { expected: b.expected, actual, why })
+        : gate(id, FAIL, { expected: b.expected, actual, detail: moved.join('; '), why });
+    });
   }
 
   // ----------------------------------------------------------------- B1 ----
@@ -1337,7 +1594,18 @@ async function main(argv) {
         )
       : null,
     a1: raw.a1
-      ? { ran: raw.a1.ran, summary: raw.a1.summary, shapeSuspicious: raw.a1.shapeSuspicious, unreachedRuleIds: raw.a1.unreachedRuleIds }
+      ? {
+          ran: raw.a1.ran,
+          summary: raw.a1.summary,
+          shapeSuspicious: raw.a1.shapeSuspicious,
+          unreachedRuleIds: raw.a1.unreachedRuleIds,
+          // `fixtureRoot` and every path the cross-file census reports are
+          // deliberately NOT here: the digest must not move because someone
+          // pointed `--fixtures` somewhere else. Only the counts and the verdicts.
+          crossFile: raw.a1.crossFile
+            ? { ran: raw.a1.crossFile.ran, summary: raw.a1.crossFile.summary, shapeSuspicious: raw.a1.crossFile.shapeSuspicious }
+            : null,
+        }
       : null,
     b1: raw.b1 ? { scale: raw.b1.scale, metrics: raw.b1.metrics, integrity: raw.b1.integrity } : null,
     b3: raw.b3 ? { scale: raw.b3.scale, metrics: raw.b3.metrics, integrity: raw.b3.integrity } : null,
@@ -1373,7 +1641,7 @@ async function main(argv) {
     environment: {
       nodeVersion: process.version,
       platform: process.platform,
-      childRuns: [raw.a1?.run, raw.b1?.gen, raw.b1?.evalRun, raw.b3?.gen, raw.b3?.evalRun]
+      childRuns: [raw.a1?.run, raw.a1?.crossFile?.run, raw.b1?.gen, raw.b1?.evalRun, raw.b3?.gen, raw.b3?.evalRun]
         .filter(Boolean)
         .map((r) => ({ script: r.script, status: r.status, ok: r.ok, spawnError: r.spawnError })),
       b1SyntaxGateCensus: raw.b1?.syntaxCensus ?? null,

@@ -7,6 +7,26 @@ import {
   type SecurityContext,
   type Severity,
 } from '@vibeguard/findings-schema';
+import type { AiProvenanceObservation } from './provenance.js';
+
+// The provenance vocabulary is re-exported from the package root so a consumer
+// gets the types without reaching for a subpath. The COLLECTOR that reads a
+// repository is deliberately not re-exported here — it lives behind
+// `@vibeguard/sarif-adapter/node`, because it imports `node:child_process` and
+// this entry point must stay importable in a browser bundle. See the header of
+// `./provenance-node.ts`.
+export {
+  AI_PROVENANCE_CLAIM_LIMIT,
+  KNOWN_AI_ASSISTANT_IDS,
+  collectAiProvenance,
+  parseGitLogRecords,
+  type AiAuthorshipMarker,
+  type AiMarkerChannel,
+  type AiMarkerMatchedOn,
+  type AiProvenanceInput,
+  type AiProvenanceInspection,
+  type AiProvenanceObservation,
+} from './provenance.js';
 
 export interface SarifLog {
   $schema: string;
@@ -25,6 +45,19 @@ export interface SarifRun {
   };
   results: SarifResult[];
   invocations?: SarifInvocation[];
+  /**
+   * Run-scoped property bag. SARIF 2.1.0 §3.14.35.
+   *
+   * `provenance` sits here rather than on a result because it is a statement
+   * about the REPOSITORY, not about any finding. Attaching it to results would
+   * put an authorship marker next to a vulnerability in the code-scanning UI,
+   * which is exactly the "AI-written therefore dangerous" reading the collector
+   * is built to refuse: nothing in the marker set is evidence about the finding
+   * beside it, and no rendering should be able to imply that it is.
+   */
+  properties?: {
+    provenance?: AiProvenanceObservation;
+  };
 }
 
 /**
@@ -289,6 +322,47 @@ export interface ToSarifOptions {
    * them to fix one.
    */
   uriPrefix?: string;
+  /**
+   * AI-authorship markers observed in the repository under scan, from
+   * `readAiProvenance` in `@vibeguard/sarif-adapter/node` (or hand-built).
+   *
+   * Emitted as `run.properties.provenance` — and ONLY when it carries at least
+   * one marker. See the emission rule inside `toSarif`.
+   */
+  provenance?: AiProvenanceObservation;
+}
+
+/**
+ * ★ THE EMISSION RULE, AND WHY AN EMPTY OBSERVATION IS DROPPED ENTIRELY.
+ *
+ * The file's standing discipline is that an absent key and a key holding
+ * `undefined` are the same thing in JSON and different things to a consumer
+ * enumerating them — hence conditional spread everywhere above. Provenance adds
+ * a case that discipline does not settle on its own: an observation that was
+ * MADE and found nothing.
+ *
+ * It is dropped, and the argument is epistemic rather than cosmetic. The
+ * collector's claim limit says outright that most AI-assisted work carries no
+ * marker, so "we read 500 commits and found no declaration" tells a reader
+ * exactly as much about whether an assistant wrote this code as "we never
+ * looked" does: nothing. The two states are informationally identical, so
+ * giving them two different JSON shapes would invite a consumer to treat one of
+ * them as a negative result — an `observedAuthorshipMarkers: []` rendered as "no
+ * AI involvement detected" is the single most likely misreading of this whole
+ * feature, and it becomes possible the moment the empty array is emitted.
+ *
+ * This is the one place where the "absent ≠ empty" rule points the other way,
+ * and it points that way because here the two really do mean the same thing.
+ *
+ * The check is on the marker list rather than on `provenance` being supplied,
+ * because `ToSarifOptions` is public: a caller can hand in an observation it
+ * built itself, and the guarantee has to hold for that caller too.
+ */
+function provenanceProperties(
+  provenance: AiProvenanceObservation | undefined,
+): Pick<SarifRun, 'properties'> {
+  if (!provenance || provenance.observedAuthorshipMarkers.length === 0) return {};
+  return { properties: { provenance } };
 }
 
 export function toSarif(scan: ScanResponse, options: ToSarifOptions = {}): SarifLog {
@@ -306,6 +380,7 @@ export function toSarif(scan: ScanResponse, options: ToSarifOptions = {}): Sarif
       },
     },
     results,
+    ...provenanceProperties(options.provenance),
   };
   const ruleErrors = scan.ruleErrors ?? [];
   const degradations = scan.degradations ?? [];

@@ -91,6 +91,42 @@ export {
 export { crossFileRules, scatteredAuthorization } from './design-smells-crossfile/index.js';
 
 /**
+ * Cross-file rules that keep a NAMED export beside their registry entry.
+ *
+ * ★ STATUS CORRECTED 2026-08-03. This block used to be headed "CANDIDATE
+ * cross-file rules — exported, deliberately NOT in `crossFileRules`". All three
+ * passed the corpus sweep and were registered in
+ * `design-smells-crossfile/index.ts`; the heading was simply not updated when
+ * they moved, so the file said the opposite of what it does. The named exports
+ * remain because that is what `scripts/crossfile-corpus-sweep.mjs` resolves
+ * against, and re-measuring a shipped rule must not require re-registering it.
+ * `a1:crossfile-surface-census` now pins `exportedUnregisteredRuleIds` (0
+ * today), so the exported-but-unregistered set cannot drift unremarked in
+ * either direction again.
+ *
+ * ★ EXPORTED AND REGISTERED ARE DIFFERENT STATES, ON PURPOSE.
+ *
+ * `design-smells-crossfile/index.ts` records what admission to the registry
+ * costs: not passing tests, but a sweep of `paper_data/corpus1k` coming back
+ * with no false positives. VG-SMELL-041 and VG-SMELL-052 were both submitted
+ * with complete fixture sets and both rejected by that sweep.
+ *
+ * That gate used to be uncheckable before the fact. The only way to run a rule
+ * over the corpus was `analyzeProject`, which runs `crossFileRules` — so a
+ * candidate had to be registered to be measured, and measuring it was therefore
+ * impossible until after it shipped. Exporting without registering breaks the
+ * circle: `scripts/crossfile-corpus-sweep.mjs` resolves rules from this
+ * module's named exports, so a candidate is importable, testable and
+ * measurable while remaining invisible to every user.
+ *
+ * A name leaving this block and joining `crossFileRules` is the moment the
+ * evidence was judged sufficient. Nothing else about the rule changes.
+ */
+export { missingCentralAuthBoundary } from './design-smells-crossfile/missing-central-auth-boundary.js';
+export { inlineAuthorizationLogic } from './design-smells-crossfile/inline-authorization-logic.js';
+export { refusedSecurityInheritance } from './design-smells-crossfile/refused-security-inheritance.js';
+
+/**
  * VG-SMELL-010's pre-threshold population, for the recall / sensitivity analysis.
  *
  * Imported from the RULE MODULE rather than from `design-smells-crossfile/

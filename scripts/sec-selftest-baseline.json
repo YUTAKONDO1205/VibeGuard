@@ -156,10 +156,11 @@
     },
     "a1:surface-census": {
       "_why": "The ReDoS attack surface, counted. A new rule adds patterns; this is what makes that visible the day it lands rather than the day someone writes an attack string for it.",
+      "_rebaselined": "0.3.0-beta: 71 rules / 127 patterns -> 72 / 137. VG-AISC-004 (Mock/Dummy Security Leftover) landed in packages/rules and brought 10 patterns with it. The gate fired, which is it working; the number was only moved after the surface it counts was measured, not because the count was inconvenient. Evidence gathered before this edit: (1) a1:shape-suspicious-set PASSES, so none of the 10 has a superlinear-prone shape; (2) a1:catalog-errors and a1:unreached-literals both PASS; (3) the real product path was timed against seven adversarial inputs of 30-60k characters chosen to stress this rule's own vocabulary (long space/word/brace/paren runs after a mock-ish prefix, and 3,000 repetitions of a mock-auth function) and the WORST full scan was 41 ms against a 3,000 ms D3 contract. The timing harness carried a positive control (a hard-coded AWS key returning VG-SEC-001, and mockAuthenticate returning VG-AISC-004) because a harness that finds nothing measures nothing - an earlier version of this probe read the wrong field, reported 0 patterns, and would have declared PASS having tested nothing at all.",
       "expected": {
-        "totalRules": 71,
-        "rulesWithPatterns": 71,
-        "totalPatterns": 127
+        "totalRules": 72,
+        "rulesWithPatterns": 72,
+        "totalPatterns": 137
       },
       "_measuredNote": "rulesWithPatterns === totalRules is load-bearing: sec-a1-catalog.mjs found that a source-literal scan misses VG-CRYPTO-002 (it builds its patterns with `new RegExp(...)`), so the catalogue hooks RegExp.prototype.exec instead. A rule that stops reporting patterns would shrink the surface silently."
     },
@@ -194,6 +195,37 @@
         "patternsFailingToCompile": 0,
         "ruleInvocationErrors": 0
       }
+    },
+    "a1:crossfile-surface-census": {
+      "_why": "The OTHER half of the regex attack surface: packages/analysis-graph, the cross-file design-smell layer that ships in the CLI and the Action. sec-a1-catalog.mjs loads packages/rules ONLY, so until this gate existed a super-linear pattern added to a cross-file rule passed all nineteen gates (MEASURED LIMIT 8). Pinned on the STATIC axis — regex literals and `new RegExp(` construction sites in the built package — because that is a function of the build alone.",
+      "_whyNotOneCensusWithA1SurfaceCensus": "A core rule's pattern set is fixed by the build: one inert probe string reaches every pattern and the count cannot move without a source change. A cross-file rule builds patterns FROM ITS INPUT (`new RegExp(String.raw`\\b${escaped}\\b`)` over identifiers read out of the analysed file), so the number of patterns it executes is a function of the FIXTURE TREE, not of the build. MEASURED: 332 (rule, pattern) pairs over the 130 fixture projects present in the working tree that recorded this, and 270 over the 86 that were tracked in git at that moment. An exact pin on that number fails whenever a fixture lands, and a gate people re-record without reading is worse than no gate.",
+      "_measuredCoverage": "23 built .js files (test bundles excluded), 194 regex literals of which 124 are in design-smells-crossfile/, and 24 `new RegExp(` sites. Cross-check against the runtime arm: 101 of the patterns that actually executed appear in NO source literal (they are constructed), which is the VG-CRYPTO-002 lesson reproduced in this layer and the reason the static count alone is not called coverage.",
+      "expected": {
+        "crossFileRules": 11,
+        "exportedUnregisteredRuleIds": 0,
+        "staticFilesScanned": 23,
+        "staticLiterals": 194,
+        "staticConstructionSites": 24,
+        "staticUncompilable": 0
+      }
+    },
+    "a1:crossfile-shape-suspicious-set": {
+      "_why": "§9.4「新ルールで super-linear が混入したら fail」 for the cross-file layer, over BOTH arms: the regex literals found statically in the built package, and the fully-resolved patterns captured at runtime (interpolation already applied, so an `(a+)+` assembled from a template is visible here and nowhere else).",
+      "_measuredNote": "EMPTY, measured over 194 static literals and 332 runtime (rule, pattern) pairs with the same three shape checks sec-a1-catalog.mjs uses. Empty is also the one value that is stable across fixture sets: the runtime pattern population of any subset of the fixture tree is a subset of the population measured here, so an empty set on a dirty working tree stays empty on a CI checkout with fewer fixtures. As in a1:shape-suspicious-set this pins the SHAPE census, not safety — it is a heuristic, and no recheck/automaton oracle is wired into the cross-file script.",
+      "patterns": []
+    },
+    "a1:crossfile-probe-liveness": {
+      "_why": "The anti-vacuity half. `0 patterns observed` and `no super-linear pattern observed` are the same JSON, and this repo has produced both accidents already — a corpus gate that passed with its fixtures deleted, and an A1 timing probe that read the wrong field, measured 0 patterns and declared PASS. The positive control is the exact part: four named product regexes must have executed. Three of them (authzComparisonPattern / authzFlagPattern / authzMembershipPattern) are built with `new RegExp(String.raw...)` and are invisible to any source-literal scan, so they only appear if the runtime hook genuinely ran; TEST_PATH is a plain literal, so a failure distinguishes 'the hook is broken' from 'the driver reached no rule at all'.",
+      "_whyFloorsNotPins": "The driver is samples/crossfile-fixtures, whose size differs between a working tree and a fresh checkout (130 vs 86 fixture projects when this was recorded — 44 of the 0.3.0-β fixture directories were still untracked). The floors are set well under the TRACKED-only measurement (270 pairs / 86 projects / 75 runtime-only patterns) so a CI checkout passes, and the sharp checks are the exact ones beside them.",
+      "expected": {
+        "positiveControlOk": true,
+        "positiveControlMissing": [],
+        "dynamicRulesWithNoPattern": 0,
+        "dynamicAnalyzeErrors": 0
+      },
+      "minDynamicPatternPairs": 200,
+      "minFixtureProjects": 60,
+      "minRuntimeOnlyPatterns": 40
     },
     "a1:recheck-superlinear": {
       "_why": "The automaton oracle. OPTIONAL and recorded here as UNMEASURED: recheck is not a devDependency (JVM jar, `npm install --no-save recheck`), so on CI it is absent and this gate reports `unmeasured`. It is never a pass.",

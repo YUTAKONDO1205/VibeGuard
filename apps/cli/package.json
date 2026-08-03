@@ -16,6 +16,7 @@
   "dependencies": {
     "@vibeguard/analysis-graph": "0.3.3",
     "@vibeguard/analyzer-core": "0.3.3",
+    "@vibeguard/external-adapters": "0.3.3",
     "@vibeguard/findings-schema": "0.3.3",
     "@vibeguard/remediation-engine": "0.3.3",
     "@vibeguard/sarif-adapter": "0.3.3"

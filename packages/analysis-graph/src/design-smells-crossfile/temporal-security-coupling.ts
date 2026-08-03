@@ -1,3 +1,4 @@
+// vibeguard:disable-file VG-INJ-006 reason="the `el.innerHTML = escapeHtml(name)` occurrences are PROSE inside this file's own doc comment, written to explain why the sink span stops at the first `(` — quoting a correctly-sanitised assignment in order to explain a false positive is not an unsafe assignment; same self-scan exemption class as scripts/sec-transfer-semgrep.mjs"
 // VG-SMELL-041 — Temporal Security Coupling. The first rule in this package
 // whose evidence is a DATAFLOW rather than a shape.
 //

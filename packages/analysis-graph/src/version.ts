@@ -19,4 +19,21 @@
  * that resolves at runtime in ESM but leaves the constant `undefined` at module
  * evaluation time, which would silently stamp every scan with no version.
  */
-export const ANALYSIS_GRAPH_VERSION = '0.3.0-alpha.1';
+/**
+ * ★ 0.3.0-alpha.1 → 0.3.0-beta.1 (0.3.0-β).
+ *
+ * It should have moved when the β wave landed and did not, and the consequence
+ * was measurable rather than cosmetic: a scan run against the four rules added
+ * in β (VG-SMELL-020/021/041/052) reported `engineVersions['analysis-graph'] =
+ * '0.3.0-alpha.1'` — the same string an alpha build reported while running half
+ * as many rules. This axis exists precisely so that two runs which can disagree
+ * are not labelled identically, so leaving it still was the one failure it is
+ * supposed to make impossible.
+ *
+ * β adds VG-SMELL-011, VG-SMELL-013 and VG-SMELL-030 to the four above, turns on
+ * VG-SMELL-010's Python arm, and repairs a VG-AISC-002 false-positive class that
+ * removed 23 findings across `paper_data/corpus1k`. Verdicts move in BOTH
+ * directions across this boundary, which is what a version change on this axis
+ * means.
+ */
+export const ANALYSIS_GRAPH_VERSION = '0.3.0-beta.1';

@@ -293,3 +293,81 @@ describe('indexFile — offsets stay valid in the original content', () => {
     expect(idx.imports[0]!.specifier).toBe('./deeply/nested/module');
   });
 });
+
+describe('indexFile — baseClasses (0.3.0-β, for VG-SMELL-030)', () => {
+  it('records a JS/TS extends clause', () => {
+    const idx = indexFile(js('export class AdminController extends BaseController {\n}\n'));
+    const cls = idx.symbols.find((s) => s.kind === 'class');
+    expect(cls?.baseClasses).toEqual(['BaseController']);
+  });
+
+  it('records a dotted base exactly as written, without resolving it', () => {
+    const idx = indexFile(js('class A extends mod.Base {\n}\n'));
+    expect(idx.symbols.find((s) => s.kind === 'class')?.baseClasses).toEqual(['mod.Base']);
+  });
+
+  it('omits the key entirely when there is no extends clause', () => {
+    const idx = indexFile(js('class Plain {\n}\n'));
+    const cls = idx.symbols.find((s) => s.kind === 'class');
+    // Absent, not `[]`: the same discipline the SARIF properties bag follows.
+    // A consumer enumerating keys must be able to tell "no base" from "a base
+    // we failed to read", and an empty array reads as the second.
+    expect(cls).toBeDefined();
+    expect('baseClasses' in cls!).toBe(false);
+  });
+
+  it('records every base of a Python multiple-inheritance declaration', () => {
+    const idx = indexFile(py('class View(LoginRequiredMixin, DetailView):\n    pass\n'));
+    expect(idx.symbols.find((s) => s.kind === 'class')?.baseClasses).toEqual([
+      'LoginRequiredMixin',
+      'DetailView',
+    ]);
+  });
+
+  it('drops Python keyword arguments from the base list', () => {
+    // `metaclass=ABCMeta` is not a base, and a consumer resolving it against
+    // the import graph would either miss or match something unrelated.
+    const idx = indexFile(py('class A(Base, metaclass=ABCMeta):\n    pass\n'));
+    expect(idx.symbols.find((s) => s.kind === 'class')?.baseClasses).toEqual(['Base']);
+  });
+
+  it('omits the key for a Python class with no bases', () => {
+    const idx = indexFile(py('class Plain:\n    pass\n'));
+    const cls = idx.symbols.find((s) => s.kind === 'class');
+    expect(cls).toBeDefined();
+    expect('baseClasses' in cls!).toBe(false);
+  });
+});
+
+describe('indexFile — C definitions with the return type on its own line', () => {
+  it('indexes the LLVM/libcxxabi style, where the type sits above the name', () => {
+    // ★ FOUND BY A CORPUS SWEEP, NOT BY REVIEW. Before this, every function
+    // written this way was missing from `symbols` outright — and because a
+    // missing symbol is silent, it surfaced only downstream: VG-AISC-002
+    // reported `parse_number` in lucasg/Dependencies as a call to a function
+    // "defined nowhere in the project", while pointing at the line of its own
+    // definition.
+    const idx = indexFile(
+      c('const char*\nparse_number(const char* first, const char* last)\n{\n  return first;\n}\n'),
+    );
+    expect(idx.symbols.map((s) => s.name)).toContain('parse_number');
+  });
+
+  it('handles the storage-class form too', () => {
+    const idx = indexFile(c('static bool\nparse_thing(int a)\n{\n  return true;\n}\n'));
+    expect(idx.symbols.map((s) => s.name)).toContain('parse_thing');
+  });
+
+  it('still indexes the same-line form it always did', () => {
+    const idx = indexFile(c('int crypto_init(void)\n{\n  return 0;\n}\n'));
+    expect(idx.symbols.map((s) => s.name)).toContain('crypto_init');
+  });
+
+  it('still refuses a PROTOTYPE, which is the distinction the trailing brace makes', () => {
+    // A header declaration must not count as a definition: #20b reasons about
+    // "defined but never called", and counting prototypes would make every
+    // externally-called function look defined-and-unused.
+    const idx = indexFile(c('const char*\nparse_number(const char* first);\n'));
+    expect(idx.symbols.map((s) => s.name)).not.toContain('parse_number');
+  });
+});

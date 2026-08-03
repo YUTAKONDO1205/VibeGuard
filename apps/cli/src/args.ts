@@ -50,6 +50,24 @@ export interface CliArgs {
    * per-file scan and a surprise if it happens without being asked for.
    */
   includeDesignSmells: boolean;
+  /**
+   * Cross-check this scan against reports produced by other SAST tools (H3).
+   *
+   * ★ REPORTS ARE INGESTED, TOOLS ARE NEVER INVOKED. There is no `spawn` behind
+   * this flag and there is not going to be one here. `@vibeguard/external-adapters`
+   * parses a report the user obtained however they like; making the CLI run
+   * Semgrep would add a subprocess, a network dependency (rule packs) and a
+   * telemetry surface to a product whose first pillar is that it sends nothing.
+   *
+   * `--ensemble` on its own is legal and does something useful: it reports that
+   * no external report was supplied and that the ensemble is degraded to
+   * VibeGuard alone. That is deliberate — "Semgrep found nothing" and "Semgrep
+   * was never run" are different facts, and a merger that lets the second read
+   * as the first is lying about coverage.
+   */
+  ensemble: boolean;
+  semgrepReport?: string;
+  codeqlReport?: string;
   showHelp: boolean;
   showVersion: boolean;
 }
@@ -82,6 +100,14 @@ Options:
                                 so it costs more than the default per-file scan.
                                 CLI and GitHub Action only — not available in the editor
                                 or browser extensions.
+  --ensemble                    Cross-check findings against reports from other SAST tools.
+                                Reports are INGESTED, never produced: this never runs
+                                Semgrep or CodeQL, so there is no subprocess, no rule-pack
+                                download and no telemetry. Without a report it says so and
+                                degrades to VibeGuard alone rather than reporting a clean
+                                cross-check it never performed.
+  --semgrep-report <path>       Semgrep --json output to cross-check against (implies --ensemble)
+  --codeql-report <path>        CodeQL SARIF output to cross-check against (implies --ensemble)
   --known-only                  Only scan files whose extension maps to a known language
   --config <path>               Path to a vibeguard config file (.vibeguardrc.json)
                                 When omitted, the file is auto-discovered in the scan target.
@@ -116,6 +142,7 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { version:
     ignore: [],
     noConfig: false,
     includeDesignSmells: false,
+    ensemble: false,
     showHelp: false,
     showVersion: false,
   };
@@ -189,6 +216,21 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { version:
     }
     if (a === '--include-design-smells') {
       args.includeDesignSmells = true;
+      continue;
+    }
+    if (a === '--ensemble') {
+      args.ensemble = true;
+      continue;
+    }
+    if (a === '--semgrep-report' || a === '--codeql-report') {
+      const v = argv[++i];
+      if (!v) return { error: `${a} requires a path` };
+      // Supplying a report implies the ensemble. Requiring both flags would let
+      // `--semgrep-report x.json` alone be silently ignored, which is the shape
+      // of bug where a user believes a cross-check ran and it did not.
+      args.ensemble = true;
+      if (a === '--semgrep-report') args.semgrepReport = v;
+      else args.codeqlReport = v;
       continue;
     }
     if (a === '--fix') {

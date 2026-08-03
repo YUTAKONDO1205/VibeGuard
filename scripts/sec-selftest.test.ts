@@ -491,6 +491,36 @@ describe('evaluateGates', () => {
         },
         shapeSuspicious: [],
         unreachedRuleIds: [],
+        // The cross-file half of the A1 arm. Present here with a healthy
+        // observation because this test is about `unmeasured` never counting as a
+        // pass; a missing `crossFile` block would make three gates fail for an
+        // unrelated reason and stop the assertion below from proving anything.
+        crossFile: {
+          ran: true,
+          summary: {
+            crossFileRules: 1,
+            exportedUnregisteredRuleIds: 0,
+            staticFilesScanned: 1,
+            staticLiterals: 1,
+            staticConstructionSites: 0,
+            staticUncompilable: 0,
+            dynamicPatternPairs: 5,
+            dynamicFixtureProjects: 2,
+            dynamicRulesWithNoPattern: 0,
+            dynamicAnalyzeErrors: 0,
+            positiveControlOk: true,
+            positiveControlMissing: [],
+            crossCheckDynamicNotStatic: 4,
+            crossCheckStaticNotDynamic: 0,
+            shapeChecker: {
+              ok: true,
+              fired: ['adjacent-unbounded', 'nested-quantifier', 'quantified-alternation'],
+              missing: [],
+              benignHits: [],
+            },
+          },
+          shapeSuspicious: [],
+        },
       },
     };
     const baseline = {
@@ -501,13 +531,35 @@ describe('evaluateGates', () => {
         'a1:catalog-errors': {
           expected: { rulesWithoutLiteral: 0, patternsFailingToCompile: 0, ruleInvocationErrors: 0 },
         },
+        'a1:crossfile-surface-census': {
+          expected: {
+            crossFileRules: 1,
+            exportedUnregisteredRuleIds: 0,
+            staticFilesScanned: 1,
+            staticLiterals: 1,
+            staticConstructionSites: 0,
+            staticUncompilable: 0,
+          },
+        },
+        'a1:crossfile-shape-suspicious-set': { patterns: [] },
+        'a1:crossfile-probe-liveness': {
+          expected: {
+            positiveControlOk: true,
+            positiveControlMissing: [],
+            dynamicRulesWithNoPattern: 0,
+            dynamicAnalyzeErrors: 0,
+          },
+          minDynamicPatternPairs: 1,
+          minFixtureProjects: 1,
+          minRuntimeOnlyPatterns: 1,
+        },
         'a1:recheck-superlinear': { measured: false, superLinearRuleIds: null },
       },
       optionalGates: ['a1:recheck-superlinear'],
     };
     const r = evaluateGates(observed, baseline, ['a1']);
     expect(verdictOf(r.gates, 'a1:recheck-superlinear')).toBe('unmeasured');
-    expect(r.summary.passed).toBe(4);
+    expect(r.summary.passed).toBe(7);
     // Tolerated (exit 0) because the baseline pre-declares it optional …
     expect(r.summary.ok).toBe(true);
     // … but the run still has NOT demonstrated everything the baseline names.
@@ -517,6 +569,243 @@ describe('evaluateGates', () => {
     const strict = { ...baseline, optionalGates: [] };
     const r2 = evaluateGates(observed, strict, ['a1']);
     expect(r2.summary.ok).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A1, cross-file half — the gates that close MEASURED LIMIT 8
+// ---------------------------------------------------------------------------
+// These are unit tests over `evaluateGates` rather than end-to-end runs on
+// purpose. The end-to-end property (a super-linear regex injected into a
+// cross-file rule makes the build fail) was verified by mutating a scratchpad
+// COPY of `packages/analysis-graph/dist`, which is not something a test in this
+// repo may do — it would have to write into the built product. What is testable
+// here is the decision function: given an observation, does the gate reach the
+// verdict the mutation experiment showed it must?
+describe('evaluateGates — a1 cross-file', () => {
+  const verdictOf = (gates: Array<{ id: string; verdict: string }>, id: string) =>
+    gates.find((g) => g.id === id)?.verdict;
+
+  const healthySummary = () => ({
+    crossFileRules: 11,
+    exportedUnregisteredRuleIds: 0,
+    staticFilesScanned: 23,
+    staticLiterals: 194,
+    staticConstructionSites: 24,
+    staticUncompilable: 0,
+    dynamicPatternPairs: 332,
+    dynamicFixtureProjects: 130,
+    dynamicRulesWithNoPattern: 0,
+    dynamicAnalyzeErrors: 0,
+    positiveControlOk: true,
+    positiveControlMissing: [] as string[],
+    crossCheckDynamicNotStatic: 101,
+    crossCheckStaticNotDynamic: 13,
+    // The shape checker's own positive control. Present here because a healthy
+    // observation has it; `a1:crossfile-shape-suspicious-set` fails without it
+    // on purpose, since the suspicious set it compares is EMPTY and an empty
+    // actual matching an empty expectation is also what a removed checker
+    // produces. See the `shapeChecker` cases below.
+    shapeChecker: {
+      ok: true,
+      fired: ['adjacent-unbounded', 'nested-quantifier', 'quantified-alternation'],
+      missing: [] as string[],
+      benignHits: [] as string[],
+    },
+  });
+
+  const observedWith = (patch: Record<string, unknown> = {}, shapeSuspicious: string[] = []) => ({
+    a1: {
+      ran: true,
+      summary: {
+        totalRules: 1,
+        rulesWithPatterns: 1,
+        totalPatterns: 1,
+        rulesWithoutLiteral: 0,
+        patternsFailingToCompile: 0,
+        ruleInvocationErrors: 0,
+        recheckAvailable: false,
+        recheckSuperLinearRuleIds: null,
+      },
+      shapeSuspicious: [],
+      unreachedRuleIds: [],
+      crossFile: { ran: true, summary: { ...healthySummary(), ...patch }, shapeSuspicious },
+    },
+  });
+
+  const cfBaseline = () => ({
+    gates: {
+      'a1:surface-census': { expected: { totalRules: 1, rulesWithPatterns: 1, totalPatterns: 1 } },
+      'a1:shape-suspicious-set': { patterns: [] },
+      'a1:unreached-literals': { ruleIds: [] },
+      'a1:catalog-errors': {
+        expected: { rulesWithoutLiteral: 0, patternsFailingToCompile: 0, ruleInvocationErrors: 0 },
+      },
+      'a1:crossfile-surface-census': {
+        expected: {
+          crossFileRules: 11,
+          exportedUnregisteredRuleIds: 0,
+          staticFilesScanned: 23,
+          staticLiterals: 194,
+          staticConstructionSites: 24,
+          staticUncompilable: 0,
+        },
+      },
+      'a1:crossfile-shape-suspicious-set': { patterns: [] as string[] },
+      'a1:crossfile-probe-liveness': {
+        expected: {
+          positiveControlOk: true,
+          positiveControlMissing: [] as string[],
+          dynamicRulesWithNoPattern: 0,
+          dynamicAnalyzeErrors: 0,
+        },
+        minDynamicPatternPairs: 200,
+        minFixtureProjects: 60,
+        minRuntimeOnlyPatterns: 40,
+      },
+      'a1:recheck-superlinear': { measured: false, superLinearRuleIds: null },
+    },
+    optionalGates: ['a1:recheck-superlinear'],
+  });
+
+  it('passes on the healthy observation', () => {
+    const r = evaluateGates(observedWith(), cfBaseline(), ['a1']);
+    expect(r.summary.failed).toBe(0);
+    expect(verdictOf(r.gates, 'a1:crossfile-surface-census')).toBe('pass');
+    expect(verdictOf(r.gates, 'a1:crossfile-shape-suspicious-set')).toBe('pass');
+    expect(verdictOf(r.gates, 'a1:crossfile-probe-liveness')).toBe('pass');
+  });
+
+  // ★ The vacuous-pass experiment, as a verdict.
+  //
+  // On 2026-08-03 the shape checker was stubbed to return no hits at all, and
+  // NOTHING changed: the catalogue printed the same lines, `--check` exited 0,
+  // and this gate passed. The suspicious set it pins is empty, and an empty
+  // actual equalling an empty expectation is exactly what a removed checker
+  // produces. The core gate does not have this hole only because its expected
+  // set is non-empty; that is luck, not design.
+  //
+  // These two cases are the fix's reason for existing. If they are ever relaxed
+  // to make an unrelated refactor pass, the gate goes back to certifying
+  // nothing — so they assert the two ways a checker dies: it stops answering
+  // (missing) and it answers indiscriminately (benignHits).
+  it('fails when the shape checker itself is dead, even though the suspicious set is empty', () => {
+    const r = evaluateGates(
+      observedWith({
+        shapeChecker: { ok: false, fired: [], missing: ['adjacent-unbounded', 'nested-quantifier', 'quantified-alternation'], benignHits: [] },
+      }),
+      cfBaseline(),
+      ['a1'],
+    );
+    expect(verdictOf(r.gates, 'a1:crossfile-shape-suspicious-set')).toBe('fail');
+    // The census is a different axis and must be unmoved: a dead judge is not a
+    // changed surface, and conflating them sends the next reader to the wrong file.
+    expect(verdictOf(r.gates, 'a1:crossfile-surface-census')).toBe('pass');
+  });
+
+  it('fails when the shape checker calls a benign literal suspicious', () => {
+    const r = evaluateGates(
+      observedWith({
+        shapeChecker: {
+          ok: false,
+          fired: ['adjacent-unbounded', 'nested-quantifier', 'quantified-alternation'],
+          missing: [],
+          benignHits: ['nested-quantifier'],
+        },
+      }),
+      cfBaseline(),
+      ['a1'],
+    );
+    expect(verdictOf(r.gates, 'a1:crossfile-shape-suspicious-set')).toBe('fail');
+  });
+
+  // An older catalogue predates the canary and reports no `shapeChecker` at all.
+  // It must FAIL rather than inherit a pass: "the field is absent" is the same
+  // evidence as "the checker is gone", and defaulting absence to healthy is how
+  // the original hole was built.
+  it('fails when the catalogue reports no canary at all', () => {
+    const r = evaluateGates(observedWith({ shapeChecker: null }), cfBaseline(), ['a1']);
+    expect(verdictOf(r.gates, 'a1:crossfile-shape-suspicious-set')).toBe('fail');
+  });
+
+  // The mutation experiment, as a verdict: injecting `/(\s+)+$/` as a literal
+  // into a cross-file rule moved staticLiterals 194→195 AND put entries in the
+  // suspicious set. Both halves must fail, because either one alone would let a
+  // reader conclude the other is fine.
+  it('fails both gates when a super-linear literal is added to a cross-file rule', () => {
+    const r = evaluateGates(
+      observedWith({ staticLiterals: 195, dynamicPatternPairs: 335 }, [
+        'dynamic:VG-SMELL-013#a2r1en=nested-quantifier',
+        'static:design-smells-crossfile/authz-lexicon.js#4=nested-quantifier',
+      ]),
+      cfBaseline(),
+      ['a1'],
+    );
+    expect(verdictOf(r.gates, 'a1:crossfile-surface-census')).toBe('fail');
+    expect(verdictOf(r.gates, 'a1:crossfile-shape-suspicious-set')).toBe('fail');
+    // The CORE census must be untouched — that difference is the whole point of
+    // the second gate, and a change that made the core gate absorb this would
+    // silently re-merge two censuses that are not on the same axis.
+    expect(verdictOf(r.gates, 'a1:surface-census')).toBe('pass');
+    expect(verdictOf(r.gates, 'a1:shape-suspicious-set')).toBe('pass');
+  });
+
+  // The residue, MEASURED LIMIT 8a: a pattern constructed in a branch no fixture
+  // reaches is counted but never resolved, so the COUNT is the only defence.
+  it('fails the census (not the shape set) when only a construction site appears', () => {
+    const r = evaluateGates(observedWith({ staticConstructionSites: 25 }), cfBaseline(), ['a1']);
+    expect(verdictOf(r.gates, 'a1:crossfile-surface-census')).toBe('fail');
+    expect(verdictOf(r.gates, 'a1:crossfile-shape-suspicious-set')).toBe('pass');
+  });
+
+  // The accident this repo has already had twice: a probe that observed nothing
+  // and reported PASS. An empty observation must be a FAILURE, not a clean sheet.
+  it('fails when the positive control did not fire', () => {
+    const r = evaluateGates(
+      observedWith({ positiveControlOk: false, positiveControlMissing: ['TEST_PATH'] }),
+      cfBaseline(),
+      ['a1'],
+    );
+    expect(verdictOf(r.gates, 'a1:crossfile-probe-liveness')).toBe('fail');
+  });
+
+  it('fails when the fixture driver silently shrinks past the floor', () => {
+    const r = evaluateGates(observedWith({ dynamicPatternPairs: 3, dynamicFixtureProjects: 1 }), cfBaseline(), ['a1']);
+    expect(verdictOf(r.gates, 'a1:crossfile-probe-liveness')).toBe('fail');
+  });
+
+  it('fails when a cross-file rule stops executing any pattern', () => {
+    const r = evaluateGates(observedWith({ dynamicRulesWithNoPattern: 1 }), cfBaseline(), ['a1']);
+    expect(verdictOf(r.gates, 'a1:crossfile-probe-liveness')).toBe('fail');
+  });
+
+  // A baseline that declares no floor governs nothing; an unfloored liveness
+  // number is the same vacuous pass as an empty `expected` record.
+  it('fails when the baseline declares a liveness number with no floor', () => {
+    const b = cfBaseline();
+    delete (b.gates['a1:crossfile-probe-liveness'] as Record<string, unknown>).minDynamicPatternPairs;
+    const r = evaluateGates(observedWith(), b, ['a1']);
+    expect(verdictOf(r.gates, 'a1:crossfile-probe-liveness')).toBe('fail');
+  });
+
+  // A dead cross-file child must not take the core gates down with it, and must
+  // not read as a skip.
+  it('fails only the cross-file gates when the cross-file census could not run', () => {
+    const o = observedWith();
+    (o.a1 as Record<string, unknown>).crossFile = { ran: false, run: { ok: false, spawnError: 'boom' }, summary: null, shapeSuspicious: null };
+    const r = evaluateGates(o, cfBaseline(), ['a1']);
+    expect(verdictOf(r.gates, 'a1:crossfile-surface-census')).toBe('fail');
+    expect(verdictOf(r.gates, 'a1:crossfile-shape-suspicious-set')).toBe('fail');
+    expect(verdictOf(r.gates, 'a1:crossfile-probe-liveness')).toBe('fail');
+    expect(verdictOf(r.gates, 'a1:surface-census')).toBe('pass');
+    expect(r.gates.find((g: { id: string }) => g.id === 'a1:crossfile-surface-census')?.detail).toContain('boom');
+  });
+
+  // A candidate rule joining the registry is exactly the event this census
+  // exists to notice, from either direction.
+  it('fails when a rule-shaped export appears outside the registry', () => {
+    const r = evaluateGates(observedWith({ exportedUnregisteredRuleIds: 1 }), cfBaseline(), ['a1']);
+    expect(verdictOf(r.gates, 'a1:crossfile-surface-census')).toBe('fail');
   });
 });
 

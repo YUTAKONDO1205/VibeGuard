@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { RuleContext, RuleDefinition } from '../rule-types.js';
 import { evalUsage, sqlStringConcat, innerHtmlAssignment, dangerousDeserialization, prototypePollutingMerge } from './injection.js';
 import { longSecurityMethod, primitiveRoleCheck, securitySwissArmyKnife } from './design-smells-single.js';
-import { hallucinatedDependency } from './ai-supply-chain.js';
+import { hallucinatedDependency, mockSecurityLeftover } from './ai-supply-chain.js';
 import {
   KNOWN_NPM,
   KNOWN_PYPI,
@@ -1712,5 +1712,337 @@ describe('0.2.x final-review regressions (Fable round 2, scanner-verified)', () 
     const m = longSecurityMethod.match(ctx(lines.join('\n'), 'javascript'));
     expect(m.length).toBe(1);
     expect(m[0]?.severity).toBe('high');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// VG-AISC-004 — Mock / Dummy Security Leftover
+//
+// THIS BLOCK CARRIES NO PRAGMA FOR VG-AISC-004, and that is the point. Every
+// positive fixture below is a permissive auth stub written out in full; the file
+// stays clean under the repository's own self-scan because `rules.test.ts` ends
+// in `.test.ts`, which is negative condition N1. If someone weakens the path
+// gate, this file starts reporting itself and CI says so.
+//
+// Positives live here as inline strings rather than in samples/vulnerable on
+// purpose: samples/vulnerable is pinned at exactly 51 findings (E2) across
+// several evaluation scripts, and a fixture that fires would move a number that
+// half a dozen other things assert.
+// ---------------------------------------------------------------------------
+describe('VG-AISC-004 mock/dummy security leftover', () => {
+  function ctxP(content: string, filePath = 'src/auth/session.ts', language = 'typescript'): RuleContext {
+    return { content, lines: content.split('\n'), language, filePath };
+  }
+  const hits = (content: string, filePath?: string, language?: string) =>
+    mockSecurityLeftover.match(ctxP(content, filePath, language));
+  const silent = (label: string, content: string, filePath?: string, language?: string) => {
+    expect(hits(content, filePath, language), label).toEqual([]);
+  };
+
+  // --- Positives: the shape the rule exists for ---------------------------
+  it('flags an exported function whose only statement is `return true`', () => {
+    const m = hits('export function mockVerifyToken(token) {\n  return true;\n}\n', 'src/auth/verify.js', 'javascript');
+    expect(m.length).toBe(1);
+    expect(m[0]?.startLine).toBe(1);
+    expect(m[0]?.variables?.symbol).toBe('mockVerifyToken');
+    expect(m[0]?.variables?.mockWord).toBe('mock');
+    // The STRONG security word wins over the generic `verify` that appears
+    // first, so the evidence names the credential rather than the verb.
+    expect(m[0]?.variables?.securityWord).toBe('token');
+  });
+
+  it('flags an arrow with an expression body', () => {
+    const m = hits('export const mockAuthCheck = () => true;\n');
+    expect(m.length).toBe(1);
+    expect(m[0]?.confidence).toBe('high');
+  });
+
+  it('flags an arrow returning an all-true property bag', () => {
+    expect(hits('export const dummyAuthorize = (u, r) => ({ ok: true });\n').length).toBe(1);
+    expect(hits('export const stubPermissionCheck = () => ({ allowed: true, ok: true });\n').length).toBe(1);
+    expect(hits('export const mockAuthCheck = () => ({ "ok": true });\n').length).toBe(1);
+  });
+
+  it('flags a TypeScript-annotated declaration and an annotated arrow', () => {
+    expect(hits('export function mockVerifyToken(token: string): boolean {\n  return true;\n}\n').length).toBe(1);
+    expect(hits('export const mockAuthCheck = (t: string): boolean => true;\n').length).toBe(1);
+  });
+
+  it('flags a function expression binding and an async declaration', () => {
+    expect(hits('export const dummySessionCheck = function (req) { return true; };\n').length).toBe(1);
+    expect(hits('export async function mockAuthorizeRequest(req) {\n  return true;\n}\n').length).toBe(1);
+  });
+
+  it('flags a class method that is called elsewhere in the file', () => {
+    const src = [
+      'class Guard {',
+      '  mockCheckPermission(user) {',
+      '    return true;',
+      '  }',
+      '}',
+      'export const allowed = new Guard().mockCheckPermission(u);',
+    ].join('\n');
+    const m = hits(src);
+    expect(m.length).toBe(1);
+    expect(m[0]?.startLine).toBe(2);
+  });
+
+  it('flags the Python forms: block body, one-liner, docstring, dict return', () => {
+    expect(hits('def mock_verify_token(token):\n    return True\n', 'app/auth.py', 'python').length).toBe(1);
+    expect(hits('def fake_authenticate(u): return True\n', 'app/auth.py', 'python').length).toBe(1);
+    expect(
+      hits('def stub_check_permission(u, r):\n    """Temporary."""\n    return True\n', 'app/policy.py', 'python').length,
+    ).toBe(1);
+    expect(hits('def dummy_check_permission(u):\n    return {"ok": True}\n', 'app/policy.py', 'python').length).toBe(1);
+  });
+
+  it('reports the declaration line, not the newline the pattern guard consumed (CRLF too)', () => {
+    const m = hits('const other = 1;\r\nexport function mockVerifyToken(t) {\r\n  return true;\r\n}\r\n');
+    expect(m.length).toBe(1);
+    expect(m[0]?.startLine).toBe(2);
+    expect(m[0]?.evidence.startsWith('export function mockVerifyToken')).toBe(true);
+  });
+
+  // --- Confidence ---------------------------------------------------------
+  it('escalates to high only for an unambiguous mock word AND a strong security word', () => {
+    expect(hits('export function stubAuthorize() {\n  return true;\n}\n')[0]?.confidence).toBe('high');
+    // `test` is an ambiguous mock word, so the finding stays at the rule default.
+    expect(hits('export function testAuthorizeUser() {\n  return true;\n}\n')[0]?.confidence).toBeUndefined();
+    // `key` is an ambiguous security word for the same reason.
+    expect(hits('export function mockSigningKey() {\n  return true;\n}\n')[0]?.confidence).toBeUndefined();
+  });
+
+  // --- Markers must be SHOUTED ---------------------------------------------
+  it('accepts todo/fixme/xxx/changeme only in a shouted segment', () => {
+    expect(hits('export const CHANGE_ME_TOKEN_CHECK = () => true;\n').length).toBe(1);
+    expect(hits('export const TODO_TOKEN_CHECK = () => true;\n').length).toBe(1);
+    // ...and never in camelCase, where they are domain vocabulary. A todo-list
+    // application is one of the most common AI-generated projects there is.
+    silent('camelCase todo is not a marker', 'export const todoTokenCheck = () => true;\n');
+    silent('camelCase fixme is not a marker', 'export const fixmeSessionCheck = () => true;\n');
+  });
+
+  // --- Word segmentation, not substring matching --------------------------
+  it('does NOT fire on identifiers that merely CONTAIN a listed word', () => {
+    silent('mockingbird', 'export function mockingbirdTokenizer() {\n  return true;\n}\n');
+    silent('stubborn', 'export function stubbornRetryKey() {\n  return true;\n}\n');
+    silent('latest', 'export function latestSessionKey() {\n  return true;\n}\n');
+    silent('design != sign', 'export function fakeRedesignRoutine() {\n  return true;\n}\n');
+  });
+
+  it('does NOT fire when a non-security qualifier precedes the security word', () => {
+    // Measured: `mockDesignToken` was flagged by the first working version.
+    // "design token" is design-system vocabulary, "cache key" is a hashmap.
+    silent('design token', 'export function mockDesignToken() {\n  return true;\n}\n');
+    silent('cache key', 'export function mockCacheKey() {\n  return true;\n}\n');
+    silent('primary key', 'export function stubPrimaryKey() {\n  return true;\n}\n');
+    // ...but the qualifier only disarms the word it precedes: `auth` is still
+    // reached here, so the finding survives.
+    expect(hits('export function mockAuthCacheKey() {\n  return true;\n}\n').length).toBe(1);
+  });
+
+  // --- The body must be trivially permissive ------------------------------
+  it('does NOT fire on a mock with real logic — that is a test double, not a leftover', () => {
+    silent('real body', 'export function mockVerifyToken(t) {\n  return jwt.verify(t, key);\n}\n');
+    silent('two statements', 'export function mockAuthCheck() {\n  log();\n  return true;\n}\n');
+    silent('guarded return', 'export function mockAuthCheck(u) {\n  if (!u) return false;\n  return true;\n}\n');
+    silent('returns false', 'export const mockAuthCheck = () => false;\n');
+    silent('bag with a non-true value', 'export const mockAuthCheck = () => ({ ok: true, user: null });\n');
+    silent('nested bag', 'export const mockAuthCheck = () => ({ ok: { a: true } });\n');
+    silent('empty bag', 'export const mockAuthCheck = () => ({});\n');
+  });
+
+  it('does NOT fire on an empty body, or on Python pass / ... (refused arms)', () => {
+    silent('empty js body', 'export function mockVerifyToken(t) {}\n');
+    silent('python pass', 'def mock_verify_token(t):\n    pass\n', 'app/a.py', 'python');
+    silent('python ellipsis', 'def mock_verify_token(t):\n    ...\n', 'app/a.py', 'python');
+  });
+
+  it('does NOT fire on a DATA const — VG-QUAL-007 owns that shape', () => {
+    silent('object const', 'export const mockAuthToken = { role: "admin" };\n');
+    silent('string const', 'export const dummyApiKey = "s3cr3t-value-here";\n');
+    // The measured corpus near-miss: a localStorage feature-detection key. This
+    // is the false positive the refused "credential-shaped literal" arm would
+    // have produced.
+    silent(
+      'localStorage probe key',
+      'var localStorageTestKey = "_localforage_support_test";\nlocalStorage.setItem(localStorageTestKey, "x");\n',
+      'src/drivers/localstorage.js',
+      'javascript',
+    );
+  });
+
+  // --- Predicates and flags ------------------------------------------------
+  it('does NOT fire on a boolean-predicate name — a pinned flag is VG-QUAL-008', () => {
+    silent('is-prefix', 'export const isTestSessionEnabled = () => true;\n');
+    silent('has-prefix', 'export const hasMockAuthToken = () => true;\n');
+    silent('should-prefix', 'export function shouldStubAuthorize() {\n  return true;\n}\n');
+  });
+
+  // --- Location ------------------------------------------------------------
+  it('is silent everywhere a mock belongs', () => {
+    const body = 'export function mockVerifyToken(t) {\n  return true;\n}\n';
+    for (const p of [
+      'src/__mocks__/auth.js',
+      'src/mocks/handlers.ts',
+      'test/helpers/auth.ts',
+      'tests/support/auth.ts',
+      'src/test-utils/auth.ts',
+      'src/auth.mock.ts',
+      'src/auth.spec.ts',
+      'src/auth.test.ts',
+      'src/AuthDecorator.stories.tsx',
+      'examples/auth.js',
+      'docs/snippets/auth.ts',
+      'demo/auth.ts',
+      'fixtures/auth.ts',
+      'testdata/auth.ts',
+      'cypress/support/auth.ts',
+    ]) {
+      silent(p, body, p, 'typescript');
+    }
+  });
+
+  // --- Content -------------------------------------------------------------
+  it('is silent in a file that imports or drives a test framework', () => {
+    silent(
+      'vitest import in a production path',
+      "import { vi } from 'vitest';\nexport function mockVerifyToken(t) {\n  return true;\n}\n",
+      'src/auth/verify.ts',
+    );
+    silent(
+      'pytest import',
+      'import pytest\n\ndef mock_verify_token(t):\n    return True\n',
+      'app/auth.py',
+      'python',
+    );
+    silent(
+      'a python test function in the same module',
+      'def test_login_ok():\n    assert True\n\ndef mock_verify_token(t):\n    return True\n',
+      'app/auth.py',
+      'python',
+    );
+  });
+
+  // --- Reachability ---------------------------------------------------------
+  it('does NOT fire on a symbol that is neither exported nor referenced', () => {
+    silent('dead helper', 'function mockVerifyToken(t) {\n  return true;\n}\n', 'src/auth.js', 'javascript');
+    // ...and DOES fire once something names it.
+    expect(
+      hits('function mockVerifyToken(t) {\n  return true;\n}\nrouter.use(mockVerifyToken);\n', 'src/auth.js', 'javascript')
+        .length,
+    ).toBe(1);
+  });
+
+  // --- The declaration must be CODE ----------------------------------------
+  it('does NOT fire on a declaration that only exists in a comment or a literal', () => {
+    silent('line comment', '// export function mockVerifyToken() { return true; }\n');
+    silent('block comment', '/*\nexport function mockVerifyToken() { return true; }\n*/\n');
+    silent('template literal', 'export const doc = `export function mockVerifyToken() { return true; }`;\n');
+    silent(
+      'python docstring',
+      'def render():\n    """def mock_verify_token(t):\n        return True\n    """\n    return 1\n',
+      'app/a.py',
+      'python',
+    );
+  });
+
+  // --- Structural exclusions ------------------------------------------------
+  it('does NOT fire on an injected mock — an argument or a default parameter', () => {
+    silent('call argument', 'render(mockAuthProvider(() => true));\n');
+    silent(
+      'default parameter',
+      'export function makeAuth({ verifyToken = () => true } = {}) {\n  return verifyToken;\n}\n',
+    );
+  });
+
+  it('requires BOTH halves of the conjunction', () => {
+    silent('mock word only', 'export function mockUserProfile() {\n  return true;\n}\n');
+    silent('security word only', 'export function verifyToken(t) {\n  return true;\n}\n');
+  });
+
+  // --- The E2 = 51 contract -------------------------------------------------
+  //
+  // samples/vulnerable/ai_artifacts.js already contains a permissive
+  // `authenticate`, a passthrough `validateInput`, and a `mockUser` const. None
+  // is this rule's shape, and the corpus must stay at exactly 51 findings.
+  it('is silent on the shapes already present in samples/vulnerable', () => {
+    silent(
+      'ai_artifacts.js shapes',
+      [
+        'const mockUser = { id: 1, name: "Alice", role: "admin" };',
+        'export function currentUser() {',
+        '  return mockUser;',
+        '}',
+        'export function authenticate(req) {',
+        '  return true;',
+        '}',
+        'export function validateInput(input) {',
+        '  return true;',
+        '}',
+      ].join('\n'),
+      'ai_artifacts.js',
+      'javascript',
+    );
+  });
+
+  // --- Measured corpus regressions -----------------------------------------
+  //
+  // Every one of these was produced by sweeping the shipped rule over the
+  // 2,683 repositories of paper_data/corpus1k + corpus1k_vibe (1,647 of them
+  // source-bearing, 210,170 files). The sweep found 0 findings; these are the
+  // declarations that came CLOSEST — name gate satisfied, outside a scaffold
+  // path, with a `return true` within 400 characters. Each must stay silent.
+  it('stays silent on the near-misses the corpus sweep surfaced', () => {
+    silent(
+      'testAnthropicKey — real client construction',
+      [
+        'export async function testAnthropicKey(apiKey: string): Promise<boolean> {',
+        '  try {',
+        '    const client = new Anthropic({ apiKey });',
+        '    await client.messages.create({ model: "m", max_tokens: 1, messages: [] });',
+        '    return true;',
+        '  } catch {',
+        '    return false;',
+        '  }',
+        '}',
+      ].join('\n'),
+      'server/src/services/aiService.ts',
+    );
+    silent(
+      'test_api_key — real request',
+      [
+        'def test_api_key(client, BinanceAPIException):',
+        '    """Checks to see if API keys supplied returns errors"""',
+        '    try:',
+        '        client.get_account()',
+        '        return True',
+        '    except BinanceAPIException:',
+        '        return False',
+      ].join('\n'),
+      'helpers/handle_creds.py',
+      'python',
+    );
+    silent(
+      '_is_placeholder_token — a function that DETECTS placeholders',
+      [
+        'def _is_placeholder_token(token: str) -> bool:',
+        '    text = normalize_gateway_token(token)',
+        '    if not text:',
+        '        return True',
+        '    return any(text.startswith(p) for p in _PLACEHOLDER_PREFIXES)',
+      ].join('\n'),
+      'services/mt5_gateway/settings.py',
+      'python',
+    );
+    silent(
+      'placeholderProviderKeys — returns a filtered array',
+      [
+        'export function placeholderProviderKeys(env: Record<string, string>): string[] {',
+        '  return PROVIDER_KEY_NAMES.filter((k) => env[k] === undefined);',
+        '}',
+      ].join('\n'),
+      'src/cli/doctor-diagnostics.ts',
+    );
   });
 });

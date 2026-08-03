@@ -116,8 +116,16 @@ import {
  * `--include-design-smells`) does NOT move this constant, and the changes to
  * `VG-SMELL-010`'s severity conditions are not changes to this engine. That pass
  * is opt-in, the core path never imports it, and it reports its own axis as
- * `engineVersions['analysis-graph']` (held at `0.3.0-alpha.1`, because the
- * cross-file pass is an alpha skeleton and says so).
+ * `engineVersions['analysis-graph']`.
+ *
+ * ★ That axis reads `0.3.0-beta.1` as of 0.3.0-β, and the correction matters
+ * more than the number does. It was left at `0.3.0-alpha.1` — described here as
+ * "held at", as though standing still were the decision — through a wave that
+ * added `VG-SMELL-020/021/041/052`. A scan running those four therefore
+ * announced the same version an alpha build announced while running half as
+ * many rules, which is the single failure a version axis exists to prevent.
+ * Whether the cross-file version moves is a question that has to be asked every
+ * time the cross-file rule SET changes, not once.
  *
  * 0.3.1 (2026-07-29) is the first bump that is NOT additive. Every release
  * before it could say "no rule that already existed changed what it matches";

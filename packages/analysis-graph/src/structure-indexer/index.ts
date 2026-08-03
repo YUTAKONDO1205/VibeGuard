@@ -189,8 +189,31 @@ const C_INCLUDE = /(?:^|\n)[^\S\r\n]{0,20}#[^\S\r\n]{0,8}include[^\S\r\n]{0,8}(?
 // brace on its own line. Requiring it on the same line as the parameter list
 // silently indexed ZERO functions in every such file, which made #20b report
 // nothing on exactly the firmware it was written for.
+//
+// ★ THE SAME MISTAKE EXISTED ONE TOKEN EARLIER, AND A CORPUS SWEEP FOUND IT.
+// The gap between the return type and the function NAME was horizontal
+// whitespace only, so this form was invisible:
+//
+//     const char*
+//     parse_number(const char* first, const char* last)
+//     {
+//
+// That is the LLVM/libcxxabi house style — return type on its own line — and it
+// is ordinary C++, not an exotic case. Every function written that way was
+// missing from `symbols` entirely.
+//
+// It surfaced as a VG-AISC-002 false positive rather than as an absence, which
+// is what made it findable: sweeping `paper_data/corpus1k`, that rule reported
+// `parse_number` and `parse_substitution` in lucasg/Dependencies as calls to
+// functions "defined nowhere in the project" — while pointing AT THE LINE OF
+// THEIR OWN DEFINITION. A missing symbol is silent; a rule built on top of the
+// missing symbol is not.
+//
+// The added alternative allows ONE line break with bounded indentation on either
+// side. Every quantifier stays capped, so the D3 three-second contract still
+// holds by construction.
 const C_FUNC =
-  /(?:^|\n)(?:[\w$]{1,40}[^\S\r\n]{1,8}){0,4}(?<ret>[\w$*]{1,60})[^\S\r\n]{1,8}\*{0,3}(?<fn>[\w$]{1,80})[^\S\r\n]{0,4}\([^;{]{0,400}\)[^\S\r\n]{0,20}(?:\r?\n[^\S\r\n]{0,20})?\{/g;
+  /(?:^|\n)(?:[\w$]{1,40}[^\S\r\n]{1,8}){0,4}(?<ret>[\w$*]{1,60})(?:[^\S\r\n]{1,8}|[^\S\r\n]{0,20}\r?\n[^\S\r\n]{0,20})\*{0,3}(?<fn>[\w$]{1,80})[^\S\r\n]{0,4}\([^;{]{0,400}\)[^\S\r\n]{0,20}(?:\r?\n[^\S\r\n]{0,20})?\{/g;
 
 /** Reserved words that a definition-shaped C pattern would otherwise catch. */
 const C_NOT_A_FUNCTION = new Set([
@@ -266,6 +289,12 @@ function indexJs(file: SourceFile, blanked: string, lineStarts: number[]): Struc
     const start = block ? block.start : headAt;
     const end = block ? block.end : headAt;
     classSpans.push({ name, start, end });
+    // `extends Base` — captured by JS_CLASS since 0.3.0-α and discarded until
+    // VG-SMELL-030 needed it. `Repo<Item>` keeps only `Repo`: the type argument
+    // is not part of the name a consumer resolves against the import graph, and
+    // the `base` group's character class stops at `<` anyway.
+    const jsBase = m.groups?.base?.trim();
+    const baseClasses = jsBase ? [jsBase] : [];
     symbols.push({
       name,
       kind: 'class',
@@ -277,6 +306,7 @@ function indexJs(file: SourceFile, blanked: string, lineStarts: number[]): Struc
       bodyStart: start,
       bodyEnd: end,
       exported: /export[^\S\r\n]{1,4}(?:abstract[^\S\r\n]{1,4})?class/.test(m[0]),
+      ...(baseClasses.length > 0 ? { baseClasses } : {}),
     });
     if (JS_CLASS.lastIndex === m.index) JS_CLASS.lastIndex += 1;
   }
@@ -568,6 +598,15 @@ function indexPython(file: SourceFile, blanked: string, lineStarts: number[]): S
     const declIndent = indentOf(file.lines[startLine - 1] ?? '');
     const endLine = blockEndLine(startLine, declIndent);
     classRanges.push({ name, startLine, endLine });
+    // `class Sub(Base, Mixin)` — Python's bases are a comma list, so unlike
+    // JavaScript this is genuinely plural. Keyword arguments in the base list
+    // (`class Meta(Base, metaclass=ABCMeta)`) are dropped: `metaclass` is not a
+    // base and a consumer resolving it against the import graph would either
+    // miss or, worse, match something unrelated.
+    const pyBases = (m.groups?.base ?? '')
+      .split(',')
+      .map((b) => b.trim())
+      .filter((b) => b.length > 0 && !b.includes('=') && !b.startsWith('*'));
     symbols.push({
       name,
       kind: 'class',
@@ -579,6 +618,7 @@ function indexPython(file: SourceFile, blanked: string, lineStarts: number[]): S
       bodyStart: headOffset,
       bodyEnd: lineStarts[Math.min(endLine, lineStarts.length - 1)] ?? file.content.length,
       exported: !name.startsWith('_'),
+      ...(pyBases.length > 0 ? { baseClasses: pyBases } : {}),
     });
     if (PY_CLASS.lastIndex === m.index) PY_CLASS.lastIndex += 1;
   }

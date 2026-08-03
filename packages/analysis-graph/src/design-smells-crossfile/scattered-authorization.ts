@@ -36,6 +36,27 @@
 import type { CodeLocation, Confidence, Severity } from '@vibeguard/findings-schema';
 import { DESIGN_SMELL_CATEGORY } from '@vibeguard/findings-schema';
 import { fanMetrics, mergeMetrics } from '../metrics/index.js';
+// The authorization vocabulary moved to `authz-lexicon.ts` when VG-SMELL-011
+// and VG-SMELL-013 needed the identical patterns. It is a pure extraction: the
+// regexes, the privilege words and `pathWords` are byte-identical to what this
+// file used to define, and the existing tests are what pins that. See the
+// header of that file for why three copies of this vocabulary was the 041
+// failure mode with a longer fuse.
+import {
+  ELEVATED,
+  TEST_PATH,
+  authzDecisionPatterns,
+  isAuthnGuardName,
+  isAuthzGuardName,
+  pathWords,
+} from './authz-lexicon.js';
+// The Python arm resolves `include_router(items.router, dependencies=[…])` back
+// to the file that router lives in, and it does that with the SAME resolver the
+// graph used rather than a private path-joining routine. A second resolver would
+// answer differently for exactly the inputs that are hard — package `__init__`
+// files, relative levels — and the consequence of a disagreement here is a
+// silencer that fails to silence, which is a false positive.
+import { resolveSpecifier } from '../dependency-graph/index.js';
 import type {
   CrossFileFinding,
   CrossFileRule,
@@ -68,57 +89,25 @@ const MIN_SITES = 3;
  */
 const MIN_FILES = 2;
 
-/**
- * Properties whose comparison IS an authorization decision.
- *
- * Deliberately a closed list of property names rather than a keyword search over
- * the line. `/admin/i` over handler bodies would match `adminEmail`,
- * `res.render('admin')`, and a comment, and the resulting rule would fire
- * somewhere in almost every web application — which is the failure mode that
- * makes teams turn a linter off. The check has to be shaped like a decision
- * about a subject's privilege, and reading a named privilege field off an
- * object is what that looks like.
- */
-const AUTHZ_PROPERTY =
-  '(?:role|roles|userRole|user_role|isAdmin|is_admin|isOwner|is_owner|isSuperuser|is_superuser|isRoot|permissions|permission|privileges|privilege|scopes|accessLevel|access_level)';
+// ── AUTHZ_PROPERTY / CMP / FLAG / MEMBERSHIP now live in `authz-lexicon.ts`. ──
+//
+// They were defined here first and moved out unchanged when VG-SMELL-011 and
+// VG-SMELL-013 needed the same three shapes. The arguments for each — why the
+// property list is closed, why a method CALL is delegation rather than an
+// inline check, why every quantifier carries a ceiling — moved with them and
+// are not repeated here.
+//
+// One difference survives the move and is deliberate: the lexicon hands out
+// FRESH RegExp objects from `authzDecisionPatterns()` rather than exporting
+// three module constants. A `g`-flagged regex carries `lastIndex`, and a
+// constant shared by three rules is a mutable global that one of them will
+// eventually read mid-iteration. `checksIn` below still resets `lastIndex`
+// explicitly, which is now belt and braces rather than the only thing holding
+// it together.
 
-/**
- * A privilege comparison: `user.role !== 'admin'`, `req.user.role === ROLE_ADMIN`.
- *
- * The receiver is bounded (`[\w$.]{0,40}`) and horizontal whitespace uses
- * `[^\S\r\n]{0,4}` rather than `\s*` throughout this file. That is not style.
- * Unbounded whitespace sitting next to another quantifier is the shape that
- * makes a pattern super-linear on adversarial input, and this project has
- * already had to repair rules written that way — the bounds in
- * `@vibeguard/rules` (`REGEX_DEADLINE_MS`, `REGEX_INPUT_CAP`) exist because of
- * it. Every quantifier here has a ceiling, and new ones must too.
- */
-const CMP = new RegExp(
-  String.raw`(?<recv>[\w$][\w$.]{0,40})\.(?<prop>${AUTHZ_PROPERTY})\b[^\S\r\n]{0,4}(?<op>===|!==|==|!=|<|>|<=|>=)`,
-  'g',
-);
-
-/** A boolean privilege flag used directly: `if (!user.isAdmin)`, `if (user.isAdmin)`. */
-const FLAG = new RegExp(
-  String.raw`(?:!|\bnot[^\S\r\n]{1,4}|\bif[^\S\r\n]{0,4}\(?[^\S\r\n]{0,4})(?<recv>[\w$][\w$.]{0,40})\.(?<prop>isAdmin|is_admin|isOwner|is_owner|isSuperuser|is_superuser|isRoot|hasAccess)\b`,
-  'g',
-);
-
-/** A membership test over a privilege collection: `user.permissions.includes('x')`. */
-const MEMBERSHIP = new RegExp(
-  String.raw`(?<recv>[\w$][\w$.]{0,40})\.(?<prop>permissions|roles|scopes|privileges)\b[^\S\r\n]{0,4}\.[^\S\r\n]{0,4}(?<call>includes|indexOf|has|contains|some)[^\S\r\n]{0,4}\(`,
-  'g',
-);
-
-/**
- * Privilege words that make the finding `high` rather than `medium`.
- *
- * From design addendum §7.2: "medium; high when it involves administrator or
- * owner privilege". Matched against the ORIGINAL source text of the check, not
- * the blanked copy, because the word usually lives inside the string literal
- * being compared against — which blanking, by design, erases.
- */
-const ELEVATED = /\b(admin|administrator|owner|superuser|super_user|root|sudo)\b/i;
+// `ELEVATED` — the privilege words that make a finding `high` rather than
+// `medium` — also moved to `authz-lexicon.ts`, along with the reminder that it
+// is matched against the ORIGINAL source text rather than the blanked copy.
 
 // ---------------------------------------------------------------------------
 // SECURITY CONTEXT BOOST (#22d) — the three conditions beyond the privilege word
@@ -141,44 +130,10 @@ const ELEVATED = /\b(admin|administrator|owner|superuser|super_user|root|sudo)\b
 // time, by anyone who doubts it.
 // ---------------------------------------------------------------------------
 
-/** Any character that cannot appear inside an identifier word. */
-const NON_WORD_CHAR = /[^A-Za-z0-9]/;
-
-/** The camelCase seam: a lowercase or digit immediately followed by a capital. */
-const CAMEL_SEAM = /([a-z0-9])([A-Z])/g;
-
-/**
- * Split a path (or one segment of one) into lowercase words.
- *
- * ★ WORD MATCHING, NEVER SUBSTRING MATCHING. This is the whole reason the
- * function exists rather than `/auth/i.test(filePath)`, and the counterexample
- * is not hypothetical: `src/authors/list.ts`, `content/authoring/draft.ts`, and
- * `lib/authority.ts` are ordinary directory names that all contain `auth`. A
- * substring test promotes every blog and CMS in existence to `high` on the
- * strength of the word "author". Segmenting first means `authors` is a word this
- * vocabulary does not contain, and the question stops being close.
- *
- * The same argument, made about identifiers rather than paths, is already
- * written out at length on `tokenize` in `../symbol-table/index.ts`. This is a
- * second, small implementation rather than an import because that one is private
- * to a module that deliberately never touches file content, and widening its
- * surface to share four lines would be the more expensive change.
- *
- * Neither regex has a quantifier at all — `split` on a single-character class,
- * then one substitution at a two-character seam — so neither can backtrack and
- * the D3 three-second contract is satisfied by construction rather than by
- * measurement.
- */
-function pathWords(text: string): string[] {
-  const out: string[] = [];
-  for (const chunk of text.split(NON_WORD_CHAR)) {
-    if (chunk.length === 0) continue;
-    for (const word of chunk.replace(CAMEL_SEAM, '$1 $2').split(' ')) {
-      if (word.length > 0) out.push(word.toLowerCase());
-    }
-  }
-  return out;
-}
+// `pathWords` — word matching rather than substring matching, and the
+// `src/authors/list.ts` counterexample that forces it — moved to
+// `authz-lexicon.ts` unchanged. Every rule in this directory that reasons about
+// a path or an identifier now segments it the same way, which is the point.
 
 /**
  * Condition ① — path words that make the FILE a security surface.
@@ -595,8 +550,10 @@ const MESSAGE_RECEIVER =
 // real repair — this set now only has to cover the residual case where no
 // literal is available to decide.
 
-/** Path segments whose contents are fixtures, not the service under review. */
-const TEST_PATH = /(?:^|\/)(?:tests?|__tests__|__mocks__|spec|specs|fixtures?|mocks?|e2e|testdata)(?:\/|$)|\.(?:test|spec)\.[\w]+$/i;
+// `TEST_PATH` — path segments whose contents are fixtures, not the service
+// under review — moved to `authz-lexicon.ts` byte-identical. Widening it there
+// was considered and refused, precisely so that this rule's population cannot
+// change as a side effect of a refactor.
 
 /**
  * One inline authorization check found inside one handler.
@@ -644,6 +601,1223 @@ function isInsideGuard(symbol: IndexedSymbol, project: ProjectIndex): boolean {
 }
 
 /**
+ * Names that mark a decorator as a ROUTE registration, in either arm.
+ *
+ * Hoisted out of `handlersOf` when the Python arm arrived and left otherwise
+ * byte-identical — four places consult it now. No `g` flag, so `test` carries no
+ * `lastIndex` between those callers; that is the property that makes hoisting a
+ * shared regex safe here where `authz-lexicon` had to hand out fresh objects.
+ */
+const ROUTE_DECORATOR =
+  /^(?:get|post|put|patch|delete|head|options|all|route|api_route|websocket)$/i;
+
+/** `@app.route` / `@router.get` / `@Get` — the last dotted segment decides. */
+function isRouteDecorator(decorator: string): boolean {
+  return ROUTE_DECORATOR.test(decorator.split('.').pop() ?? '');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE PYTHON ARM (#27b)
+//
+// ★ WHY THIS IS ALMOST ENTIRELY NEGATIVE CONDITIONS
+//
+// Python was in `languages` in 0.3.0-α and the DETECTION worked — a Flask
+// `@app.route` handler containing `request.user.role != 'admin'` fired
+// correctly. It was removed anyway, and the note above the rule export records
+// why: not one negative fixture was written in Python, and Flask, FastAPI and
+// Django each centralise authorization through a mechanism none of the negative
+// conditions recognised. A well-factored FastAPI service was therefore
+// indistinguishable from a scattered one, and in a product whose contract is
+// `samples/safe == 0` that is not a tuning gap, it is the rule being wrong about
+// what it is looking at.
+//
+// So everything below is the missing half. It recognises the CENTRALISED shapes
+// and removes the handlers they cover from the population; it adds exactly one
+// thing to the population (Django URLconf views), and only because the Django
+// centralisation lives at the URLconf and cannot be read without reading it.
+//
+// ★ THE DIRECTION EVERY DECISION IN THIS SECTION FAILS IN
+//
+// Quiet. When a mechanism cannot be read — an unbalanced call, an unresolvable
+// router import, a signature that does not parse, a class whose bases are not
+// visible — the handler, the file, or the project goes silent rather than
+// staying in the population. That asymmetry is deliberate and it is the reason
+// the Python arm's recall is materially worse than the TS/JS arm's:
+//
+//  - a handler whose signature names ANY security-shaped `Depends(...)` is out,
+//    even though the dependency might inject a database session and decide
+//    nothing;
+//  - a handler carrying ANY decorator with `required` in its name is out, so
+//    `@require_http_methods(["GET"])` silences a genuinely scattered handler;
+//  - one `dependencies=[…]` on an `APIRouter(...)` silences the whole FILE,
+//    including handlers that router does not own.
+//
+// Each of those is a missed finding. The alternative in each case is a fired
+// finding on a correct application, which is the failure that gets a security
+// tool uninstalled — and, for Python specifically, it would be a user's FIRST
+// contact with this rule.
+//
+// ★ WHAT THIS ARM DOES DIFFERENTLY FROM THE TS/JS ARM, AND WHY IT HAD TO
+//
+// In TS/JS a guard is evidence about the GUARD's symbol: `handlersOf` excludes
+// symbols that ARE guards, and `router.get('/x', requireAdmin, handler)` leaves
+// `handler` in the population — the layered design (mounted guard plus
+// resource-level check) still produces sites there. Python inverts it: a guard
+// decorator or dependency excludes the GUARDED handler. The inversion is forced,
+// not chosen. `StructureIndex.routes` is ALWAYS EMPTY for Python — the indexer
+// builds no route bindings for it — so `RouteBinding.middlewareNames`, which is
+// where TS/JS keeps "this route has a pre-handler guard", does not exist to
+// consult. The decorator stack and the signature are the only places the
+// relationship is written down, and both are attached to the handler.
+//
+// The consequence is stated rather than buried: a Flask application that puts
+// `@login_required` on every route and then re-derives `current_user.role` in
+// four handlers produces NOTHING from this rule. That is a real class of missed
+// finding, and it is the price of not accusing the same application when the
+// four handlers are checking object ownership, which is correct code and looks
+// identical from here.
+//
+// ★ WHAT THIS ARM DOES ON REAL CODE, MEASURED — AND WHY BOTH NUMBERS ARE HERE
+//
+// `paper_data/corpus1k`, 1,000 repositories, 630 with source, 236 containing
+// Python (`scripts/crossfile-corpus-sweep.mjs --rule VG-SMELL-010`):
+//
+//   route-decorated Python defs found                       2,608
+//   sites with EVERY negative condition switched off           52   in 3 repos
+//   sites as shipped                                            0
+//   findings as shipped                                         0
+//
+// The first and second lines are why the third is not evidence that the arm is
+// dead. 2,608 handlers entered the population mechanism, so it works at scale;
+// 52 of them contained a privilege comparison; all 52 were then read:
+//
+//   fastapi/full-stack-fastapi-template   11   layered — see PY_DEPENDENCY_ALIAS
+//   LAION-AI/Open-Assistant                5   `m.role == "assistant"`
+//   odysseus-dev/odysseus                 36   `msg.role == 'assistant'`
+//
+// The last two are the CHAT-ROLE collision this rule already documents
+// (`CHAT_ROLE_LITERAL`), found on the TS/JS side by the same kind of sweep, and
+// they are correctly discarded by machinery that predates this arm. The first is
+// the false positive this arm's first submission produced and the reason the
+// alias arm exists. Zero is the right answer for this corpus.
+//
+// A zero establishes NOTHING about recall — the registry's own note about
+// VG-SMELL-041 and 052 says so, and the same honesty applies here. No true
+// positive was produced on `corpus1k` either, so the only evidence that this arm
+// can fire is `samples/crossfile-fixtures/smell-010-py-positive` and the
+// falsification half of each negative fixture's test.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * How far a scan will follow one call's argument list.
+ *
+ * A work bound in the same spirit as `REGEX_INPUT_CAP`, and the number is chosen
+ * against the shapes actually being read: an `APIRouter(prefix=…, tags=[…],
+ * dependencies=[…], responses={…})` head and a `urlpatterns` entry are both far
+ * inside it, while a generated file that opens a paren and never closes it costs
+ * one bounded walk instead of a scan to end-of-file per call site.
+ */
+const CALL_SCAN_CAP = 4000;
+
+/** How many lines of a `def` head are read looking for the end of its signature. */
+const SIGNATURE_LINE_CAP = 24;
+
+/** How many lines above a `def` are read looking for its decorator block. */
+const DECORATOR_BLOCK_LINE_CAP = 20;
+
+/**
+ * Arguments of the call whose `(` is at `open`, split at top-level commas.
+ *
+ * Returns `undefined` when the call does not close inside `CALL_SCAN_CAP`, and
+ * every caller treats that as "assume the guard is there" rather than "assume it
+ * is not" — see the quiet-direction note above.
+ *
+ * Bracket depth is counted over BLANKED text, so a comma or a paren inside a
+ * string literal is a space and cannot split an argument. That is the same
+ * reason `structure-indexer`'s own `splitArgs` reads the blanked copy; this is a
+ * second implementation rather than an import only because that one is private
+ * to the indexer and returns offsets this arm has no use for.
+ */
+function callArguments(blanked: string, open: number): string[] | undefined {
+  const args: string[] = [];
+  let depth = 0;
+  let start = open + 1;
+  const end = Math.min(blanked.length, open + CALL_SCAN_CAP);
+  for (let i = open; i < end; i += 1) {
+    const c = blanked[i];
+    if (c === '(' || c === '[' || c === '{') depth += 1;
+    else if (c === ')' || c === ']' || c === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        args.push(blanked.slice(start, i));
+        return args;
+      }
+    } else if (c === ',' && depth === 1) {
+      args.push(blanked.slice(start, i));
+      start = i + 1;
+    }
+  }
+  return undefined;
+}
+
+/** `dependencies=[…]` as a keyword argument, tested against a trimmed argument. */
+const DEPENDENCIES_KWARG = /^dependencies[^\S\r\n]{0,4}=/;
+
+/**
+ * Words that make a DECORATOR on a route handler a guard.
+ *
+ * ★ A RULE-LOCAL WIDENING OF `authz-lexicon`, AND ONLY IN THE SILENT DIRECTION.
+ *
+ * `isAuthzGuardName` / `isAuthnGuardName` are consulted first and cover
+ * `@permission_required`, `@roles_required`, `@require_admin`, `@login_required`
+ * and `@jwt_required`. They do NOT cover `@requires_auth` (the shape Auth0's
+ * Flask quickstart ships), `@auth_required`, `@token_required`, or Django's
+ * `@staff_member_required` — because the lexicon deliberately keeps bare `auth`
+ * out of both sets, and `staff`/`token` are not guard words there either.
+ *
+ * The lexicon's header says a rule needing a wider vocabulary states it itself.
+ * This is that statement, and the reason it is safe to widen HERE and not there
+ * is that this set can only ever remove a handler from the population. A word
+ * admitted in error costs a missed finding; the same word admitted into the
+ * lexicon would change what VG-SMELL-011 and 013 accuse.
+ *
+ * `required` / `requires` / `require` are in the set on their own, which is the
+ * broadest entry and the one worth defending. Python's convention for a
+ * precondition decorator is the SUFFIX (`login_required`) where English-language
+ * guard naming in TS/JS uses a prefix (`requireLogin`), so the suffix is the only
+ * token many real guards share. It over-admits: `@require_http_methods(["GET"])`
+ * and `@requires_csrf_token` are not authorization anything, and a handler
+ * carrying either goes silent. Both mistakes are missed findings.
+ */
+const PY_GUARD_DECORATOR_WORD: ReadonlySet<string> = new Set([
+  'auth',
+  'authenticate',
+  'authenticated',
+  'require',
+  'required',
+  'requires',
+  'protect',
+  'protected',
+  'secure',
+  'secured',
+  'restricted',
+  'staff',
+  'superuser',
+  'member',
+  'membership',
+  'verified',
+  'access',
+  'guard',
+  'guarded',
+]);
+
+/**
+ * Words that make a FastAPI dependency a SECURITY dependency.
+ *
+ * ★ THE ALTERNATIVE — "any `Depends(...)` at all silences the handler" — WAS
+ * REJECTED, AND NOT ON RECALL GROUNDS ALONE.
+ *
+ * Virtually every FastAPI handler takes at least one injected dependency, so
+ * silencing on the bare presence of `Depends(` would make the FastAPI arm
+ * incapable of firing on anything, which is a rule that cannot be wrong because
+ * it cannot speak. Worse, it would be invisible: the negative fixture would pass,
+ * the positive would have to avoid FastAPI entirely, and nothing in the test
+ * suite could tell that state apart from a working arm.
+ *
+ * So the dependency's ARGUMENT decides. `Depends(get_current_active_user)` — the
+ * name FastAPI's own security tutorial uses — carries `user`; `Security(...)`
+ * exists in FastAPI only to carry scopes and is accepted unconditionally;
+ * `Depends(RoleChecker(["admin"]))`, the common RBAC idiom, carries `role` and
+ * `admin`. `Depends(get_db)` and `Depends(common_parameters)` carry none of
+ * these and do NOT silence, so a service that injects a database handle and then
+ * decides authorization inline in four handlers is still reachable.
+ *
+ * Matched against the words of the ARGUMENT ONLY, never the parameter's name or
+ * annotation. `db: Session = Depends(get_db)` was the case that forced that:
+ * `session` is an authentication guard word in the lexicon, and reading the
+ * annotation would have silenced every handler that opens a database session.
+ *
+ * ★ THE OVER-SILENCE THAT SURVIVES, MEASURED ON THE FIXTURE RATHER THAN GUESSED.
+ *
+ * `session` is absent from the set above for the reason just given, and it
+ * reaches the decision anyway through the SECOND test in
+ * `declaresSecurityDependency`: `isAuthnGuardName('get_session')` is true, so
+ * `get_session` lands in `guardNames` and silences the handler that injects it.
+ * That was found by writing the "a non-security dependency must not silence"
+ * test with `Depends(get_session)` and watching it stay quiet.
+ *
+ * It is left alone. The word belongs in `AUTHN_GUARD_WORD` — `session` really is
+ * how most applications spell authentication — and removing it there to fix a
+ * FastAPI database dependency would change what VG-SMELL-011 and VG-SMELL-013
+ * accuse, which is a much larger blast radius than one missed finding in one
+ * framework. The test uses `common_parameters` instead and says why.
+ */
+const PY_SECURITY_DEPENDENCY_WORD: ReadonlySet<string> = new Set([
+  'auth',
+  'authn',
+  'authz',
+  'authenticate',
+  'authenticated',
+  'authentication',
+  'authorize',
+  'authorized',
+  'authorization',
+  'user',
+  'users',
+  'principal',
+  'identity',
+  'subject',
+  'actor',
+  'caller',
+  'token',
+  'tokens',
+  'jwt',
+  'bearer',
+  'apikey',
+  'credential',
+  'credentials',
+  'permission',
+  'permissions',
+  'role',
+  'roles',
+  'scope',
+  'scopes',
+  'privilege',
+  'privileges',
+  'acl',
+  'rbac',
+  'policy',
+  'admin',
+  'superuser',
+  'staff',
+  'owner',
+  'member',
+  'tenant',
+  'guard',
+  'protect',
+  'protected',
+  'secure',
+  'secured',
+  'security',
+  'require',
+  'required',
+  'requires',
+  'verify',
+  'verified',
+  'login',
+  'signin',
+]);
+
+/**
+ * Words that make a MIDDLEWARE entry an authorization checkpoint.
+ *
+ * Used for two things: Django's `MIDDLEWARE` setting and Starlette's
+ * `add_middleware(...)`. Both silence the whole PROJECT when they hit, because
+ * both are genuinely application-wide — a middleware runs before every view
+ * there is, so no per-file scoping would be honest.
+ *
+ * ★ THE SET IS NOT "ANY PROJECT-LOCAL ENTRY", WHICH IS WHAT THE BRIEF ASKED FOR,
+ * AND THE REASON IS THE SHAPE OF A REAL `MIDDLEWARE` LIST.
+ *
+ * Django's default `MIDDLEWARE` is seven `django.*` entries, and essentially
+ * every real project appends something: `corsheaders.middleware.CorsMiddleware`,
+ * `whitenoise.middleware.WhiteNoiseMiddleware`, `debug_toolbar…`. Silencing on
+ * "an entry not under `django.`" would therefore silence the Django arm on
+ * nearly every real project — the arm would be dead in the wild while looking
+ * alive in the fixtures, which is precisely the failure the paragraph above
+ * `PY_SECURITY_DEPENDENCY_WORD` refuses.
+ *
+ * `django.`-prefixed entries are excluded from consideration for the opposite
+ * reason: `django.contrib.auth.middleware.AuthenticationMiddleware` is in every
+ * Django project ever generated, and it establishes WHO the request is, not what
+ * it may do. Treating it as centralised authorization would silence the arm
+ * universally on a component that decides nothing.
+ */
+const PY_MIDDLEWARE_SECURITY_WORD: ReadonlySet<string> = new Set([
+  'auth',
+  'authn',
+  'authz',
+  'authenticate',
+  'authenticated',
+  'authentication',
+  'authorization',
+  'authorisation',
+  'login',
+  'session',
+  'permission',
+  'permissions',
+  'role',
+  'roles',
+  'jwt',
+  'token',
+  'security',
+  'guard',
+  'access',
+  'staff',
+  'admin',
+  'superuser',
+  'tenant',
+  'user',
+  'users',
+  'acl',
+  'rbac',
+  'policy',
+  'principal',
+  'identity',
+  'sso',
+  'oauth',
+]);
+
+/**
+ * Evidence, read from a def's BODY, that the def refuses requests.
+ *
+ * This is the arm that catches a guard nobody named helpfully — a decorator
+ * called `@ensure_can_edit` or a dependency called `_check` — and it is the one
+ * mechanism here that reads behaviour rather than identifiers.
+ *
+ * All five run over the BLANKED body, which is what makes them cheap and safe at
+ * the same time: the numbers survive blanking (they are code) while the message
+ * strings do not, so `abort(403)` is visible and
+ * `raise ValueError("call abort(403) first")` is not. Every quantifier is
+ * bounded and none is adjacent to another, so nothing here can backtrack.
+ */
+const GUARD_BODY_EVIDENCE: readonly RegExp[] = [
+  // Flask and Django: `abort(403)` / `abort(401)`.
+  /\babort[^\S\r\n]{0,4}\([^\S\r\n]{0,4}(?:401|403)\b/,
+  // FastAPI and Starlette: `HTTPException(status_code=403, …)`, and the same
+  // number written through `status.HTTP_403_FORBIDDEN`.
+  /\bstatus_code[^\S\r\n]{0,4}=[^\S\r\n]{0,4}(?:401|403)\b/,
+  /\bHTTP_40[13]_[A-Z_]{0,24}/,
+  // Django and DRF: exception classes whose whole meaning is "refused".
+  /\b(?:PermissionDenied|NotAuthenticated|AuthenticationFailed)\b/,
+  // Flask-Login's own refusal, and the `unauthorized` handler it calls.
+  /\b(?:current_user\.is_authenticated|login_manager|unauthorized)\b/,
+];
+
+/**
+ * Base classes that make a Django class-based view centrally guarded.
+ *
+ * The word-based test below catches `LoginRequiredMixin` (`login`, `required`),
+ * `PermissionRequiredMixin` (`permission`) and a project's own
+ * `StaffRequiredMixin` (`staff`, `required`). It does NOT catch
+ * `UserPassesTestMixin` — `user`, `passes`, `test`, `mixin` are four ordinary
+ * words — and that mixin is the third of Django's three, so the name is listed.
+ * `AccessMixin` is their shared base and appears when a project subclasses it
+ * directly.
+ */
+const DJANGO_GUARD_MIXIN: ReadonlySet<string> = new Set([
+  'UserPassesTestMixin',
+  'AccessMixin',
+  'LoginRequiredMixin',
+  'PermissionRequiredMixin',
+]);
+
+/**
+ * Methods whose OVERRIDE is itself the centralisation, on a class-based view.
+ *
+ * A CBV that overrides `dispatch` is doing exactly what this rule tells people to
+ * do — deciding once, before the verb methods run — and `test_func` /
+ * `has_permission` are the hooks the mixins call. A class carrying any of them
+ * has one place where authorization is decided, so its methods leave the
+ * population even when no mixin is named in the bases (which is the case for a
+ * project that wrote the check by hand instead of importing the mixin).
+ */
+const DJANGO_CENTRALISING_METHOD: ReadonlySet<string> = new Set([
+  'dispatch',
+  'test_func',
+  'has_permission',
+  'get_permission_required',
+  'handle_no_permission',
+]);
+
+/**
+ * Decorators applied to a CBV CLASS that mount a guard on its methods.
+ *
+ * `@method_decorator(login_required, name='dispatch')` is the documented way to
+ * put a function-view decorator on a class-based view, and the decorator NAME the
+ * indexer captures is `method_decorator` — the guard is in the argument, which is
+ * a different line's worth of parsing. Treating the wrapper itself as guard
+ * evidence is the coarse answer and the right one: `method_decorator` exists
+ * only to apply another decorator to a view, and the overwhelming majority of
+ * its uses in Django code apply `login_required` or `permission_required`.
+ */
+const DJANGO_CLASS_GUARD_DECORATOR: ReadonlySet<string> = new Set([
+  'method_decorator',
+  'permission_required',
+  'login_required',
+  'staff_member_required',
+]);
+
+/** Scope declarations this arm reads out of FastAPI / Starlette source. */
+const PY_SCOPE_CALL = /\b(?<callee>FastAPI|APIRouter|include_router|add_middleware)[^\S\r\n]{0,4}\(/g;
+
+/** Django URLconf entries. `url` is the pre-2.0 spelling and still very common. */
+const DJANGO_URL_CALL = /\b(?<callee>path|re_path|url)[^\S\r\n]{0,4}\(/g;
+
+/** `MIDDLEWARE = [` / `MIDDLEWARE_CLASSES = [` in a settings module. */
+const DJANGO_MIDDLEWARE_SETTING = /\bMIDDLEWARE(?:_CLASSES)?[^\S\r\n]{0,4}=[^\S\r\n]{0,4}\[/;
+
+/** `Depends(x)` / `Security(x)` anywhere in a signature. */
+const PY_DEPENDENCY_CALL = /\b(?<kind>Depends|Security)[^\S\r\n]{0,4}\(/g;
+
+/**
+ * A module-level dependency ALIAS: `CurrentUser = Annotated[User, Depends(…)]`.
+ *
+ * ★ THE SHAPE THAT PRODUCED THE ONLY FALSE POSITIVE IN A 1,000-REPOSITORY SWEEP.
+ *
+ * MEASURED over `paper_data/corpus1k` (630 repositories with source, 236 of them
+ * containing Python) with the first version of this arm: ONE finding, and it was
+ * `fastapi/full-stack-fastapi-template` — FastAPI's own official project
+ * template, six `current_user.is_superuser` checks across two router files. That
+ * is a 0% precision result by exactly the standard that rejected VG-SMELL-041,
+ * on exactly the population ("a well-factored FastAPI application") this arm was
+ * built to stay silent on.
+ *
+ * The cause is that the template does not write `Depends(...)` in its handlers
+ * at all. `backend/app/api/deps.py` declares
+ *
+ *     SessionDep  = Annotated[Session, Depends(get_db)]
+ *     CurrentUser = Annotated[User, Depends(get_current_user)]
+ *
+ * and every handler then reads `current_user: CurrentUser`. The dependency is
+ * declared once and referred to by a type name, which is the layout FastAPI's
+ * "Bigger Applications" guidance encourages and which a scan of the SIGNATURE
+ * TEXT for `Depends(` cannot see. Two mechanisms answer it, and both are quiet:
+ * the alias is resolved back to its right-hand side (this pattern), and the
+ * parameter ANNOTATIONS are read for security words (`signatureAnnotations`).
+ *
+ * The alias's right-hand side is stored rather than judged here, because judging
+ * it needs `guardNames`, which pass 2 has not built yet when pass 1 runs.
+ */
+const PY_DEPENDENCY_ALIAS =
+  /(?:^|\n)[^\S\r\n]{0,8}(?<alias>[A-Za-z_]\w{0,60})[^\S\r\n]{0,4}(?::[^=\n]{0,120})?=[^\S\r\n]{0,4}(?:Annotated[^\S\r\n]{0,4}\[|Depends[^\S\r\n]{0,4}\(|Security[^\S\r\n]{0,4}\()/g;
+
+/** `dependencies=` appearing in a route decorator's own argument list. */
+const PY_DECORATOR_DEPENDENCIES = /\bdependencies[^\S\r\n]{0,4}=/;
+
+/** A view reference written as a plain (possibly dotted) name. */
+const PY_BARE_VIEW = /^[A-Za-z_][\w.]{0,120}$/;
+
+/** `SomeView.as_view()`, with nothing wrapped around it. */
+const PY_AS_VIEW = /^(?<cls>[A-Za-z_][\w.]{0,120})\.as_view[^\S\r\n]{0,4}\([^\S\r\n]{0,4}\)$/;
+
+/** Every identifier in an expression, for the "wrapped, so guarded" case. */
+const PY_IDENTIFIER = /[A-Za-z_][\w]{0,80}/g;
+
+/** Whether any word of `name` is in `vocabulary`, word-wise via `pathWords`. */
+function nameCarriesWord(name: string, vocabulary: ReadonlySet<string>): boolean {
+  return pathWords(name).some((w) => vocabulary.has(w));
+}
+
+/** The last dotted segment: `views.OrderList` → `OrderList`. */
+function lastSegment(dotted: string): string {
+  return dotted.split('.').pop() ?? '';
+}
+
+/** Leading whitespace width, tabs counted as one — the indexer's convention. */
+function indentWidth(line: string): number {
+  let n = 0;
+  while (n < line.length && (line[n] === ' ' || line[n] === '\t')) n += 1;
+  return n;
+}
+
+/**
+ * A Python file's blanked text, split once and indexed by line.
+ *
+ * Built once per file and carried on the context, because the alternative is
+ * splitting a file per symbol: `MAX_SYMBOLS_PER_FILE` is 800, so that is 800
+ * splits of the same string for a large module.
+ *
+ * `lineStarts[i]` is the offset of line `i` (0-based). It has one entry more
+ * than `lines` — the position one past the end — so `lineStarts[last + 1]` is
+ * always defined for a valid `last`.
+ */
+interface PythonFileText {
+  lines: string[];
+  lineStarts: number[];
+}
+
+function pythonFileText(structure: StructureIndex): PythonFileText {
+  const lines = structure.blanked.split('\n');
+  const lineStarts: number[] = [0];
+  let at = 0;
+  for (const line of lines) {
+    at += line.length + 1;
+    lineStarts.push(at);
+  }
+  return { lines, lineStarts };
+}
+
+/**
+ * The body span of a Python `def`, RECOMPUTED rather than taken from the symbol.
+ *
+ * ★ THIS EXISTS BECAUSE `IndexedSymbol.bodyStart` IS WRONG FOR A MULTI-LINE
+ * SIGNATURE, AND THE FIRST DRAFT OF THIS ARM SHIPPED A FIXTURE THAT PROVED
+ * NOTHING BECAUSE OF IT.
+ *
+ * The Python indexer sets `bodyStart` to the start of the line after the `def`
+ * head line, and finds `bodyEnd` by scanning for the first line indented no
+ * further than the `def`. For FastAPI's documented signature style —
+ *
+ *     async def read_reports(
+ *         current_user: Annotated[User, Depends(get_current_active_user)],
+ *     ):
+ *         ...
+ *
+ * — the closing `):` sits at the `def`'s own indentation, so the scan stops
+ * there and the recorded body is the PARAMETER LIST and nothing else. The real
+ * body is entirely outside the span.
+ *
+ * That was caught by the falsification half of the FastAPI test and not by the
+ * silence half, which is the whole argument for testing negatives in pairs: the
+ * fixture was silent with the dependency and silent without it, because there
+ * was no body to find a check in either way. Asserting only silence would have
+ * shipped a negative condition that had never once been exercised.
+ *
+ * The correction is applied UNIFORMLY, not only to multi-line signatures: for a
+ * one-line `def` it reproduces the indexer's span exactly, so there is no second
+ * code path whose agreement with the first has to be maintained.
+ *
+ * The indexer is not changed, deliberately. `bodyStart` is read by every other
+ * consumer of the Python index — the single-file metrics, VG-SMELL-020's package
+ * arm — and widening it here would move their numbers as a side effect of a fix
+ * to this rule. A corrected COPY of the symbol is what leaves this function; the
+ * shared index is never mutated.
+ */
+function pythonBodySpan(
+  file: PythonFileText,
+  symbol: IndexedSymbol,
+  signatureEndLine: number,
+  contentLength: number,
+): { bodyStart: number; bodyEnd: number } | undefined {
+  const declIndent = symbol.startColumn - 1;
+  const first = signatureEndLine + 1;
+  let last = first - 1;
+  for (let i = first; i < file.lines.length; i += 1) {
+    const text = file.lines[i] ?? '';
+    const trimmed = text.trim();
+    // Blank and comment-only lines never end a block — the rule the language
+    // itself uses, and the same one `indexPython` applies.
+    if (trimmed.length === 0 || trimmed.startsWith('#')) continue;
+    if (indentWidth(text) <= declIndent) break;
+    last = i;
+  }
+  if (last < first) return undefined;
+  const bodyStart = Math.min(file.lineStarts[first] ?? contentLength, contentLength);
+  const bodyEnd = Math.min(file.lineStarts[last + 1] ?? contentLength, contentLength);
+  return { bodyStart, bodyEnd };
+}
+
+/**
+ * A Python def with its signature read and its body span corrected.
+ *
+ * `undefined` when either could not be established — an unreadable signature or
+ * an empty body — and every caller drops the symbol, which is the quiet
+ * direction: a body that could not be located cannot be shown to contain a
+ * scattered check.
+ */
+function pythonDef(
+  file: PythonFileText,
+  structure: StructureIndex,
+  symbol: IndexedSymbol,
+): { signature: string; body: IndexedSymbol } | undefined {
+  const signature = pythonSignature(file, symbol);
+  if (signature === undefined) return undefined;
+  const span = pythonBodySpan(file, symbol, signature.endLine, structure.blanked.length);
+  if (span === undefined) return undefined;
+  return { signature: signature.text, body: { ...symbol, ...span } };
+}
+
+/**
+ * What the Python arm learned about the project as a whole, computed once.
+ *
+ * Everything here is a NEGATIVE fact except `urlconfFunctionViews` /
+ * `urlconfClassViews`, which are the one place this arm adds to the population.
+ * They are separated from `urlconfGuardedNames` rather than being one map,
+ * because "bound in a URLconf" and "bound through a wrapper" are different
+ * claims and the second one wins: a name that appears both ways is guarded.
+ */
+interface PythonProjectContext {
+  /** An application-wide checkpoint was found. No Python file may produce sites. */
+  projectSilenced: boolean;
+  /** Files covered by a router-level or `include_router`-level dependency list. */
+  silencedFiles: ReadonlySet<string>;
+  /** Defs judged to be guards, by name or by what their body does. Bare names. */
+  guardNames: ReadonlySet<string>;
+  /** Function views bound directly in a URLconf, by bare name. */
+  urlconfFunctionViews: ReadonlySet<string>;
+  /** Classes bound directly through `.as_view()` in a URLconf, by bare name. */
+  urlconfClassViews: ReadonlySet<string>;
+  /** Every identifier inside a WRAPPED URLconf view expression. */
+  urlconfGuardedNames: ReadonlySet<string>;
+  /**
+   * `CurrentUser` → `Annotated[User, Depends(get_current_user)]`, project-wide.
+   *
+   * The right-hand SIDE, not a verdict, because deciding whether a dependency is
+   * security-shaped may consult `guardNames`, which is built in a later pass.
+   */
+  dependencyAliases: ReadonlyMap<string, string>;
+  /** Each Python file's blanked text, split once. Keyed by `filePath`. */
+  texts: ReadonlyMap<string, PythonFileText>;
+}
+
+/** Whether a def's body contains evidence that it refuses requests. */
+function hasGuardBodyEvidence(body: string): boolean {
+  for (const pattern of GUARD_BODY_EVIDENCE) {
+    if (pattern.test(body)) return true;
+  }
+  // A privilege comparison in a def that is NOT a route handler is a decision
+  // about who may proceed, made in one place — which is the design this rule
+  // recommends. Callers must therefore exclude route-decorated and URLconf-bound
+  // defs BEFORE asking, or every scattered handler would silence itself on the
+  // strength of the very check being reported, and the rule could never fire.
+  for (const pattern of authzDecisionPatterns()) {
+    pattern.lastIndex = 0;
+    if (pattern.test(body)) return true;
+  }
+  return false;
+}
+
+/**
+ * Resolve the file an `include_router(x.router, …)` argument refers to.
+ *
+ * Two shapes, in the order they occur in FastAPI's own "Bigger Applications"
+ * layout. `from .routers import items` + `include_router(items.router)` needs the
+ * MODULE `items` under the imported package, which is `.routers.items` — a
+ * specifier the import statement never wrote, so it is composed here and handed
+ * to the graph's resolver. `from .routers.items import router` +
+ * `include_router(router)` already resolved to the right file at import time, so
+ * the edge's own `resolvedFile` answers.
+ *
+ * `undefined` means the caller must silence the whole project instead: a router
+ * carrying an application-level dependency list exists, and not knowing which
+ * file it covers is not a reason to assume it covers none.
+ */
+function routerSourceFile(
+  head: string,
+  structure: StructureIndex,
+  known: Set<string>,
+): string | undefined {
+  for (const edge of structure.imports) {
+    if (edge.syntax !== 'python' || !edge.names.includes(head)) continue;
+    const submodule = resolveSpecifier(
+      { ...edge, specifier: `${edge.specifier}.${head}`, resolvedFile: undefined },
+      known,
+    );
+    if (submodule !== undefined) return submodule;
+    if (edge.resolvedFile !== undefined) return edge.resolvedFile;
+  }
+  return undefined;
+}
+
+/**
+ * Read the Django `MIDDLEWARE` list out of a settings module.
+ *
+ * Reads the ORIGINAL content, not the blanked copy, and that is the whole reason
+ * this is a function rather than one regex: the entries are STRING LITERALS, so
+ * the blanked copy has a list of empty quotes in exactly the place the answer
+ * lives. The offsets are interchangeable because every blanker in
+ * `@vibeguard/rules` is length-preserving, so the `[` located in the blanked text
+ * is the same `[` in the original.
+ */
+function middlewareDeclaresGuard(blanked: string, content: string): boolean {
+  const opened = DJANGO_MIDDLEWARE_SETTING.exec(blanked);
+  if (!opened) return false;
+  const open = opened.index + opened[0].length - 1;
+  const args = callArguments(blanked, open);
+  // An unreadable list is treated as declaring a guard, for the reason stated at
+  // the top of this section: a settings file whose middleware list does not close
+  // inside the scan bound is not evidence that the project has no middleware.
+  if (!args) return true;
+  // Entries are read POSITIONALLY out of the original. `callArguments` returns
+  // contiguous slices starting at `open + 1`, separated by exactly one comma
+  // each, so advancing the cursor by `length + 1` per argument lands on the real
+  // text of the next one. Re-splitting the original on commas instead would
+  // break on a comma inside an entry — which the blanked copy has already
+  // handled correctly, and is the reason the split happens there.
+  let cursor = open + 1;
+  for (const arg of args) {
+    const text = content.slice(cursor, cursor + arg.length);
+    cursor += arg.length + 1;
+    const entry = text.trim().replace(/^[uUbBrRfF]{0,2}['"]/, '').replace(/['"],?$/, '');
+    if (entry.length === 0) continue;
+    // `django.`-prefixed entries decide nothing this rule cares about — see
+    // `PY_MIDDLEWARE_SECURITY_WORD`.
+    if (entry.startsWith('django.')) continue;
+    if (nameCarriesWord(entry, PY_MIDDLEWARE_SECURITY_WORD)) return true;
+  }
+  return false;
+}
+
+/**
+ * Everything the Python arm needs to know about the project, in two passes.
+ *
+ * TWO PASSES, AND WHY IT CANNOT BE ONE: pass two asks "is this def a guard?", and
+ * one of the disqualifiers is "it is a URLconf-bound view" — which is a fact
+ * produced by pass one, from a DIFFERENT file (`urls.py` names views in
+ * `views.py`). With one pass the answer would depend on directory order.
+ */
+function buildPythonContext(project: ProjectIndex): PythonProjectContext {
+  const silencedFiles = new Set<string>();
+  const guardNames = new Set<string>();
+  const urlconfFunctionViews = new Set<string>();
+  const urlconfClassViews = new Set<string>();
+  const urlconfGuardedNames = new Set<string>();
+  const dependencyAliases = new Map<string, string>();
+  const texts = new Map<string, PythonFileText>();
+  let projectSilenced = false;
+
+  const known = new Set(project.structures.keys());
+  const contentOf = new Map(project.files.map((f) => [f.filePath, f.content]));
+  const pythonFiles = [...project.structures.keys()]
+    .sort()
+    .map((p) => project.structures.get(p)!)
+    .filter((s) => s.language === 'python');
+
+  /** A def's real body, blanked, via the corrected span. `''` when unreadable. */
+  const bodyOf = (structure: StructureIndex, symbol: IndexedSymbol): string => {
+    const def = pythonDef(texts.get(structure.filePath)!, structure, symbol);
+    return def ? structure.blanked.slice(def.body.bodyStart, def.body.bodyEnd) : '';
+  };
+
+  // ── Pass 1: scope declarations, URLconfs, and application-wide middleware ──
+  for (const structure of pythonFiles) {
+    const blanked = structure.blanked;
+    texts.set(structure.filePath, pythonFileText(structure));
+
+    PY_SCOPE_CALL.lastIndex = 0;
+    for (let m = PY_SCOPE_CALL.exec(blanked); m; m = PY_SCOPE_CALL.exec(blanked)) {
+      const callee = m.groups?.callee ?? '';
+      const open = m.index + m[0].length - 1;
+      const args = callArguments(blanked, open);
+      const declares = args === undefined || args.some((a) => DEPENDENCIES_KWARG.test(a.trim()));
+
+      if (callee === 'FastAPI') {
+        // `FastAPI(dependencies=[Depends(verify_token)])` is genuinely
+        // application-wide, so the scope of the silence matches the scope of the
+        // guard exactly. No coarsening involved.
+        if (declares) projectSilenced = true;
+      } else if (callee === 'APIRouter') {
+        // Router-level. The honest scope is "the routes registered on this
+        // router", and nothing lexical can enumerate those — a router object can
+        // be passed anywhere. The file it is constructed in is the scope FastAPI's
+        // own layout puts them in (one router per module), so the file is
+        // silenced and the over-reach is a handler in the same file registered on
+        // some other router. That is a missed finding.
+        if (declares) silencedFiles.add(structure.filePath);
+      } else if (callee === 'include_router') {
+        if (declares) {
+          const head = /^[A-Za-z_][\w]{0,80}/.exec((args?.[0] ?? '').trim())?.[0];
+          const target = head === undefined ? undefined : routerSourceFile(head, structure, known);
+          if (target === undefined) projectSilenced = true;
+          else silencedFiles.add(target);
+        }
+      } else if (callee === 'add_middleware') {
+        if (args === undefined) projectSilenced = true;
+        else if (nameCarriesWord(args[0] ?? '', PY_MIDDLEWARE_SECURITY_WORD)) projectSilenced = true;
+      }
+      if (PY_SCOPE_CALL.lastIndex === m.index) PY_SCOPE_CALL.lastIndex += 1;
+    }
+
+    // Dependency aliases. The right-hand side is captured whole — brackets or
+    // parens, whichever the alias opened — so `declaresDependencyCall` can be
+    // run over it later with `guardNames` in hand.
+    PY_DEPENDENCY_ALIAS.lastIndex = 0;
+    for (let m = PY_DEPENDENCY_ALIAS.exec(blanked); m; m = PY_DEPENDENCY_ALIAS.exec(blanked)) {
+      const alias = m.groups?.alias;
+      const args = alias === undefined ? undefined : callArguments(blanked, m.index + m[0].length - 1);
+      if (alias !== undefined && args !== undefined) {
+        // A name bound twice project-wide keeps the FIRST binding. Collisions are
+        // possible across files and the alternative — concatenating them — would
+        // let an unrelated module's `Dep = Annotated[str, Depends(get_db)]` turn
+        // into evidence about this one.
+        if (!dependencyAliases.has(alias)) dependencyAliases.set(alias, args.join(','));
+      }
+      if (PY_DEPENDENCY_ALIAS.lastIndex === m.index) PY_DEPENDENCY_ALIAS.lastIndex += 1;
+    }
+
+    const content = contentOf.get(structure.filePath);
+    if (content !== undefined && middlewareDeclaresGuard(blanked, content)) projectSilenced = true;
+
+    // A `before_request` hook, or a Starlette `@app.middleware("http")`, that
+    // refuses requests is application-wide by construction. The guard evidence is
+    // required — a `before_request` that only populates `g.user` decides nothing,
+    // and silencing on the hook's mere existence would silence every Flask app.
+    for (const symbol of structure.symbols) {
+      const decs = symbol.decorators ?? [];
+      if (!decs.some((d) => /^(?:before_request|before_app_request|middleware)$/.test(lastSegment(d)))) {
+        continue;
+      }
+      if (
+        isAuthzGuardName(symbol.name) ||
+        isAuthnGuardName(symbol.name) ||
+        nameCarriesWord(symbol.name, PY_GUARD_DECORATOR_WORD) ||
+        hasGuardBodyEvidence(bodyOf(structure, symbol))
+      ) {
+        projectSilenced = true;
+      }
+    }
+
+    // ── The Django URLconf ──────────────────────────────────────────────────
+    //
+    // The one place this arm ADDS to the population, and it is added because the
+    // centralisation cannot be read without reading it: `login_required(view)` in
+    // `urls.py` is Django's documented way to guard a function view, and the view
+    // itself carries no trace of it. A rule that read only `views.py` would see
+    // an unguarded function either way.
+    //
+    // Two conditions before a file counts as a URLconf, and the second one is the
+    // cheap precision: it must name `django`. Real URLconfs import `path` from
+    // `django.urls` without exception, and requiring it keeps a `urlpatterns`
+    // list in some unrelated framework from promoting arbitrary functions into a
+    // population this rule then accuses.
+    const isUrlconf =
+      /\bdjango\b/.test(blanked) &&
+      (structure.filePath.endsWith('/urls.py') ||
+        structure.filePath === 'urls.py' ||
+        /\burlpatterns[^\S\r\n]{0,4}=/.test(blanked));
+    if (!isUrlconf) continue;
+
+    DJANGO_URL_CALL.lastIndex = 0;
+    for (let m = DJANGO_URL_CALL.exec(blanked); m; m = DJANGO_URL_CALL.exec(blanked)) {
+      const open = m.index + m[0].length - 1;
+      const args = callArguments(blanked, open);
+      const view = args?.[1]?.trim();
+      if (view === undefined || view.length === 0) {
+        if (DJANGO_URL_CALL.lastIndex === m.index) DJANGO_URL_CALL.lastIndex += 1;
+        continue;
+      }
+      const asView = PY_AS_VIEW.exec(view);
+      if (view.startsWith('include')) {
+        // A nested URLconf. The views live in the included module and are read
+        // there; recording anything here would be recording the module name.
+      } else if (asView) {
+        urlconfClassViews.add(lastSegment(asView.groups?.cls ?? ''));
+      } else if (PY_BARE_VIEW.test(view)) {
+        urlconfFunctionViews.add(lastSegment(view));
+      } else {
+        // ANYTHING ELSE IS A WRAPPED VIEW AND EVERY NAME IN IT IS GUARDED.
+        //
+        // `login_required(views.results)` and
+        // `permission_required("polls.change")(views.edit)` are the documented
+        // shapes, but the test is not "is the wrapper one we recognise" — it is
+        // "is the view handed to `path()` unwrapped". `cache_page(60)(view)` is
+        // not a guard and silences anyway, which is a missed finding and the
+        // correct direction: the alternative is a vocabulary of wrapper names,
+        // and a wrapper this rule has not heard of would then leave a correctly
+        // guarded view in the population.
+        PY_IDENTIFIER.lastIndex = 0;
+        for (let id = PY_IDENTIFIER.exec(view); id; id = PY_IDENTIFIER.exec(view)) {
+          urlconfGuardedNames.add(id[0]);
+          if (PY_IDENTIFIER.lastIndex === id.index) PY_IDENTIFIER.lastIndex += 1;
+        }
+      }
+      if (DJANGO_URL_CALL.lastIndex === m.index) DJANGO_URL_CALL.lastIndex += 1;
+    }
+  }
+
+  // ── Pass 2: defs that are themselves guards ───────────────────────────────
+  for (const structure of pythonFiles) {
+    for (const symbol of structure.symbols) {
+      if (symbol.kind === 'class') continue;
+      // A route handler cannot silence itself. Its body holds the very check
+      // being reported, so admitting it here would make the rule structurally
+      // incapable of firing — the failure would be total and completely silent.
+      if ((symbol.decorators ?? []).some(isRouteDecorator)) continue;
+      if (urlconfFunctionViews.has(symbol.name)) continue;
+      if (symbol.enclosingClass !== undefined && urlconfClassViews.has(symbol.enclosingClass)) continue;
+      if (
+        isAuthzGuardName(symbol.name) ||
+        isAuthnGuardName(symbol.name) ||
+        nameCarriesWord(symbol.name, PY_GUARD_DECORATOR_WORD) ||
+        hasGuardBodyEvidence(bodyOf(structure, symbol))
+      ) {
+        guardNames.add(symbol.name);
+      }
+    }
+  }
+
+  return {
+    projectSilenced,
+    silencedFiles,
+    guardNames,
+    urlconfFunctionViews,
+    urlconfClassViews,
+    urlconfGuardedNames,
+    dependencyAliases,
+    texts,
+  };
+}
+
+/**
+ * The text of a `def`'s signature, from `def` to the paren that closes it.
+ *
+ * ★ WHY THE SIGNATURE HAS TO BE RE-READ RATHER THAN SLICED FROM `bodyStart`.
+ *
+ * The Python indexer sets `bodyStart` to the start of the line AFTER the `def`
+ * head line, which for a one-line signature puts the whole signature outside the
+ * body — and for FastAPI's documented multi-line signatures puts the SECOND line
+ * of the signature INSIDE it. Neither span is the signature, so it is walked here
+ * from the head line with paren depth, which is the only reading that is right
+ * for both.
+ *
+ * `undefined` when the signature does not close within `SIGNATURE_LINE_CAP`
+ * lines, and the caller drops the handler: an unreadable signature is exactly the
+ * case where a `Depends(...)` could be sitting in the part that was not read.
+ */
+function pythonSignature(
+  file: PythonFileText,
+  symbol: IndexedSymbol,
+): { text: string; endLine: number } | undefined {
+  let text = '';
+  let depth = 0;
+  let opened = false;
+  const first = symbol.startLine - 1;
+  for (let i = first; i < file.lines.length && i < first + SIGNATURE_LINE_CAP; i += 1) {
+    const line = file.lines[i] ?? '';
+    text += `${line}\n`;
+    for (let k = 0; k < line.length; k += 1) {
+      const c = line[k];
+      if (c === '(') {
+        depth += 1;
+        opened = true;
+      } else if (c === ')') depth -= 1;
+    }
+    if (opened && depth <= 0) return { text, endLine: i };
+  }
+  return undefined;
+}
+
+/**
+ * Whether a piece of text contains a security-shaped `Depends(…)`/`Security(…)`.
+ *
+ * Runs over a signature and, unchanged, over the right-hand side of a dependency
+ * alias — the two places FastAPI lets the declaration live. Sharing one function
+ * is the point: an alias that would have silenced a handler if written inline
+ * must silence it when written once and named.
+ */
+function declaresDependencyCall(text: string, ctx: PythonProjectContext): boolean {
+  PY_DEPENDENCY_CALL.lastIndex = 0;
+  for (let m = PY_DEPENDENCY_CALL.exec(text); m; m = PY_DEPENDENCY_CALL.exec(text)) {
+    // `Security(...)` exists in FastAPI only to carry OAuth2 scopes. There is no
+    // non-authorization use of it, so the argument is not consulted.
+    if (m.groups?.kind === 'Security') return true;
+    const args = callArguments(text, m.index + m[0].length - 1);
+    // `Depends()` with no argument infers the dependency from the parameter's
+    // ANNOTATION, which is a type this lexical layer cannot follow. Unknown
+    // means quiet.
+    if (args === undefined || (args[0] ?? '').trim().length === 0) return true;
+    const argument = args[0]!;
+    if (nameCarriesWord(argument, PY_SECURITY_DEPENDENCY_WORD)) return true;
+    if (ctx.guardNames.has(lastSegment(argument.trim()))) return true;
+    if (PY_DEPENDENCY_CALL.lastIndex === m.index) PY_DEPENDENCY_CALL.lastIndex += 1;
+  }
+  return false;
+}
+
+/**
+ * The ANNOTATION of each parameter in a signature — the `: X` part, without the
+ * parameter name and without the default.
+ *
+ * ★ THE NAME IS DELIBERATELY NOT READ, AND THAT IS WHAT KEEPS THE FLASK ARM
+ * ALIVE.
+ *
+ * Reading parameter NAMES for security words was the obvious version of this and
+ * it is wrong for a reason that shows up immediately outside FastAPI:
+ * `def delete_post(post_id)` and `def get_profile(user_id)` are ordinary Flask
+ * and Django route parameters, `user_id` carries the word `user`, and the arm
+ * would have silenced most handlers in both frameworks.
+ *
+ * An ANNOTATION is different in kind. Flask and Django route parameters are
+ * conventionally unannotated or annotated with `int` / `str`; a FastAPI handler
+ * that receives an authenticated principal names its TYPE, and that type is
+ * either `Annotated[User, Depends(…)]` or an alias for it. So the annotation is
+ * where the dependency shows through and the name is not.
+ *
+ * The residual over-silence is real and named: `user_in: UserUpdate` is a
+ * request BODY model, carries `user`, and silences the handler. That costs
+ * recall on user-management endpoints, which is where authorization checks
+ * concentrate — the worst place to lose it. It is accepted because the
+ * alternative was the finding on FastAPI's own template.
+ */
+function signatureAnnotations(signature: string): string[] {
+  const open = signature.indexOf('(');
+  if (open === -1) return [];
+  const params = callArguments(signature, open);
+  if (params === undefined) return [];
+  const out: string[] = [];
+  for (const param of params) {
+    let depth = 0;
+    let colon = -1;
+    let end = param.length;
+    for (let i = 0; i < param.length; i += 1) {
+      const c = param[i];
+      if (c === '(' || c === '[' || c === '{') depth += 1;
+      else if (c === ')' || c === ']' || c === '}') depth -= 1;
+      else if (depth === 0 && c === ':' && colon === -1) colon = i;
+      else if (depth === 0 && c === '=') {
+        end = i;
+        break;
+      }
+    }
+    if (colon === -1) continue;
+    out.push(param.slice(colon + 1, end));
+  }
+  return out;
+}
+
+/** Whether a signature declares a security-shaped FastAPI dependency. */
+function declaresSecurityDependency(signature: string, ctx: PythonProjectContext): boolean {
+  if (declaresDependencyCall(signature, ctx)) return true;
+  for (const annotation of signatureAnnotations(signature)) {
+    if (nameCarriesWord(annotation, PY_SECURITY_DEPENDENCY_WORD)) return true;
+    // The alias arm: an annotation naming `CurrentUser` is a dependency
+    // declaration written somewhere else in the project. See
+    // `PY_DEPENDENCY_ALIAS` for the sweep result that made this necessary.
+    PY_IDENTIFIER.lastIndex = 0;
+    for (let id = PY_IDENTIFIER.exec(annotation); id; id = PY_IDENTIFIER.exec(annotation)) {
+      const rhs = ctx.dependencyAliases.get(id[0]);
+      if (rhs !== undefined && declaresDependencyCall(rhs, ctx)) return true;
+      if (PY_IDENTIFIER.lastIndex === id.index) PY_IDENTIFIER.lastIndex += 1;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether the decorator block above a `def` carries `dependencies=[…]`.
+ *
+ * `IndexedSymbol.decorators` records decorator NAMES only, so the route-level
+ * `@router.get("/x", dependencies=[Depends(verify_token)])` form is invisible
+ * there — the guard is in an argument. The block is therefore re-read from the
+ * blanked lines.
+ *
+ * The upward walk tracks bracket depth because a decorator call is routinely
+ * written across several lines, and a naive "walk up while the line starts with
+ * `@`" stops at the closing `)` and never sees the `dependencies=` above it.
+ * That is the same limitation the indexer's own `decoratorsFor` has; it is
+ * repaired here rather than there because changing the indexer would move every
+ * other consumer's decorator lists.
+ */
+function decoratorBlockDeclaresDependencies(lines: string[], symbol: IndexedSymbol): boolean {
+  let depth = 0;
+  for (
+    let i = symbol.startLine - 2;
+    i >= 0 && i > symbol.startLine - 2 - DECORATOR_BLOCK_LINE_CAP;
+    i -= 1
+  ) {
+    const line = lines[i] ?? '';
+    const trimmed = line.trim();
+    const open = (line.match(/[([{]/g) ?? []).length;
+    const close = (line.match(/[)\]}]/g) ?? []).length;
+    const isContinuation = depth > 0 || /^[)\]}]/.test(trimmed);
+    if (!isContinuation && trimmed.length === 0) continue;
+    if (!isContinuation && !trimmed.startsWith('@')) return false;
+    if (PY_DECORATOR_DEPENDENCIES.test(line)) return true;
+    depth += close - open;
+    if (depth < 0) depth = 0;
+  }
+  return false;
+}
+
+/**
+ * Whether a Django class-based view decides authorization in one place.
+ *
+ * Returns TRUE — guarded, so quiet — when the class cannot be found or names no
+ * bases at all. A `path("x/", Something.as_view())` whose class is not in this
+ * file is a class this arm has not read, and a class with no bases is not a
+ * Django view (every CBV descends from `View`), so both are cases where the
+ * evidence for accusing is missing rather than absent.
+ */
+function classViewIsGuarded(
+  className: string,
+  structure: StructureIndex,
+): boolean {
+  const cls = structure.symbols.find((s) => s.kind === 'class' && s.name === className);
+  if (!cls) return true;
+  if ((cls.decorators ?? []).some((d) => DJANGO_CLASS_GUARD_DECORATOR.has(lastSegment(d)))) return true;
+  const bases = cls.baseClasses ?? [];
+  if (bases.length === 0) return true;
+  for (const base of bases) {
+    const tail = lastSegment(base.trim());
+    if (DJANGO_GUARD_MIXIN.has(tail)) return true;
+    if (isAuthzGuardName(tail) || isAuthnGuardName(tail)) return true;
+    if (nameCarriesWord(tail, PY_GUARD_DECORATOR_WORD)) return true;
+  }
+  return structure.symbols.some(
+    (s) => s.enclosingClass === className && DJANGO_CENTRALISING_METHOD.has(s.name),
+  );
+}
+
+/**
+ * Handler bodies to search in one PYTHON file.
+ *
+ * Ordered so that every NEGATIVE condition is asked before the symbol is
+ * admitted, which is the shape the 041 post-mortem asks for. The two membership
+ * tests in the middle are the only positive ones.
+ */
+function pythonHandlersOf(
+  structure: StructureIndex,
+  project: ProjectIndex,
+  ctx: PythonProjectContext,
+): IndexedSymbol[] {
+  if (ctx.projectSilenced) return [];
+  if (ctx.silencedFiles.has(structure.filePath)) return [];
+
+  const file = ctx.texts.get(structure.filePath);
+  if (!file) return [];
+  const lines = file.lines;
+  const handlers: IndexedSymbol[] = [];
+
+  for (const symbol of structure.symbols) {
+    if (symbol.kind === 'class') continue;
+    if (isInsideGuard(symbol, project)) continue;
+    if (ctx.guardNames.has(symbol.name)) continue;
+
+    const owner = symbol.enclosingClass;
+    if (ctx.urlconfGuardedNames.has(symbol.name)) continue;
+    if (owner !== undefined && ctx.urlconfGuardedNames.has(owner)) continue;
+
+    const decorators = symbol.decorators ?? [];
+    const routeDecorated = decorators.some(isRouteDecorator);
+    // A URLconf-bound FUNCTION view is top-level by definition; a method with the
+    // same name as some module-level view is not that view.
+    const functionView = owner === undefined && ctx.urlconfFunctionViews.has(symbol.name);
+    const classViewMethod = owner !== undefined && ctx.urlconfClassViews.has(owner);
+    if (!routeDecorated && !functionView && !classViewMethod) continue;
+
+    if (decorators.some((d) => isPythonGuardDecorator(d, ctx))) continue;
+    if (classViewMethod && classViewIsGuarded(owner!, structure)) continue;
+
+    // The signature and the CORRECTED body span come together, because both are
+    // derived from where the signature ends — see `pythonBodySpan`.
+    const def = pythonDef(file, structure, symbol);
+    if (def === undefined) continue;
+    if (declaresSecurityDependency(def.signature, ctx)) continue;
+    if (decoratorBlockDeclaresDependencies(lines, symbol)) continue;
+
+    handlers.push(def.body);
+  }
+
+  return handlers;
+}
+
+/** Whether a decorator stacked on a route handler is a guard. */
+function isPythonGuardDecorator(decorator: string, ctx: PythonProjectContext): boolean {
+  const tail = lastSegment(decorator);
+  if (tail.length === 0) return false;
+  // The route decorator itself is not a guard, and `@app.delete` would otherwise
+  // land in the `PY_GUARD_DECORATOR_WORD` net through no word of its own.
+  if (isRouteDecorator(decorator)) return false;
+  if (isAuthzGuardName(tail) || isAuthnGuardName(tail)) return true;
+  if (nameCarriesWord(tail, PY_GUARD_DECORATOR_WORD)) return true;
+  // The last resort, and the only one that reads behaviour: the decorator names a
+  // project-local def whose body refuses requests. This is what catches a guard
+  // called `@ensure_can_edit`, which no vocabulary would have.
+  return ctx.guardNames.has(tail);
+}
+
+/**
  * Handler bodies to search, per file.
  *
  * Condition (d) of the spec — "concentrated in API route / controller / handler
@@ -652,20 +1826,32 @@ function isInsideGuard(symbol: IndexedSymbol, project: ProjectIndex): boolean {
  * opposite of scattered. Restricting the population to registered handlers is
  * what keeps the rule from becoming "you compared a role somewhere".
  *
- * Three ways a symbol qualifies, all of them structural:
+ * Three ways a symbol qualifies in TS/JS, all of them structural:
  *  - it was written inline at a route registration (`router.get('/x', () => …)`)
  *  - it was named as the handler argument of a registration
  *  - it carries a routing decorator (`@Get()`, `@app.route()`), which is how
  *    Nest and Flask register handlers with no call site to observe
+ *
+ * Python takes a different path entirely, because `StructureIndex.routes` is
+ * always empty for it — see `pythonHandlersOf`.
  */
-function handlersOf(structure: StructureIndex, project: ProjectIndex): IndexedSymbol[] {
-  const decoratorRoute = /^(?:get|post|put|patch|delete|head|options|all|route|api_route|websocket)$/i;
+function handlersOf(
+  structure: StructureIndex,
+  project: ProjectIndex,
+  python: PythonProjectContext | undefined,
+): IndexedSymbol[] {
+  if (structure.language === 'python') {
+    // `python` is undefined only when no Python file reached this rule, in which
+    // case this branch is unreachable. Failing quiet rather than asserting keeps
+    // a future caller that forgets the context from getting findings instead of
+    // an error.
+    return python ? pythonHandlersOf(structure, project, python) : [];
+  }
   return structure.symbols.filter((s) => {
     if (isInsideGuard(s, project)) return false;
     if (s.kind === 'middleware') return false;
     if (s.kind === 'route-handler') return true;
-    const decs = s.decorators ?? [];
-    return decs.some((d) => decoratorRoute.test(d.split('.').pop() ?? ''));
+    return (s.decorators ?? []).some(isRouteDecorator);
   });
 }
 
@@ -708,7 +1894,7 @@ function checksIn(
   const sites: CheckSite[] = [];
   const seenOffsets = new Set<number>();
 
-  for (const pattern of [CMP, FLAG, MEMBERSHIP]) {
+  for (const pattern of authzDecisionPatterns()) {
     pattern.lastIndex = 0;
     for (let m = pattern.exec(body); m; m = pattern.exec(body)) {
       const g = m.groups ?? {};
@@ -818,6 +2004,17 @@ export function collectScatteredAuthSites(project: ProjectIndex): readonly Check
   // is one no baseline can track.
   const files = [...project.structures.keys()].sort();
 
+  // Built once, for the whole project, and only when there is Python to reason
+  // about. The Python arm's silencers are project-wide facts (an application-wide
+  // middleware, a `FastAPI(dependencies=…)`) and its Django URLconf pass is
+  // cross-file by nature — `urls.py` names views defined in `views.py` — so a
+  // per-file computation would give a different answer depending on which file
+  // was reached first. Skipping it entirely for a TS-only project keeps this
+  // rule's cost on its existing population exactly where it was.
+  const python = [...project.structures.values()].some((s) => s.language === 'python')
+    ? buildPythonContext(project)
+    : undefined;
+
   for (const filePath of files) {
     if (TEST_PATH.test(filePath)) continue;
     const structure = project.structures.get(filePath)!;
@@ -837,7 +2034,7 @@ export function collectScatteredAuthSites(project: ProjectIndex): readonly Check
     // inside the loop.
     const securityPath = isSecurityPath(filePath);
     const routingLayer = isRoutingLayer(filePath);
-    for (const handler of handlersOf(structure, project)) {
+    for (const handler of handlersOf(structure, project, python)) {
       sites.push(
         ...checksIn(handler, structure, source.content, {
           securityPath,
@@ -1076,30 +2273,39 @@ export const scatteredAuthorization: CrossFileRule = {
   severity: 'medium',
   defaultConfidence: 'medium',
   /**
-   * TS/JS only in 0.3.0-α, and this list is now ENFORCED by `runCrossFileRules`
-   * rather than being documentation.
+   * TS/JS in 0.3.0-α; Python readmitted in 0.3.0-β (#27b). This list is ENFORCED
+   * by `runCrossFileRules` rather than being documentation, so the entry below is
+   * what makes the Python arm run at all.
    *
-   * Python was listed here first, and the detection genuinely worked — a review
+   * ★ WHAT WAS WRONG THE FIRST TIME, AND WHAT HAD TO EXIST BEFORE IT CAME BACK.
+   *
+   * Python was listed here in α and the DETECTION genuinely worked — a review
    * pass built a Flask fixture (`@app.route` handlers with inline
    * `request.user.role != 'admin'` checks) and the rule fired on it correctly.
-   * It is removed anyway, because working is not the bar. Not one of the
-   * negative fixtures under `samples/crossfile-fixtures/` is written in Python,
-   * so the only thing never exercised was the half that matters: whether the
-   * rule stays SILENT on well-factored Python. Flask, FastAPI, and Django each
-   * centralise authorization through a different mechanism — a decorator, a
-   * `Depends(...)` parameter, a URLconf-level wrapper — and none of the negative
-   * conditions in this file recognise any of them. A guard expressed as
-   * `Depends(require_admin)` is invisible to `handlersOf`, so the well-factored
-   * FastAPI service would look exactly like the scattered one.
+   * It was removed anyway, because working is not the bar. Not one negative
+   * fixture under `samples/crossfile-fixtures/` was written in Python, so the
+   * only thing never exercised was the half that matters: whether the rule stays
+   * SILENT on well-factored Python. Flask, FastAPI and Django each centralise
+   * authorization through a different mechanism — a stacked decorator, a
+   * `Depends(...)` parameter, a URLconf wrapper, a CBV mixin — and none of the
+   * negative conditions recognised any of them. A guard expressed as
+   * `Depends(get_current_active_user)` was invisible, so the well-factored
+   * FastAPI service looked exactly like the scattered one.
    *
-   * Shipping that would have meant the flagship rule's first contact with Python
-   * users was a false positive on correct code, in a project whose stated
-   * contract is that a design smell firing on well-factored code is a bug. The
-   * structure indexer's Python arm is real and tested and stays; what waits for
-   * β is this rule's Python fixtures and the framework-specific guard detection
-   * they would pin.
+   * What changed is not the detection, which is unaltered: it is the negative
+   * side, which now exists (`THE PYTHON ARM`, above) and is pinned by three
+   * negative fixtures built from the shape of each framework's own documentation
+   * — `smell-010-py-neg-flask`, `-neg-fastapi`, `-neg-django`. Each is asserted
+   * silent AND asserted to FIRE once its centralising element is removed from a
+   * copy, because a negative fixture that would have been silent anyway pins
+   * nothing; `smell-010-py-positive` is the control that the arm is alive rather
+   * than disabled by accident.
+   *
+   * The order that produced this entry is the order the evidence has to arrive
+   * in: negatives, then the tests pinning silence, then the positive, then this
+   * line. Adding this line first is what shipped the α regression.
    */
-  languages: ['typescript', 'javascript'],
+  languages: ['typescript', 'javascript', 'python'],
   cwe: ['CWE-284', 'CWE-862'],
   owasp: ['A01:2021 Broken Access Control'],
   remediation: {

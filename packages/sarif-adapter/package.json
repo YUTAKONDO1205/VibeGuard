@@ -8,6 +8,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./node": {
+      "import": "./dist/provenance-node.js",
+      "types": "./dist/provenance-node.d.ts"
     }
   },
   "scripts": {

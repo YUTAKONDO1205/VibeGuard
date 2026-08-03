@@ -102,6 +102,27 @@ export interface IndexedSymbol {
   decorators?: string[];
   /** The class this method belongs to, when applicable. */
   enclosingClass?: string;
+  /**
+   * Base classes named in the declaration head, when this symbol is a class.
+   *
+   * ★ CAPTURED SINCE 0.3.0-α, STORED SINCE 0.3.0-β. The `extends` clause was
+   * always in `JS_CLASS`'s `base` group and Python's was always in `PY_CLASS`'s,
+   * and both were dropped on the floor because `dependency-graph/index.ts` had
+   * deferred inheritance edges "until the smells that need them" — an edge type
+   * with no consumer being a maintenance cost with no test that would notice it
+   * breaking. VG-SMELL-030 is that consumer, so the capture is now kept.
+   *
+   * NAMES EXACTLY AS WRITTEN, not resolved. `Base`, `mod.Base` and `Generic<T>`
+   * all appear here in the form the source used; resolving them to a file is
+   * the dependency graph's job and it can fail, which is the whole reason an
+   * unresolved base makes VG-SMELL-030 go quiet rather than guess.
+   *
+   * Python multiple inheritance means this is a LIST. JavaScript's single
+   * `extends` fills it with one entry, and `implements` is not collected —
+   * TypeScript interfaces carry no bodies to refuse, so a rule about a subclass
+   * neutering an inherited check has nothing to read there.
+   */
+  baseClasses?: string[];
 }
 
 /** One `import`/`require`/`#include` relationship between two files. */

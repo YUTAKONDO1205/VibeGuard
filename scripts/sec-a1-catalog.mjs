@@ -79,6 +79,18 @@ const OUT_MD = `${RESULTS}/a1-regex-catalog.md`;
 // Resolved against the CWD (the repo root), not against this file: a bare
 // relative specifier in a dynamic import resolves relative to the MODULE, which
 // would look for scripts/packages/rules/… and fail.
+//
+// ★ SCOPE, STATED BECAUSE IT WAS ONCE MISREAD AS "ALL RULES". This is
+// `packages/rules` and nothing else. `packages/analysis-graph` holds a SECOND
+// rule layer — the cross-file design smells, 11 registered rules at the time of
+// writing — whose regexes ship in the CLI and the GitHub Action and are not in
+// this file's output. They are censused by `scripts/sec-a1-crossfile-catalog.mjs`
+// and gated separately (`a1:crossfile-*` in sec-selftest.mjs), because a
+// cross-file rule builds patterns from the code it is analysing and its pattern
+// COUNT is therefore a function of the corpus rather than of the build — a
+// number that cannot share an exact pin with the one below. Any statement of the
+// form "N patterns is the ReDoS attack surface" must add the two together and say
+// which arm each number came from.
 const RULES_ENTRY = 'packages/rules/dist/index.js';
 
 // recheck's own time budget per pattern. Its default (a few seconds) is enough

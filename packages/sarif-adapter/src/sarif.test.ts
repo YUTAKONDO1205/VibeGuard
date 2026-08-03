@@ -2,7 +2,7 @@
 // Test fixtures contain intentional vulnerable code to exercise the rules.
 import { describe, expect, it } from 'vitest';
 import { summarize, type Finding, type ScanResponse } from '@vibeguard/findings-schema';
-import { toSarif } from './index.js';
+import { toSarif, collectAiProvenance, type AiProvenanceObservation } from './index.js';
 
 const fakeFinding = (overrides: Partial<Finding> = {}): Finding => ({
   findingId: 'f-1',
@@ -272,6 +272,78 @@ describe('design-smell findings in SARIF', () => {
     expect('relatedLocations' in r).toBe(false);
     expect('scope' in (r.properties ?? {})).toBe(false);
     expect('metrics' in (r.properties ?? {})).toBe(false);
+  });
+});
+
+/**
+ * AI-authorship provenance in the SARIF envelope.
+ *
+ * Two contracts, and the second one is the one that is easy to break by
+ * accident:
+ *
+ *  1. a marker set is carried on the RUN, not on a result — an authorship marker
+ *     rendered next to a vulnerability in the code-scanning UI is the
+ *     "AI-written therefore dangerous" reading the collector exists to refuse;
+ *  2. an observation that found NOTHING produces no key at all. The empty array
+ *     would be rendered somewhere as "no AI involvement detected", which is a
+ *     claim the collector cannot make and says so in its own claim limit.
+ */
+describe('provenance in the SARIF run', () => {
+  const gitLogBlob = (...messages: string[]): string =>
+    messages.map((m, i) => `${String(i).padStart(40, 'a')}\n${m}`).join('\0') + '\0';
+
+  const withMarkers = (): AiProvenanceObservation =>
+    collectAiProvenance({
+      gitLog: gitLogBlob('feat: x\n\nCo-Authored-By: Claude <noreply@anthropic.com>'),
+    });
+
+  it('attaches the observation to run.properties.provenance', () => {
+    const run = toSarif(wrap([fakeFinding()]), { provenance: withMarkers() }).runs[0]!;
+    const prov = run.properties?.provenance;
+    expect(prov?.observedAuthorshipMarkers).toHaveLength(1);
+    expect(prov?.observedAuthorshipMarkers[0]?.assistant).toBe('claude');
+    expect(prov?.claimLimit).toMatch(/must not be used as a denominator/);
+  });
+
+  it('never puts provenance on a result', () => {
+    const run = toSarif(wrap([fakeFinding()]), { provenance: withMarkers() }).runs[0]!;
+    expect('provenance' in (run.results[0]!.properties ?? {})).toBe(false);
+  });
+
+  // The discipline this file follows everywhere: an absent key and a key holding
+  // an empty value are different things to a consumer enumerating them. Here the
+  // two states being collapsed — "looked, found nothing" and "never looked" —
+  // really are informationally identical, so both must produce absence.
+  it('omits the key entirely when the observation found no marker', () => {
+    const looked = collectAiProvenance({ gitLog: gitLogBlob('chore: no markers here') });
+    expect(looked.observedAuthorshipMarkers).toEqual([]);
+    const run = toSarif(wrap([fakeFinding()]), { provenance: looked }).runs[0]!;
+    expect('properties' in run).toBe(false);
+    expect(run.properties).toBeUndefined();
+  });
+
+  it('omits the key when no provenance was supplied at all', () => {
+    const run = toSarif(wrap([fakeFinding()])).runs[0]!;
+    expect('properties' in run).toBe(false);
+  });
+
+  // `ToSarifOptions` is public, so the guarantee has to survive a caller that
+  // hand-builds the object rather than going through the collector.
+  it('omits the key for a hand-built empty observation', () => {
+    const handBuilt: AiProvenanceObservation = {
+      schemaVersion: 1,
+      observedAuthorshipMarkers: [],
+      inspected: { channelsRead: ['git-log'], commitsInspected: 500, commitWindowTruncated: false },
+      claimLimit: 'anything',
+    };
+    expect('properties' in toSarif(wrap([fakeFinding()]), { provenance: handBuilt }).runs[0]!).toBe(false);
+  });
+
+  it('leaves the rest of the SARIF byte-identical when provenance is present', () => {
+    const plain = toSarif(wrap([fakeFinding()]));
+    const withProv = toSarif(wrap([fakeFinding()]), { provenance: withMarkers() });
+    expect(JSON.stringify(withProv.runs[0]!.results)).toBe(JSON.stringify(plain.runs[0]!.results));
+    expect(JSON.stringify(withProv.runs[0]!.tool)).toBe(JSON.stringify(plain.runs[0]!.tool));
   });
 });
 

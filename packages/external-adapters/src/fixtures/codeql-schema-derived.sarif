@@ -1,0 +1,225 @@
+{
+  "_fixtureProvenance": {
+    "kind": "SCHEMA-DERIVED, NOT TOOL-RECORDED",
+    "readThisBeforeQuotingAnything": "No CodeQL run produced these bytes. There is no recorded CodeQL output anywhere in this repository (checked: paper_data/, security-experiment/_results/), and the CodeQL CLI is not installed on the machine this package was written on. This file was hand-written against the OASIS SARIF 2.1.0 specification and the shapes CodeQL's published documentation says it emits.",
+    "contrastWith": "src/fixtures/semgrep-samples-vulnerable.json is TOOL-RECORDED (genuine Semgrep 1.165.0 bytes). The two fixtures are NOT equal evidence and must never be quoted as if they were. The Semgrep adapter is tested against a real tool's output; the CodeQL adapter is tested against a format.",
+    "whatIsVerifiedByThisFixture": "That the CodeQL adapter reads SARIF 2.1.0 the way the specification says to read it: rules resolved across tool.driver and tool.extensions, level defaulted from the rule's defaultConfiguration and then from the specification's own default, percent-decoded artifact URIs, and results with no locatable region refused rather than guessed.",
+    "whatIsNotVerified": "That real CodeQL emits exactly these rule ids, tag spellings, or property names. The rule ids below are taken from the published github/codeql query catalog and are UNCONFIRMED here. A wrong id can only cost coverage (a finding classifies as unmapped), never fabricate an agreement — see the weaknessClass mapping's own note.",
+    "specReferences": [
+      "SARIF 2.1.0 3.27.10 — result.level and its defaulting chain",
+      "SARIF 2.1.0 3.19.31 / 3.52.3 — toolComponentReference, rules living in tool.extensions",
+      "SARIF 2.1.0 3.4.1 — artifactLocation.uri is a URI reference, so it is percent-encoded",
+      "SARIF 2.1.0 3.30.1 — originalUriBaseIds"
+    ]
+  },
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "CodeQL",
+          "organization": "GitHub",
+          "semanticVersion": "2.20.3",
+          "rules": []
+        },
+        "extensions": [
+          {
+            "name": "codeql/python-queries",
+            "semanticVersion": "1.4.2+abcdef0123456789abcdef0123456789abcdef01",
+            "rules": [
+              {
+                "id": "py/sql-injection",
+                "name": "py/sql-injection",
+                "shortDescription": { "text": "SQL query built from user-controlled sources" },
+                "fullDescription": { "text": "Building a SQL query from user-controlled sources is vulnerable to insertion of malicious SQL code by the user." },
+                "defaultConfiguration": { "level": "error" },
+                "properties": {
+                  "tags": ["security", "external/cwe/cwe-089"],
+                  "precision": "high",
+                  "security-severity": "8.8"
+                }
+              },
+              {
+                "id": "py/command-line-injection",
+                "name": "py/command-line-injection",
+                "shortDescription": { "text": "Uncontrolled command line" },
+                "fullDescription": { "text": "Using externally controlled strings in a command line may allow a malicious user to change the meaning of the command." },
+                "defaultConfiguration": { "level": "error" },
+                "properties": {
+                  "tags": ["security", "external/cwe/cwe-078", "external/cwe/cwe-088"],
+                  "precision": "high",
+                  "security-severity": "9.8"
+                }
+              },
+              {
+                "id": "py/request-without-cert-validation",
+                "name": "py/request-without-cert-validation",
+                "shortDescription": { "text": "Request without certificate validation" },
+                "fullDescription": { "text": "Making a request without certificate validation can allow man-in-the-middle attacks." },
+                "defaultConfiguration": { "level": "warning" },
+                "properties": {
+                  "tags": ["security", "external/cwe/cwe-295"],
+                  "precision": "very-high",
+                  "security-severity": "7.5"
+                }
+              }
+            ]
+          },
+          {
+            "name": "codeql/javascript-queries",
+            "semanticVersion": "1.3.0+0123456789abcdef0123456789abcdef01234567",
+            "rules": [
+              {
+                "id": "js/code-injection",
+                "name": "js/code-injection",
+                "shortDescription": { "text": "Code injection" },
+                "fullDescription": { "text": "Interpreting unsanitized user input as code allows a malicious user to perform arbitrary code execution." },
+                "defaultConfiguration": { "level": "error" },
+                "properties": {
+                  "tags": ["security", "external/cwe/cwe-094", "external/cwe/cwe-095"],
+                  "precision": "high",
+                  "security-severity": "9.3"
+                }
+              },
+              {
+                "id": "js/clear-text-storage-of-sensitive-data",
+                "name": "js/clear-text-storage-of-sensitive-data",
+                "shortDescription": { "text": "Clear-text storage of sensitive information" },
+                "fullDescription": { "text": "Sensitive information stored without encryption or hashing can expose it to an attacker." },
+                "defaultConfiguration": { "level": "error" },
+                "properties": {
+                  "tags": ["security", "external/cwe/cwe-312", "external/cwe/cwe-359"],
+                  "precision": "high",
+                  "security-severity": "7.5"
+                }
+              },
+              {
+                "id": "js/insecure-randomness",
+                "name": "js/insecure-randomness",
+                "shortDescription": { "text": "Insecure randomness" },
+                "fullDescription": { "text": "Using a cryptographically weak pseudo-random number generator to generate a security-sensitive value may allow an attacker to predict what value will be generated." },
+                "properties": {
+                  "tags": ["security", "external/cwe/cwe-338"],
+                  "precision": "medium"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "originalUriBaseIds": {
+        "%SRCROOT%": { "uri": "file:///home/runner/work/VibeGuard/VibeGuard/" }
+      },
+      "results": [
+        {
+          "ruleId": "py/sql-injection",
+          "rule": { "id": "py/sql-injection", "index": 0, "toolComponent": { "index": 0 } },
+          "level": "error",
+          "message": { "text": "This SQL query depends on a user-provided value." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "samples/vulnerable/sql_injection.py", "uriBaseId": "%SRCROOT%", "index": 0 },
+                "region": { "startLine": 8, "startColumn": 9, "endColumn": 46 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "js/code-injection",
+          "rule": { "id": "js/code-injection", "index": 0, "toolComponent": { "index": 1 } },
+          "level": "error",
+          "message": { "text": "This code execution depends on a user-provided value." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "samples/vulnerable/xss.js", "uriBaseId": "%SRCROOT%", "index": 1 },
+                "region": { "startLine": 9, "startColumn": 3, "endColumn": 20 }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "id": 1,
+              "physicalLocation": {
+                "artifactLocation": { "uri": "samples/vulnerable/xss.js", "uriBaseId": "%SRCROOT%" },
+                "region": { "startLine": 4, "startColumn": 12, "endColumn": 30 }
+              },
+              "message": { "text": "user-provided value" }
+            }
+          ]
+        },
+        {
+          "ruleId": "py/command-line-injection",
+          "level": "error",
+          "message": { "text": "This command line depends on a user-provided value." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "samples/vulnerable/command_injection.py", "uriBaseId": "%SRCROOT%" },
+                "region": { "startLine": 7, "startColumn": 5, "endColumn": 44 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "py/request-without-cert-validation",
+          "rule": { "id": "py/request-without-cert-validation", "index": 2, "toolComponent": { "index": 0 } },
+          "message": { "text": "Call to requests.get with verify=False disables certificate validation." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "samples/vulnerable/tls_client.py", "uriBaseId": "%SRCROOT%" },
+                "region": { "startLine": 42, "startColumn": 5, "endColumn": 60 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "js/clear-text-storage-of-sensitive-data",
+          "rule": { "id": "js/clear-text-storage-of-sensitive-data", "index": 1, "toolComponent": { "index": 1 } },
+          "level": "error",
+          "message": { "text": "This stores sensitive data returned by an access to password as clear text." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "samples/vulnerable/legacy%20client/session%20store.js", "uriBaseId": "%SRCROOT%" },
+                "region": { "startLine": 31, "startColumn": 7, "endColumn": 52 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "js/insecure-randomness",
+          "rule": { "id": "js/insecure-randomness", "index": 2, "toolComponent": { "index": 1 } },
+          "message": { "text": "This uses a cryptographically insecure random number generated at Math.random() in a security context." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "samples/vulnerable/token.js", "uriBaseId": "%SRCROOT%" },
+                "region": { "startLine": 12, "startColumn": 18, "endColumn": 33 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "py/sql-injection",
+          "rule": { "id": "py/sql-injection", "index": 0, "toolComponent": { "index": 0 } },
+          "level": "error",
+          "message": { "text": "A result the extractor could not anchor to a region — no physicalLocation.region at all." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "samples/vulnerable/generated_queries.py", "uriBaseId": "%SRCROOT%" }
+              }
+            }
+          ]
+        }
+      ],
+      "properties": {
+        "vibeguardFixtureNote": "Result 4 (py/request-without-cert-validation) deliberately carries NO result.level, so the adapter must fall back to its rule's defaultConfiguration.level = warning. Result 6 (js/insecure-randomness) carries neither a result.level NOR a rule defaultConfiguration, so the adapter must fall back to the SARIF 2.1.0 default of warning. Result 3 (py/command-line-injection) carries no result.rule object, so its descriptor must be found by ruleId across every tool component. Result 5 carries a percent-encoded URI. Result 7 has no region and must be REFUSED, not placed at line 1."
+      }
+    }
+  ]
+}

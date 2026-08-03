@@ -1,0 +1,1097 @@
+{
+  "_fixtureProvenance": {
+    "kind": "TOOL-RECORDED — genuine bytes, not fabricated",
+    "recordedBy": "Semgrep 1.165.0 (OSS engine), run over samples/vulnerable",
+    "sourceFile": "paper_data/semgrep_vulnerable.json",
+    "sourceSha256": "1c33dbebc3b2d6b62a994f875ba5134c95e56a91d87f3a7b006934535362c975",
+    "sourceBytes": 29106,
+    "trimmedHow": [
+      "results[]: all 20 entries kept VERBATIM, in recorded order. Nothing was added, reworded, or reordered.",
+      "dropped top-level \"time\" and \"profiling_results\": wall-clock timing noise that no parser reads and that would make the fixture non-reproducible to eyeball.",
+      "kept version / errors / paths / engine_requested / skipped_rules: every key a report parser is entitled to read.",
+      "added this _fixtureProvenance key as the file header (JSON has no comment syntax). Parsers ignore unknown top-level keys."
+    ],
+    "whyThisMatters": "The Semgrep adapter is tested against bytes a real tool produced, including the Windows backslash paths (samples\\vulnerable\\auth_bypass.py) and the check_id shapes the empirical RULE_FAMILIES mapping in scripts/sec-transfer-semgrep.mjs was derived from. A hand-written fixture would have had forward slashes and would have hidden the path-normalisation requirement entirely.",
+    "contrastWith": "src/fixtures/codeql-schema-derived.sarif is SCHEMA-DERIVED, NOT tool-recorded. Do not treat the two as equal evidence."
+  },
+  "version": "1.165.0",
+  "results": [
+    {
+      "check_id": "python.requests.security.disabled-cert-validation.disabled-cert-validation",
+      "path": "samples\\vulnerable\\auth_bypass.py",
+      "start": {
+        "line": 16,
+        "col": 12,
+        "offset": 341
+      },
+      "end": {
+        "line": 16,
+        "col": 68,
+        "offset": 397
+      },
+      "extra": {
+        "message": "Certificate verification has been explicitly disabled. This permits insecure connections to insecure servers. Re-enable certification validation.",
+        "fix": "requests.get(\"https://example.com/secret\", verify=True)",
+        "metadata": {
+          "cwe": [
+            "CWE-295: Improper Certificate Validation"
+          ],
+          "owasp": [
+            "A03:2017 - Sensitive Data Exposure",
+            "A07:2021 - Identification and Authentication Failures",
+            "A07:2025 - Authentication Failures"
+          ],
+          "references": [
+            "https://stackoverflow.com/questions/41740361/is-it-safe-to-disable-ssl-certificate-verification-in-pythonss-requests-lib"
+          ],
+          "category": "security",
+          "technology": [
+            "requests"
+          ],
+          "subcategory": [
+            "audit"
+          ],
+          "likelihood": "LOW",
+          "impact": "LOW",
+          "confidence": "LOW",
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "Improper Authentication"
+          ],
+          "source": "https://semgrep.dev/r/python.requests.security.disabled-cert-validation.disabled-cert-validation",
+          "shortlink": "https://sg.run/AlYp"
+        },
+        "severity": "ERROR",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "python.lang.security.audit.subprocess-shell-true.subprocess-shell-true",
+      "path": "samples\\vulnerable\\command_injection.py",
+      "start": {
+        "line": 7,
+        "col": 50,
+        "offset": 156
+      },
+      "end": {
+        "line": 7,
+        "col": 54,
+        "offset": 160
+      },
+      "extra": {
+        "message": "Found 'subprocess' function 'run' with 'shell=True'. This is dangerous because this call will spawn the command using a shell process. Doing so propagates current shell settings and variables, which makes it much easier for a malicious actor to execute commands. Use 'shell=False' instead.",
+        "fix": "False",
+        "metadata": {
+          "source-rule-url": "https://bandit.readthedocs.io/en/latest/plugins/b602_subprocess_popen_with_shell_equals_true.html",
+          "owasp": [
+            "A01:2017 - Injection",
+            "A03:2021 - Injection",
+            "A05:2025 - Injection"
+          ],
+          "cwe": [
+            "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+          ],
+          "references": [
+            "https://stackoverflow.com/questions/3172470/actual-meaning-of-shell-true-in-subprocess",
+            "https://docs.python.org/3/library/subprocess.html"
+          ],
+          "category": "security",
+          "technology": [
+            "python"
+          ],
+          "cwe2022-top25": true,
+          "cwe2021-top25": true,
+          "subcategory": [
+            "secure default"
+          ],
+          "likelihood": "HIGH",
+          "impact": "LOW",
+          "confidence": "MEDIUM",
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "Command Injection"
+          ],
+          "source": "https://semgrep.dev/r/python.lang.security.audit.subprocess-shell-true.subprocess-shell-true",
+          "shortlink": "https://sg.run/J92w"
+        },
+        "severity": "ERROR",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "python.django.security.audit.csrf-exempt.no-csrf-exempt",
+      "path": "samples\\vulnerable\\django_settings.py",
+      "start": {
+        "line": 16,
+        "col": 1,
+        "offset": 358
+      },
+      "end": {
+        "line": 19,
+        "col": 16,
+        "offset": 449
+      },
+      "extra": {
+        "message": "Detected usage of @csrf_exempt, which indicates that there is no CSRF token set for this route. This could lead to an attacker manipulating the user's account and exfiltration of private data. Instead, create a function without this decorator.",
+        "metadata": {
+          "cwe": [
+            "CWE-352: Cross-Site Request Forgery (CSRF)"
+          ],
+          "owasp": [
+            "A01:2021 - Broken Access Control",
+            "A01:2025 - Broken Access Control"
+          ],
+          "category": "security",
+          "technology": [
+            "django"
+          ],
+          "references": [
+            "https://owasp.org/Top10/A01_2021-Broken_Access_Control"
+          ],
+          "cwe2022-top25": true,
+          "cwe2021-top25": true,
+          "subcategory": [
+            "vuln"
+          ],
+          "likelihood": "LOW",
+          "impact": "MEDIUM",
+          "confidence": "LOW",
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "Cross-Site Request Forgery (CSRF)"
+          ],
+          "source": "https://semgrep.dev/r/python.django.security.audit.csrf-exempt.no-csrf-exempt",
+          "shortlink": "https://sg.run/rd5e"
+        },
+        "severity": "WARNING",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "javascript.express.security.audit.express-check-csurf-middleware-usage.express-check-csurf-middleware-usage",
+      "path": "samples\\vulnerable\\express_session.js",
+      "start": {
+        "line": 7,
+        "col": 7,
+        "offset": 199
+      },
+      "end": {
+        "line": 7,
+        "col": 22,
+        "offset": 214
+      },
+      "extra": {
+        "message": "A CSRF middleware was not detected in your express application. Ensure you are either using one such as `csurf` or `csrf` (see rule references) and/or you are properly doing CSRF validation in your routes with a token or cookies.",
+        "metadata": {
+          "category": "security",
+          "references": [
+            "https://www.npmjs.com/package/csurf",
+            "https://www.npmjs.com/package/csrf",
+            "https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html"
+          ],
+          "cwe": [
+            "CWE-352: Cross-Site Request Forgery (CSRF)"
+          ],
+          "owasp": [
+            "A01:2021 - Broken Access Control",
+            "A01:2025 - Broken Access Control"
+          ],
+          "technology": [
+            "javascript",
+            "typescript",
+            "express"
+          ],
+          "cwe2022-top25": true,
+          "cwe2021-top25": true,
+          "subcategory": [
+            "audit"
+          ],
+          "likelihood": "LOW",
+          "impact": "HIGH",
+          "confidence": "LOW",
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "Cross-Site Request Forgery (CSRF)"
+          ],
+          "source": "https://semgrep.dev/r/javascript.express.security.audit.express-check-csurf-middleware-usage.express-check-csurf-middleware-usage",
+          "shortlink": "https://sg.run/BxzR"
+        },
+        "severity": "INFO",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "javascript.express.security.audit.express-cookie-settings.express-cookie-session-default-name",
+      "path": "samples\\vulnerable\\express_session.js",
+      "start": {
+        "line": 14,
+        "col": 3,
+        "offset": 375
+      },
+      "end": {
+        "line": 17,
+        "col": 5,
+        "offset": 465
+      },
+      "extra": {
+        "message": "Don�ft use the default session cookie name Using the default session cookie name can open your app to attacks. The security issue posed is similar to X-Powered-By: a potential attacker can use it to fingerprint the server and target attacks accordingly.",
+        "metadata": {
+          "cwe": [
+            "CWE-522: Insufficiently Protected Credentials"
+          ],
+          "owasp": [
+            "A02:2017 - Broken Authentication",
+            "A04:2021 - Insecure Design",
+            "A06:2025 - Insecure Design"
+          ],
+          "source-rule-url": "https://expressjs.com/en/advanced/best-practice-security.html",
+          "category": "security",
+          "technology": [
+            "express"
+          ],
+          "cwe2021-top25": true,
+          "subcategory": [
+            "vuln"
+          ],
+          "likelihood": "HIGH",
+          "impact": "LOW",
+          "confidence": "MEDIUM",
+          "references": [
+            "https://owasp.org/Top10/A04_2021-Insecure_Design"
+          ],
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "Cryptographic Issues"
+          ],
+          "source": "https://semgrep.dev/r/javascript.express.security.audit.express-cookie-settings.express-cookie-session-default-name",
+          "shortlink": "https://sg.run/1Z5x"
+        },
+        "severity": "WARNING",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-domain",
+      "path": "samples\\vulnerable\\express_session.js",
+      "start": {
+        "line": 14,
+        "col": 3,
+        "offset": 375
+      },
+      "end": {
+        "line": 17,
+        "col": 5,
+        "offset": 465
+      },
+      "extra": {
+        "message": "Default session middleware settings: `domain` not set. It indicates the domain of the cookie; use it to compare against the domain of the server in which the URL is being requested. If they match, then check the path attribute next.",
+        "metadata": {
+          "cwe": [
+            "CWE-522: Insufficiently Protected Credentials"
+          ],
+          "owasp": [
+            "A02:2017 - Broken Authentication",
+            "A04:2021 - Insecure Design",
+            "A06:2025 - Insecure Design"
+          ],
+          "source-rule-url": "https://expressjs.com/en/advanced/best-practice-security.html",
+          "category": "security",
+          "technology": [
+            "express"
+          ],
+          "cwe2021-top25": true,
+          "subcategory": [
+            "vuln"
+          ],
+          "likelihood": "HIGH",
+          "impact": "LOW",
+          "confidence": "MEDIUM",
+          "references": [
+            "https://owasp.org/Top10/A04_2021-Insecure_Design"
+          ],
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "Cryptographic Issues"
+          ],
+          "source": "https://semgrep.dev/r/javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-domain",
+          "shortlink": "https://sg.run/rd41"
+        },
+        "severity": "WARNING",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-expires",
+      "path": "samples\\vulnerable\\express_session.js",
+      "start": {
+        "line": 14,
+        "col": 3,
+        "offset": 375
+      },
+      "end": {
+        "line": 17,
+        "col": 5,
+        "offset": 465
+      },
+      "extra": {
+        "message": "Default session middleware settings: `expires` not set. Use it to set expiration date for persistent cookies.",
+        "metadata": {
+          "cwe": [
+            "CWE-522: Insufficiently Protected Credentials"
+          ],
+          "owasp": [
+            "A02:2017 - Broken Authentication",
+            "A04:2021 - Insecure Design",
+            "A06:2025 - Insecure Design"
+          ],
+          "source-rule-url": "https://expressjs.com/en/advanced/best-practice-security.html",
+          "category": "security",
+          "technology": [
+            "express"
+          ],
+          "cwe2021-top25": true,
+          "subcategory": [
+            "vuln"
+          ],
+          "likelihood": "HIGH",
+          "impact": "LOW",
+          "confidence": "MEDIUM",
+          "references": [
+            "https://owasp.org/Top10/A04_2021-Insecure_Design"
+          ],
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "Cryptographic Issues"
+          ],
+          "source": "https://semgrep.dev/r/javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-expires",
+          "shortlink": "https://sg.run/N4eG"
+        },
+        "severity": "WARNING",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-httponly",
+      "path": "samples\\vulnerable\\express_session.js",
+      "start": {
+        "line": 14,
+        "col": 3,
+        "offset": 375
+      },
+      "end": {
+        "line": 17,
+        "col": 5,
+        "offset": 465
+      },
+      "extra": {
+        "message": "Default session middleware settings: `httpOnly` not set. It ensures the cookie is sent only over HTTP(S), not client JavaScript, helping to protect against cross-site scripting attacks.",
+        "metadata": {
+          "cwe": [
+            "CWE-522: Insufficiently Protected Credentials"
+          ],
+          "owasp": [
+            "A02:2017 - Broken Authentication",
+            "A04:2021 - Insecure Design",
+            "A06:2025 - Insecure Design"
+          ],
+          "source-rule-url": "https://expressjs.com/en/advanced/best-practice-security.html",
+          "category": "security",
+          "technology": [
+            "express"
+          ],
+          "cwe2021-top25": true,
+          "subcategory": [
+            "vuln"
+          ],
+          "likelihood": "HIGH",
+          "impact": "LOW",
+          "confidence": "MEDIUM",
+          "references": [
+            "https://owasp.org/Top10/A04_2021-Insecure_Design"
+          ],
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "Cryptographic Issues"
+          ],
+          "source": "https://semgrep.dev/r/javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-httponly",
+          "shortlink": "https://sg.run/ydBO"
+        },
+        "severity": "WARNING",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-path",
+      "path": "samples\\vulnerable\\express_session.js",
+      "start": {
+        "line": 14,
+        "col": 3,
+        "offset": 375
+      },
+      "end": {
+        "line": 17,
+        "col": 5,
+        "offset": 465
+      },
+      "extra": {
+        "message": "Default session middleware settings: `path` not set. It indicates the path of the cookie; use it to compare against the request path. If this and domain match, then send the cookie in the request.",
+        "metadata": {
+          "cwe": [
+            "CWE-522: Insufficiently Protected Credentials"
+          ],
+          "owasp": [
+            "A02:2017 - Broken Authentication",
+            "A04:2021 - Insecure Design",
+            "A06:2025 - Insecure Design"
+          ],
+          "source-rule-url": "https://expressjs.com/en/advanced/best-practice-security.html",
+          "category": "security",
+          "technology": [
+            "express"
+          ],
+          "cwe2021-top25": true,
+          "subcategory": [
+            "vuln"
+          ],
+          "likelihood": "HIGH",
+          "impact": "LOW",
+          "confidence": "MEDIUM",
+          "references": [
+            "https://owasp.org/Top10/A04_2021-Insecure_Design"
+          ],
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "Cryptographic Issues"
+          ],
+          "source": "https://semgrep.dev/r/javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-path",
+          "shortlink": "https://sg.run/b7pd"
+        },
+        "severity": "WARNING",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-secure",
+      "path": "samples\\vulnerable\\express_session.js",
+      "start": {
+        "line": 14,
+        "col": 3,
+        "offset": 375
+      },
+      "end": {
+        "line": 17,
+        "col": 5,
+        "offset": 465
+      },
+      "extra": {
+        "message": "Default session middleware settings: `secure` not set. It ensures the browser only sends the cookie over HTTPS.",
+        "metadata": {
+          "cwe": [
+            "CWE-522: Insufficiently Protected Credentials"
+          ],
+          "owasp": [
+            "A02:2017 - Broken Authentication",
+            "A04:2021 - Insecure Design",
+            "A06:2025 - Insecure Design"
+          ],
+          "source-rule-url": "https://expressjs.com/en/advanced/best-practice-security.html",
+          "category": "security",
+          "technology": [
+            "express"
+          ],
+          "cwe2021-top25": true,
+          "subcategory": [
+            "vuln"
+          ],
+          "likelihood": "HIGH",
+          "impact": "LOW",
+          "confidence": "MEDIUM",
+          "references": [
+            "https://owasp.org/Top10/A04_2021-Insecure_Design"
+          ],
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "Cryptographic Issues"
+          ],
+          "source": "https://semgrep.dev/r/javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-secure",
+          "shortlink": "https://sg.run/9oKz"
+        },
+        "severity": "WARNING",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "javascript.express.security.audit.express-session-hardcoded-secret.express-session-hardcoded-secret",
+      "path": "samples\\vulnerable\\express_session.js",
+      "start": {
+        "line": 15,
+        "col": 5,
+        "offset": 390
+      },
+      "end": {
+        "line": 15,
+        "col": 24,
+        "offset": 409
+      },
+      "extra": {
+        "message": "A hard-coded credential was detected. It is not recommended to store credentials in source-code, as this risks secrets being leaked and used by either an internal or external malicious adversary. It is recommended to use environment variables to securely provide credentials or retrieve credentials from a secure vault or HSM (Hardware Security Module).",
+        "metadata": {
+          "interfile": true,
+          "cwe": [
+            "CWE-798: Use of Hard-coded Credentials"
+          ],
+          "references": [
+            "https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html"
+          ],
+          "owasp": [
+            "A07:2021 - Identification and Authentication Failures",
+            "A07:2025 - Authentication Failures"
+          ],
+          "category": "security",
+          "technology": [
+            "express",
+            "secrets"
+          ],
+          "cwe2022-top25": true,
+          "cwe2021-top25": true,
+          "subcategory": [
+            "vuln"
+          ],
+          "likelihood": "HIGH",
+          "impact": "HIGH",
+          "confidence": "HIGH",
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "Hard-coded Secrets"
+          ],
+          "source": "https://semgrep.dev/r/javascript.express.security.audit.express-session-hardcoded-secret.express-session-hardcoded-secret",
+          "shortlink": "https://sg.run/LYvG"
+        },
+        "severity": "WARNING",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "python.flask.security.audit.app-run-param-config.avoid_app_run_with_bad_host",
+      "path": "samples\\vulnerable\\flask_app.py",
+      "start": {
+        "line": 19,
+        "col": 5,
+        "offset": 405
+      },
+      "end": {
+        "line": 19,
+        "col": 40,
+        "offset": 440
+      },
+      "extra": {
+        "message": "Running flask app with host 0.0.0.0 could expose the server publicly.",
+        "metadata": {
+          "cwe": [
+            "CWE-668: Exposure of Resource to Wrong Sphere"
+          ],
+          "owasp": [
+            "A01:2021 - Broken Access Control",
+            "A01:2025 - Broken Access Control"
+          ],
+          "category": "security",
+          "technology": [
+            "flask"
+          ],
+          "references": [
+            "https://owasp.org/Top10/A01_2021-Broken_Access_Control"
+          ],
+          "subcategory": [
+            "vuln"
+          ],
+          "likelihood": "HIGH",
+          "impact": "MEDIUM",
+          "confidence": "HIGH",
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "Other"
+          ],
+          "source": "https://semgrep.dev/r/python.flask.security.audit.app-run-param-config.avoid_app_run_with_bad_host",
+          "shortlink": "https://sg.run/eLby"
+        },
+        "severity": "WARNING",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "python.flask.security.audit.debug-enabled.debug-enabled",
+      "path": "samples\\vulnerable\\flask_app.py",
+      "start": {
+        "line": 19,
+        "col": 5,
+        "offset": 405
+      },
+      "end": {
+        "line": 19,
+        "col": 40,
+        "offset": 440
+      },
+      "extra": {
+        "message": "Detected Flask app with debug=True. Do not deploy to production with this flag enabled as it will leak sensitive information. Instead, consider using Flask configuration variables or setting 'debug' using system environment variables.",
+        "metadata": {
+          "cwe": [
+            "CWE-489: Active Debug Code"
+          ],
+          "owasp": "A06:2017 - Security Misconfiguration",
+          "references": [
+            "https://labs.detectify.com/2015/10/02/how-patreon-got-hacked-publicly-exposed-werkzeug-debugger/"
+          ],
+          "category": "security",
+          "technology": [
+            "flask"
+          ],
+          "subcategory": [
+            "vuln"
+          ],
+          "likelihood": "HIGH",
+          "impact": "MEDIUM",
+          "confidence": "HIGH",
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "Active Debug Code"
+          ],
+          "source": "https://semgrep.dev/r/python.flask.security.audit.debug-enabled.debug-enabled",
+          "shortlink": "https://sg.run/dKrd"
+        },
+        "severity": "WARNING",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "typescript.react.security.react-insecure-request.react-insecure-request",
+      "path": "samples\\vulnerable\\secrets.js",
+      "start": {
+        "line": 12,
+        "col": 3,
+        "offset": 306
+      },
+      "end": {
+        "line": 12,
+        "col": 40,
+        "offset": 343
+      },
+      "extra": {
+        "message": "Unencrypted request over HTTP detected.",
+        "metadata": {
+          "vulnerability": "Insecure Transport",
+          "owasp": [
+            "A03:2017 - Sensitive Data Exposure",
+            "A02:2021 - Cryptographic Failures",
+            "A04:2025 - Cryptographic Failures"
+          ],
+          "cwe": [
+            "CWE-319: Cleartext Transmission of Sensitive Information"
+          ],
+          "references": [
+            "https://www.npmjs.com/package/axios"
+          ],
+          "category": "security",
+          "technology": [
+            "react"
+          ],
+          "subcategory": [
+            "vuln"
+          ],
+          "likelihood": "LOW",
+          "impact": "MEDIUM",
+          "confidence": "MEDIUM",
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "Mishandled Sensitive Information"
+          ],
+          "source": "https://semgrep.dev/r/typescript.react.security.react-insecure-request.react-insecure-request",
+          "shortlink": "https://sg.run/1n0b"
+        },
+        "severity": "ERROR",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query",
+      "path": "samples\\vulnerable\\sql_injection.py",
+      "start": {
+        "line": 8,
+        "col": 5,
+        "offset": 197
+      },
+      "end": {
+        "line": 8,
+        "col": 23,
+        "offset": 215
+      },
+      "extra": {
+        "message": "Avoiding SQL string concatenation: untrusted input concatenated with raw SQL query can result in SQL Injection. In order to execute raw query safely, prepared statement should be used. SQLAlchemy provides TextualSQL to easily used prepared statement with named parameters. For complex SQL composition, use SQL Expression Language or Schema Definition Language. In most cases, SQLAlchemy ORM will be a better option.",
+        "metadata": {
+          "cwe": [
+            "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+          ],
+          "owasp": [
+            "A01:2017 - Injection",
+            "A03:2021 - Injection",
+            "A05:2025 - Injection"
+          ],
+          "references": [
+            "https://docs.sqlalchemy.org/en/14/core/tutorial.html#using-textual-sql",
+            "https://www.tutorialspoint.com/sqlalchemy/sqlalchemy_quick_guide.htm",
+            "https://docs.sqlalchemy.org/en/14/core/tutorial.html#using-more-specific-text-with-table-expression-literal-column-and-expression-column"
+          ],
+          "category": "security",
+          "technology": [
+            "sqlalchemy"
+          ],
+          "cwe2022-top25": true,
+          "cwe2021-top25": true,
+          "subcategory": [
+            "audit"
+          ],
+          "likelihood": "LOW",
+          "impact": "HIGH",
+          "confidence": "LOW",
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "SQL Injection"
+          ],
+          "source": "https://semgrep.dev/r/python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query",
+          "shortlink": "https://sg.run/2b1L"
+        },
+        "severity": "ERROR",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query",
+      "path": "samples\\vulnerable\\sql_injection.py",
+      "start": {
+        "line": 14,
+        "col": 5,
+        "offset": 309
+      },
+      "end": {
+        "line": 14,
+        "col": 58,
+        "offset": 362
+      },
+      "extra": {
+        "message": "Avoiding SQL string concatenation: untrusted input concatenated with raw SQL query can result in SQL Injection. In order to execute raw query safely, prepared statement should be used. SQLAlchemy provides TextualSQL to easily used prepared statement with named parameters. For complex SQL composition, use SQL Expression Language or Schema Definition Language. In most cases, SQLAlchemy ORM will be a better option.",
+        "metadata": {
+          "cwe": [
+            "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+          ],
+          "owasp": [
+            "A01:2017 - Injection",
+            "A03:2021 - Injection",
+            "A05:2025 - Injection"
+          ],
+          "references": [
+            "https://docs.sqlalchemy.org/en/14/core/tutorial.html#using-textual-sql",
+            "https://www.tutorialspoint.com/sqlalchemy/sqlalchemy_quick_guide.htm",
+            "https://docs.sqlalchemy.org/en/14/core/tutorial.html#using-more-specific-text-with-table-expression-literal-column-and-expression-column"
+          ],
+          "category": "security",
+          "technology": [
+            "sqlalchemy"
+          ],
+          "cwe2022-top25": true,
+          "cwe2021-top25": true,
+          "subcategory": [
+            "audit"
+          ],
+          "likelihood": "LOW",
+          "impact": "HIGH",
+          "confidence": "LOW",
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "SQL Injection"
+          ],
+          "source": "https://semgrep.dev/r/python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query",
+          "shortlink": "https://sg.run/2b1L"
+        },
+        "severity": "ERROR",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "ruby.lang.security.weak-hashes-md5.weak-hashes-md5",
+      "path": "samples\\vulnerable\\weak_crypto.rb",
+      "start": {
+        "line": 7,
+        "col": 3,
+        "offset": 158
+      },
+      "end": {
+        "line": 7,
+        "col": 33,
+        "offset": 188
+      },
+      "extra": {
+        "message": "Should not use md5 to generate hashes. md5 is proven to be vulnerable through the use of brute-force attacks. Could also result in collisions, leading to potential collision attacks. Use SHA256 or other hashing functions instead.",
+        "metadata": {
+          "cwe": [
+            "CWE-328: Use of Weak Hash"
+          ],
+          "references": [
+            "https://www.ibm.com/support/pages/security-bulletin-vulnerability-md5-signature-and-hash-algorithm-affects-sterling-integrator-and-sterling-file-gateway-cve-2015-7575"
+          ],
+          "category": "security",
+          "technology": [
+            "ruby"
+          ],
+          "owasp": [
+            "A03:2017 - Sensitive Data Exposure",
+            "A02:2021 - Cryptographic Failures",
+            "A04:2025 - Cryptographic Failures"
+          ],
+          "subcategory": [
+            "vuln"
+          ],
+          "likelihood": "LOW",
+          "impact": "HIGH",
+          "confidence": "MEDIUM",
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "Insecure Hashing Algorithm"
+          ],
+          "source": "https://semgrep.dev/r/ruby.lang.security.weak-hashes-md5.weak-hashes-md5",
+          "shortlink": "https://sg.run/O1re"
+        },
+        "severity": "WARNING",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "ruby.lang.security.weak-hashes-sha1.weak-hashes-sha1",
+      "path": "samples\\vulnerable\\weak_crypto.rb",
+      "start": {
+        "line": 12,
+        "col": 3,
+        "offset": 278
+      },
+      "end": {
+        "line": 12,
+        "col": 25,
+        "offset": 300
+      },
+      "extra": {
+        "message": "Should not use SHA1 to generate hashes. There is a proven SHA1 hash collision by Google, which could lead to vulnerabilities. Use SHA256, SHA3 or other hashing functions instead.",
+        "metadata": {
+          "cwe": [
+            "CWE-328: Use of Weak Hash"
+          ],
+          "references": [
+            "https://security.googleblog.com/2017/02/announcing-first-sha1-collision.html",
+            "https://shattered.io/"
+          ],
+          "category": "security",
+          "technology": [
+            "ruby"
+          ],
+          "owasp": [
+            "A03:2017 - Sensitive Data Exposure",
+            "A02:2021 - Cryptographic Failures",
+            "A04:2025 - Cryptographic Failures"
+          ],
+          "subcategory": [
+            "vuln"
+          ],
+          "likelihood": "LOW",
+          "impact": "MEDIUM",
+          "confidence": "MEDIUM",
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "Insecure Hashing Algorithm"
+          ],
+          "source": "https://semgrep.dev/r/ruby.lang.security.weak-hashes-sha1.weak-hashes-sha1",
+          "shortlink": "https://sg.run/e4qX"
+        },
+        "severity": "WARNING",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "go.lang.security.audit.crypto.math_random.math-random-used",
+      "path": "samples\\vulnerable\\weak_random.go",
+      "start": {
+        "line": 6,
+        "col": 3,
+        "offset": 106
+      },
+      "end": {
+        "line": 6,
+        "col": 12,
+        "offset": 115
+      },
+      "extra": {
+        "message": "Do not use `math/rand`. Use `crypto/rand` instead.",
+        "fix": "crypto/rand",
+        "metadata": {
+          "cwe": [
+            "CWE-338: Use of Cryptographically Weak Pseudo-Random Number Generator (PRNG)"
+          ],
+          "owasp": [
+            "A02:2021 - Cryptographic Failures",
+            "A04:2025 - Cryptographic Failures"
+          ],
+          "references": [
+            "https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html#secure-random-number-generation"
+          ],
+          "category": "security",
+          "technology": [
+            "go"
+          ],
+          "confidence": "MEDIUM",
+          "subcategory": [
+            "vuln"
+          ],
+          "likelihood": "MEDIUM",
+          "impact": "MEDIUM",
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "Cryptographic Issues"
+          ],
+          "source": "https://semgrep.dev/r/go.lang.security.audit.crypto.math_random.math-random-used",
+          "shortlink": "https://sg.run/6nK6"
+        },
+        "severity": "WARNING",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "javascript.browser.security.eval-detected.eval-detected",
+      "path": "samples\\vulnerable\\xss.js",
+      "start": {
+        "line": 9,
+        "col": 10,
+        "offset": 239
+      },
+      "end": {
+        "line": 9,
+        "col": 21,
+        "offset": 250
+      },
+      "extra": {
+        "message": "Detected the use of eval(). eval() can be dangerous if used to evaluate dynamic content. If this content can be input from outside the program, this may be a code injection vulnerability. Ensure evaluated content is not definable by external sources.",
+        "metadata": {
+          "cwe": [
+            "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection')"
+          ],
+          "owasp": [
+            "A03:2021 - Injection",
+            "A05:2025 - Injection"
+          ],
+          "asvs": {
+            "control_id": "5.2.4 Dynamic Code Execution Features",
+            "control_url": "https://github.com/OWASP/ASVS/blob/master/4.0/en/0x13-V5-Validation-Sanitization-Encoding.md#v52-sanitization-and-sandboxing",
+            "section": "V5 Validation, Sanitization and Encoding",
+            "version": "4"
+          },
+          "category": "security",
+          "technology": [
+            "browser"
+          ],
+          "subcategory": [
+            "audit"
+          ],
+          "likelihood": "LOW",
+          "impact": "MEDIUM",
+          "confidence": "LOW",
+          "references": [
+            "https://owasp.org/Top10/A03_2021-Injection"
+          ],
+          "license": "Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license",
+          "vulnerability_class": [
+            "Code Injection"
+          ],
+          "source": "https://semgrep.dev/r/javascript.browser.security.eval-detected.eval-detected",
+          "shortlink": "https://sg.run/7ope"
+        },
+        "severity": "WARNING",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    }
+  ],
+  "errors": [],
+  "paths": {
+    "scanned": [
+      "samples\\vulnerable\\ai_artifacts.js",
+      "samples\\vulnerable\\auth_bypass.py",
+      "samples\\vulnerable\\command_injection.py",
+      "samples\\vulnerable\\django_settings.py",
+      "samples\\vulnerable\\express_session.js",
+      "samples\\vulnerable\\flask_app.py",
+      "samples\\vulnerable\\secrets.js",
+      "samples\\vulnerable\\sql_injection.py",
+      "samples\\vulnerable\\weak_crypto.cs",
+      "samples\\vulnerable\\weak_crypto.php",
+      "samples\\vulnerable\\weak_crypto.rb",
+      "samples\\vulnerable\\weak_random.go",
+      "samples\\vulnerable\\xss.js"
+    ]
+  },
+  "engine_requested": "OSS",
+  "skipped_rules": []
+}

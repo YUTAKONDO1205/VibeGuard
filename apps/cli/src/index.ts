@@ -231,6 +231,80 @@ async function main(): Promise<number> {
     }
   }
 
+  // ── H3 multi-tool ensemble (opt-in) ──────────────────────────────────────
+  //
+  // Dynamically imported for the same reasons as `analysis-graph` above, and
+  // guarded by the same packaging invariants — `@vibeguard/external-adapters` is
+  // CLI/Action-only and must never reach the browser or editor bundles.
+  //
+  // ★ THIS BLOCK NEVER RUNS A TOOL. It reads a report the user already has. The
+  // temptation to shell out to Semgrep is exactly the temptation to give a
+  // zero-egress product a subprocess that downloads rule packs and phones home,
+  // and it is refused here rather than argued about later.
+  //
+  // What it must never do is stay quiet. `--ensemble` with nothing supplied is a
+  // legitimate invocation and gets a spoken degradation, because a user who
+  // asked for a cross-check and silently received none would reasonably read the
+  // clean result as corroboration by tools that never looked.
+  if (args.ensemble) {
+    try {
+      const { mergeEnsemble, notSupplied, parseSemgrepReport, parseCodeqlSarifReport, unreadableReport } =
+        await import('@vibeguard/external-adapters');
+
+      const readSide = <T,>(
+        path: string | undefined,
+        parse: (text: string, options: { reportPath: string }) => T,
+      ) => {
+        if (!path) return notSupplied<T>();
+        try {
+          return {
+            kind: 'report' as const,
+            report: parse(readFileSync(path, 'utf8'), { reportPath: path }),
+          };
+        } catch (err) {
+          return unreadableReport<T>(path, err instanceof Error ? err.message : String(err));
+        }
+      };
+
+      const result = mergeEnsemble({
+        vibeguard: {
+          kind: 'report',
+          report: { findings: scan.findings, engineVersion: scan.engineVersions?.core ?? null },
+        },
+        semgrep: readSide(args.semgrepReport, parseSemgrepReport),
+        codeql: readSide(args.codeqlReport, parseCodeqlSarifReport),
+      });
+
+      // `degradedNotice` is not advisory. `EnsembleResult` states that the CLI
+      // MUST print it, because a run that quietly drops to one tool is the exact
+      // failure this package exists to prevent.
+      if (result.degradedNotice) process.stderr.write(`ensemble: ${result.degradedNotice}\n`);
+      if (!result.agreementComputable) {
+        process.stderr.write(
+          `ensemble: agreement NOT COMPUTED — ${result.agreementNotComputableReason ?? 'fewer than two tools participated'}\n`,
+        );
+      } else {
+        const byLabel = Object.entries(result.byAgreement)
+          .map(([label, n]) => `${label}=${n}`)
+          .join(' ');
+        process.stderr.write(
+          `ensemble: ${result.participatingTools.join(' + ')} · ${result.merged.length} merged findings · ${byLabel}\n`,
+        );
+      }
+      // The standing caveat, printed every time rather than once in a README —
+      // what an ensemble cannot see is a property of the result, not a footnote.
+      process.stderr.write(`ensemble: ${result.unobservable}\n`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Same posture as the cross-file catch: an absent cross-check is reported
+      // as absent, never folded into the result as agreement.
+      process.stderr.write(
+        `warning: ensemble cross-check did not run (${message}). ` +
+          'Findings below are VibeGuard-only and were NOT corroborated.\n',
+      );
+    }
+  }
+
   // Confidence threshold, applied once here so every output format and the
   // --fail-on check below see the same finding set: a finding below the
   // threshold is absent from the report and from the exit-code decision alike.
@@ -305,8 +379,43 @@ async function main(): Promise<number> {
     // and every alert pointed at a path that does not exist. The prefix closes
     // that gap in the SARIF output alone, leaving `filePath` — which `--fix`,
     // the config globs and the human formatter all read — on its own basis.
+    // ── AI provenance (#29b), collected only for SARIF ─────────────────────
+    //
+    // SARIF is the format that travels: it is what the Action uploads to code
+    // scanning, so it is the one place a provenance observation has a consumer.
+    // Attaching it to the human or JSON output would be noise on a path nobody
+    // aggregates.
+    //
+    // Dynamic import of the `/node` subpath, matching how the cross-file pass is
+    // loaded, because that module reads git history through `child_process` and
+    // the package root must stay browser-safe. `check-packaging-invariants.mjs`
+    // now fails the build if any light-side package imports this subpath.
+    //
+    // ★ WHAT THIS IS NOT: it is not a risk score and it must never be read as
+    // one. AI-authorship markers are SELF-REPORTED and most AI-assisted commits
+    // carry none, so the marker set is unusable as a denominator. It records
+    // what was declared, by whom, in which channel — an observation, and the
+    // field names are chosen so it cannot be mistaken for a verdict. A failure
+    // here must never take a scan down: the report is worth more than the
+    // annotation.
+    let provenance;
+    try {
+      const { readAiProvenance } = await import('@vibeguard/sarif-adapter/node');
+      provenance = await readAiProvenance({
+        cwd: statSync(args.target).isFile() ? dirname(resolve(args.target)) : resolve(args.target),
+      });
+    } catch {
+      provenance = undefined;
+    }
     output = JSON.stringify(
-      toSarif(scan, { toolVersion: VERSION, uriPrefix: await sarifUriPrefix(args.target) }),
+      toSarif(scan, {
+        toolVersion: VERSION,
+        uriPrefix: await sarifUriPrefix(args.target),
+        // Conditional spread: an absent key and a key holding `undefined` are
+        // the same in JSON and different to a consumer enumerating them, which
+        // is the discipline the whole adapter follows.
+        ...(provenance ? { provenance } : {}),
+      }),
       null,
       2,
     );

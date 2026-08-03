@@ -96,3 +96,27 @@ describe('VG-AISC-002 — partially vendored SDK (regression)', () => {
     expect(findings).toHaveLength(1);
   });
 });
+
+describe('VG-AISC-002 — a namespace cannot be built out of call sites (corpus repair)', () => {
+  it('stays silent on a system library the project only ever CALLS', async () => {
+    // ★ THE REGRESSION THAT REAL CODE FOUND. Before the `PROTOTYPE` guard,
+    // `return SSL_get_cipher_name(conn);` matched as a declaration — `return`
+    // occupies the type slot and the call's `)` is followed by `;` — so three
+    // such lines conjured the `SSL_*` namespace out of nothing, and every other
+    // (entirely real) OpenSSL call in the file was reported as hallucinated.
+    //
+    // This was not hypothetical: a sweep of paper_data/corpus1k produced 23
+    // findings across 4 repositories and every one was this shape.
+    const findings = await aisc2In(sample('crossfile-fixtures/smell-aisc002-neg-return-call'));
+    expect(findings).toEqual([]);
+  });
+
+  it('a real prototype still establishes the namespace, so the guard is not a mute button', async () => {
+    // The falsifying half. If the fix had simply stopped PROTOTYPE matching, the
+    // test above would pass for the wrong reason and the rule would be dead. The
+    // shipped positive fixture declares its family in a HEADER, and must still fire.
+    const findings = await aisc2In(sample('crossfile-fixtures/embedded-hallucinated'));
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.description).toContain('cxd56_gpio_toggle');
+  });
+});

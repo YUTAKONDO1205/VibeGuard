@@ -254,6 +254,49 @@ const SHIPPED_BUNDLE_DIRS = ['extensions/chrome/dist', 'extensions/vscode/dist']
 /** Substring identifying the forbidden package, used by the declaration checks. */
 const AG_PACKAGE_NAME = '@vibeguard/analysis-graph';
 
+/**
+ * The other packages that are CLI/Action-only and must never reach a bundle.
+ *
+ * ★ WHY THEY ARE LISTED HERE RATHER THAN GIVEN THEIR OWN SENTINELS.
+ *
+ * 0.3.0-β added two: `@vibeguard/external-adapters` (H3, ingests Semgrep and
+ * CodeQL reports) and `@vibeguard/mcp-guard` (H5, a stdio MCP server). Both
+ * carry a bundle sentinel of their own, and both sentinels are as defeatable as
+ * `analysis-graph`'s turned out to be — the note on invariant 3 records the
+ * measurement: an `import "@vibeguard/analysis-graph";` for side effects left
+ * NO sentinel in the bundle, because the constant was tree-shaken away while
+ * the package was still shipped.
+ *
+ * So the load-bearing check for a new package is invariant 4, which reads
+ * import specifiers in source and cannot be tree-shaken. Adding a name to this
+ * array is what actually protects it; a sentinel is a second opinion.
+ *
+ * Matched as a SUBSTRING of the specifier, so `@vibeguard/mcp-guard` and any
+ * deep path into it are both caught.
+ */
+const CLI_ONLY_PACKAGES = [
+  AG_PACKAGE_NAME,
+  '@vibeguard/external-adapters',
+  '@vibeguard/mcp-guard',
+];
+
+/** The bare directory names, for matching a specifier that omitted the scope. */
+const CLI_ONLY_PATH_TOKENS = ['analysis-graph', 'external-adapters', 'mcp-guard'];
+
+/**
+ * Subpath exports that are Node-only inside an otherwise browser-safe package.
+ *
+ * ★ A HOLE THAT THE PACKAGE-LEVEL LIST CANNOT SEE. `@vibeguard/sarif-adapter` is
+ * legitimately imported by both extensions, so it can never go in
+ * `CLI_ONLY_PACKAGES`. But 0.3.0-β gave it a second entry point —
+ * `./node` → `provenance-node.js` — which reads git history and therefore
+ * touches `node:child_process`. The package is allowed; that door in it is not.
+ *
+ * Matched on the specifier tail so `@vibeguard/sarif-adapter/node` is caught
+ * while `@vibeguard/sarif-adapter` stays permitted.
+ */
+const FORBIDDEN_SUBPATHS = ['@vibeguard/sarif-adapter/node'];
+
 // ── Invariant 3: the sentinel appears in no shipped bundle ──────────────────
 //
 // The empirical check, and the only one of the three that asks what the bundler
@@ -492,11 +535,22 @@ if (!PRE_BUILD) {
       const lines = readFileSync(file, 'utf8').split(/\r\n|\r|\n/);
       for (let i = 0; i < lines.length; i++) {
         for (const spec of importSpecifiersOnLine(lines[i])) {
-          if (spec.includes('analysis-graph')) {
+          const badSubpath = FORBIDDEN_SUBPATHS.find((sp) => spec === sp || spec.endsWith(sp));
+          if (badSubpath) {
             failures.push(
               `${rel(file)}:${i + 1} imports '${spec}'.\n` +
-                `  ${AG_PACKAGE_NAME} is CLI/Action-only. If this package genuinely needs a\n` +
-                `  cross-file capability, the capability moves to the CLI side of the seam —\n` +
+                `  That subpath is the Node-only half of an otherwise browser-safe package —\n` +
+                `  it reads git history and pulls in node:child_process. Import the package\n` +
+                `  root instead, and keep the provenance collection on the CLI/Action side.`,
+            );
+          }
+          const forbidden = CLI_ONLY_PATH_TOKENS.find((token) => spec.includes(token));
+          if (forbidden) {
+            const pkg = CLI_ONLY_PACKAGES.find((p) => p.includes(forbidden)) ?? forbidden;
+            failures.push(
+              `${rel(file)}:${i + 1} imports '${spec}'.\n` +
+                `  ${pkg} is CLI/Action-only. If this package genuinely needs that\n` +
+                `  capability, the capability moves to the CLI side of the seam —\n` +
                 `  the import does not move to the light side.`,
             );
           }
@@ -556,9 +610,26 @@ if (!PRE_BUILD) {
 // Measured on the build immediately after those changes:
 //   extensions/chrome/dist   226,200
 //   extensions/vscode/dist   230,071
+//
+// REBASELINED AGAIN for 0.3.0-β, and the cause was checked before the number was
+// moved rather than after. `VG-AISC-004` (Mock/Dummy Security Leftover) landed in
+// `packages/rules/src/rules/ai-supply-chain.ts`, which BOTH extensions embed:
+// that one file went 12,621 → 58,326 bytes (+900 lines). Chrome went 226,200 →
+// 255,326 and VS Code 230,071 → 257,428, so both crossed the 10% band — the
+// backstop firing on a real change, which is the mechanism working.
+//
+// ★ THE CHECK THAT MATTERED IS NOT THE SIZE, IT IS WHAT THE SIZE IS MADE OF.
+// 0.3.0-β also created two CLI-only packages (`external-adapters`, `mcp-guard`),
+// and a leak of either would ALSO have shown up here as growth. Verified before
+// rebaselining: `packages/analysis-graph/`, `packages/external-adapters/` and
+// `packages/mcp-guard/` each appear ZERO times across every shipped `.js`, and
+// invariants 3 and 4 both passed. The growth is one rule's own weight.
+// Measured on the build immediately after those changes:
+//   extensions/chrome/dist   255,326
+//   extensions/vscode/dist   257,428
 if (!PRE_BUILD) {
-  const CHROME_DIST_JS_BASELINE_BYTES = 226_200;
-  const VSCODE_DIST_JS_BASELINE_BYTES = 230_071;
+  const CHROME_DIST_JS_BASELINE_BYTES = 255_326;
+  const VSCODE_DIST_JS_BASELINE_BYTES = 257_428;
   const GROWTH_TOLERANCE = 1.1;
 
   const SIZE_TARGETS = [
@@ -685,7 +756,25 @@ if (!PRE_BUILD) {
 // number is something a reviewer saw rather than something that happened. This
 // is a source-only check, so it runs in the `--pre-build` subset too.
 {
-  const PRAGMA_FILE_BASELINE = 53; // measured 2026-07-29, counting directives only (prose mentions excluded)
+  // 2026-08-03: 53 → 56. Three file-scope exemptions were added in the 0.3.0-β
+  // close-out, each for a rule firing on PROSE OR ON RULE DATA rather than on
+  // executable code, and each naming its rule id rather than blanket-suppressing:
+  //   · packages/external-adapters/src/weakness-class.ts       VG-INJ-004
+  //     The eval-exec family table holds `eval-detected` / `eval-injection` /
+  //     `user-eval` check-id patterns and prose about CWE-95. It is a copy of the
+  //     table in scripts/sec-transfer-semgrep.mjs, which already carries exactly
+  //     this exemption for exactly this reason. Without it the main-push gate
+  //     (`--fail-on critical`) goes red on 2 findings — measured, not predicted.
+  //   · packages/analysis-graph/src/design-smells-crossfile/temporal-security-coupling.ts  VG-INJ-006
+  //     The doc comment quotes `el.innerHTML = escapeHtml(name)` to explain why
+  //     the sink span stops at the first `(`. Quoting a CORRECTLY sanitised
+  //     assignment in order to explain a false positive is not an unsafe write.
+  //   · packages/mcp-guard/README.md                            VG-SEC-001
+  //     The smoke check hands the guard an AWS-shaped key so the refusal it
+  //     documents actually occurs. Same exemption, same reason, as CHANGELOG.md:1.
+  // The count is 53 + 3. Raising it is the designed workflow — this invariant
+  // exists so the raise appears in a diff a human reads.
+  const PRAGMA_FILE_BASELINE = 56; // measured 2026-08-03, counting directives only (prose mentions excluded)
   const PRAGMA = 'vibeguard:disable-' + 'file';
   // Comment-opening token, then the directive. `m` so it applies per line.
   // Built from a raw source string, not a template literal: `\s` inside a

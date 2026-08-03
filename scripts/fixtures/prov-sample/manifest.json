@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "corpusId": "recorded-sample-v1",
+  "corpusOrigin": "recorded-sample",
+  "generatedAt": "2026-08-03T00:00:00.000Z",
+  "generator": {
+    "name": "hand-written",
+    "version": "n/a",
+    "note": "No model was called. This manifest describes three files a human wrote so that scripts/sec-prov-gen-corpus.mjs is executable end to end from a fresh checkout. The model id below names nothing that exists."
+  },
+  "grid": {
+    "taskSpecs": [
+      {
+        "id": "t-user-lookup",
+        "title": "Look up a user row by username in SQLite",
+        "language": "python"
+      }
+    ],
+    "models": [
+      {
+        "id": "m-recorded",
+        "vendor": "none",
+        "name": "placeholder-for-a-real-model"
+      }
+    ],
+    "modelVersions": {
+      "m-recorded": ["v0"]
+    },
+    "promptStyles": ["bare", "security-primed", "security-primed-with-example"],
+    "temperatures": [0],
+    "samplesPerCell": 1
+  },
+  "cells": [
+    {
+      "cellId": "t-user-lookup__m-recorded__v0__bare__t0.00__s0",
+      "taskSpec": "t-user-lookup",
+      "model": "m-recorded",
+      "modelVersion": "v0",
+      "promptStyle": "bare",
+      "temperature": 0,
+      "sampleIndex": 0,
+      "files": [
+        {
+          "path": "cells/bare/user_lookup.py",
+          "sha256": "a44154fa1bf5b3c109c06e8c6bf1e222535bd6e8d20d13d86fcc873e1cef8249"
+        }
+      ]
+    },
+    {
+      "cellId": "t-user-lookup__m-recorded__v0__security-primed__t0.00__s0",
+      "taskSpec": "t-user-lookup",
+      "model": "m-recorded",
+      "modelVersion": "v0",
+      "promptStyle": "security-primed",
+      "temperature": 0,
+      "sampleIndex": 0,
+      "files": [
+        {
+          "path": "cells/security-primed/user_lookup.py",
+          "sha256": "ac97bdad5369f48471f27c0fc74a9a830875e1e79979b5d4e3b89685d8cd1185"
+        }
+      ]
+    },
+    {
+      "cellId": "t-user-lookup__m-recorded__v0__security-primed-with-example__t0.00__s0",
+      "taskSpec": "t-user-lookup",
+      "model": "m-recorded",
+      "modelVersion": "v0",
+      "promptStyle": "security-primed-with-example",
+      "temperature": 0,
+      "sampleIndex": 0,
+      "files": [
+        {
+          "path": "cells/security-primed-with-example/user_lookup.py",
+          "sha256": "580403ec96aebb99a30e9b099f21e076e715b5d915052208c9e2d646c98064a8"
+        }
+      ]
+    }
+  ]
+}

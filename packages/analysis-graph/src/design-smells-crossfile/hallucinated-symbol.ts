@@ -101,9 +101,64 @@ const CALL = /(?<![\w$.>])(?<name>[A-Za-z_]\w{2,79})[^\S\r\n]{0,4}\(/g;
  * cannot reuse the structure indexer's `C_FUNC` — that pattern requires a `{`
  * precisely to exclude prototypes, and prototypes are exactly what is wanted
  * here. The two patterns are complements, not duplicates.
+ *
+ * ★ THE `(?!…)` GUARD IS THE REPAIR FOR A MEASURED FALSE-POSITIVE CLASS. Without
+ * it, `return SSL_get_cipher_name(pSSL);` matches `PROTOTYPE` — `return` sits in
+ * the type slot, the call's `)` is followed by `;`, and every character the
+ * pattern wants is present. The rule then believes the PROJECT declares
+ * `SSL_get_cipher_name`.
+ *
+ * That is not a cosmetic miscount, it inverts the rule's central safety
+ * argument. The header above claims this "structurally cannot fire on `memcpy`:
+ * no project header declares a family of `mem*` functions, so `mem` never
+ * becomes a known namespace". True of headers — and irrelevant, because a
+ * namespace could also be established by ORDINARY CALL SITES in `.c`/`.cpp`
+ * files. Any project that returns the results of three functions from the same
+ * system library made that library a "known namespace", and every other member
+ * of it that the project called became a hallucination.
+ *
+ * MEASURED over `paper_data/corpus1k`, 1,000 repositories, before the fix:
+ * 23 findings in 4 repositories, and the four populations name the mechanism —
+ * OpenSSL `SSL_*` in eventmachine (10), Windows phlib `Ph*` and a vendored
+ * libcxxabi in lucasg/Dependencies (10), Mach `thread_*` in go-delve's Darwin
+ * backend (2), and the libtorch C++ API in detectron2 (1). Every one is a real
+ * function in a real system library that the analysis is structurally unable to
+ * see, which is precisely the case the rule promised never to report.
+ *
+ * ★ AND A SECOND, UNRELATED CAUSE THE SAME SWEEP EXPOSED — worth reading,
+ * because it was not in this file at all.
+ *
+ * The repair above took 23 findings to 2. The survivors, `parse_number` and
+ * `parse_substitution` in lucasg/Dependencies, were reported AT THE LINE OF
+ * THEIR OWN DEFINITION. The cause was in the structure indexer: `C_FUNC`
+ * required horizontal whitespace between the return type and the function name,
+ * so the LLVM/libcxxabi house style
+ *
+ *     const char*
+ *     parse_number(const char* first, const char* last)
+ *
+ * produced no symbol, the name was absent from `defined`, and a call to it
+ * looked like a call to nothing. Fixed there, not here — see the note on
+ * `C_FUNC` — which is the right place, because the missing symbols were also
+ * invisible to every other rule that reads C.
+ *
+ * The general lesson is the one worth keeping: a missing symbol is SILENT, and
+ * the only reason this was findable at all is that a rule built on top of it
+ * was noisy. Absence does not announce itself; a false positive does.
+ *
+ * `\b` matters on each entry: it keeps `new_thing_t new_thing(void);` — where
+ * `new` is a prefix of a real type name rather than the operator — matching.
+ *
+ * The guard is a lookahead immediately after the leading horizontal whitespace
+ * rather than a post-filter on the match, because a post-filter would have to
+ * re-derive which token landed in the type slot, and that is the same parse done
+ * twice. The variable-length `[^\S\r\n]{0,20}` in front of it cannot be used to
+ * slip past: backtracking to consume fewer spaces only moves the lookahead onto
+ * whitespace, and everything that follows demands a word character, so the sole
+ * position the pattern can proceed from is the one the lookahead inspects.
  */
 const PROTOTYPE =
-  /(?:^|\n|;|\})[^\S\r\n]{0,20}(?:[\w$]{1,40}[^\S\r\n]{1,8}){0,4}[\w$*]{1,60}[^\S\r\n]{1,8}\*{0,3}(?<name>[A-Za-z_]\w{1,79})[^\S\r\n]{0,4}\([^;{]{0,400}\)[^\S\r\n]{0,20};/g;
+  /(?:^|\n|;|\})[^\S\r\n]{0,20}(?!(?:return|else|do|case|goto|sizeof|new|delete|throw|co_return|co_await|co_yield)\b)(?:[\w$]{1,40}[^\S\r\n]{1,8}){0,4}[\w$*]{1,60}[^\S\r\n]{1,8}\*{0,3}(?<name>[A-Za-z_]\w{1,79})[^\S\r\n]{0,4}\([^;{]{0,400}\)[^\S\r\n]{0,20};/g;
 
 /** `#define NAME` / `#define NAME(args)`. */
 const DEFINE = /(?:^|\n)[^\S\r\n]{0,20}#[^\S\r\n]{0,8}define[^\S\r\n]{1,8}(?<name>[A-Za-z_]\w{0,79})/g;
