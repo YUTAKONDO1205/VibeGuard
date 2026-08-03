@@ -141,7 +141,7 @@ describe('analyzeProject — plumbing', () => {
     // the axis this constant describes, made while nobody was thinking about the
     // constant. That is the exact omission the paragraph above was written after.
     const result = await analyzeProject(sample('crossfile-vulnerable'));
-    expect(result.engineVersion).toBe('0.3.0-beta.2');
+    expect(result.engineVersion).toBe('0.3.0-beta.3');
   });
 
   it('reports no degradations for a corpus well inside every budget', async () => {

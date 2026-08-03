@@ -47,4 +47,35 @@
  * the registry moved. A verdict change in either direction is exactly what this
  * axis exists to make visible, so it moves with the rule and not after it.
  */
-export const ANALYSIS_GRAPH_VERSION = '0.3.0-beta.2';
+/**
+ * ★ 0.3.0-beta.2 → 0.3.0-beta.3 (#41 JSEXPORT-COUPLING).
+ *
+ * beta.2 asked `exportedNames` whether a name is a runtime value. It got the
+ * right answer for the wrong reason: the structure indexer's `JS_EXPORT` has no
+ * `interface`/`type` in its modifier list, so `export interface Cfg` binds the
+ * WORD `interface` and `Cfg` never appears at all. Measured, not read —
+ * `indexFile` on a file exporting `Cfg` and `Scope` returns
+ * `exportedNames: ['interface','type']` and no symbols. The erasure filter now
+ * asks a question that means what it says, so repairing the indexer (which #36
+ * must do) cannot silently resurrect the false positives #35 removed.
+ *
+ * That much is a no-op on today's inputs. What DOES move is a second omission in
+ * the same modifier list: `namespace` is not in it either, and a namespace IS a
+ * runtime value. So `export type N` beside `export namespace N` — declaration
+ * merging — used to have `N` read as type-only and its edge DELETED, dropping a
+ * dependency that exists at run time. It is now kept. Verified directly:
+ * `importsOnlyTypes` returns `false` for that shape where it previously returned
+ * `true`. `enum` is repaired the same way.
+ *
+ * The direction is edges KEPT rather than dropped, so fan-out and cycles can only
+ * grow, never shrink. That is the conservative direction, but it is still a
+ * verdict change, which is what this axis exists to make visible.
+ *
+ * ⚠ NOT YET MEASURED ON corpus1k. #35 re-ran the 1,000-repository corpus before
+ * moving this constant, because it changed findings in the direction that can
+ * only shrink them; this change moves them in the direction that can only grow
+ * them, and no equivalent A/B has been run. How often `type`/`interface` merges
+ * with `namespace` in real code is unmeasured. Recorded here rather than in a
+ * commit message because the gap belongs beside the number it qualifies.
+ */
+export const ANALYSIS_GRAPH_VERSION = '0.3.0-beta.3';

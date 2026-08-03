@@ -30,11 +30,24 @@ describe('the CodeQL fixture is honestly labelled', () => {
     expect(parsed._fixtureProvenance?.kind).toBe('SCHEMA-DERIVED, NOT TOOL-RECORDED');
   });
 
-  it('is not confusable with the Semgrep fixture, which IS tool-recorded', () => {
+  it('is not confusable with the Semgrep fixture, whose STRUCTURE is tool-recorded', () => {
+    // The distinction this guards is unchanged and is the reason both fixtures
+    // carry a `kind`: one is a recording of a tool run, the other was written
+    // from a schema. What changed (#44) is that the Semgrep recording is no
+    // longer byte-identical to what the tool emitted — every message and every
+    // metadata field that was PROSE written by the Semgrep rule authors is now a
+    // placeholder, because the Semgrep Rules License does not permit
+    // redistributing "any portion of those rules" and this repository is public.
+    // The label had to follow the file: a fixture that still claimed "genuine
+    // bytes, not fabricated" would be making exactly the kind of provenance
+    // claim these two tests exist to keep honest.
     const semgrep = JSON.parse(
       readFileSync(new URL('./fixtures/semgrep-samples-vulnerable.json', import.meta.url), 'utf8'),
-    ) as { _fixtureProvenance?: { kind?: string } };
-    expect(semgrep._fixtureProvenance?.kind).toBe('TOOL-RECORDED — genuine bytes, not fabricated');
+    ) as { _fixtureProvenance?: { kind?: string; modified?: boolean } };
+    expect(semgrep._fixtureProvenance?.kind).toBe(
+      'TOOL-RECORDED, PROSE REDACTED — genuine structure, rule text removed',
+    );
+    expect(semgrep._fixtureProvenance?.modified).toBe(true);
   });
 });
 

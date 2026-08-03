@@ -1,6 +1,6 @@
 {
   "name": "@vibeguard/mcp-guard",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -17,8 +17,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@vibeguard/analyzer-core": "0.3.3",
-    "@vibeguard/findings-schema": "0.3.3"
+    "@vibeguard/analyzer-core": "0.3.4",
+    "@vibeguard/findings-schema": "0.3.4"
   },
   "devDependencies": {
     "typescript": "^5.4.5",

@@ -1,7 +1,17 @@
-// Semgrep adapter, tested against the RECORDED bytes of a real Semgrep 1.165.0
-// run over samples/vulnerable (src/fixtures/semgrep-samples-vulnerable.json,
+// Semgrep adapter, tested against the RECORDED STRUCTURE of a real Semgrep
+// 1.165.0 run over samples/vulnerable (src/fixtures/semgrep-samples-vulnerable.json,
 // trimmed from paper_data/semgrep_vulnerable.json — provenance is the first key
 // of the fixture itself).
+//
+// ⚠ "structure", not "bytes", since #44. The rule identifiers, the Windows
+// backslash paths, the coordinates, the severities, the CWE ids and the
+// confidences are what the tool emitted. The MESSAGES are not: every message,
+// every autofix string and every metadata field made of Semgrep's own prose has
+// been replaced with a placeholder, because the Semgrep Rules License permits
+// use "only for your own internal business purposes" and this repository is
+// public. Nothing below asserts on message text — that was checked before the
+// redaction, not assumed — so the contract these tests state is unaffected. If
+// you add an assertion that reads a message, you are asserting on a placeholder.
 //
 // The synthetic cases below exercise shapes the recording does not contain
 // (missing lines, malformed severities, unparseable text). They are marked as

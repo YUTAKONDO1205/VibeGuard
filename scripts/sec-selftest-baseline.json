@@ -904,6 +904,41 @@
       ],
       "_filesWhy": "Directory census, checked BEFORE the finding snapshot — the same ordering the other corpora use and for the same reason: a deleted or renamed fixture set must not make a matching snapshot compare equal. 734 files here, so this is also the only witness that the cross-file corpus itself is intact when the cross-file suites are not the thing running."
     },
+    "corpus:samples/crossfile-safe": {
+      "_why": "#49 XFSAFE-GATE. What the SINGLE-FILE rule layer says about the cross-file NEGATIVE corpus. This zero was real and completely unheld: #34 pinned the fixture tree on the strength of a comment asserting that security-scan.yml already gated this directory, and it does not — the samples job has eight steps and none of them names a cross-file corpus. Pinned as a multiset of ruleId@file rather than `length === 0` so the failure names the rule that started firing, and so the gate cannot be satisfied by an empty directory (see files).",
+      "snapshot": [],
+      "files": [
+        "app.ts",
+        "controllers/billing-controller.ts",
+        "controllers/report-controller.ts",
+        "controllers/user-controller.ts",
+        "data/store.ts",
+        "middleware/require-role.ts",
+        "README.md",
+        "routes/billing-routes.ts",
+        "routes/report-routes.ts",
+        "routes/user-routes.ts",
+        "types.ts"
+      ],
+      "_filesWhy": "Directory census, checked BEFORE the finding snapshot. 11 files is small enough that \"someone moved the fixtures\" is a live failure mode, and against a [] snapshot an emptied directory compares equal and passes — the vacuous shape a `-eq 0` step in security-scan.yml would have reproduced. Same argument as samples/safe and b1/b3 corpus-scale."
+    },
+    "corpus:samples/crossfile-vulnerable": {
+      "_why": "#49 XFSAFE-GATE. The positive half of the same pair, ungated for the same reason and measured at the same time: the single-file rule layer says nothing here either. That is the correct reading and not a defect — the rules this corpus exists for (VG-SMELL-010, cross-file) run only behind --include-design-smells and are asserted by the packages/analysis-graph suites. What is pinned here is the DEFAULT-MODE output a user sees, which had no witness. Pinned alongside the safe half rather than left alone: an identical hole next to a closed one is how the false comment above came to be believed.",
+      "snapshot": [],
+      "files": [
+        "app.ts",
+        "controllers/billing-controller.ts",
+        "controllers/report-controller.ts",
+        "controllers/user-controller.ts",
+        "data/store.ts",
+        "README.md",
+        "routes/billing-routes.ts",
+        "routes/report-routes.ts",
+        "routes/user-routes.ts",
+        "types.ts"
+      ],
+      "_filesWhy": "Directory census, checked BEFORE the finding snapshot — and load-bearing here in a way it is not for a positive corpus with findings: because this snapshot is [], the census is the ONLY thing standing between an emptied corpus and a green gate."
+    },
     "a1:surface-census": {
       "_why": "The ReDoS attack surface, counted. A new rule adds patterns; this is what makes that visible the day it lands rather than the day someone writes an attack string for it.",
       "_rebaselined": "0.3.0-beta: 71 rules / 127 patterns -> 72 / 137. VG-AISC-004 (Mock/Dummy Security Leftover) landed in packages/rules and brought 10 patterns with it. The gate fired, which is it working; the number was only moved after the surface it counts was measured, not because the count was inconvenient. Evidence gathered before this edit: (1) a1:shape-suspicious-set PASSES, so none of the 10 has a superlinear-prone shape; (2) a1:catalog-errors and a1:unreached-literals both PASS; (3) the real product path was timed against seven adversarial inputs of 30-60k characters chosen to stress this rule's own vocabulary (long space/word/brace/paren runs after a mock-ish prefix, and 3,000 repetitions of a mock-auth function) and the WORST full scan was 41 ms against a 3,000 ms D3 contract. The timing harness carried a positive control (a hard-coded AWS key returning VG-SEC-001, and mockAuthenticate returning VG-AISC-004) because a harness that finds nothing measures nothing - an earlier version of this probe read the wrong field, reported 0 patterns, and would have declared PASS having tested nothing at all.",
@@ -955,10 +990,15 @@
         "crossFileRules": 11,
         "exportedUnregisteredRuleIds": 0,
         "staticFilesScanned": 24,
-        "staticLiterals": 194,
+        "staticLiterals": 195,
         "staticConstructionSites": 24,
         "staticUncompilable": 0
-      }
+      },
+      "_reRecorded": [
+        "2026-08-04 (#41 JSEXPORT-COUPLING): staticLiterals 194 -> 195. ONE literal, named: EXPORT_VALUE in design-smells-crossfile/type-erasure.ts. It is the value-side twin of the EXPORT_TYPE pattern already counted here, added because the erasure filter could no longer ask exportedNames whether a name is a runtime value (the indexer binds the modifier WORD, so `export interface Cfg` records `interface`, and the filter was right only by accident).",
+        "WHY THIS IS A RE-RECORD AND NOT A LOOSENING: staticConstructionSites stays 24 — no `new RegExp(` was added, and no prose mentioning the token either (MEASURED LIMIT 8e records that prose moves this number for the wrong reason). crossFileRules 11, exportedUnregisteredRuleIds 0, staticFilesScanned 24, staticUncompilable 0 all unchanged. The delta is exactly +1 and the +1 is accounted for.",
+        "SHAPE: a1:crossfile-shape-suspicious-set stayed GREEN across this change, so the new literal is not shape-suspicious. Its quantifiers are bounded throughout ({0,8}/{1,4}/{0,3}/{1,60}) and horizontal whitespace is [^S\r\n] rather than s — the form this project adopted after the A1 ReDoS finding."
+      ]
     },
     "a1:crossfile-shape-suspicious-set": {
       "_why": "§9.4「新ルールで super-linear が混入したら fail」 for the cross-file layer, over BOTH arms: the regex literals found statically in the built package, and the fully-resolved patterns captured at runtime (interpolation already applied, so an `(a+)+` assembled from a template is visible here and nowhere else).",

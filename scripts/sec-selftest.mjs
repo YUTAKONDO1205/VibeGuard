@@ -289,19 +289,25 @@
 //     deciding: the rule layer produces 8 findings over the 734 files of
 //     `samples/crossfile-fixtures` (4 of them the Django negative control
 //     described at CORPUS_DIRS), and 0 over `samples/crossfile-safe` and
-//     `samples/design-safe` — which is why only the first is pinned here.
+//     `samples/design-safe`.
 //     `samples/design-safe` is left to `security-scan.yml`, which already gates
 //     it at zero through the packaged CLI; adding a second authority for the
 //     same contract is how two numbers with the same name start disagreeing.
-//     ⚠ CORRECTED — `samples/crossfile-safe` IS NOT GATED ANYWHERE. This comment
-//     originally said `security-scan.yml` covered both, and it does not: the
-//     samples job has eight steps (safe, vulnerable, embedded × 2, design-safe,
-//     design-smells, proto-safe, proto-pollution) and none of them names
-//     `crossfile-safe`. The zero is real and nothing holds it. Left unpinned
-//     here rather than fixed in passing, because the fix belongs in the job that
-//     owns the packaged-CLI contract and adding it here would put the same
-//     contract under two authorities — the thing the sentence above argues
-//     against. Tracked as its own item so it does not survive on a comment.
+//     ⚠ CORRECTED TWICE, and the second correction is the one that closed it.
+//     (1) This comment originally said `security-scan.yml` covered
+//     `samples/crossfile-safe` too. It does not: the samples job has eight steps
+//     (safe, vulnerable, embedded × 2, design-safe, design-smells, proto-safe,
+//     proto-pollution) and none of them names any cross-file corpus. The zero was
+//     real and nothing held it.
+//     (2) #49 XFSAFE-GATE then pinned `crossfile-safe` AND `crossfile-vulnerable`
+//     in CORPUS_DIRS below. The reasoning that left them unpinned at (1) — "the
+//     fix belongs in the job that owns the packaged-CLI contract, adding it here
+//     makes two authorities" — was wrong on its own terms: the two-authority
+//     objection is why `samples/design-safe` stays out, and design-safe already
+//     HAS an authority. These two had none, so this adds the first, not the
+//     second. Recorded rather than rewritten, because the failure being described
+//     is a comment that asserted a gate into existence, and deleting the trail
+//     would leave the same claim standing with nothing behind it.
 //     Recorded so "the corpus arm covers the corpora" is not read as covering
 //     the cross-file RULES — it does not, and limit 8 is where that gap lives.
 //  8. THE A1 CENSUS NOW COVERS BOTH RULE LAYERS — THIS IS WHAT IT STILL MISSES.
@@ -407,6 +413,43 @@ const CORPUS_DIRS = [
   // reaching in here, a negative control that stops being negative — is a diff a
   // human reads.
   'samples/crossfile-fixtures',
+  // ★ #49 XFSAFE-GATE — the two cross-file DEMO corpora, for the same reason and
+  // by the same mechanism as the fixture tree above.
+  //
+  // #34 pinned `crossfile-fixtures` and left these two alone on the strength of a
+  // sentence that turned out to be false: the comment at limit 7 asserted that
+  // `security-scan.yml` already gated `crossfile-safe`, and it does not — the
+  // samples job has eight steps and none of them names any cross-file corpus.
+  // Nothing anywhere read the rule layer's output over these directories.
+  //
+  // MEASURED before pinning (default mode, `config: false`, this checkout):
+  // `crossfile-safe` 0 findings over 11 files, `crossfile-vulnerable` 0 over 10.
+  // Both zeros are real, and until now nothing held either of them.
+  //
+  // ★ WHY BOTH, WHEN THE ITEM ONLY NAMED THE SAFE HALF. `crossfile-vulnerable`
+  // measured zero as well, from the same absence of a gate. Pinning one and not
+  // the other would leave the identical hole open next to a closed one, which is
+  // how the original false sentence came to be believed in the first place.
+  //
+  // ★ WHY HERE AND NOT IN `security-scan.yml`. Three reasons, in order of weight:
+  //   1. A `-eq 0` step passes over an EMPTIED directory. These corpora are 11 and
+  //      12 files — the size at which "someone moved the fixtures" is a live
+  //      failure mode. The `files` census below fails first and names the missing
+  //      fixtures; a count floor of zero cannot.
+  //   2. `README.md` states as a DESIGN decision that the cross-file corpora are
+  //      not in the samples job, because their own rules run only behind
+  //      `--include-design-smells`. Adding them there would contradict a
+  //      documented decision; adding them here does not, because what is pinned
+  //      is the SINGLE-FILE rule layer's output, which is a different question
+  //      from the one that sentence answers.
+  //   3. #34 already answered this exact question for `crossfile-fixtures` and
+  //      answered it here. A second dialect of the same gate is how two numbers
+  //      with the same name start disagreeing.
+  // The "two authorities" objection that keeps `samples/design-safe` out of this
+  // list does not apply: design-safe already HAS an authority in the samples job,
+  // and these two had none. This adds the first, not the second.
+  'samples/crossfile-safe',
+  'samples/crossfile-vulnerable',
 ];
 
 export const ARMS = ['corpus', 'a1', 'b1', 'b3'];

@@ -12,11 +12,17 @@ each extension (see `extensions/vscode/CHANGELOG.md`).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.3.4] - 2026-08-04
 
 Remediation-side hardening. **Engine is unchanged at `0.3.1`** — no rule changed what it
 matches or at what severity. What changed is what `--fix` is willing to write, and what a
 fix run reports back to CI.
+
+> **Why this release exists as a release.** The fixes below landed in the repository on
+> 2026-07-30 and have been readable there ever since, while every published artifact — the
+> Marketplace and Open VSX extensions, and the `v0` Action tag — stayed at `0.3.3` without
+> them. That gap is the wrong way round: the reasoning is public and the remedy is not.
+> Cutting the release closes it.
 
 The theme is one rule: **a fixer must be stricter than the detector that fed it.** Each item
 below is a place where it was not, and where the result was worse than no fix at all — the
@@ -74,6 +80,28 @@ leaves the prose remediation, which can describe changes a token swap cannot per
 > this release has reached all four channels, per the project's practice of not publishing a
 > reproducible weakness against a version users are still running. The `--fail-on` change
 > above is stated in full because operators need it to audit their pipelines today.
+
+### Licensing
+
+- **The recorded Semgrep test fixture no longer carries Semgrep's rule prose.**
+  `packages/external-adapters/src/fixtures/semgrep-samples-vulnerable.json` is a recording of
+  a real Semgrep 1.165.0 run, kept so the external-report adapter is tested against bytes a
+  tool actually emitted rather than bytes we imagined. It contained no detection logic, but it
+  did contain 19 rules' messages and metadata verbatim — about two thirds of the file. The
+  Semgrep Rules License v1.0 permits use "only for your own internal business purposes" and
+  states that it "does not allow you to distribute the rules", where *the rules* is defined to
+  include "any portion of those rules".
+
+  This repository is public, and its composite Action copies this tree onto consumers' CI
+  runners, so shipping that text was redistribution. Every message, every autofix string and
+  every metadata field consisting of Semgrep-authored prose is now a placeholder. What the
+  adapter is actually tested on — rule identifiers, the Windows backslash paths, coordinates,
+  severities, CWE identifiers, confidence — is unchanged, and Semgrep's own licence and source
+  notices are retained unaltered on every entry, as that licence requires. The fixture's
+  provenance header records the modification, also as that licence requires.
+
+  **No behaviour changes.** Nothing in VibeGuard reads this file at run time; it is a test
+  fixture. It is listed here because it is part of what the Action puts on your runner.
 
 ### Documentation
 

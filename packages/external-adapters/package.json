@@ -1,6 +1,6 @@
 {
   "name": "@vibeguard/external-adapters",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -17,7 +17,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@vibeguard/findings-schema": "0.3.3"
+    "@vibeguard/findings-schema": "0.3.4"
   },
   "devDependencies": {
     "typescript": "^5.4.5",
