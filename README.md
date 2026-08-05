@@ -297,7 +297,7 @@ Marketplace publishing is documented in [`docs/runbooks/publish-action-to-market
 
 ## Rule catalogue
 
-71 single-file rules at the moment, across 10 languages (including a C/C++/Arduino embedded layer), plus 4 cross-file rules that run only behind `--include-design-smells` (see below). The ID prefix groups rules by source file; the `category` field is a separate, risk-oriented axis.
+74 single-file rules at the moment, across 10 languages (including a C/C++/Arduino embedded layer), plus 11 cross-file rules that run only behind `--include-design-smells` (see below). The ID prefix groups rules by source file; the `category` field is a separate, risk-oriented axis.
 
 | Prefix | Coverage | Examples |
 |---|---|---|
