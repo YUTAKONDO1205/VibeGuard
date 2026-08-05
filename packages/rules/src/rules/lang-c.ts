@@ -264,10 +264,116 @@ export const cUseAfterFree: RuleDefinition = {
   },
 };
 
+/**
+ * The words that make an identifier read as "this holds a secret". Matched
+ * against the SPLIT identifier, never as substrings: `monkey` is one word and is
+ * not `key`, `keyboard` is not `key`, but `session_key`, `sessionKey` and
+ * `ctx->authToken` all split to a word that is in this set.
+ */
+const SECRET_WORDS = new Set([
+  'secret',
+  'secrets',
+  'password',
+  'passwd',
+  'passphrase',
+  'privkey',
+  'key',
+  'keys',
+  'token',
+  'tokens',
+  'credential',
+  'credentials',
+  'creds',
+  'apikey',
+]);
+
+/** `ctx->session_key` / `sessionKey` / `s.apiKey[0]` -> ['ctx','session','key'] … */
+function identifierWords(identifier: string): string[] {
+  return identifier
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[^A-Za-z0-9]+/)
+    .filter((word) => word.length > 0)
+    .map((word) => word.toLowerCase());
+}
+
+function namesASecret(identifier: string): boolean {
+  return identifierWords(identifier).some((word) => SECRET_WORDS.has(word));
+}
+
+/**
+ * VG-MEM-006 — a secret-named buffer cleared with a plain `memset`.
+ *
+ * WHY A LEXICAL RULE CAN SAY SOMETHING TRUE HERE, when it usually cannot about
+ * memory: this is not a claim about whether the buffer is large enough or
+ * whether the pointer is live. It is a claim about the WIPE IDIOM. The last
+ * write to storage that is never read again is a dead store, and dead-store
+ * elimination is permitted to delete it — so the clear that the source performs
+ * may be absent from the object file. That is CWE-14, and it does not need
+ * dataflow to name: `memset` is removable, `explicit_bzero` is not.
+ *
+ * SCOPE, deliberately narrow (E3=0 is the constraint that shapes this):
+ *   - Only `memset(<secret-named>, 0, …)`. A wipe with a non-zero fill is not
+ *     the idiom, and a non-secret-named buffer is not this rule's business —
+ *     `memset(buf, 0, sizeof(buf))` on a scratch buffer is ordinary code and
+ *     stays silent. `samples/crossfile-fixtures/embedded-real-api/main.c`
+ *     contains exactly that line and is the standing negative control.
+ *   - `memset(secret, '\0', n)` is NOT matched: the character literal is blanked
+ *     with strings before the scan. A known, accepted false negative.
+ *   - Whether the compiler ACTUALLY removed the store is not decidable here and
+ *     is not claimed. The finding is about depending on a removable wipe.
+ */
+export const cInsecureSecretWipe: RuleDefinition = {
+  ruleId: 'VG-MEM-006',
+  name: 'Secret buffer cleared with a removable memset',
+  description:
+    'memset(..., 0, ...) on a buffer whose name says it holds a secret. A final write that is never read again is a dead store, and optimising compilers delete dead stores, so the wipe can be missing from the shipped binary while the source still shows it.',
+  languages: ['c', 'cpp'],
+  category: 'memory',
+  severity: 'medium',
+  defaultConfidence: 'medium',
+  cwe: ['CWE-14', 'CWE-226'],
+  tags: ['embedded', 'memory-safety'],
+  remediation: {
+    why: 'Clearing a buffer that is never read afterwards is a dead store the compiler may remove. The secret then remains in memory past the line that appears to erase it — the source and the binary disagree, and only the binary runs.',
+    how: 'Use a wipe the compiler is not allowed to elide: explicit_bzero() (glibc/BSD), memset_s() (C11 Annex K), or SecureZeroMemory() (Windows).',
+    exampleFix: 'explicit_bzero(secret, sizeof(secret));',
+  },
+  match: (ctx) => {
+    const raw =
+      ctx.content.length > REGEX_INPUT_CAP ? ctx.content.slice(0, REGEX_INPUT_CAP) : ctx.content;
+    // Length-preserving blanking, so offsets and line numbers still address the
+    // original text: `/* memset(secret, 0, n) */` and `"memset(key, 0, n)"` are
+    // not code and must not fire.
+    const scanText = blankCommentsAndStrings(raw, ctx.language);
+    // One bounded run per element and no two variable-length runs adjacent (the
+    // optional `&` group opens with a literal, so a space is never ambiguous
+    // between two quantifiers). Linear, per the L1 rewrite rule.
+    const wipeRe =
+      /(?<![\w.>])memset[ \t]{0,8}\([ \t]{0,8}(?:&[ \t]{0,8})?([A-Za-z_][A-Za-z0-9_.>[\]-]{0,60})[ \t]{0,8},[ \t]{0,8}0(?:x0{1,2})?[ \t]{0,8},/g;
+    const out: RuleMatch[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = wipeRe.exec(scanText)) !== null && out.length < REGEX_MATCH_LIMIT) {
+      const target = m[1]!;
+      if (!namesASecret(target)) continue;
+      const pos = indexToPosition(scanText, m.index);
+      if (isCommentLine(ctx.lines[pos.line - 1] ?? '', ctx.language)) continue;
+      out.push({
+        startLine: pos.line,
+        endLine: pos.line,
+        startColumn: pos.column,
+        endColumn: pos.column + m[0].length,
+        evidence: `memset(${target}, 0, ...)`,
+      });
+    }
+    return out;
+  },
+};
+
 export const cRules: RuleDefinition[] = [
   cGets,
   cUnboundedCopy,
   cMemcpyFromStrlen,
   cDoubleFree,
   cUseAfterFree,
+  cInsecureSecretWipe,
 ];

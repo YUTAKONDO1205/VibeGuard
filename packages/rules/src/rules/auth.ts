@@ -2,8 +2,15 @@
 // This file defines the auth rules; dummy-token, TLS-disable, and the
 // "secure: false" / "httpOnly: false" literals appear inside regex
 // patterns and remediation prose by design.
-import type { RuleDefinition } from '../rule-types.js';
-import { runRegex } from '../matcher-utils.js';
+import type { RuleDefinition, RuleMatch } from '../rule-types.js';
+import {
+  runRegex,
+  blankCommentsAndStrings,
+  indexToPosition,
+  isCommentLine,
+  REGEX_INPUT_CAP,
+  REGEX_MATCH_LIMIT,
+} from '../matcher-utils.js';
 
 export const debugBypass: RuleDefinition = {
   ruleId: 'VG-AUTH-001',
@@ -145,6 +152,74 @@ export const insecureSessionCookie: RuleDefinition = {
   ],
 };
 
+/**
+ * The predicate shapes that make an assertion an AUTHORIZATION decision rather
+ * than an invariant. Kept to named auth predicates and explicit role/permission
+ * comparisons: `assert(ptr != NULL)` and `assert(len < cap)` are invariants and
+ * must stay silent.
+ */
+const AUTHORIZATION_PREDICATE =
+  /\b(?:is_admin|is_root|is_owner|is_superuser|is_authori[sz]ed|is_authenticated|is_allowed|is_permitted|has_permission|has_role|has_access|has_privilege|check_auth|check_access|check_permission|authori[sz]ed|admin_only)\b|\b(?:role|permission|privilege|uid)[ \t]{0,4}==/i;
+
+/**
+ * VG-AUTH-008 — authorization decided inside `assert()`.
+ *
+ * `assert` is defined away by the preprocessor when NDEBUG is set, and release
+ * builds set it (CMake's Release/RelWithDebInfo add `-DNDEBUG`; so does the
+ * conventional `-O2 -DNDEBUG` line). An authorization check written as an
+ * assertion therefore holds in the developer's build and IS NOT PRESENT in the
+ * build that ships — the check does not fail, it ceases to exist.
+ *
+ * C/C++ ONLY, on purpose. `assert user.is_admin` in Python is the same mistake
+ * (python -O removes it), but Python asserts are everywhere in test code, and
+ * widening this rule to Python would put it in front of the corpora where the
+ * E3=0 false-positive invariant is measured. If that widening is ever wanted it
+ * is a separate rule with its own baseline, not a `languages` edit here.
+ */
+export const assertBasedAuthorization: RuleDefinition = {
+  ruleId: 'VG-AUTH-008',
+  name: 'Authorization decided by assert()',
+  description:
+    'An assert() whose condition is an authorization predicate. assert compiles to nothing when NDEBUG is defined — which release builds do by convention — so the check is enforced in debug builds and absent from the binary users run.',
+  languages: ['c', 'cpp'],
+  category: 'auth',
+  severity: 'high',
+  defaultConfidence: 'medium',
+  cwe: ['CWE-285', 'CWE-489'],
+  tags: ['embedded', 'ai-prone'],
+  remediation: {
+    why: 'assert() is removed by the preprocessor under NDEBUG, so an authorization check written as an assertion disappears from the release build. The source keeps showing a check that the shipped binary does not perform.',
+    how: 'Make the decision ordinary control flow that fails closed, and keep assert for invariants that are not security decisions.',
+    exampleFix: 'if (!is_admin(user)) { return -EPERM; }',
+  },
+  match: (ctx) => {
+    const raw =
+      ctx.content.length > REGEX_INPUT_CAP ? ctx.content.slice(0, REGEX_INPUT_CAP) : ctx.content;
+    // Blank comments and strings first: a commented-out assert and the token
+    // inside a string are not code. Length-preserving, so positions still hold.
+    const scanText = blankCommentsAndStrings(raw, ctx.language);
+    // `static_assert` is excluded by the lookbehind (`_` is a word character).
+    // The condition run is a bounded negated class — no nested quantifier.
+    const assertRe = /(?<![\w.>])assert[ \t]{0,8}\(([^;{}]{0,200})\)/g;
+    const out: RuleMatch[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = assertRe.exec(scanText)) !== null && out.length < REGEX_MATCH_LIMIT) {
+      const condition = m[1]!;
+      if (!AUTHORIZATION_PREDICATE.test(condition)) continue;
+      const pos = indexToPosition(scanText, m.index);
+      if (isCommentLine(ctx.lines[pos.line - 1] ?? '', ctx.language)) continue;
+      out.push({
+        startLine: pos.line,
+        endLine: pos.line,
+        startColumn: pos.column,
+        endColumn: pos.column + m[0].length,
+        evidence: `assert(${condition.trim()})`,
+      });
+    }
+    return out;
+  },
+};
+
 export const authRules: RuleDefinition[] = [
   debugBypass,
   todoSecurity,
@@ -152,4 +227,5 @@ export const authRules: RuleDefinition[] = [
   tlsVerifyDisabled,
   csrfExemptDecorator,
   insecureSessionCookie,
+  assertBasedAuthorization,
 ];

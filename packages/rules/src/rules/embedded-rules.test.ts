@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { RuleContext, RuleDefinition } from '../rule-types.js';
 import { extractBlockAfter } from '../matcher-utils.js';
-import { cGets, cUnboundedCopy, cMemcpyFromStrlen, cDoubleFree, cUseAfterFree } from './lang-c.js';
+import {
+  cGets,
+  cUnboundedCopy,
+  cMemcpyFromStrlen,
+  cDoubleFree,
+  cUseAfterFree,
+  cInsecureSecretWipe,
+} from './lang-c.js';
 import {
   embWifiCredential,
   embNamedSecretLiteral,
@@ -40,6 +47,27 @@ describe('VG-MEM negatives (safe idioms must not flag)', () => {
   it('MEM-005 does not flag the free-then-null idiom', () => {
     expect(n(cUseAfterFree, 'free(x); x = NULL;\nx->field;')).toBe(0);
     expect(n(cUseAfterFree, 'free(x);\nx->field = 1;')).toBe(1);
+  });
+  it('MEM-006 flags a memset wipe of a secret-named buffer', () => {
+    expect(n(cInsecureSecretWipe, 'memset(secret, 0, sizeof(secret));')).toBe(1);
+    expect(n(cInsecureSecretWipe, 'memset(&session_key, 0, len);')).toBe(1);
+    expect(n(cInsecureSecretWipe, 'memset(ctx->authToken, 0, n);')).toBe(1);
+    expect(n(cInsecureSecretWipe, 'memset(pw.password, 0x00, 32);')).toBe(1);
+  });
+  it('MEM-006 stays silent on the fix, on non-secret buffers, and on near-miss names', () => {
+    // The recommended remediation must not itself be a finding.
+    expect(n(cInsecureSecretWipe, 'explicit_bzero(secret, sizeof(secret));')).toBe(0);
+    expect(n(cInsecureSecretWipe, 'memset_s(secret, sizeof(secret), 0, sizeof(secret));')).toBe(0);
+    // The standing negative control: samples/crossfile-fixtures/.../main.c:16.
+    expect(n(cInsecureSecretWipe, 'memset(buf, 0, sizeof(buf));')).toBe(0);
+    // Words, not substrings: `monkey`/`keyboard` are not `key`.
+    expect(n(cInsecureSecretWipe, 'memset(monkey, 0, sizeof(monkey));')).toBe(0);
+    expect(n(cInsecureSecretWipe, 'memset(keyboard_state, 0, n);')).toBe(0);
+    // A non-zero fill is not the wipe idiom.
+    expect(n(cInsecureSecretWipe, 'memset(secret, 0xA5, sizeof(secret));')).toBe(0);
+    // Comments and strings are blanked before the scan.
+    expect(n(cInsecureSecretWipe, '/* memset(secret, 0, n) */')).toBe(0);
+    expect(n(cInsecureSecretWipe, 'const char *s = "memset(secret, 0, n)";')).toBe(0);
   });
 });
 

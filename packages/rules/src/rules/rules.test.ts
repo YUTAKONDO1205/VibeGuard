@@ -19,6 +19,7 @@ import {
   debugBypass,
   csrfExemptDecorator,
   insecureSessionCookie,
+  assertBasedAuthorization,
 } from './auth.js';
 import { djangoDebugTrue, flaskDebugRun, corsWildcardOrigin } from './framework.js';
 import { hardcodedAwsKey, hardcodedPrivateKey, githubToken, genericApiKey } from './secrets.js';
@@ -169,6 +170,30 @@ describe('auth rules', () => {
 
   it('flags debug bypass that returns true', () => {
     expectMatches(debugBypass, 'if (DEBUG) { return true; }');
+  });
+
+  it('flags an authorization decision made inside assert() (C/C++)', () => {
+    expectMatches(assertBasedAuthorization, 'assert(is_admin(user));', 'c');
+    expectMatches(assertBasedAuthorization, 'assert(u->is_authorized);', 'c');
+    expectMatches(assertBasedAuthorization, 'assert(session->role == ROLE_ADMIN);', 'cpp');
+  });
+
+  it('leaves ordinary invariants, static_assert, and the fix alone', () => {
+    // Invariants are what assert is FOR — these must not be findings.
+    expectNoMatch(assertBasedAuthorization, 'assert(ptr != NULL);', 'c');
+    expectNoMatch(assertBasedAuthorization, 'assert(len < capacity);', 'c');
+    // `static_assert` is a different construct and is not removed by NDEBUG.
+    expectNoMatch(assertBasedAuthorization, 'static_assert(is_admin_offset == 8, "abi");', 'cpp');
+    // The recommended remediation must not itself flag.
+    expectNoMatch(assertBasedAuthorization, 'if (!is_admin(user)) { return -EPERM; }', 'c');
+    // Comments and strings are blanked before the scan.
+    expectNoMatch(assertBasedAuthorization, '/* assert(is_admin(user)); */', 'c');
+  });
+
+  it('does not reach Python asserts (C/C++ only, on purpose)', () => {
+    // The language gate is enforced by the analyzer, not by `match`, so this
+    // documents the INTENT that the rule is not aimed at Python assert.
+    expect(assertBasedAuthorization.languages).toEqual(['c', 'cpp']);
   });
 });
 
