@@ -105,6 +105,29 @@ compiler-experiment/
 # ~500MB of Remotion/Chrome dependencies do not belong in the service repo)
 video/
 
+# Native build outputs under compiler/. The sources there are tracked, the
+# artefacts are not: they are per-machine (they embed the local toolchain's
+# layout), they are large, and an .o or .so that reaches a public commit cannot
+# be taken back out of the history. Listed BEFORE the directory exists on
+# purpose — the ordering is the point, not the paths.
+compiler/**/build/
+compiler/**/out/
+compiler/**/bin/
+compiler/**/*.o
+compiler/**/*.so
+compiler/**/*.a
+compiler/**/*.elf
+# A linked executable has no extension, so the patterns above cannot name it.
+# The three output directories are the convention that makes it nameable; the
+# ELF-header check in scripts/check-packaging-invariants.mjs is what catches a
+# binary written anywhere else, loudly, instead of letting it be committed.
+
+# Local-only maintenance tooling. Scripts here encode naming rules that this
+# repository is not the right place to publish — a checker that lists what it
+# forbids hands the list to anyone who reads it. They run before a push, not in
+# CI; what CI enforces is in scripts/ and phrased in product terms.
+scripts-local/
+
 # Measurement dumpers for the visualisation experiment. They walk the b1-evasion
 # attack corpus under security-experiment/ and emit per-mutation-family recovery
 # counts, so they carry the same attack premises that keep that folder out of the

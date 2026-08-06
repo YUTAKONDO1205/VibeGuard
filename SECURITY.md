@@ -174,6 +174,6 @@ version produce the same verdicts on the same input; a change to detection
 behaviour changes that number. Released tool versions move independently and do
 not imply a detection change.
 
-The `paper-css-v0.2.0` tag marks the commit at which engine `0.2.0` was settled,
-for anyone reproducing published measurements. `paper-ses-v0.1.3` marks the
-engine before this round of work.
+The `v0.2.0` tag marks the commit at which engine `0.2.0` was settled, for anyone
+reproducing published measurements. `v0.1.3` marks the engine before that round
+of work.

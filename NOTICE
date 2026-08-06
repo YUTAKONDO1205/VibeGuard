@@ -1,0 +1,45 @@
+VibeGuard
+Copyright (c) 2026 KONDO YUTA
+
+This repository is distributed under the MIT License (see LICENSE), with one
+exception, stated here so that the terms of a file can be determined from the
+tree rather than inferred from it.
+
+--------------------------------------------------------------------------------
+Per-directory terms
+--------------------------------------------------------------------------------
+
+  /            MIT License                          LICENSE
+  compiler/    Apache License 2.0                   compiler/LICENSE
+               with LLVM Exception
+
+Everything published through the four release channels — the GitHub Action, the
+VS Code extension, the Open VSX listing and the Chrome extension — is built from
+the MIT-licensed part of the tree. compiler/ is outside the npm workspaces and is
+not part of any of those artifacts.
+
+--------------------------------------------------------------------------------
+Why compiler/ carries different terms
+--------------------------------------------------------------------------------
+
+compiler/ builds against the Clang and LLVM development headers and links against
+LLVM libraries. LLVM is licensed under the Apache License 2.0 with LLVM
+Exception. Matching those terms for the directory that compiles against them
+keeps the combination unambiguous, and it is the licence upstream chose precisely
+so that the result of linking against LLVM can be redistributed without imposing
+additional obligations on the linked work.
+
+No LLVM source is copied into this repository. compiler/ includes LLVM headers
+from a locally installed toolchain at build time; the headers and libraries stay
+where the system package manager put them.
+
+--------------------------------------------------------------------------------
+Third-party components
+--------------------------------------------------------------------------------
+
+Runtime and build dependencies are declared in package.json files and resolved
+from the npm registry; their licences are those stated by their publishers and
+are reproduced in the installed node_modules tree rather than here.
+
+LLVM/Clang (https://llvm.org/) — Apache License 2.0 with LLVM Exception.
+Used as a build-time and link-time dependency of compiler/ only.

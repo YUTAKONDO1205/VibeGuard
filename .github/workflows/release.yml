@@ -63,6 +63,19 @@ jobs:
 
       - run: npm run build
 
+      # The release-time invariants, run on the release path.
+      #
+      # ci.yml already runs these on every push and pull request, so this looks
+      # redundant — and it is, right up until the one run where it is not. This
+      # job is the only one that produces the bytes users install, it is
+      # triggered by a TAG rather than by a push (so a tag can point at a commit
+      # whose CI never completed, or completed before a later change to a
+      # workflow file), and everything it checks is cheap. The failure it exists
+      # to prevent — a shipped bundle that acquired something it must not carry —
+      # is invisible in the artefact and permanent once published.
+      - name: Check packaging invariants
+        run: node scripts/check-packaging-invariants.mjs
+
       # Sanity-check: the package.json version in apps/cli (the published
       # artifact) must match the tag. Catches "forgot to bump" mistakes
       # before we create a misnamed release.

@@ -64,6 +64,11 @@
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative, sep } from 'node:path';
+// Builtin, not a dependency — the zero-install property above still holds. It is
+// here for one question invariant 7 cannot answer from the filesystem alone:
+// "would this file reach a commit?" Disk contents cannot distinguish a local
+// build tree from a staged file, and that distinction is the whole check.
+import { execFileSync } from 'node:child_process';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -102,6 +107,43 @@ function walkFiles(dir) {
 }
 
 /**
+ * Module specifiers mentioned by a line of source.
+ *
+ * Shared by the two import-boundary invariants below (4 and 7), which ask the
+ * same question of different needles: does the light side reach for something
+ * only the CLI side may have?
+ *
+ * A regex rather than a parser, and a line-oriented one, because this script
+ * must run with zero dependencies before anything is built — it cannot import
+ * `blankCommentsAndStrings` from `@vibeguard/rules` (that would require the
+ * package to be compiled first, so the probe would stop working in exactly
+ * the broken-checkout situation where you most want it).
+ *
+ * Comment lines are dropped by shape (`//`, `/*`, or a continuation `*`)
+ * rather than by real lexing. That is enough here: prose ABOUT the package is
+ * legitimate and common — `design-smells-single.ts` says "is 0.3.0's
+ * analysis-graph" in a header comment — while prose that also happens to
+ * contain `from '@vibeguard/analysis-graph'` in quotes is not something the
+ * repo contains and, if it ever did, flagging it is the safe direction to be
+ * wrong in. The cost of a false negative here (a real leak, caught only at
+ * release) is much higher than the cost of rewording a comment.
+ *
+ * Multi-line import forms are covered because the specifier always sits on
+ * the line carrying `from`, which is the line this matches.
+ */
+function importSpecifiersOnLine(line) {
+  const trimmed = line.trimStart();
+  if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) {
+    return [];
+  }
+  const specs = [];
+  const re = /(?:\bfrom|\bimport|\brequire)\s*\(?\s*['"]([^'"\n]+)['"]/g;
+  let m;
+  while ((m = re.exec(line)) !== null) specs.push(m[1]);
+  return specs;
+}
+
+/**
  * Lowest version a `^`/`~`/bare range admits. Comparing the floors is the
  * question `vsce` actually asks: "could this build be type-checked against an
  * API newer than the oldest host it claims to support?"
@@ -120,6 +162,13 @@ function cmp(a, b) {
 }
 
 const failures = [];
+
+/**
+ * What invariant 7 concluded about compiler/, reported in the success line.
+ * A guard whose subject may legitimately be absent has to say which case it saw,
+ * or "OK" means both "checked and clean" and "nothing to check".
+ */
+let compilerNote = 'compiler/ not evaluated';
 
 // ── Invariant 1: VS Code types must not outrun the declared engine ──────────
 {
@@ -433,6 +482,51 @@ if (!PRE_BUILD) {
   }
 }
 
+// ── Invariant 3b: no compiler/ module reaches a shipped bundle ──────────────
+//
+// Same needle, same artefacts, a different tenant. `compiler/` is a native
+// toolchain workspace that sits at the repo root, OUTSIDE the three workspace
+// globs, so `npm ci` and `npm run build` never walk it and nothing in the four
+// shipped channels has a reason to reference it. That is a property of the
+// current layout, not a law: one relative import from an extension entry point
+// is all it takes, and because the directory is outside the workspaces the
+// manifest-level check (invariant 7 below) would not see a bare relative path.
+// This asks the artefact instead.
+//
+// Deliberately NOT re-reporting a missing/empty/marker-less bundle dir:
+// invariant 3 above already failed the run for that, and two failures for one
+// cause reads as two problems. The consequence is that this loop can go quiet
+// when the run is ALREADY red — never when it is green.
+if (!PRE_BUILD) {
+  // `// ../../compiler/driver/x.js` — the same per-module comment convention
+  // invariant 3 relies on, anchored so a mention inside a string does not count.
+  const COMPILER_MODULE_COMMENT = /^\/\/ (?:\.\.\/)*compiler\//m;
+  const WORKSPACE_MODULE_COMMENT = /^\/\/ (?:\.\.\/)*packages\/[\w-]+\//m;
+
+  for (const dirRel of SHIPPED_BUNDLE_DIRS) {
+    const dirAbs = join(REPO_ROOT, dirRel);
+    if (!existsSync(dirAbs)) continue;
+    const jsFiles = walkFiles(dirAbs).filter((f) => f.endsWith('.js'));
+    if (jsFiles.length === 0) continue;
+
+    const texts = jsFiles.map((f) => [f, readFileSync(f, 'utf8')]);
+    if (!texts.some(([, t]) => WORKSPACE_MODULE_COMMENT.test(t))) continue; // gate: see above
+
+    for (const [file, text] of texts) {
+      if (!COMPILER_MODULE_COMMENT.test(text)) continue;
+      failures.push(
+        `${rel(file)} contains a module from compiler/: it was bundled into a shipped\n` +
+          `  extension artefact.\n` +
+          `  compiler/ is a native toolchain workspace with clang/LLVM expectations. Nothing\n` +
+          `  in the browser or editor channels may depend on it — a user who installs the\n` +
+          `  extension has not agreed to install a compiler. If the extension needs a result\n` +
+          `  the toolchain produces, it reads the produced JSON; it does not import the\n` +
+          `  producer.`,
+      );
+    }
+  }
+}
+
 // ── Invariant 4: nothing on the light side declares the package ─────────────
 //
 // Two halves, because there are two ways to acquire a dependency: state it in a
@@ -487,39 +581,6 @@ if (!PRE_BUILD) {
   ];
 
   const CODE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
-
-  /**
-   * Module specifiers mentioned by a line of source.
-   *
-   * A regex rather than a parser, and a line-oriented one, because this script
-   * must run with zero dependencies before anything is built — it cannot import
-   * `blankCommentsAndStrings` from `@vibeguard/rules` (that would require the
-   * package to be compiled first, so the probe would stop working in exactly
-   * the broken-checkout situation where you most want it).
-   *
-   * Comment lines are dropped by shape (`//`, `/*`, or a continuation `*`)
-   * rather than by real lexing. That is enough here: prose ABOUT the package is
-   * legitimate and common — `design-smells-single.ts` says "is 0.3.0's
-   * analysis-graph" in a header comment — while prose that also happens to
-   * contain `from '@vibeguard/analysis-graph'` in quotes is not something the
-   * repo contains and, if it ever did, flagging it is the safe direction to be
-   * wrong in. The cost of a false negative here (a real leak, caught only at
-   * release) is much higher than the cost of rewording a comment.
-   *
-   * Multi-line import forms are covered because the specifier always sits on
-   * the line carrying `from`, which is the line this matches.
-   */
-  function importSpecifiersOnLine(line) {
-    const trimmed = line.trimStart();
-    if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) {
-      return [];
-    }
-    const specs = [];
-    const re = /(?:\bfrom|\bimport|\brequire)\s*\(?\s*['"]([^'"\n]+)['"]/g;
-    let m;
-    while ((m = re.exec(line)) !== null) specs.push(m[1]);
-    return specs;
-  }
 
   for (const dirRel of FORBIDDEN_SRC_DIRS) {
     const dirAbs = join(REPO_ROOT, dirRel);
@@ -741,6 +802,440 @@ if (!PRE_BUILD) {
   }
 }
 
+// ── Invariant 7: compiler/ is additive, self-contained and silent ───────────
+//
+// A native toolchain workspace at the repo root. Three things make it different
+// from every other directory here, and each one is a way to break the four
+// shipped channels without touching them:
+//
+//   1. It is OUTSIDE the workspace globs (`packages/*`, `apps/*`, `extensions/*`),
+//      so `npm ci` and `npm run build` do not walk it. That is what keeps a
+//      clang/LLVM dependency out of the release path — and it holds only as long
+//      as nobody adds `compiler` to the globs, which is a one-word edit.
+//   2. It compiles. Object files, shared libraries and linked binaries are large,
+//      machine-specific, and permanent once pushed: history is not rewritten here,
+//      because a force-push breaks every consumer of the four channels.
+//   3. It is the first place in this repo where C and C++ live. The scanners,
+//      censuses and gates that walk the whole tree meet those files for the first
+//      time when this directory appears.
+//
+// Everything below is source-only, so it runs in the `--pre-build` subset and
+// costs a CI step nothing. Written BEFORE the directory exists on purpose: a
+// boundary guard added after the boundary is crossed has already missed the
+// crossing it was for. Until then the first three checks still bind (they are
+// about the light side, which exists today) and the rest report as inapplicable.
+{
+  const COMPILER = 'compiler';
+
+  // ---- 7a. The workspace globs must not swallow it ------------------------
+  const rootPkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'));
+  const globs = Array.isArray(rootPkg.workspaces)
+    ? rootPkg.workspaces
+    : (rootPkg.workspaces?.packages ?? []);
+  for (const glob of globs) {
+    if (/(^|\/)compiler(\/|$|\*)/.test(glob)) {
+      failures.push(
+        `package.json workspaces contains '${glob}', which pulls compiler/ into the npm\n` +
+          `  workspace graph.\n` +
+          `  Then \`npm ci\` installs it, \`npm run build\` builds it, and every CI job for the\n` +
+          `  four shipped channels acquires a clang/LLVM prerequisite it has no way to satisfy.\n` +
+          `  compiler/ is built by its own toolchain, out of band. Remove the glob.`,
+      );
+    }
+  }
+
+  // ---- 7b. No manifest may declare a dependency that resolves into it -----
+  //
+  // The npm-visible half of "purely additive". A `file:`/`link:` dependency is
+  // how a directory outside the workspaces gets pulled back inside one.
+  const manifestDirs = [];
+  for (const group of ['packages', 'apps', 'extensions']) {
+    const groupAbs = join(REPO_ROOT, group);
+    if (!existsSync(groupAbs)) {
+      failures.push(
+        `${group}/ is missing, so this invariant cannot enumerate the workspaces it must\n` +
+          `  check. Fix the layout or update this list — do not let the boundary check\n` +
+          `  quietly stop covering a whole group.`,
+      );
+      continue;
+    }
+    for (const entry of readdirSync(groupAbs, { withFileTypes: true })) {
+      if (entry.isDirectory()) manifestDirs.push(`${group}/${entry.name}`);
+    }
+  }
+
+  for (const dirRel of manifestDirs) {
+    const manifestAbs = join(REPO_ROOT, dirRel, 'package.json');
+    if (!existsSync(manifestAbs)) continue; // not every subdirectory is a workspace
+    const pkg = JSON.parse(readFileSync(manifestAbs, 'utf8'));
+    for (const field of ['dependencies', 'devDependencies', 'peerDependencies']) {
+      for (const [name, spec] of Object.entries(pkg[field] ?? {})) {
+        // Match the LOCATION, not the word. `@angular/compiler`,
+        // `vue-template-compiler` and `@vue/compiler-sfc` are ordinary registry
+        // packages whose names contain the word, and a check that reddens on
+        // them is a check that gets an exclusion list, then a wildcard, then
+        // deleted. What is forbidden is a dependency resolved from the local
+        // directory: a filesystem protocol, or a path with `compiler` as a
+        // segment.
+        const value = String(spec);
+        const isLocalPath =
+          /^(file|link|portal):/.test(value) || value.startsWith('.') || value.startsWith('/');
+        const pointsAtCompiler = /(^|[:/\\])compiler([/\\]|$)/.test(value);
+        const isOurScope = /^@vibeguard\//.test(name) && /compiler/i.test(name);
+        if (!((isLocalPath && pointsAtCompiler) || isOurScope)) continue;
+        failures.push(
+          `${dirRel}/package.json: ${field} declares '${name}': '${spec}', which reaches into\n` +
+            `  compiler/.\n` +
+            `  Nothing that ships may depend on the toolchain workspace. The evidence it\n` +
+            `  produces is JSON on disk; consume that, not the producer.`,
+        );
+      }
+    }
+  }
+
+  // ---- 7c. No import specifier on the light side may resolve into it ------
+  //
+  // Enumerated from the filesystem rather than hard-coded, unlike invariant 4.
+  // The lists there name the packages that must NOT have a specific dependency,
+  // so a package missing from the list is a coverage hole worth failing over.
+  // Here the rule is universal — NO workspace may import compiler/ — so
+  // enumeration is the safer direction: a package added next month is covered
+  // the day it appears, with nobody remembering to add it. The floor below is
+  // what keeps that from degrading into a vacuous pass.
+  // Enumerated from the filesystem rather than hard-coded, unlike invariant 4.
+  // The lists there name the packages that must NOT have a specific dependency,
+  // so a package missing from the list is a coverage hole worth failing over.
+  // Here the rule is universal — NO workspace may reach into compiler/ — so
+  // enumeration is the safer direction: a package added next month is covered
+  // the day it appears, with nobody remembering to add it. The floors below are
+  // what keep that from degrading into a vacuous pass.
+  //
+  // ★ WHOLE WORKSPACE, NOT JUST src/. The first version of this check scanned
+  // `<workspace>/src` and nothing else, which left the build scripts out —
+  // `extensions/chrome/{build,copy-static,gen-icons}.mjs` all sit at the
+  // workspace root, and `copy-static.mjs` contains a general `copyTree(src,dst)`
+  // that already copies whole directories into `dist`. A build script that
+  // copied a compiler artefact into the shipped bundle would have satisfied
+  // every invariant in this file.
+  //
+  // ★ AND NOT ONLY IMPORTS. `importSpecifiersOnLine` sees `from`/`import`/
+  // `require` and nothing else, so the natural way for an editor extension to
+  // use a compiler driver — spawning it —
+  //
+  //     execFileSync(join(__dirname, '../../compiler/build/driver'), ['--json'])
+  //
+  // produced no specifier, no module-path comment in the bundle, and no
+  // finding. Measured: the specifier extractor returns `[]` for that line. The
+  // path in a spawn is a STRING, so the second needle below is a string one.
+  // There is no `child_process` use in either extension's source today, which
+  // is what makes it safe to forbid the shape now rather than after the first
+  // one appears.
+  const WORKSPACE_DIR_FLOOR = 11; // measured 2026-08-06: 8 packages + 1 app + 2 extensions
+  // Measured 2026-08-06: 172 files. The floor sits below that so ordinary
+  // deletions do not trip it, and far enough above zero that a skip rule which
+  // swallowed a whole workspace would.
+  const SCANNED_FILE_FLOOR = 150;
+  const CODE_EXT = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
+  const SKIP_SEGMENTS = new Set(['node_modules', 'dist', 'out', 'build', 'coverage', '.turbo']);
+  const workspaceDirs = manifestDirs
+    .map((d) => join(REPO_ROOT, d))
+    .filter((abs) => existsSync(abs));
+
+  if (workspaceDirs.length < WORKSPACE_DIR_FLOOR) {
+    failures.push(
+      `only ${workspaceDirs.length} workspace directories were found, below the measured\n` +
+        `  floor of ${WORKSPACE_DIR_FLOOR}. Either the layout changed — in which case update the floor in\n` +
+        `  the same commit — or this check is now scanning less than it claims to.`,
+    );
+  }
+
+  // A quoted path that reaches into compiler/. Anchored on the quote so that
+  // prose in a string ("see compiler/README.md") is the only false positive
+  // shape, and requiring the separator so the English word alone never matches.
+  const COMPILER_PATH_LITERAL = /['"`]([^'"`\n]*(?:^|\/)compiler\/[^'"`\n]*)['"`]/;
+  let lightSideFilesScanned = 0;
+
+  for (const dirAbs of workspaceDirs) {
+    for (const file of walkFiles(dirAbs)) {
+      if (!CODE_EXT.some((ext) => file.endsWith(ext))) continue;
+      const relPath = rel(file);
+      if (relPath.split('/').some((seg) => SKIP_SEGMENTS.has(seg))) continue;
+      lightSideFilesScanned++;
+      const lines = readFileSync(file, 'utf8').split(/\r\n|\r|\n/);
+      for (let i = 0; i < lines.length; i++) {
+        const trimmed = lines[i].trimStart();
+        const isComment =
+          trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*');
+        const literal = isComment ? null : COMPILER_PATH_LITERAL.exec(lines[i]);
+        if (literal && importSpecifiersOnLine(lines[i]).length === 0) {
+          failures.push(
+            `${rel(file)}:${i + 1} contains the path literal '${literal[1]}'.\n` +
+              `  Reaching compiler/ by spawning it, or by copying out of it in a build script,\n` +
+              `  breaks the same promise an import does — that every shipped channel behaves\n` +
+              `  identically on a machine where compiler/ was never built — while being\n` +
+              `  invisible to the import and bundle checks.\n` +
+              `  If this is documentation rather than a path, put it in a comment.`,
+          );
+        }
+        for (const spec of importSpecifiersOnLine(lines[i])) {
+          // `(\/|$)` and not just `\/`: `import '../../compiler'` resolves to
+          // the directory's index and is exactly as forbidden as a deep import,
+          // but a trailing-slash-only pattern walks straight past it.
+          if (!/(^|\/)compiler(\/|$)/.test(spec)) continue;
+          failures.push(
+            `${rel(file)}:${i + 1} imports '${spec}', which resolves into compiler/.\n` +
+              `  The toolchain workspace is additive: every shipped channel must behave\n` +
+              `  identically on a machine where compiler/ was never built. An import here is\n` +
+              `  that promise broken, and it is also what makes the directory impossible to\n` +
+              `  split out later.`,
+          );
+        }
+      }
+    }
+  }
+
+  if (lightSideFilesScanned < SCANNED_FILE_FLOOR) {
+    failures.push(
+      `the light-side boundary scan read only ${lightSideFilesScanned} file(s), below the measured\n` +
+        `  floor of ${SCANNED_FILE_FLOOR}. A skip rule or an extension list has narrowed what this covers;\n` +
+        `  the count is here so that narrowing is an event rather than a silent pass.`,
+    );
+  }
+
+  // ---- 7d/7e. Everything that only applies once the directory exists ------
+  //
+  // "Exists" means "would reach a commit", which is neither "is on disk" (a local
+  // build tree is on disk and is ignored) nor "is committed" (files being written
+  // right now are not yet). `--cached --others --exclude-standard` is exactly the
+  // set `git add .` would stage, so this asks the question the push will ask.
+  let listed = null;
+  try {
+    // `-z`: NUL-separated, and — the reason it is not optional — NUL output is
+    // not path-quoted. Git's default `core.quotepath=true` renders a non-ASCII
+    // path as `"compiler/\346\227\245.c"`, complete with surrounding quotes and
+    // octal escapes. Every extension test below would then miss, and the file
+    // would be reported as one this probe cannot read. One Japanese filename in
+    // the directory was enough to turn the whole gate into a puzzle.
+    listed = execFileSync(
+      'git',
+      ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', COMPILER],
+      { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 32 * 1024 * 1024 },
+    )
+      .split('\0')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  } catch {
+    listed = null;
+  }
+
+  if (listed === null) {
+    // Not a skip. This branch means the probe could not determine what would be
+    // committed, and reporting "boundary clean" on the strength of a failed
+    // subprocess is the vacuum this file keeps refusing elsewhere.
+    failures.push(
+      'could not list compiler/ via git, so the publication-hygiene half of this invariant\n' +
+        '  did not run. It needs a git checkout (CI has one). If you are running from an\n' +
+        '  extracted tarball, that is the reason — and it is reported rather than skipped so\n' +
+        '  the difference between "checked" and "could not check" stays visible.',
+    );
+  } else if (listed.length === 0) {
+    compilerNote = 'compiler/ absent — its publication-hygiene checks were inapplicable';
+  } else if (existsSync(join(REPO_ROOT, COMPILER)) === false) {
+    failures.push(
+      `git lists ${listed.length} path(s) under compiler/ but the directory is not on disk.\n` +
+        `  Something is half-removed; resolve it before pushing.`,
+    );
+  } else {
+    compilerNote = `compiler/ present — ${listed.length} committable path(s) checked`;
+
+    // Build products must not be committable. The .gitignore rules cover them;
+    // this is what notices when those rules are edited away, which is the only
+    // way an .o gets in now.
+    const ARTEFACT_EXT = ['.o', '.obj', '.so', '.a', '.dylib', '.elf', '.bc'];
+    // `.dSYM` is a DIRECTORY, so no committable path ever ends with it — the
+    // committable things are the files inside. Matched as a path segment for
+    // that reason; the same is true of any other bundle-shaped artefact.
+    const ARTEFACT_DIR_SEGMENT = /(^|\/)[^/]+\.dSYM\//;
+    for (const path of listed) {
+      if (ARTEFACT_EXT.some((ext) => path.endsWith(ext)) || ARTEFACT_DIR_SEGMENT.test(path)) {
+        failures.push(
+          `${path} is a build product and is committable.\n` +
+            `  Native artefacts are machine-specific, large, and permanent: history here is\n` +
+            `  not rewritten, because a force-push breaks every installed consumer of the four\n` +
+            `  channels. Restore the ignore rule rather than deleting the file after the fact.`,
+        );
+        continue;
+      }
+      const abs = join(REPO_ROOT, path);
+      let head;
+      try {
+        head = readFileSync(abs).subarray(0, 4);
+      } catch {
+        continue;
+      }
+      if (head.length === 4 && head[0] === 0x7f && head[1] === 0x45 && head[2] === 0x4c && head[3] === 0x46) {
+        failures.push(
+          `${path} has an ELF header and is committable — a linked binary under an\n` +
+            `  extension that the ignore rules do not recognise. Same reasoning as above.`,
+        );
+      }
+    }
+
+    // Measurement inputs and outputs stay on the side where they are produced.
+    // They embed machine-specific paths and per-machine toolchain digests, and
+    // moving them here is how those reach a public commit.
+    for (const path of listed) {
+      if (/(^|\/)(fixtures|_results)(\/|$)/.test(path)) {
+        failures.push(
+          `${path} puts measurement ${/fixtures/.test(path) ? 'inputs' : 'outputs'} under compiler/.\n` +
+            `  Those live on the side that produces them, not in the published tree — they\n` +
+            `  carry absolute paths and per-machine toolchain digests.`,
+        );
+      }
+    }
+
+    // Licensing. The directory links against headers under Apache-2.0 WITH
+    // LLVM-exception; the rest of the repo is MIT. Both facts have to be
+    // findable from the tree, and the moment that matters is the first commit —
+    // not the first release, because the tree is public from the first push.
+    for (const [file, why] of [
+      [`${COMPILER}/LICENSE`, 'compiler/ carries different licence terms from the MIT root'],
+      ['NOTICE', 'the root NOTICE is where the per-directory terms are stated'],
+    ]) {
+      if (!existsSync(join(REPO_ROOT, file))) {
+        failures.push(`${file} is missing, but compiler/ is committable — ${why}.`);
+      }
+    }
+
+    // Zero egress, asked of the toolchain in the crudest possible way. The
+    // runtime assertion for the shipped channels lives in its own workflow and
+    // runs the packaged bytes in a network namespace; nothing equivalent exists
+    // for a native build, so this is a source-level tripwire rather than proof.
+    // It is worth having anyway: the first person to add a socket here will be
+    // told at the pre-build step instead of at review time, or never.
+    const NETWORK_INCLUDES = [
+      'sys/socket.h', 'netinet/in.h', 'netdb.h', 'arpa/inet.h', 'curl/curl.h', 'winsock2.h',
+    ];
+    // Both spellings. `node:` is the modern form and the one this repo uses, but
+    // the bare specifier still resolves to the same builtin, so listing only the
+    // prefixed form would leave a hole the width of one missing prefix.
+    const NETWORK_MODULES = new Set();
+    for (const m of ['http', 'https', 'net', 'dgram', 'tls', 'dns', 'http2']) {
+      NETWORK_MODULES.add(m).add(`node:${m}`);
+    }
+    // The build description fetches too, and it is the likeliest place for a
+    // network dependency to arrive innocently — `FetchContent` and
+    // `ExternalProject_Add` exist to download things, and both read as ordinary
+    // CMake. Treating the build files as inert while the comment above names
+    // `file(DOWNLOAD ...)` as the thing to catch would be the check disagreeing
+    // with its own reason for existing.
+    const NETWORK_BUILD = [
+      /\bfile\s*\(\s*DOWNLOAD\b/i,
+      /\bFetchContent_(Declare|MakeAvailable|Populate)\b/i,
+      /\bExternalProject_Add\b/i,
+      /\b(curl|wget|git\s+clone)\b/i,
+      /\bhttps?:\/\//i,
+    ];
+    const NATIVE_EXT = ['.c', '.cc', '.cpp', '.cxx', '.h', '.hpp'];
+    const isBuildFile = (p) => p.endsWith('.cmake') || p.split('/').pop() === 'CMakeLists.txt';
+    let sourcesScanned = 0;
+    for (const path of listed) {
+      const isNative = NATIVE_EXT.some((ext) => path.endsWith(ext));
+      const isScript = CODE_EXT.some((ext) => path.endsWith(ext));
+      const isBuild = isBuildFile(path);
+      if (isBuild) {
+        let text;
+        try {
+          text = readFileSync(join(REPO_ROOT, path), 'utf8');
+        } catch {
+          continue;
+        }
+        sourcesScanned++;
+        const lines = text.split(/\r\n|\r|\n/);
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].replace(/#.*$/, ''); // CMake comments
+          const hit = NETWORK_BUILD.find((re) => re.test(line));
+          if (hit) {
+            failures.push(
+              `${path}:${i + 1} fetches from the network in the build description:\n` +
+                `    ${lines[i].trim().slice(0, 100)}\n` +
+                `  A build that downloads is a build whose output depends on what a server\n` +
+                `  returned that day — the opposite of the pinned, reproducible toolchain this\n` +
+                `  directory is built around. Vendor it, or install it through the pinned\n` +
+                `  package set.`,
+            );
+          }
+        }
+        continue;
+      }
+      if (!isNative && !isScript) continue;
+      let text;
+      try {
+        text = readFileSync(join(REPO_ROOT, path), 'utf8');
+      } catch {
+        continue;
+      }
+      sourcesScanned++;
+      const lines = text.split(/\r\n|\r|\n/);
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (isNative) {
+          const hit = NETWORK_INCLUDES.find((h) =>
+            // Every metacharacter escaped, not just the slash: an unescaped `.`
+            // in `socket.h` matches any character, which widens the needle in a
+            // direction nobody chose.
+            new RegExp(`#\\s*include\\s*[<"]${h.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}[>"]`).test(line),
+          );
+          if (hit) {
+            failures.push(
+              `${path}:${i + 1} includes <${hit}>.\n` +
+                `  The toolchain reads and writes local files and nothing else. If a genuine\n` +
+                `  reason to speak to a network appears, it is a design decision to be made in\n` +
+                `  the open — not a header that arrived with a refactor.`,
+            );
+          }
+        } else {
+          for (const spec of importSpecifiersOnLine(line)) {
+            if (NETWORK_MODULES.has(spec)) {
+              failures.push(
+                `${path}:${i + 1} imports '${spec}'.\n` +
+                  `  Same reason as the native side: the toolchain has no network business.`,
+              );
+            }
+          }
+        }
+      }
+    }
+
+    // "Nothing to scan" is a legitimate state for a directory holding only a
+    // licence and a README, so the vacuity guard is not `sourcesScanned === 0`.
+    // The failure worth catching is narrower and much more likely: a source file
+    // written in something this list does not name — say a .S, or a .cmake with
+    // a `file(DOWNLOAD ...)` in it — which the tripwire then walks straight past
+    // while the summary still says the boundary is clean.
+    const INERT_EXT = ['.md', '.txt', '.json', '.yml', '.yaml', '.toml', '.gitignore'];
+    const INERT_NAMES = ['LICENSE', 'NOTICE', 'README', '.gitignore'];
+    const unreadable = listed.filter((path) => {
+      const name = path.split('/').pop();
+      if (INERT_NAMES.includes(name)) return false;
+      if (INERT_EXT.some((ext) => path.endsWith(ext))) return false;
+      if (isBuildFile(path)) return false;
+      return !NATIVE_EXT.some((e) => path.endsWith(e)) && !CODE_EXT.some((e) => path.endsWith(e));
+    });
+    if (unreadable.length) {
+      failures.push(
+        `compiler/ contains ${unreadable.length} committable file(s) this invariant does not\n` +
+          `  know how to read, so the egress tripwire walked past them: ${unreadable.slice(0, 5).join(', ')}\n` +
+          `  Add the extension to NATIVE_EXT/CODE_EXT (or to the inert list, with a reason) in\n` +
+          `  the same commit. A scan that silently covers less than it claims to is the\n` +
+          `  failure mode this whole file is written against.`,
+      );
+    }
+    compilerNote =
+      `compiler/ present — ${listed.length} committable path(s), ${sourcesScanned} source file(s) scanned`;
+  }
+}
+
 // ── INVARIANT: the blanket-suppression surface does not grow unnoticed ──────
 //
 // `vibeguard:disable-file` turns a rule off for a whole file. Every current use
@@ -889,10 +1384,12 @@ if (failures.length) {
 console.log(
   PRE_BUILD
     ? 'packaging invariants OK, SOURCE-ONLY subset (vscode engine/types, CLI stays ' +
-      'unpublished, analysis-graph absent from declarations / imports, action.yml build order). ' +
+      'unpublished, analysis-graph absent from declarations / imports, compiler/ boundary, ' +
+      'action.yml build order). ' +
       'The bundle-leak and bundle-size invariants did NOT run — rerun without ' +
       '--pre-build after `npm run build` to check the shipped artefacts.'
     : 'packaging invariants OK (vscode engine/types, CLI stays unpublished, ' +
-      'analysis-graph absent from shipped bundles / declarations / imports, bundle sizes in band, ' +
-      'action.yml builds every CLI dependency)',
+      'analysis-graph and compiler/ absent from shipped bundles / declarations / imports, ' +
+      'bundle sizes in band, action.yml builds every CLI dependency)',
 );
+console.log(`  ${compilerNote}`);

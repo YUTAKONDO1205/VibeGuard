@@ -1,0 +1,18 @@
+# Line endings for the native sources under compiler/.
+#
+# WHY THIS FILE IS SCOPED TO ONE DIRECTORY.
+#
+# The tree is checked out on Windows with core.autocrlf=true, and the same tree
+# is built and measured from WSL over /mnt/c. That combination has already cost
+# a real bug once: reading the working copy from the Linux side made every text
+# file look modified, so a "is the tree dirty?" flag saturated to true and
+# carried no information.
+#
+# The fix for compiler/ is to take the ambiguity away for the files that get
+# compiled and hashed: they are LF on disk everywhere, so a digest taken on one
+# side matches a digest taken on the other.
+#
+# It is deliberately NOT `* text=auto`. A repository-wide rule would renormalise
+# every tracked file on the next checkout, which moves the bytes of the shipped
+# bundles — the one thing the release-time invariants exist to keep still.
+compiler/** text eol=lf

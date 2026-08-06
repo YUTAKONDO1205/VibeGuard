@@ -40,7 +40,7 @@
 // none of them, so that 0.2.0 names ONE settled engine rather than a sequence of
 // partial states. The accepted consequence was that 0.1.0 did NOT satisfy the
 // "same engine ⇒ identical verdicts" contract for the duration; the
-// `paper-ses-v0.1.3` tag remains the sound baseline for a comparison against the
+// `v0.1.3` tag remains the sound baseline for a comparison against the
 // pre-hold engine. That debt is discharged at 0.2.0, and no hold is in effect
 // now. This test's job is to make sure the next release is also on purpose.
 //

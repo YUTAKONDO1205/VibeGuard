@@ -55,7 +55,7 @@ import {
  * engine rather than several successive ones. During the hold `engineVersions.core`
  * knowingly understated the engine and did NOT satisfy the "same engine ⇒
  * identical verdicts" contract in README.md; that debt is discharged here, and
- * `paper-ses-v0.1.3` remains the tag to compare against for the pre-hold engine.
+ * `v0.1.3` remains the tag to compare against for the pre-hold engine.
  *
  * What 0.2.0 names, i.e. every change to detection behavior made under the hold:
  *
@@ -90,7 +90,7 @@ import {
  * VG-MEM / VG-EMB / VG-RTOS. This is a detection-behavior change (new rules, new
  * languages, a new normalization face), so the engine moves even though it is
  * purely ADDITIVE: web-language verdicts are untouched (E2=51 / E3=0 hold), and
- * the released `v0.2.0` / `paper-css-v0.2.0` tags remain the immutable baseline
+ * the released `v0.2.0` tag remains the immutable baseline
  * for the pre-embedded engine. Nothing else about detection changed.
  *
  * 0.3.0 (2026-07-28) names the single-file design-smell and AI-supply-chain

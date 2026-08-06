@@ -800,8 +800,8 @@ it matches or at what severity.
 - **`ENGINE_VERSION` moves to `0.3.0`.** The new single-file rules, per-match
   severity and the declared-package veto are detection-behaviour changes, so the
   engine axis moves with them. It is additive — the rules that existed at engine
-  `0.2.1` are untouched — so `v0.2.0` / `paper-css-v0.2.0` remain sound baselines
-  for the rules they already had. The cross-file pass does **not** move this
+  `0.2.1` are untouched — so `v0.2.0` remains a sound baseline
+  for the rules it already had. The cross-file pass does **not** move this
   number; it reports `engineVersions["analysis-graph"]` instead, deliberately
   still labelled `-alpha.1` because it is an α skeleton.
 - **`VG-SMELL-010` condition ③ narrowed.** `MUTATING_METHOD` no longer contains
@@ -914,7 +914,7 @@ Purely additive: no web-language verdict changes (E2=51 / E3=0 hold), so
   instead of looking clean); `confidenceAudit` on findings (values unchanged,
   schema changed); the suppression severity gate below; `match-limit` reporting;
   and the suppression tally. To compare against the engine from before this work,
-  use the `paper-ses-v0.1.3` tag — the version field cannot distinguish states
+  use the `v0.1.3` tag — the version field cannot distinguish states
   inside the hold. The tool version is unaffected and still moves per release.
 
 ### Changed (breaking)
@@ -981,7 +981,7 @@ Purely additive: no web-language verdict changes (E2=51 / E3=0 hold), so
   `docs/EVALUATION.md`) is to hold the field until the engine is frozen and then
   bump once, so that a single version number denotes one settled engine rather
   than a sequence of partial states. Until then the field cannot be used to tell
-  these engines apart; the `paper-ses-v0.1.3` tag is the sound baseline for any
+  these engines apart; the `v0.1.3` tag is the sound baseline for any
   before/after comparison. Recording it here so the hold is a decision on the
   record and not an omission.
 
