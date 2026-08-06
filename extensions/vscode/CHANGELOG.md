@@ -5,6 +5,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-08-06
+
+No change to this extension's own code. The analyzer engine moves `0.3.1` → `0.3.2`, so a
+**C or C++ file may report two findings it did not report before**: `VG-MEM-006` (a secret
+buffer cleared with a `memset` the compiler is allowed to delete) and `VG-AUTH-008`
+(authorization decided by an `assert`, which `NDEBUG` removes). Files in every other
+language are unaffected — a file that was clean on save before is clean on save now.
+
+Both rules are medium/high severity with medium confidence, so on the editor's default
+`fast` mode they surface the same way any other C/C++ finding does.
+
 ## [0.3.4] - 2026-08-04
 
 No change to this extension's own code, and none to what it reports on save. Analyzer engine is

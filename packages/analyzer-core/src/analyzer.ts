@@ -166,7 +166,7 @@ import {
  * uploaded SARIF report. `declaredPackageVetoes` records what the lockfile veto
  * removed, on the response instead of only on stderr.
  */
-export const ENGINE_VERSION = '0.3.1';
+export const ENGINE_VERSION = '0.3.2';
 
 let counter = 0;
 function findingId(): string {

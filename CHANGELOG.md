@@ -12,6 +12,51 @@ each extension (see `extensions/vscode/CHANGELOG.md`).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.3.5] - 2026-08-06
+
+**Two C/C++ rules for defences that a compiler is allowed to delete.** `ENGINE_VERSION`
+`0.3.1` → `0.3.2`: this release changes what a scan of C or C++ reports. Every other
+language is untouched, and so is the opt-in cross-file pass
+(`engineVersions['analysis-graph']` stays at `0.3.0-beta.3`).
+
+> **Why these two rules exist.** Both name a pattern where the source reads as a defence
+> and the shipped binary does not contain one. `memset` over a secret buffer is a dead
+> store the moment the buffer goes out of scope, and dead-store elimination is entitled to
+> remove it; an `assert` is compiled out entirely under `NDEBUG`, which is how release
+> builds are built. Neither is a compiler defect — both are the standard being applied
+> correctly — and neither is visible to a reader of the source alone. That is precisely the
+> gap a source-level scanner should be closing, and until this release VibeGuard did not.
+
+### Added
+
+- **`VG-MEM-006` Secret buffer cleared with a removable `memset`** (`c`, `cpp`; severity
+  **medium**, confidence medium; CWE-14, CWE-226). Fires on `memset(buf, 0, ...)` where
+  `buf` is a local whose name reads as a secret. The identifier test matches on **words,
+  not substrings**: `session_key`, `sessionKey` and `ctx->authToken` are matched;
+  `monkey` and `keyboard_state` are not. Remediation names `explicit_bzero`, `memset_s`
+  and `SecureZeroMemory`.
+- **`VG-AUTH-008` Authorization decided by `assert()`** (`c`, `cpp`; severity **high**,
+  confidence medium; CWE-285, CWE-489). Fires when the argument of an `assert` is an
+  authorization predicate (`is_admin`, `is_authorized`, `has_permission`, `role ==`).
+  `static_assert` is excluded — it is a compile-time check and cannot be the runtime
+  gate this rule is about.
+
+**Both are scoped to `c` and `cpp` deliberately, and are not extended to Python.** The
+same shape in Python (`assert user.is_admin`) is common enough in test and setup code that
+the rule would produce false positives faster than findings; extending it needs its own
+baseline work rather than a language list edit.
+
+### Changed
+
+- **Rule catalogue: 72 → 74 single-file rules.** No existing rule changed what it matches
+  or at what severity. Verified against the pinned corpora: `samples/vulnerable` 51,
+  `samples/safe` 0, `samples/embedded` 26, confidence distribution
+  {high 6, medium 27, low 18} — all unchanged, because neither new rule fires anywhere in
+  them. The one C-family `memset` in the fixtures
+  (`samples/crossfile-fixtures/embedded-real-api/main.c`) stays silent, as designed: `buf`
+  is not a secret-shaped identifier, and it is the in-repo negative control for the
+  heuristic being too loose.
+
 ## [0.3.4] - 2026-08-04
 
 Remediation-side hardening, **plus the first release of the cross-file analysis beta.**
