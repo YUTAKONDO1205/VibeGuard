@@ -1,4 +1,4 @@
-// H2 — the self-hardening CI gate (実装設計手順書 §5.5・§9.4, 実装順.md 山③ #25).
+// H2 — the self-hardening CI gate.
 //
 // Ordinary SAST regression-tests OTHER people's code. This script regression-
 // tests VibeGuard's OWN attack surface on every build: the ReDoS surface of its
@@ -1712,7 +1712,7 @@ async function main(argv) {
   const record = {
     generatedBy: 'sec-selftest.mjs',
     purpose:
-      'H2 self-hardening CI (実装設計手順書 §5.5・§9.4). The GATE authority is the tracked ' +
+      'H2 self-hardening CI. The GATE authority is the tracked ' +
       'scripts/sec-selftest-baseline.json; this file is a local report and is never read back as an expectation.',
     baseline: slash(args.baselinePath),
     baselineRecordedAt: baseline.recordedAt ?? null,

@@ -21,7 +21,7 @@
 //
 // ★ WHY THIS IS A CROSS-FILE RULE, THOUGH THE SPEC SAYS 「単一/cross-file」
 //
-// `docs/VibeGuard_実装設計手順書.md` §5.4 lists 013 as 単一/cross-file. It is
+// The design notes list 013 as both single-file and cross-file. It is
 // implemented HERE, in the cross-file package, and the sentence is read as
 // "detected with single-file vocabulary, adjudicated on cross-file evidence".
 // Three reasons, all of them already settled elsewhere in this repository rather

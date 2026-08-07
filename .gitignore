@@ -46,53 +46,36 @@ vibeguard-chrome-*.zip
 vibeguard-aicoding-*.vsix
 vibeguard-cli-*.tgz
 
-# Paper / research experiment data (local-only; outputs are regenerable,
-# contain machine-specific paths and a stray nested git repo)
-paper_data/
-docs/EVALUATION.md
-docs/reports/*.md
-
-# Design / paper drafts exported as Office / PDF (local-only, e.g. 追加設計書案)
+# Local-only working documents and workspaces.
+#
+# These entries keep drafts, planning notes, measurement dumps and scratch
+# working directories on the machine they were written on. They are not part of
+# the product and are not intended to be published.
+#
+# TWO RULES ABOUT THIS BLOCK.
+#
+# It does not describe what any of them contain. An ignore rule is a public
+# file, so an annotation explaining why something is withheld tells a reader it
+# is worth having — the opposite of the point.
+#
+# It names as little as possible. Everything loose under docs/ is matched by
+# extension rather than by filename, which was already true before any of the
+# filenames were listed: `docs/*.md` has been here since the drafts block, so
+# every individual .md line under it was matched twice and disclosed a title
+# once. Published documentation lives in a subdirectory (docs/runbooks/), which
+# these patterns do not reach. Directories still have to be named — a directory
+# is not an extension — so the remaining names are the ones the mechanism
+# requires, not the ones convenience left behind.
 docs/*.docx
 docs/*.pdf
 docs/*.md
 docs/*.txt
-
-# Research roadmap report + its template (local-only planning docs)
-docs/20260401_report_template.html
-docs/20260709_vibeguard_research_roadmap.html
-
-# Weekly ゼミ報告 (seminar) progress reports — local-only planning docs,
-# same reason as the roadmap (touch 0.2.0+ attack-surface scope)
+docs/*.html
+docs/*.mjs
+docs/reports/*.md
 docs/weekly/
-
-# Integrated implementation handbook + its per-venue breakdown (combine
-# security-experiment attack premises — local-only until mitigations ship,
-# same reason as security-experiment/)
-docs/VibeGuard_実装設計手順書.md
-docs/VibeGuard_学会別テーマ分解.md
-docs/VibeGuard_進捗ダッシュボード.html
-docs/vibeguard-dashboard-sync.mjs
-docs/実装順.md
-# 実装順.md の姉妹編（実装済みコードの解説）。回避手法・攻撃前提を同じく含むため
-# 同じ扱いにする。公開リポジトリに出さない。
-docs/実装順解説.md
-
-# VibeGuard 物理ドック（SecHack365 作品トラック）の設計書。未着手の構想段階で、
-# 実装順.md と同じ計画文書の系統。公開リポジトリに出さない。
-docs/VibeGuard_物理ドック設計書.md
-
-# 物理ドックの作業フォルダ（Spresense 組み込みの実作業）。設計書と同じ系統の
-# ローカル作業場で、バンドル成果物・ファーム・作業ログを置く。公開リポジトリに出さない。
+paper_data/
 dock/
-
-# 可視化実験（動画リール）の設計書。gitignore 済みの paper_data/・video/・
-# security-experiment/ の実測値と、b1-evasion の攻撃フレーミングを含むため、
-# 実装順.md と同じ扱いにする。公開リポジトリに出さない。
-docs/VibeGuard_可視化実験_設計書.md
-
-# Security red-team research workspace (local-only; kept out of the public
-# service repo until mitigations + write-up ship — see the folder's scope doc)
 security-experiment/
 
 # Compiler-toolchain experiment workspace (local-only; synthetic fixtures,
@@ -146,9 +129,7 @@ compiler/**/*.bc
 # CI; what CI enforces is in scripts/ and phrased in product terms.
 scripts-local/
 
-# Measurement dumpers for the visualisation experiment. They walk the b1-evasion
-# attack corpus under security-experiment/ and emit per-mutation-family recovery
-# counts, so they carry the same attack premises that keep that folder out of the
-# public repo. Their inputs and outputs are all ignored paths (paper_data/,
-# video/src/data/, security-experiment/), so they are not runnable here anyway.
+# Local-only measurement tooling. Its inputs and outputs are all ignored paths,
+# so it is not runnable from a clone. Same rule as the block above: this file
+# does not describe what any of it contains.
 scripts/viz-*.mjs

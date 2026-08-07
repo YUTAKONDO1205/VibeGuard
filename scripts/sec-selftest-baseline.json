@@ -96,7 +96,7 @@
       "_filesWhy": "Directory census, checked BEFORE the finding snapshot. Without it an emptied or renamed fixture set makes the [] snapshot of a false-positive corpus compare equal and pass, reporting that the zero-false-positive contract holds having scanned nothing. Same argument as b1/b3 corpus-scale."
     },
     "corpus:samples/embedded/safe": {
-      "_why": "E7 safe side (実装順 #17g). Zero findings, including from the init-order tripwire, which is the loudest embedded rule.",
+      "_why": "E7 safe side. Zero findings, including from the init-order tripwire, which is the loudest embedded rule.",
       "snapshot": [],
       "files": [
         "ble_secure.ino",

@@ -46,8 +46,25 @@ export function relativiseToken(token, root) {
   if (looksAbsolute(token)) return rewriteOne(token);
 
   // Joined forms: a leading flag, then something absolute.
-  const m = /^(-{1,2}[A-Za-z0-9_+-]*[=]?)(.+)$/.exec(token);
-  if (m && looksAbsolute(m[2])) return m[1] + rewriteOne(m[2]);
+  //
+  // The split cannot be done with one greedy match. `-IC:\x` is a joined flag
+  // carrying a Windows path, and a flag class that accepts letters swallows the
+  // DRIVE LETTER along with the flag: the halves come out as `-IC` and `:\x`,
+  // the second of which is not absolute, so the token passed through unrewritten
+  // and an absolute path reached the record — the one thing interfaces.md §5
+  // forbids. It only ever showed on a host with drive letters, which is why a
+  // suite that is green on Linux did not say so.
+  //
+  // So every split point is tried, longest flag first, and the first one whose
+  // tail is genuinely absolute wins. `-IC:\x` falls through `-IC` (tail `:\x`,
+  // not absolute) to `-I` (tail `C:\x`, absolute).
+  const FLAG = /^-{1,2}[A-Za-z0-9_+-]*=?$/;
+  for (let i = token.length - 1; i >= 1; i -= 1) {
+    const head = token.slice(0, i);
+    if (!FLAG.test(head)) continue;
+    const tail = token.slice(i);
+    if (looksAbsolute(tail)) return head + rewriteOne(tail);
+  }
 
   return token;
 }
