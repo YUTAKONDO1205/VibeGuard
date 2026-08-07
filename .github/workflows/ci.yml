@@ -34,6 +34,21 @@ jobs:
       - name: Check packaging invariants (source-only)
         run: node scripts/check-packaging-invariants.mjs --pre-build
 
+      # Disclosure shapes, not disclosure words. Three things reached this
+      # repository's public history that a word list could not have caught: a
+      # label spelled in a form nobody enumerated, a path carrying one machine's
+      # account name, and an ignore file that annotated why each withheld path
+      # was withheld. This check matches the SHAPES those take and contains no
+      # proper noun, which is what lets it run here at all — a checker that lists
+      # what it forbids would publish the list to every reader of this file and
+      # to the archived log of every run.
+      #
+      # It exits 3 rather than 0 when it scanned nothing or when a needle failed
+      # against its own positive control: a confident zero from a broken needle
+      # is how the label above survived several audits.
+      - name: Check for disclosure-shaped strings
+        run: node scripts/check-disclosure-shape.mjs
+
       - run: npm run build
 
       # Now that the extensions are built, check the shipped artefacts. This is
@@ -179,3 +194,72 @@ jobs:
           name: perf-bench
           path: perf-bench.json
           retention-days: 30
+
+  # The native toolchain workspace under compiler/.
+  #
+  # It sits outside the npm workspaces on purpose — it is a research toolchain,
+  # not a shipped package — and the consequence went unnoticed: `npm test` walks
+  # the workspaces, none of the five workflows named a path under compiler/, and
+  # so its suites had only ever run on the machine that wrote them. The boundary
+  # around the directory was enforced in CI (check-packaging-invariants asserts
+  # it); what was inside the boundary was not.
+  #
+  # SCOPE, STATED RATHER THAN IMPLIED. This job runs the Node suites. The C++
+  # components — the Clang frontend gate and the two LLVM passes — need cmake and
+  # llvm-18-dev and are NOT built here. A green tick on this job means the Node
+  # side is exercised, not that the toolchain is.
+  # NOTE ON THE JOB NAME. It does not repeat the directory's name, and that is
+  # not stylistic: the naming guard treats that word as legitimate only under the
+  # directory itself and in the two git dotfiles that have to spell it, so a job
+  # named after it is a hit. Paths pointing INTO the directory are fine — those
+  # are the scoped form. The guard caught this the first time it was written the
+  # other way round, which is the behaviour wanted from it.
+  native-toolchain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      # The driver's end-to-end tests compile with a real clang and skip
+      # themselves when there is none. Installing it is the difference between
+      # asserting something and showing a green tick over a skipped suite; the
+      # step after this one fails the job if they skipped anyway.
+      - name: Install clang-18
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18
+
+      - name: Driver
+        run: node --test compiler/driver/test/
+
+      # A suite that skipped itself reports the same green as a suite that
+      # passed. These tests skip when there is no usable toolchain, which on a
+      # runner means the apt step above silently did not give us one — the case
+      # this job exists to rule out. Measured locally: 20 of 21 skip without
+      # clang, 0 with it. The count is read positionally rather than by output
+      # format, because `node --test` prints TAP on node 20 and a spec-style
+      # summary on newer ones, and the format is not what is being asserted.
+      - name: Assert the live-build tests were not skipped
+        run: |
+          out=$(node --test compiler/driver/test/driver-e2e.test.mjs 2>&1) || true
+          echo "$out" | tail -12
+          skipped=$(echo "$out" | awk '/skipped/ {for (i = 1; i <= NF; i++) if ($i == "skipped") { print $(i + 1); exit }}')
+          if [ "${skipped:-unknown}" != "0" ]; then
+            echo "::error::${skipped} live-build test(s) skipped — clang was not usable, so this job proved less than its green tick suggests"
+            exit 1
+          fi
+
+      - name: ELF verifier
+        working-directory: compiler/elf-verifier
+        run: node test-units.mjs
+
+      - name: Evidence canonicaliser
+        working-directory: compiler/evidence
+        run: node verify.mjs --self-test
+
+      - name: Evidence clock audit
+        working-directory: compiler/evidence
+        run: node verify.mjs --clock-audit

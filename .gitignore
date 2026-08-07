@@ -134,9 +134,7 @@ compiler/**/*.bc
 # CI; what CI enforces is in scripts/ and phrased in product terms.
 scripts-local/
 
-# Measurement dumpers for the visualisation experiment. They walk the b1-evasion
-# attack corpus under security-experiment/ and emit per-mutation-family recovery
-# counts, so they carry the same attack premises that keep that folder out of the
-# public repo. Their inputs and outputs are all ignored paths (paper_data/,
-# video/src/data/, security-experiment/), so they are not runnable here anyway.
+# Local-only measurement tooling. Its inputs and outputs are all ignored paths,
+# so it is not runnable from a clone. Same rule as the block above: this file
+# does not describe what any of it contains.
 scripts/viz-*.mjs
