@@ -1,0 +1,75 @@
+{
+  "$comment": [
+    "The expected classification of every fixture, written down so a run either",
+    "matches it or fails. Line numbers are the fixture's, and make-fixtures.sh is",
+    "the only thing that decides them.",
+    "",
+    "`astOnly` counts call sites the AST found with no lexical finding pointing at",
+    "them. `requirementKinds` is the multiset of derived requirement kinds, sorted."
+  ],
+  "confirmed.c": {
+    "verdicts": [{ "line": 6, "rule": "VG-CEXEC-001", "verdict": "Confirmed", "reason": "direct-call", "sites": ["confirmed.c:6@run_report"] }],
+    "astOnly": 0,
+    "requirementKinds": ["must-not-appear"]
+  },
+  "rejected.c": {
+    "verdicts": [
+      { "line": 6, "rule": "VG-CEXEC-001", "verdict": "Rejected", "reason": "inert-lexeme", "sites": [] },
+      { "line": 7, "rule": "VG-CEXEC-001", "verdict": "Rejected", "reason": "inert-lexeme", "sites": [] }
+    ],
+    "astOnly": 0,
+    "requirementKinds": ["must-not-be-introduced"]
+  },
+  "rejected_positive_control.c": {
+    "verdicts": [
+      { "line": 6, "rule": "VG-CEXEC-001", "verdict": "Rejected", "reason": "inert-lexeme", "sites": [] },
+      { "line": 7, "rule": "VG-CEXEC-001", "verdict": "Confirmed", "reason": "direct-call", "sites": ["rejected_positive_control.c:7@doc"] }
+    ],
+    "astOnly": 0,
+    "$note": "line 6 is Rejected, and the unit now DOES contain a call to system, so no must-not-be-introduced follows from it — `none` is the only honest kind. Contrast rejected.c, where the unit has zero call sites.",
+    "requirementKinds": ["must-not-appear", "none"]
+  },
+  "refined_macro.c": {
+    "verdicts": [
+      { "line": 3, "rule": "VG-CEXEC-001", "verdict": "Refined", "reason": "macro-expansion", "sites": ["refined_macro.c:8@via_alias"] },
+      { "line": 4, "rule": "VG-CEXEC-001", "verdict": "Refined", "reason": "macro-expansion", "sites": ["refined_macro.c:13@via_wrapper"] }
+    ],
+    "astOnly": 0,
+    "requirementKinds": ["must-not-appear", "must-not-appear"]
+  },
+  "refined_fnptr.c": {
+    "verdicts": [{ "line": 5, "rule": "VG-CEXEC-001", "verdict": "Refined", "reason": "address-taken", "sites": ["refined_fnptr.c:9@main"] }],
+    "astOnly": 0,
+    "requirementKinds": ["must-not-appear"]
+  },
+  "rejected_more.c": {
+    "verdicts": [
+      { "line": 3, "rule": "VG-CEXEC-001", "verdict": "Rejected", "reason": "declared-never-called", "sites": [] },
+      { "line": 8, "rule": "VG-CEXEC-001", "verdict": "Rejected", "reason": "no-referent", "sites": [] }
+    ],
+    "astOnly": 0,
+    "requirementKinds": ["must-not-be-introduced"]
+  },
+  "mixed.c": {
+    "verdicts": [
+      { "line": 6, "rule": "VG-CEXEC-001", "verdict": "Rejected", "reason": "inert-lexeme", "sites": [] },
+      { "line": 12, "rule": "VG-CEXEC-001", "verdict": "Confirmed", "reason": "direct-call", "sites": ["mixed.c:12@main"] }
+    ],
+    "astOnly": 0,
+    "requirementKinds": ["must-not-appear", "none"]
+  },
+  "wipe.c": {
+    "verdicts": [
+      { "line": 10, "rule": "VG-MEM-006", "verdict": "Confirmed", "reason": "direct-call", "sites": ["wipe.c:10@login"] },
+      { "line": 19, "rule": "VG-MEM-006", "verdict": "Confirmed", "reason": "direct-call", "sites": ["wipe.c:19@control"] }
+    ],
+    "astOnly": 0,
+    "requirementKinds": ["must-survive", "must-survive"]
+  },
+  "astonly_alias.c": {
+    "verdicts": [{ "line": 1, "rule": "VG-CEXEC-001", "verdict": "Rejected", "reason": "inert-lexeme", "sites": [] }],
+    "astOnly": 1,
+    "$note": "same reason as rejected_positive_control.c: the asm-labelled call IS a call to system, so the Rejected finding on line 1 cannot yield must-not-be-introduced.",
+    "requirementKinds": ["must-not-appear", "none"]
+  }
+}

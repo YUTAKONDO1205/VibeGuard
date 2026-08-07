@@ -1,0 +1,4 @@
+#!/bin/sh
+# So that `CC=/path/to/compiler/driver/bin/vgcc make` works without the caller
+# knowing this is a node program.
+exec node "$(dirname "$(readlink -f "$0")")/vgcc.mjs" "$@"

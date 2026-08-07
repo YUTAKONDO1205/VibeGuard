@@ -1,0 +1,4 @@
+#!/bin/sh
+# So that `CXX=/path/to/compiler/driver/bin/vg++ make` works without the caller
+# knowing this is a node program.
+exec node "$(dirname "$(readlink -f "$0")")/vg++.mjs" "$@"

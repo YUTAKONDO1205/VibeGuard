@@ -1,0 +1,179 @@
+// Fixture construction for the driver's tests. Not a test file itself —
+// `node --test` only picks up `*.test.mjs`.
+//
+// Scratch goes to ~/vg-lab/driver/test-scratch, not to the system temp
+// directory. WSL's /tmp is emptied between sessions and a measurement that
+// disappears half way through reads as an incompatibility rather than as a
+// missing directory; that has cost time here before.
+
+import { createHash } from 'node:crypto';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+export const DRIVER_DIR = resolve(HERE, '..');
+export const CC_BIN = join(DRIVER_DIR, 'cli', 'vgcc.mjs');
+export const CXX_BIN = join(DRIVER_DIR, 'cli', 'vg++.mjs');
+
+export const SCRATCH_ROOT = process.env.VG_DRIVER_TEST_SCRATCH
+  ?? join(homedir(), 'vg-lab', 'driver', 'test-scratch');
+
+export function whichOrNull(name) {
+  try {
+    const p = execFileSync('sh', ['-c', `command -v ${JSON.stringify(name)}`], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return p || null;
+  } catch {
+    return null;
+  }
+}
+
+export const CLANG = process.platform === 'linux' ? whichOrNull('clang-18') : null;
+export const CLANGXX = process.platform === 'linux' ? whichOrNull('clang++-18') : null;
+
+/**
+ * Reason to skip, or `undefined` when the toolchain for a live build is here.
+ *
+ * `undefined` and not `null`: node:test in Node 18 skips on `{ skip: null }`
+ * — the check is for the property being present, not for it being truthy. That
+ * turned every live test in this suite into `# SKIP` while the run stayed
+ * green, which is the same failure the driver itself exists to prevent, one
+ * level up. If this ever reads `null` again, 26 tests stop running and nothing
+ * says so.
+ */
+export function liveBuildSkipReason() {
+  if (process.platform !== 'linux') return `needs a linux toolchain; this is ${process.platform}`;
+  if (!CLANG) return 'clang-18 is not on PATH';
+  return undefined;
+}
+
+export function sha256File(path) {
+  return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+export function makeScratch(label) {
+  mkdirSync(SCRATCH_ROOT, { recursive: true });
+  return mkdtempSync(join(SCRATCH_ROOT, `${label}-`));
+}
+
+export const HELLO_C = `#include <stdio.h>
+#include <string.h>
+
+/* A control effect that cannot be optimised away, so that "the build produced
+   nothing" is distinguishable from "the build produced nothing interesting".
+   interfaces.md section 4. */
+int control_sum(const char *s) {
+  int n = 0;
+  for (const char *p = s; *p; ++p) n += (unsigned char)*p;
+  return n;
+}
+
+int main(void) {
+  char buf[32];
+  memset(buf, 0, sizeof buf);
+  snprintf(buf, sizeof buf, "hello");
+  printf("%s %d\\n", buf, control_sum(buf));
+  return 0;
+}
+`;
+
+export function makePin({ cc = CLANG, cxx = CLANGXX } = {}) {
+  const packages = [];
+  for (const [name, path] of [['clang-18', cc], ['clang++-18', cxx]]) {
+    if (!path) continue;
+    packages.push({
+      name,
+      path: path.replace(/^\//, ''),
+      sha256: sha256File(path),
+      version: null,
+    });
+  }
+  const versionText = execFileSync(cc, ['--version'], { encoding: 'utf8' });
+  const clang = /clang version (\d+\.\d+\.\d+)/.exec(versionText)?.[1] ?? null;
+  return {
+    pinVersion: 'toolchain-pin-v0',
+    clang,
+    root: '/',
+    drivers: { cc: cc.replace(/^\//, ''), cxx: (cxx ?? cc).replace(/^\//, '') },
+    packages,
+  };
+}
+
+/**
+ * A fixture directory holding hello.c, a pin, a policy, and an evidence
+ * directory that is a sibling of the policy rather than under compiler/.
+ */
+export function makeFixture(label, policyOverrides = {}) {
+  const dir = makeScratch(label);
+  const src = join(dir, 'src');
+  const evidence = join(dir, 'evidence');
+  mkdirSync(src, { recursive: true });
+  mkdirSync(evidence, { recursive: true });
+
+  writeFileSync(join(src, 'hello.c'), HELLO_C, 'utf8');
+  if (CLANG) writeFileSync(join(src, 'toolchain.pin.json'), `${JSON.stringify(makePin(), null, 2)}\n`, 'utf8');
+
+  const policy = {
+    policyVersion: 'policy-v0',
+    failOn: 'high',
+    verification: { failOnIncomplete: true },
+    toolchain: {
+      pin: 'toolchain.pin.json',
+      requireDigestMatch: true,
+      allowedPassPlugins: [],
+      allowedFrontendPlugins: [],
+    },
+    flags: { required: [], forbidden: ['-fno-stack-protector'], optLevels: ['-O2'] },
+    evidence: { out: '../evidence', sourceDateEpoch: 1700000000 },
+    ...policyOverrides,
+  };
+  writeFileSync(join(src, '.vgpolicy.json'), `${JSON.stringify(policy, null, 2)}\n`, 'utf8');
+
+  return {
+    dir,
+    src,
+    evidence,
+    policyPath: join(src, '.vgpolicy.json'),
+    pinPath: join(src, 'toolchain.pin.json'),
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+/**
+ * Run the driver as a subprocess, the way a build system would — so that what
+ * is under test is the exit code the process actually leaves behind, not the
+ * number an exported function returned.
+ */
+export function runDriver(argv, { cwd, bin = CC_BIN, env = {} } = {}) {
+  const r = spawnSync(process.execPath, [bin, ...argv], {
+    cwd,
+    env: { ...process.env, ...env },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', error: r.error ?? null };
+}
+
+/** Plain clang, same arguments, for the byte-for-byte comparison. */
+export function runClang(argv, { cwd, bin = CLANG } = {}) {
+  const r = spawnSync(bin, argv, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+}
+
+/** Evidence records the driver has written into `<evidenceDir>/driver`. */
+export function evidenceRecords(evidenceDir) {
+  const dir = join(evidenceDir, 'driver');
+  let names;
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return names
+    .filter((n) => n.startsWith('driver-') && n.endsWith('.json'))
+    .map((n) => ({ name: n, path: join(dir, n), record: JSON.parse(readFileSync(join(dir, n), 'utf8')) }));
+}
