@@ -1,0 +1,9 @@
+; Normalisation 3 (instruction-order): the perturbation side.
+; The add and the mul are independent and both are side-effect free.
+define i32 @f(i32 %x, i32 %y) {
+entry:
+  %a = add i32 %x, 1
+  %b = mul i32 %y, 2
+  %c = sub i32 %a, %b
+  ret i32 %c
+}

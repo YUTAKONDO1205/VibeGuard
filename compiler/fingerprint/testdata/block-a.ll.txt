@@ -1,0 +1,15 @@
+; Normalisation 2 (block-names): the perturbation side.
+define i32 @f(i1 %c) {
+entry:
+  br i1 %c, label %if.then, label %if.else
+
+if.then:
+  br label %join
+
+if.else:
+  br label %join
+
+join:
+  %r = phi i32 [ 11, %if.then ], [ 22, %if.else ]
+  ret i32 %r
+}

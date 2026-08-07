@@ -353,8 +353,32 @@ export function splitDriverArgs(argv) {
   const own = { policy: null, clang: null, observePipeline: false, verbose: false, printNormalised: false };
   const compilerArgv = [];
   const errors = [];
+  // Everything after a bare `--` belongs to the compiler, including tokens that
+  // are spelled like this driver's own flags.
+  //
+  // Without this the split is position-blind, and since the last occurrence of
+  // `--policy` wins, a caller could name a strict policy and then substitute a
+  // permissive one from inside what is supposed to be the compiler's own
+  // argument list. Measured before the fix, against a checkout of the released
+  // tree: `--policy strict.json -- --policy weak.json -O2 -c hello.c` wrote its
+  // evidence into the directory named by weak.json and none into the one named
+  // by strict.json. The governing policy had been replaced by a token the
+  // driver was told not to interpret.
+  //
+  // The consequence was not the one an audit had predicted — the run exited 1
+  // and produced no artefact, because the tokens the driver consumed then went
+  // missing from the compiler's line — but "the attack is currently clumsy" is
+  // not a security property. What decides the policy must not be reachable from
+  // the region the caller was promised would be passed through untouched.
+  //
+  // The lexer at the top of this file already treats `--` this way, so before
+  // this change the two halves of the command line disagreed about where the
+  // driver's own arguments stop.
+  let sawDashDash = false;
   for (let i = 0; i < argv.length; i += 1) {
     const tok = argv[i];
+    if (sawDashDash) { compilerArgv.push(tok); continue; }
+    if (tok === '--') { sawDashDash = true; compilerArgv.push(tok); continue; }
     if (!Object.prototype.hasOwnProperty.call(DRIVER_FLAGS, tok)) {
       if (tok.startsWith('--policy=')) { own.policy = tok.slice('--policy='.length); continue; }
       if (tok.startsWith('--vg-clang=')) { own.clang = tok.slice('--vg-clang='.length); continue; }

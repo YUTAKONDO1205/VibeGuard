@@ -1,0 +1,24 @@
+; A callee with more than one block, so the splice has to break the caller's
+; block in two rather than paste a straight line in.
+define internal i32 @g(i32 %v) {
+entry:
+  %c = icmp sgt i32 %v, 0
+  br i1 %c, label %pos, label %neg
+
+pos:
+  br label %done
+
+neg:
+  br label %done
+
+done:
+  %r = phi i32 [ 1, %pos ], [ 0, %neg ]
+  ret i32 %r
+}
+
+define i32 @f(i32 %x) {
+entry:
+  %a = call i32 @g(i32 %x)
+  %b = add i32 %a, 100
+  ret i32 %b
+}

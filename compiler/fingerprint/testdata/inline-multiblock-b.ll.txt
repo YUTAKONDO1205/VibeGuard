@@ -1,0 +1,36 @@
+; inline-multiblock-a.ll with @g already spliced into @f.
+define internal i32 @g(i32 %v) {
+entry:
+  %c = icmp sgt i32 %v, 0
+  br i1 %c, label %pos, label %neg
+
+pos:
+  br label %done
+
+neg:
+  br label %done
+
+done:
+  %r = phi i32 [ 1, %pos ], [ 0, %neg ]
+  ret i32 %r
+}
+
+define i32 @f(i32 %x) {
+entry:
+  %g.c = icmp sgt i32 %x, 0
+  br i1 %g.c, label %g.pos, label %g.neg
+
+g.pos:
+  br label %g.done
+
+g.neg:
+  br label %g.done
+
+g.done:
+  %g.r = phi i32 [ 1, %g.pos ], [ 0, %g.neg ]
+  br label %cont
+
+cont:
+  %b = add i32 %g.r, 100
+  ret i32 %b
+}

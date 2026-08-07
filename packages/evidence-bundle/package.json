@@ -1,0 +1,31 @@
+{
+  "name": "@vibeguard/evidence-bundle",
+  "version": "0.3.5",
+  "private": true,
+  "type": "module",
+  "description": "Builds evidence-carrying artefact bundles: an artefact, the record that describes it, and a manifest that binds them.",
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./canon": "./src/canon.mjs",
+    "./bundle": "./src/bundle.mjs",
+    "./states": "./src/states.mjs"
+  },
+  "bin": {
+    "evidence-seal-bundle": "./bin/seal-bundle.mjs",
+    "evidence-calibrate": "./bin/calibrate.mjs"
+  },
+  "files": [
+    "src",
+    "bin",
+    "testdata",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node test/_run.mjs",
+    "calibrate": "node bin/calibrate.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

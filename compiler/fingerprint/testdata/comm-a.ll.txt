@@ -1,0 +1,8 @@
+; Normalisation 5 (commutative-operands): the perturbation side.
+define i1 @f(i32 %x, i32 %y) {
+entry:
+  %s = add i32 %x, %y
+  %c = icmp slt i32 %x, %y
+  %t = and i1 %c, true
+  ret i1 %t
+}

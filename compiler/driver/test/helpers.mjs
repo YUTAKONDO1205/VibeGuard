@@ -8,7 +8,7 @@
 
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -162,6 +162,58 @@ export function runDriver(argv, { cwd, bin = CC_BIN, env = {} } = {}) {
 export function runClang(argv, { cwd, bin = CLANG } = {}) {
   const r = spawnSync(bin, argv, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+}
+
+/**
+ * Reason to skip a test that needs a file the operating system will execute,
+ * or `undefined` when one can be made here.
+ *
+ * Node refuses to spawn a `.cmd`/`.bat` without a shell (EINVAL), and there is
+ * no way to author a PE executable from a test, so a *convincing* fake compiler
+ * — one that answers `--version` — only exists on a POSIX host. Everything the
+ * fake is there to demonstrate is also covered by a cross-platform test that
+ * injects the version probe, so this skip removes a duplicate rather than a
+ * check; the pair is named in the test titles.
+ */
+export function posixFakeCompilerSkipReason() {
+  if (process.platform === 'win32') return 'needs a file the OS will exec; win32 cannot make one from a test';
+  return undefined;
+}
+
+/**
+ * A stand-in compiler. On POSIX it is a real script that prints `versionText`;
+ * on Windows it is an inert file, because the driver's pin reconciliation
+ * refuses it before anything is spawned and the version probe swallows the
+ * spawn error.
+ */
+export function writeFakeCompiler(dir, name, versionText = 'clang version 18.1.3 (fake)') {
+  const p = join(dir, name);
+  // The name goes into the bytes so that two fakes are never byte-identical by
+  // accident. A test that means to show "same digest, different file" says so
+  // itself by copying one; it must not get that for free here.
+  if (process.platform === 'win32') {
+    writeFileSync(p, `not an executable: ${name}\n${versionText}\n`, 'utf8');
+    return p;
+  }
+  writeFileSync(p, `#!/bin/sh\n# ${name}\nprintf '%s\\n' ${JSON.stringify(versionText)}\n`, 'utf8');
+  chmodSync(p, 0o755);
+  return p;
+}
+
+/** A pin over files this test made, so that no real toolchain is needed. */
+export function makeSyntheticPin(dir, files, extra = {}) {
+  return {
+    pinVersion: 'toolchain-pin-v0',
+    root: dir,
+    drivers: { cc: files[0].name, cxx: files[0].name },
+    packages: files.map((f) => ({
+      name: f.name,
+      path: f.name,
+      sha256: sha256File(join(dir, f.name)),
+      version: f.version ?? null,
+    })),
+    ...extra,
+  };
 }
 
 /** Evidence records the driver has written into `<evidenceDir>/driver`. */

@@ -1,5 +1,5 @@
 // The driver proper: policy, normalisation, pin, flags, plugins, compile,
-// evidence, exit code — in that order, because each step's failure mode is only
+// evidence, exit code —in that order, because each step's failure mode is only
 // safe if the steps before it have already succeeded.
 //
 // The plugin integrity check is a static import of the module compiler/schema/
@@ -22,8 +22,14 @@ import { relativiseToken, toRecordPath } from './paths.mjs';
 import {
   evidenceOutDir, failOnIncomplete, loadPolicy, pinPath, requireDigestMatch, sourceDateEpoch,
 } from './policy.mjs';
+import {
+  CATALOGUE_PATH, CATALOGUE_RECORD_PATH, catalogueUnreadableFinding, checkProperties, countingLine,
+  loadCatalogue,
+} from './properties.mjs';
 import { buildContext, buildRecord, writeRecord } from './record.mjs';
-import { loadPin, pinnedSet, resolveCompiler, sha256File, verifyPin } from './toolchain.mjs';
+import {
+  loadPin, pinnedSet, reconcileCompiler, resolveCompiler, sha256File, verifyPin,
+} from './toolchain.mjs';
 
 const OBSERVATION_PIPELINE_FLAGS = ['-mllvm', '-print-pipeline-passes'];
 
@@ -34,7 +40,10 @@ function say(stderr, msg) { stderr.write(`vgcc: ${msg}\n`); }
  *          env: object, stdout: NodeJS.WritableStream, stderr: NodeJS.WritableStream}} io
  * @returns {Promise<number>} the process exit code
  */
-export async function run({ argv, cwd, driverName, mode, env = process.env, stdout = process.stdout, stderr = process.stderr }) {
+export async function run({
+  argv, cwd, driverName, mode, env = process.env, stdout = process.stdout, stderr = process.stderr,
+  cataloguePath = CATALOGUE_PATH,
+}) {
   const { own, compilerArgv, errors: argErrors } = splitDriverArgs(argv);
   for (const e of argErrors) say(stderr, e);
   if (argErrors.length > 0) return EXIT_INTEGRITY;
@@ -43,7 +52,7 @@ export async function run({ argv, cwd, driverName, mode, env = process.env, stdo
   const loaded = loadPolicy({ cwd, policyPath: own.policy });
   if (!loaded.ok) {
     say(stderr, `policy ${loaded.reason}: ${loaded.detail}`);
-    say(stderr, 'no evidence written — a record of a build checked against an unreadable policy would be a record of nothing.');
+    say(stderr, 'no evidence written —a record of a build checked against an unreadable policy would be a record of nothing.');
     return EXIT_INTEGRITY;
   }
   const { policy } = loaded;
@@ -73,7 +82,9 @@ export async function run({ argv, cwd, driverName, mode, env = process.env, stdo
   // ---- 3. Toolchain pin. ----------------------------------------------------
   const pinFile = pinPath(policy, root);
   let pin = null;
-  let pinVerification = { status: 'not-configured', packages: [], mismatches: [], reportedClang: null };
+  let pinVerification = {
+    status: 'not-configured', packages: [], mismatches: [], unobserved: [], versions: [], reportedClang: null,
+  };
   let pinLoadError = null;
 
   if (pinFile) {
@@ -87,8 +98,17 @@ export async function run({ argv, cwd, driverName, mode, env = process.env, stdo
 
   const compiler = resolveCompiler({ mode, pin, override: own.clang });
 
+  // Reconcile before verifying, so that the version probe inside `verifyPin`
+  // and the shipping build below both spawn the *same* file the reconciliation
+  // judged. Spawning the string and reconciling a lookup of the string are two
+  // resolutions of one name and a PATH change between them is a hole.
+  const reconciliation = reconcileCompiler({ pin, compiler, cwd, env });
+  // The located path, not the realpath: clang branches on its own argv[0], so
+  // following the symlink here would put `vg++` into C mode. See toolchain.mjs.
+  const compilerPath = reconciliation.locatedPath ?? compiler.path;
+
   if (pin) {
-    pinVerification = verifyPin(pin, { ccPath: compiler.path });
+    pinVerification = verifyPin(pin, { ccPath: compilerPath });
   }
 
   let integrityFailure = false;
@@ -103,20 +123,120 @@ export async function run({ argv, cwd, driverName, mode, env = process.env, stdo
     if (requireDigestMatch(policy)) integrityFailure = true;
   } else if (pinVerification.status === 'mismatch') {
     for (const m of pinVerification.mismatches) {
+      const isVersion = m.kind === 'package-version';
       driverFindings.push(makeFinding({
-        id: CFG.DIGEST_MISMATCH,
+        id: isVersion ? CFG.PACKAGE_VERSION_MISMATCH : CFG.DIGEST_MISMATCH,
         severity: 'critical',
-        title: 'An installed toolchain component does not match the pin',
-        detail: `${m.name}: ${m.kind} — pin says ${m.expected}, installed is ${m.actual ?? '(could not be read)'}.`,
+        title: isVersion
+          ? 'An installed package is a different version from the one the pin records'
+          : 'An installed toolchain component does not match the pin',
+        detail: `${m.name}: ${m.kind} —pin says ${m.expected}, installed is ${m.actual ?? '(could not be read)'}.`,
         where: { kind: 'invocation', path: null, unit: null, pass: null },
       }));
     }
     if (requireDigestMatch(policy)) integrityFailure = true;
   }
 
+  // A pinned version nobody could observe is not a pinned version that matched.
+  // It is exit 3 (via `complete` below) rather than exit 4: nothing disagreed,
+  // the check simply did not happen, and those are different claims.
+  for (const u of pinVerification.unobserved) {
+    driverFindings.push(makeFinding({
+      id: CFG.PACKAGE_VERSION_UNOBSERVED,
+      severity: 'high',
+      title: 'The pin states a package version this machine could not observe',
+      detail: `${u.name}: the pin says ${u.expected}, and the version could not be read back (${u.method}). `
+        + 'The pin was written from a package database; verifying it needs one.',
+      where: { kind: 'invocation', path: null, unit: null, pass: null },
+    }));
+  }
+  const pinVersionsComplete = pinVerification.unobserved.length === 0;
+
+  // The executed binary against the pinned set. This is a separate question
+  // from `requireDigestMatch`, and is not gated on it: that switch downgrades
+  // "the pinned files are not the pinned bytes" to a finding, and was never a
+  // decision to let the driver run a compiler the pin has never seen.
+  if (pin && reconciliation.status !== 'in-pin') {
+    driverFindings.push(makeFinding({
+      id: CFG.COMPILER_OUTSIDE_PIN,
+      severity: 'critical',
+      title: 'The compiler the driver would execute is not in the pinned set',
+      detail: `${reconciliation.detail}. Every digest in the pin can be correct and this still be true; `
+        + 'the pin covers files, and this is about which file runs.',
+      where: { kind: 'invocation', path: null, unit: null, pass: null },
+    }));
+    integrityFailure = true;
+  }
+
+  // Leaving the pin on the command line is recorded as leaving the pin. The
+  // confession also goes into `toolchain.compiler` below, which is inside the
+  // digested part of the record —`context` is removed as a whole subtree
+  // before digesting (compiler/evidence/canon.mjs rule 1), so a confession
+  // written there would not be covered by `evidenceDigest` at all.
+  if (reconciliation.overriddenByFlag) {
+    driverFindings.push(makeFinding({
+      id: CFG.PIN_OVERRIDDEN,
+      severity: pin ? 'high' : 'medium',
+      title: '--vg-clang replaced the compiler the pin names',
+      detail: pin
+        ? `the pin names a driver for this mode and --vg-clang overrode it with ${reconciliation.invokedAs}; `
+          + `reconciliation against the pinned set says ${reconciliation.status}`
+        : `--vg-clang selected ${reconciliation.invokedAs} and no pin is configured, so nothing constrains it`,
+      where: { kind: 'invocation', path: null, unit: null, pass: null },
+    }));
+  }
+
   // ---- 4. Flags. ------------------------------------------------------------
   const flagResult = checkFlags(normalised, policy, env);
   driverFindings.push(...flagResult.findings);
+
+  // ---- 4b. Declared properties against the catalogue. ----------------------
+  //
+  // `policy.properties[]` had no consumer at all: a policy could require five
+  // security properties, none of which anything in this tree can observe, and
+  // the build exited 0. policy.schema.json already fixes the answer —"A
+  // property with no reachable checkpoint is exit 3, not a pass" —so what was
+  // missing was the code, not the decision.
+  const catalogueLoad = loadCatalogue(cataloguePath);
+  let properties;
+  let catalogueStatus;
+  if (catalogueLoad.ok) {
+    catalogueStatus = {
+      path: CATALOGUE_RECORD_PATH,
+      schemaVersion: catalogueLoad.catalogue.schemaVersion,
+      sha256: catalogueLoad.catalogue.sha256,
+      entryCount: catalogueLoad.catalogue.entryCount,
+      status: 'loaded',
+    };
+    properties = checkProperties(policy.properties, catalogueLoad.catalogue);
+  } else {
+    catalogueStatus = {
+      path: CATALOGUE_RECORD_PATH,
+      schemaVersion: null,
+      sha256: null,
+      entryCount: 0,
+      status: `unreadable:${catalogueLoad.reason}`,
+    };
+    // Not "there were no properties to check". The question could not be put.
+    const requested = Array.isArray(policy.properties) ? policy.properties.length : 0;
+    properties = {
+      configured: Array.isArray(policy.properties),
+      requested,
+      checked: 0,
+      skipped: requested,
+      usable: 0,
+      unanswerable: requested,
+      complete: false,
+      verdict: 'catalogue-unreadable',
+      claim: 'the catalogue could not be read, so no property was cross-checked and none is claimed to hold',
+      entries: [],
+      findings: [catalogueUnreadableFinding(catalogueLoad)],
+    };
+  }
+  driverFindings.push(...properties.findings);
+  const propertiesLine = countingLine(properties);
+  if (own.verbose) say(stderr, `properties ${propertiesLine} usable=${properties.usable} verdict=${properties.verdict}`);
+  if (!properties.complete) say(stderr, `properties ${propertiesLine} —${properties.claim}`);
 
   // ---- 5. Plugin integrity (peer component). -------------------------------
   const labDir = outDir ? resolve(outDir, 'work', 'plugin-integrity') : null;
@@ -129,15 +249,17 @@ export async function run({ argv, cwd, driverName, mode, env = process.env, stdo
     // the plugin check is incomplete is the accurate thing to record; claiming
     // it passed would be the inaccurate one.
     pluginError = 'not attempted: toolchain integrity failed first';
+  } else if (!properties.complete) {
+    pluginError = 'not attempted: the policy declares a property that has no reachable checkpoint';
   } else {
     try {
       // `argv[0]` is the compiler: the component's own contract, and it needs
-      // one — it runs a shadow invocation of its own to capture the pipeline.
+      // one —it runs a shadow invocation of its own to capture the pipeline.
       // Passing the bare argument list would silently drop argv[1] from the
       // plugin scan, because the callee slices the compiler off the front.
       const raw = await checkPlugins({
         policy,
-        argv: [compiler.path, ...expansion.argv],
+        argv: [compilerPath, ...expansion.argv],
         env,
         labDir,
       });
@@ -179,38 +301,52 @@ export async function run({ argv, cwd, driverName, mode, env = process.env, stdo
   }
 
   const findings = [...driverFindings, ...peerFindings];
-  const complete = plugin.complete && normalisationComplete && flagResult.complete !== false;
+  const complete = plugin.complete && normalisationComplete && flagResult.complete !== false
+    && properties.complete && pinVersionsComplete;
   const overThreshold = atOrAboveThreshold(findings, policy.failOn);
 
   // ---- 6. Decide whether to compile at all. --------------------------------
   //
   // Precedence, first match wins:
-  //   4  integrity  — the pin does not match, or the policy is malformed
-  //   2  findings   — at or above failOn; the build is not attempted, so a
+  //   4  integrity  —the pin does not match, the compiler is not in the pinned
+  //                   set, or the policy is malformed
+  //   3  properties —the policy declares a property with no reachable
+  //                   checkpoint
+  //   2  findings   —at or above failOn; the build is not attempted, so a
   //                   forbidden configuration produces no object file to ship
-  //   1  tool       — clang failed; its diagnostics already went to the caller
-  //   3  incomplete — the build succeeded but a check could not be made, and
+  //   1  tool       —clang failed; its diagnostics already went to the caller
+  //   3  incomplete —the build succeeded but a check could not be made, and
   //                   the policy says that is fatal
-  //   3  evidence   — the record could not be written, so nothing was proved
+  //   3  evidence   —the record could not be written, so nothing was proved
   //   0  clean
   //
-  // Two orderings here were got wrong first and are worth stating.
+  // The properties slot sits ABOVE findings, which is the one place this list
+  // departs from "2 outranks 3". policy.schema.json writes the code down for
+  // that condition —"A property with no reachable checkpoint is exit 3, not a
+  // pass" —so letting a policy's own `failOn` re-map it to 2 would make the
+  // schema's sentence false, and the code would depend on a threshold that has
+  // nothing to do with it. It is also a different kind of statement: a finding
+  // says the build did something; this says a question the policy asked was
+  // never put. The build is not attempted, for the same fail-closed reason a
+  // finding at threshold does not produce an object file.
+  //
+  // Two other orderings here were got wrong first and are worth stating.
   //
   // 2 outranks 3: a named violation is more actionable than an unfinished
   // check, both are non-zero, and the incompleteness is in the record either
-  // way. What must never happen is 3 collapsing to 0, and it cannot — the 0
+  // way. What must never happen is 3 collapsing to 0, and it cannot —the 0
   // branch is reached only when `complete` is true.
   //
   // 1 outranks 3, which is why the incompleteness test is *after* the build
   // and not before it. A source file that does not compile cannot have its
   // pass pipeline captured, so the plugin check reports `complete: false` for
   // every syntax error. Testing incompleteness first made every compile error
-  // exit 3 with the compiler never run and its diagnostics never printed —
-  // the driver answering "I could not check this" to a question whose real
+  // exit 3 with the compiler never run and its diagnostics never printed —  // the driver answering "I could not check this" to a question whose real
   // answer was "line 1 does not parse".
   let exitCode = null;
   let reason = null;
   if (integrityFailure) { exitCode = EXIT_INTEGRITY; reason = 'toolchain-or-policy-integrity'; }
+  else if (!properties.complete) { exitCode = EXIT_INCOMPLETE; reason = 'policy-properties-unanswerable'; }
   else if (overThreshold.length > 0) { exitCode = EXIT_FINDINGS; reason = 'findings-at-threshold'; }
 
   // ---- 7. Build. ------------------------------------------------------------
@@ -220,11 +356,11 @@ export async function run({ argv, cwd, driverName, mode, env = process.env, stdo
   const timings = {};
 
   if (exitCode === null) {
-    const res = runShipping({ compiler: compiler.path, argv: compilerArgv, cwd, env });
+    const res = runShipping({ compiler: compilerPath, argv: compilerArgv, cwd, env });
     timings.shippingMs = res.durationMs;
     shipping = { attempted: true, exitCode: res.exitCode, signal: res.signal, spawnError: res.spawnError };
     if (!res.ok) {
-      if (res.spawnError) say(stderr, `could not run ${compiler.path}: ${res.spawnError}`);
+      if (res.spawnError) say(stderr, `could not run ${compilerPath}: ${res.spawnError}`);
       exitCode = EXIT_TOOL_FAILED;
       reason = 'tool-failed';
     } else {
@@ -234,7 +370,7 @@ export async function run({ argv, cwd, driverName, mode, env = process.env, stdo
       // the artefact the caller keeps is the one from the run above.
       if (own.observePipeline && labDir) {
         const obs = runObservation({
-          compiler: compiler.path,
+          compiler: compilerPath,
           argv: compilerArgv,
           cwd,
           scratchDir: resolve(labDir, '..', 'driver-observation'),
@@ -272,7 +408,12 @@ export async function run({ argv, cwd, driverName, mode, env = process.env, stdo
   // ---- 8. Evidence. ---------------------------------------------------------
   const context = buildContext({ sourceDateEpoch: sourceDateEpoch(policy) });
   context.timings = timings;
-  context.compiler = { invokedAs: compiler.path.split(/[\\/]/).pop(), resolvedFrom: compiler.source };
+  // Which compiler ran used to be recorded HERE, and that was the bug. `context`
+  // is removed as a whole subtree before digesting (interfaces.md §5 rule 1,
+  // compiler/evidence/canon.mjs), so `resolvedFrom: "flag"` —the record of a
+  // build that left the pin —was outside `evidenceDigest` and two records, one
+  // pinned and one overridden, digested identically. It now lives in
+  // `toolchain.compiler`, which is digested.
 
   const record = buildRecord({
     driverName,
@@ -288,6 +429,16 @@ export async function run({ argv, cwd, driverName, mode, env = process.env, stdo
     invocation: recordInvocation({ normalised, expansion, cwd, root, driverName }),
     toolchain: {
       clang: pinVerification.reportedClang ?? (pin?.clang ?? null),
+      // Inside the digest, deliberately. See the note next to `context` above.
+      compiler: {
+        inPinSet: reconciliation.inPinSet,
+        invokedAs: reconciliation.invokedAs,
+        located: reconciliation.located,
+        overriddenByFlag: reconciliation.overriddenByFlag,
+        pinnedAs: reconciliation.pinnedAs,
+        reconciliation: reconciliation.status,
+        resolvedFrom: reconciliation.resolvedFrom,
+      },
       digest: null, // filled below, once the canonicaliser is available
       packages: pinVerification.packages,
       pinConfigured: pinFile !== null,
@@ -306,14 +457,35 @@ export async function run({ argv, cwd, driverName, mode, env = process.env, stdo
         pipelineConstrained: Array.isArray(policy.toolchain?.allowedPassPipeline),
         pipelineLength: plugin.pipeline ? plugin.pipeline.length : null,
       },
+      properties: {
+        catalogue: catalogueStatus,
+        // "the policy never raised the question" and "the policy raised it and
+        // listed nothing" are two different facts, so they are two fields. An
+        // empty list is legal and says requested=0 in as many words; neither
+        // state is ever rendered as "all requirements met".
+        claim: properties.claim,
+        complete: properties.complete,
+        configured: properties.configured,
+        counts: { checked: properties.checked, inputs: properties.requested, skipped: properties.skipped },
+        entries: properties.entries,
+        requested: properties.requested,
+        unanswerable: properties.unanswerable,
+        usable: properties.usable,
+        verdict: properties.verdict,
+      },
       responseFiles: {
         expanded: expansion.expanded.length,
         unresolved: expansion.notes.length,
       },
       toolchainPin: {
+        compilerReconciliation: reconciliation.status,
+        compilerInPinSet: reconciliation.inPinSet,
         mismatchCount: pinVerification.mismatches.length,
         mismatches: pinVerification.mismatches,
         status: pinLoadError ? `unreadable:${pinLoadError.reason}` : pinVerification.status,
+        unobserved: pinVerification.unobserved,
+        unobservedCount: pinVerification.unobserved.length,
+        versions: pinVerification.versions,
       },
     },
     build: { artifacts, observation, shipping },
@@ -324,7 +496,7 @@ export async function run({ argv, cwd, driverName, mode, env = process.env, stdo
   });
 
   // `toolchain.digest` is the digest of the pinned set, computed with the same
-  // canonicaliser the record itself is digested with — not a second one.
+  // canonicaliser the record itself is digested with —not a second one.
   if (pin) {
     try {
       const { evidenceDigest } = await loadEvidenceModule();
@@ -352,7 +524,7 @@ export async function run({ argv, cwd, driverName, mode, env = process.env, stdo
  * The pipeline the plugin component reports. interfaces.md fixes the finding
  * shape but not this one, so both spellings in circulation are accepted: a bare
  * list of pass names, and the richer `{available, passes, reason}` the component
- * actually returns. Anything else is "no pipeline observed" — which is
+ * actually returns. Anything else is "no pipeline observed" —which is
  * different from "an empty pipeline", and is recorded as such.
  */
 function readPipeline(pipeline) {

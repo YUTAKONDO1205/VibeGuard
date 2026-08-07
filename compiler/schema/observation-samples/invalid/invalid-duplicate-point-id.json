@@ -1,0 +1,261 @@
+{
+  "observationVersion": "observation-v0",
+  "context": {
+    "generatedAt": "1970-01-01T00:00:00Z",
+    "timeSource": "SOURCE_DATE_EPOCH",
+    "sourceDateEpoch": 0,
+    "host": {
+      "os": "linux",
+      "arch": "x86_64",
+      "cores": 8
+    },
+    "repository": {
+      "commit": "0000000000000000000000000000000000000000000000000000000000000000",
+      "dirty": false
+    }
+  },
+  "toolchain": {
+    "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "clang": "18.1.3",
+    "packages": [
+      {
+        "name": "clang-18",
+        "version": "18.1.3"
+      },
+      {
+        "name": "lld-18",
+        "version": "18.1.3"
+      }
+    ]
+  },
+  "policy": {
+    "policyVersion": "policy-v0",
+    "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "failOn": "high"
+  },
+  "verdict": {
+    "state": "VERIFIED_CLEAN",
+    "exitCode": 0,
+    "reason": "the zeroing call site in wipe_kept is present at every declared checkpoint, including inside the link-time backend, and the control survived with it",
+    "unobserved": []
+  },
+  "counts": {
+    "inputs": 1,
+    "checked": 1,
+    "skipped": 0,
+    "skippedNames": [],
+    "pointCoverage": {
+      "num": 5,
+      "den": 5
+    }
+  },
+  "observationPoints": [
+    {
+      "id": "pre-opt",
+      "checkpoint": "pre-opt-ir",
+      "stage": "compile",
+      "reached": true,
+      "unreachedReason": null,
+      "target": "x86_64-linux-gnu",
+      "optLevel": "-O2",
+      "tool": "clang-18"
+    },
+    {
+      "id": "compile-end",
+      "checkpoint": "after-pass",
+      "stage": "compile",
+      "reached": true,
+      "unreachedReason": null,
+      "target": "x86_64-linux-gnu",
+      "optLevel": "-O2",
+      "tool": "clang-18"
+    },
+    {
+      "id": "lto-end",
+      "checkpoint": "after-pass",
+      "stage": "lto-backend",
+      "reached": true,
+      "unreachedReason": null,
+      "target": "x86_64-linux-gnu",
+      "optLevel": "-O2",
+      "tool": "ld.lld-18"
+    },
+    {
+      "id": "linked",
+      "checkpoint": "linked",
+      "stage": "link",
+      "reached": true,
+      "unreachedReason": null,
+      "target": "x86_64-linux-gnu",
+      "optLevel": "-O2",
+      "tool": "ld.lld-18"
+    },
+    {
+      "id": "pre-opt",
+      "checkpoint": "pre-opt-ir",
+      "stage": "compile",
+      "reached": true,
+      "unreachedReason": null,
+      "target": "x86_64-linux-gnu",
+      "optLevel": "-O2",
+      "tool": "clang-18"
+    }
+  ],
+  "properties": [
+    {
+      "id": "prop.erasure.escaping-buffer",
+      "kind": "must-survive",
+      "scope": {
+        "functions": [
+          "wipe_kept"
+        ],
+        "files": [
+          "fixtures/secret.c"
+        ]
+      },
+      "control": {
+        "unit": "guard_volatile",
+        "state": "PRESENT",
+        "count": {
+          "callSites": 1,
+          "oracle": "call-site",
+          "naiveSymbolMatches": 2
+        }
+      },
+      "history": [
+        {
+          "index": 0,
+          "point": "pre-opt",
+          "phase": "before",
+          "state": "PRESENT",
+          "attribution": {
+            "pass": "VerifierPass",
+            "unit": "wipe_kept",
+            "unitKind": "function",
+            "lineage": "wipe_kept",
+            "seq": 1
+          },
+          "count": {
+            "callSites": 1,
+            "oracle": "call-site",
+            "naiveSymbolMatches": 2
+          }
+        },
+        {
+          "index": 1,
+          "point": "compile-end",
+          "phase": "after",
+          "state": "PRESENT",
+          "attribution": {
+            "pass": "AnnotationRemarksPass",
+            "unit": "wipe_kept",
+            "unitKind": "function",
+            "lineage": "wipe_kept",
+            "seq": 578
+          },
+          "count": {
+            "callSites": 1,
+            "oracle": "call-site",
+            "naiveSymbolMatches": 2
+          }
+        },
+        {
+          "index": 2,
+          "point": "lto-end",
+          "phase": "after",
+          "state": "PRESENT",
+          "attribution": {
+            "pass": "AnnotationRemarksPass",
+            "unit": "wipe_kept",
+            "unitKind": "function",
+            "lineage": "wipe_kept",
+            "seq": 324
+          },
+          "count": {
+            "callSites": 1,
+            "oracle": "call-site",
+            "naiveSymbolMatches": 2
+          }
+        },
+        {
+          "index": 3,
+          "point": "linked",
+          "phase": null,
+          "state": "PRESENT",
+          "attribution": {
+            "pass": null,
+            "unit": "wipe_kept",
+            "unitKind": "function",
+            "lineage": "wipe_kept",
+            "seq": null
+          },
+          "count": {
+            "callSites": 1,
+            "oracle": "call-site",
+            "naiveSymbolMatches": 2
+          }
+        }
+      ],
+      "historyComplete": true,
+      "firstLoss": null,
+      "finalState": "PRESENT",
+      "lossEpisodes": 0,
+      "fate": "LIVE",
+      "verdict": "VERIFIED_CLEAN",
+      "note": "the post-backend bitcode was re-counted independently and agreed at one call site"
+    }
+  ],
+  "layers": {
+    "compile": {
+      "observed": true,
+      "unobservedReason": null,
+      "target": "x86_64-linux-gnu",
+      "optLevel": "-O2",
+      "passPluginsLoaded": [
+        {
+          "name": "libPropertyObserver.so",
+          "sha256": "e855861615b090bc1dd6891cc891034c55dde15158940a5f552d8e28f935643e",
+          "authorised": true
+        }
+      ],
+      "passesSeen": 578,
+      "unitsTracked": 2
+    },
+    "link": {
+      "observed": true,
+      "unobservedReason": null,
+      "linker": "ld.lld-18",
+      "ltoMode": "full",
+      "backendObserved": true,
+      "backendUnobservedReason": null,
+      "inputs": [
+        {
+          "path": "build/secret-lto.o",
+          "kind": "bitcode",
+          "authorised": true,
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      ]
+    },
+    "artifact": {
+      "observed": true,
+      "unobservedReason": null,
+      "path": "build/libsecret.so",
+      "format": "elf",
+      "machine": "Advanced Micro Devices X86-64",
+      "checks": [
+        {
+          "require": "nx",
+          "result": "PASS",
+          "decidedBy": "PT_GNU_STACK p_flags has no PF_X"
+        },
+        {
+          "require": "build-id",
+          "result": "PASS",
+          "decidedBy": "SHT_NOTE section .note.gnu.build-id present"
+        }
+      ]
+    }
+  },
+  "findings": []
+}

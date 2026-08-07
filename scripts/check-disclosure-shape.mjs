@@ -140,9 +140,27 @@ const SHAPES = [
 
 // ── Scanning ────────────────────────────────────────────────────────────────
 
-/** Tracked, non-binary, small-enough files. */
+/**
+ * Everything a push could carry: non-binary, small enough, and either already
+ * tracked or sitting un-ignored in the working tree.
+ *
+ * `git ls-files -z` alone was wrong here, and wrong in the direction that does
+ * not announce itself. It lists TRACKED files only, so a branch that has just
+ * written two hundred new files gets a clean report about the two hundred that
+ * were already there. Caught by planting `/home/<name>/...` inside one of the
+ * new files and watching this checker report `hits: 0` with the scanned count
+ * unchanged — the instrument was not broken, it was pointed somewhere else.
+ *
+ * `--cached --others --exclude-standard` is exactly the set `git add .` would
+ * stage, which is the question the push is about to ask. Ignored files stay out,
+ * as they should: they are not going anywhere.
+ */
 function collectTargets(explicit) {
-  const rel = explicit ?? execFileSync('git', ['ls-files', '-z'], { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).split('\0').filter(Boolean);
+  const rel = explicit ?? execFileSync(
+    'git',
+    ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+    { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+  ).split('\0').filter(Boolean);
   const files = [];
   const skipped = [];
   for (const r of rel) {

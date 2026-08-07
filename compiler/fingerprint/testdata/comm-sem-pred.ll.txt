@@ -1,0 +1,7 @@
+; Semantic control 2: the predicate is changed without swapping the operands,
+; which is a different comparison, not the same one written the other way.
+define i1 @f(i32 %x, i32 %y) {
+entry:
+  %c = icmp sgt i32 %x, %y
+  ret i1 %c
+}

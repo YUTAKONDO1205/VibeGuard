@@ -1,0 +1,24 @@
+{
+  "name": "@vibeguard/artifact-integrity",
+  "version": "0.3.5",
+  "private": true,
+  "type": "module",
+  "description": "Artefact security verifier: hardening set, W+X, secret residue and build-path residue in a finished ELF",
+  "license": "MIT",
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "files": [
+    "src",
+    "bin",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "verify": "node bin/vg-artefact-verify.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

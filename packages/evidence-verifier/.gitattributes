@@ -1,0 +1,7 @@
+# The vendored digest vectors are compared byte-for-byte against another copy
+# in this repository, and a digest is taken over their content. The checkout
+# converts line endings for everything the root .gitattributes does not pin, so
+# without this line the two copies differ on a fresh clone for a reason that has
+# nothing to do with the contract. Everything here is text and everything here
+# is hashed, so the whole package is pinned rather than just the one file.
+* text eol=lf

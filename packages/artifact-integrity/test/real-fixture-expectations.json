@@ -1,0 +1,147 @@
+{
+  "why": "Every row is a measurement taken from a binary this toolchain actually produced, not an expectation. Reproduce with compiler/elf-verifier/artefact-fixtures.sh and re-run tools/verify-real-fixtures.mjs. A row that stops matching means either the toolchain changed or the detector broke; both must be looked at, and neither may be rounded to a pass.",
+  "toolchain": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU binutils 2.42, x86-64 Linux",
+  "controlString": "artefact-control-string-always-present",
+  "forbiddenString": "AKIAIOSFODNN7EXAMPLE",
+  "fixtures": {
+    "sp-on": {
+      "linkForm": "exec-pie",
+      "pie": "PRESENT", "nx": "PRESENT", "relro-full": "PRESENT", "relroLevel": "full",
+      "stack-protector": "PRESENT", "fortify": "ABSENT", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "sp-off": {
+      "linkForm": "exec-pie",
+      "pie": "PRESENT", "nx": "PRESENT", "relro-full": "PRESENT", "relroLevel": "full",
+      "stack-protector": "ABSENT", "fortify": "ABSENT", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "pie-on": {
+      "linkForm": "exec-pie",
+      "pie": "PRESENT", "nx": "PRESENT", "relro-full": "PRESENT", "relroLevel": "full",
+      "stack-protector": "ABSENT", "fortify": "ABSENT", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "pie-off": {
+      "linkForm": "exec-nonpie",
+      "pie": "ABSENT", "nx": "PRESENT", "relro-full": "ABSENT", "relroLevel": "partial",
+      "stack-protector": "ABSENT", "fortify": "ABSENT", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "relro-full": {
+      "linkForm": "exec-pie",
+      "pie": "PRESENT", "nx": "PRESENT", "relro-full": "PRESENT", "relroLevel": "full",
+      "stack-protector": "ABSENT", "fortify": "ABSENT", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "relro-part": {
+      "linkForm": "exec-pie",
+      "pie": "PRESENT", "nx": "PRESENT", "relro-full": "ABSENT", "relroLevel": "partial",
+      "stack-protector": "ABSENT", "fortify": "ABSENT", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "relro-none": {
+      "linkForm": "exec-pie",
+      "pie": "PRESENT", "nx": "PRESENT", "relro-full": "ABSENT", "relroLevel": "none",
+      "stack-protector": "ABSENT", "fortify": "ABSENT", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "nx-on": {
+      "linkForm": "exec-pie",
+      "pie": "PRESENT", "nx": "PRESENT", "relro-full": "PRESENT", "relroLevel": "full",
+      "stack-protector": "ABSENT", "fortify": "ABSENT", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "nx-off": {
+      "linkForm": "exec-pie",
+      "pie": "PRESENT", "nx": "ABSENT", "relro-full": "PRESENT", "relroLevel": "full",
+      "stack-protector": "ABSENT", "fortify": "ABSENT", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "fortify-on": {
+      "linkForm": "exec-pie",
+      "pie": "PRESENT", "nx": "PRESENT", "relro-full": "PRESENT", "relroLevel": "full",
+      "stack-protector": "ABSENT", "fortify": "PRESENT", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "fortify-off": {
+      "linkForm": "exec-pie",
+      "pie": "PRESENT", "nx": "PRESENT", "relro-full": "PRESENT", "relroLevel": "full",
+      "stack-protector": "ABSENT", "fortify": "ABSENT", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "buildid-on": {
+      "linkForm": "exec-pie",
+      "pie": "PRESENT", "nx": "PRESENT", "relro-full": "PRESENT", "relroLevel": "full",
+      "stack-protector": "ABSENT", "fortify": "ABSENT", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "buildid-off": {
+      "linkForm": "exec-pie",
+      "pie": "PRESENT", "nx": "PRESENT", "relro-full": "PRESENT", "relroLevel": "full",
+      "stack-protector": "ABSENT", "fortify": "ABSENT", "build-id": "ABSENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "dbg-on": {
+      "linkForm": "exec-pie",
+      "pie": "PRESENT", "nx": "PRESENT", "relro-full": "PRESENT", "relroLevel": "full",
+      "stack-protector": "ABSENT", "fortify": "ABSENT", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": true
+    },
+    "dbg-off": {
+      "linkForm": "exec-pie",
+      "pie": "PRESENT", "nx": "PRESENT", "relro-full": "PRESENT", "relroLevel": "full",
+      "stack-protector": "ABSENT", "fortify": "ABSENT", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "rpath": {
+      "linkForm": "exec-pie",
+      "pie": "PRESENT", "nx": "PRESENT", "relro-full": "PRESENT", "relroLevel": "full",
+      "stack-protector": "PRESENT", "fortify": "PRESENT", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false,
+      "runPaths": 1
+    },
+    "hardened": {
+      "linkForm": "exec-pie",
+      "pie": "PRESENT", "nx": "PRESENT", "relro-full": "PRESENT", "relroLevel": "full",
+      "stack-protector": "PRESENT", "fortify": "PRESENT", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "hardened-stripped": {
+      "linkForm": "exec-pie",
+      "pie": "PRESENT", "nx": "PRESENT", "relro-full": "PRESENT", "relroLevel": "full",
+      "stack-protector": "PRESENT", "fortify": "PRESENT", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "unhardened": {
+      "linkForm": "exec-nonpie",
+      "pie": "ABSENT", "nx": "ABSENT", "relro-full": "ABSENT", "relroLevel": "none",
+      "stack-protector": "ABSENT", "fortify": "ABSENT", "build-id": "ABSENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": true
+    },
+    "static-hardened": {
+      "linkForm": "exec-static",
+      "pie": "ABSENT", "nx": "PRESENT", "relro-full": "PRESENT", "relroLevel": "full",
+      "stack-protector": "NOT_OBSERVED", "fortify": "NOT_OBSERVED", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "static-plain": {
+      "linkForm": "exec-static",
+      "pie": "ABSENT", "nx": "PRESENT", "relro-full": "PRESENT", "relroLevel": "full",
+      "stack-protector": "NOT_OBSERVED", "fortify": "NOT_OBSERVED", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "libshared.so": {
+      "linkForm": "shared-object",
+      "pie": "NOT_APPLICABLE", "nx": "PRESENT", "relro-full": "ABSENT", "relroLevel": "partial",
+      "stack-protector": "ABSENT", "fortify": "NOT_OBSERVED", "build-id": "PRESENT",
+      "no-writable-executable-section": "PRESENT", "buildPathResidue": false
+    },
+    "wx-on": {
+      "linkForm": "exec-pie",
+      "pie": "PRESENT", "nx": "PRESENT", "relro-full": "ABSENT", "relroLevel": "none",
+      "stack-protector": "ABSENT", "fortify": "PRESENT", "build-id": "PRESENT",
+      "no-writable-executable-section": "ABSENT", "buildPathResidue": false
+    }
+  }
+}

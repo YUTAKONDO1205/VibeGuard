@@ -1,0 +1,6 @@
+define void @f(ptr %p) {
+entry:
+  store i32 0, ptr %p, align 4
+  store i32 7, ptr %p, align 4
+  ret void
+}

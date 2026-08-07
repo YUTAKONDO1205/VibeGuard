@@ -1,0 +1,11 @@
+; Semantic control 1: a different function entirely. Two callees whose names
+; happen to share a prefix are still two callees.
+declare i32 @helper_other(i32)
+declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)
+
+define i32 @f(ptr %p, i32 %x) {
+entry:
+  call void @llvm.memset.p0.i64(ptr %p, i8 0, i64 32, i1 false)
+  %r = call i32 @helper_other(i32 %x)
+  ret i32 %r
+}

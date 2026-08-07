@@ -1,0 +1,464 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vibeguard.dev/schema/compiler-observation-v0.json",
+  "title": "Compiler observation record, version 0",
+  "description": "The output form a component in compiler/ writes after it has looked. It carries where it looked (observationPoints), what it found there in the six-state vocabulary of interfaces.md section 3, who to blame as a (pass, IR unit) pair, what happened at the link and artefact layers, and one honest verdict. There is no consumer of this file in the repository yet; the deliverable is the form and its validator. Written against the keyword subset that compiler/driver/lib/jsonschema.mjs implements -- see validate-observation.mjs --capability, and see the semantic rules that file adds, because several of the invariants below cannot be said in draft-07 at all, let alone in that subset.",
+  "type": "object",
+  "required": [
+    "observationVersion",
+    "context",
+    "toolchain",
+    "verdict",
+    "counts",
+    "observationPoints",
+    "properties",
+    "layers",
+    "findings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "observationVersion": { "const": "observation-v0" },
+
+    "context": {
+      "description": "Everything a re-run cannot reproduce, and nothing else (interfaces.md section 5). Removed as a whole subtree before digesting, so adding a field here can never move a digest.",
+      "type": "object",
+      "required": ["generatedAt", "timeSource"],
+      "additionalProperties": false,
+      "properties": {
+        "generatedAt": { "type": "string" },
+        "timeSource": { "enum": ["SOURCE_DATE_EPOCH", "wall-clock"] },
+        "sourceDateEpoch": { "type": ["integer", "null"] },
+        "host": { "type": "object" },
+        "repository": { "type": "object" }
+      }
+    },
+
+    "evidenceDigest": {
+      "description": "SHA-256 over the canonical bytes of this record with `context` and `evidenceDigest` removed as whole subtrees. Absent means the record has not been sealed.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+
+    "toolchain": {
+      "type": "object",
+      "required": ["digest", "clang", "packages"],
+      "additionalProperties": false,
+      "properties": {
+        "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "clang": { "type": "string" },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "version"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "version": { "type": "string" },
+              "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+            }
+          }
+        }
+      }
+    },
+
+    "policy": {
+      "description": "Which policy decided this run. The digest is here so a verdict can be re-read years later against the rules that produced it.",
+      "type": "object",
+      "required": ["policyVersion", "digest"],
+      "additionalProperties": false,
+      "properties": {
+        "policyVersion": { "const": "policy-v0" },
+        "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "failOn": { "enum": ["low", "medium", "high", "critical"] }
+      }
+    },
+
+    "verdict": { "$ref": "#/definitions/verdict" },
+
+    "counts": {
+      "description": "The counting contract, inside the record rather than only on the runner's stdout. A record whose `checked` is 0 has not checked anything, and that is a fact a reader must be able to see without re-running.",
+      "type": "object",
+      "required": ["inputs", "checked", "skipped"],
+      "additionalProperties": false,
+      "properties": {
+        "inputs": { "type": "integer" },
+        "checked": { "type": "integer" },
+        "skipped": { "type": "integer" },
+        "skippedNames": {
+          "description": "Every skipped case by name. A count without names is not auditable.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "pointCoverage": { "$ref": "#/definitions/ratio" }
+      }
+    },
+
+    "observationPoints": {
+      "description": "Where this record looked. A point that was not reached stays in the array with reached=false and a reason -- deleting it would turn `we could not look` into `there was nothing to look at`.",
+      "type": "array",
+      "items": { "$ref": "#/definitions/observationPoint" }
+    },
+
+    "properties": {
+      "description": "One entry per declared security property. Keys are property ids from compiler/schema/properties.json; `kind` is the policy's vocabulary.",
+      "type": "array",
+      "items": { "$ref": "#/definitions/propertyObservation" }
+    },
+
+    "layers": { "$ref": "#/definitions/layers" },
+
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/finding" }
+    }
+  },
+
+  "definitions": {
+    "ratio": {
+      "description": "interfaces.md section 5 rule 4: every number in a record is an integer, so a ratio is a pair and never a float.",
+      "type": "object",
+      "required": ["num", "den"],
+      "additionalProperties": false,
+      "properties": {
+        "num": { "type": "integer" },
+        "den": { "type": "integer" }
+      }
+    },
+
+    "relativePath": {
+      "description": "Relative to the fixture root. The leading-separator and drive-letter forms are refused here as well as by the recursive check in the validator, because a record that names one machine is not evidence about a build.",
+      "type": "string",
+      "pattern": "^(?![/\\\\]|[A-Za-z]:[/\\\\]|~)"
+    },
+
+    "nonEmptyString": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+
+    "propertyState": {
+      "description": "interfaces.md section 3, entire. The last two exist because `we did not see it` and `it is not there` are different claims.",
+      "enum": [
+        "PRESENT",
+        "ABSENT",
+        "LOST",
+        "REINTRODUCED",
+        "NOT_APPLICABLE",
+        "NOT_OBSERVED"
+      ]
+    },
+
+    "verdictState": {
+      "description": "The honest verdict. UNSUPPORTED and VERIFICATION_INCOMPLETE are both `not clean`: the first says the configuration is outside the measured envelope, the second says a check inside the envelope did not finish. EVIDENCE_MISMATCH is the measurement disowning itself -- the control did not survive, or the record contradicts its own history -- and it is not a finding about the program.",
+      "enum": [
+        "VERIFIED_CLEAN",
+        "FINDINGS_PRESENT",
+        "VERIFICATION_INCOMPLETE",
+        "UNSUPPORTED",
+        "EVIDENCE_MISMATCH"
+      ]
+    },
+
+    "verdict": {
+      "type": "object",
+      "required": ["state", "exitCode", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "state": { "$ref": "#/definitions/verdictState" },
+        "exitCode": {
+          "description": "interfaces.md section 7, unchanged. 3 is never conflated with 0.",
+          "enum": [0, 1, 2, 3, 4]
+        },
+        "reason": { "$ref": "#/definitions/nonEmptyString" },
+        "unobserved": {
+          "description": "Everything this run could not observe, by name. A non-empty list here forbids VERIFIED_CLEAN.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "checkpoint": {
+      "description": "The five checkpoints of policy.schema.json properties[].observeAt, unchanged so that a policy and a record use one vocabulary.",
+      "enum": ["ast", "pre-opt-ir", "after-pass", "object", "linked"]
+    },
+
+    "stage": {
+      "description": "Which compilation stage the checkpoint was reached in. `lto-backend` is separate from `compile` because the same checkpoint kind is reached twice under -flto, in two different processes, and a record that merged them would attribute a link-time pass to the frontend.",
+      "enum": ["compile", "lto-backend", "link", "artifact"]
+    },
+
+    "observationPoint": {
+      "type": "object",
+      "required": ["id", "checkpoint", "stage", "reached"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "checkpoint": { "$ref": "#/definitions/checkpoint" },
+        "stage": { "$ref": "#/definitions/stage" },
+        "reached": { "type": "boolean" },
+        "unreachedReason": {
+          "description": "Required when reached is false, and it carries the tool's own words rather than a paraphrase.",
+          "type": ["string", "null"],
+          "pattern": "\\S"
+        },
+        "target": {
+          "description": "The target triple this point was reached for. Recorded because a property observed to survive on one target has not been observed to survive on another.",
+          "type": ["string", "null"]
+        },
+        "optLevel": { "enum": ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz", null] },
+        "tool": { "type": ["string", "null"] }
+      }
+    },
+
+    "effectCount": {
+      "description": "interfaces.md section 4. `oracle` is a const rather than an enum on purpose: there is no permitted way to record a count taken by searching for a symbol name, because a deleted call leaves its `declare` behind and a name search then blames the pass that swept the declaration away.",
+      "type": "object",
+      "required": ["callSites", "oracle"],
+      "additionalProperties": false,
+      "properties": {
+        "callSites": { "type": "integer" },
+        "oracle": { "const": "call-site" },
+        "naiveSymbolMatches": {
+          "description": "Optional, and only ever alongside callSites: what a name search would have said. Recording the disagreement is useful; recording only this number is the bug the const above forbids.",
+          "type": ["integer", "null"]
+        }
+      }
+    },
+
+    "attribution": {
+      "description": "A pair, never a pass alone. LLVM's pipeline nests module inside call graph inside function inside loop, so `the seventh pass` is not a position anyone can point at. null means not applicable, never not looked at.",
+      "type": "object",
+      "required": ["pass", "unit"],
+      "additionalProperties": false,
+      "properties": {
+        "pass": { "type": ["string", "null"] },
+        "unit": { "type": ["string", "null"] },
+        "unitKind": { "enum": ["module", "cgscc", "function", "loop", null] },
+        "lineage": {
+          "description": "The lineage root that groups a function with its clones. Keying a history by name alone splits one logical function in two and invents a reintroduction that never happened.",
+          "type": ["string", "null"]
+        },
+        "seq": { "type": ["integer", "null"] }
+      }
+    },
+
+    "stateEntry": {
+      "type": "object",
+      "required": ["index", "point", "state", "attribution", "count"],
+      "additionalProperties": false,
+      "properties": {
+        "index": { "type": "integer" },
+        "point": {
+          "description": "The id of an entry in observationPoints. Cross-reference, checked by the validator rather than by the schema.",
+          "type": "string"
+        },
+        "phase": { "enum": ["before", "after", "skipped", null] },
+        "state": { "$ref": "#/definitions/propertyState" },
+        "attribution": { "$ref": "#/definitions/attribution" },
+        "count": { "$ref": "#/definitions/effectCount" }
+      }
+    },
+
+    "controlObservation": {
+      "description": "interfaces.md section 4: every fixture carries a control whose effect cannot be removed, and it is required here rather than optional. A measurement whose control also fell to zero is a broken measurement, not a finding -- which is what EVIDENCE_MISMATCH is for.",
+      "type": "object",
+      "required": ["unit", "state", "count"],
+      "additionalProperties": false,
+      "properties": {
+        "unit": { "$ref": "#/definitions/nonEmptyString" },
+        "state": { "$ref": "#/definitions/propertyState" },
+        "count": { "$ref": "#/definitions/effectCount" }
+      }
+    },
+
+    "propertyObservation": {
+      "type": "object",
+      "required": ["id", "kind", "control", "history", "historyComplete", "finalState", "verdict"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/definitions/nonEmptyString" },
+        "kind": {
+          "enum": [
+            "must-survive",
+            "must-not-appear",
+            "must-originate-from",
+            "must-be-configured",
+            "must-remain-unobservable"
+          ]
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "functions": { "type": "array", "items": { "type": "string" } },
+            "files": { "type": "array", "items": { "$ref": "#/definitions/relativePath" } }
+          }
+        },
+        "control": { "$ref": "#/definitions/controlObservation" },
+        "history": {
+          "description": "The whole sequence, in order, to the end of the pipeline. Array order is significant and is never sorted.",
+          "type": "array",
+          "items": { "$ref": "#/definitions/stateEntry" }
+        },
+        "historyComplete": {
+          "description": "False when the sequence was cut short -- a pass budget, a crash, a truncated log. A record may say so; it may not then also say VERIFIED_CLEAN.",
+          "type": "boolean"
+        },
+        "firstLoss": {
+          "type": ["object", "null"],
+          "required": ["pass", "unit"],
+          "additionalProperties": false,
+          "properties": {
+            "pass": { "type": ["string", "null"] },
+            "unit": { "type": ["string", "null"] },
+            "seq": { "type": ["integer", "null"] },
+            "historyIndex": { "type": ["integer", "null"] }
+          }
+        },
+        "finalState": { "$ref": "#/definitions/propertyState" },
+        "lossEpisodes": { "type": "integer" },
+        "fate": {
+          "description": "What became of the IR unit itself. A vanished unit is not a lost property; merging the two is how a checker starts lying.",
+          "enum": ["LIVE", "BODY_REMOVED", "ERASED", "NOT_OBSERVED"]
+        },
+        "verdict": { "$ref": "#/definitions/verdictState" },
+        "note": { "type": "string" }
+      }
+    },
+
+    "layers": {
+      "description": "The three layers below the IR. Each carries `observed` first, because the interesting failure is a layer that was never looked at being read as a layer that was clean.",
+      "type": "object",
+      "required": ["compile", "link", "artifact"],
+      "additionalProperties": false,
+      "properties": {
+        "compile": {
+          "type": "object",
+          "required": ["observed"],
+          "additionalProperties": false,
+          "properties": {
+            "observed": { "type": "boolean" },
+            "unobservedReason": { "type": ["string", "null"], "pattern": "\\S" },
+            "target": { "type": ["string", "null"] },
+            "optLevel": { "enum": ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz", null] },
+            "passPluginsLoaded": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "sha256", "authorised"],
+                "additionalProperties": false,
+                "properties": {
+                  "name": { "type": "string" },
+                  "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                  "authorised": { "type": "boolean" }
+                }
+              }
+            },
+            "passesSeen": { "type": "integer" },
+            "unitsTracked": { "type": "integer" }
+          }
+        },
+        "link": {
+          "type": "object",
+          "required": ["observed", "ltoMode", "backendObserved"],
+          "additionalProperties": false,
+          "properties": {
+            "observed": { "type": "boolean" },
+            "unobservedReason": { "type": ["string", "null"], "pattern": "\\S" },
+            "linker": { "type": ["string", "null"] },
+            "ltoMode": {
+              "description": "`unknown` is a real answer and is not `none`. A driver that cannot tell whether the link ran an LTO backend has not observed the passes that ran there.",
+              "enum": ["none", "full", "thin", "unknown"]
+            },
+            "backendObserved": {
+              "description": "Whether the pass pipeline inside the LTO backend was observed. False with ltoMode full or thin means a whole optimisation pipeline ran unwatched, and that forbids VERIFIED_CLEAN.",
+              "type": "boolean"
+            },
+            "backendUnobservedReason": { "type": ["string", "null"], "pattern": "\\S" },
+            "inputs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["path", "kind", "authorised"],
+                "additionalProperties": false,
+                "properties": {
+                  "path": { "$ref": "#/definitions/relativePath" },
+                  "kind": { "enum": ["object", "bitcode", "archive", "library", "script", "unknown"] },
+                  "authorised": { "type": "boolean" },
+                  "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+                }
+              }
+            }
+          }
+        },
+        "artifact": {
+          "type": "object",
+          "required": ["observed"],
+          "additionalProperties": false,
+          "properties": {
+            "observed": { "type": "boolean" },
+            "unobservedReason": { "type": ["string", "null"], "pattern": "\\S" },
+            "path": { "$ref": "#/definitions/relativePath" },
+            "format": { "enum": ["elf", "wasm", "macho", "pe", "unknown", null] },
+            "machine": { "type": ["string", "null"] },
+            "checks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["require", "result", "decidedBy"],
+                "additionalProperties": false,
+                "properties": {
+                  "require": {
+                    "enum": [
+                      "pie",
+                      "nx",
+                      "relro-full",
+                      "stack-protector",
+                      "fortify",
+                      "no-writable-executable-section",
+                      "no-debug-path",
+                      "build-id"
+                    ]
+                  },
+                  "result": { "enum": ["PASS", "FAIL", "NOT_OBSERVED", "NOT_APPLICABLE"] },
+                  "decidedBy": {
+                    "description": "The structural field that decided it, never a tool's human-readable line.",
+                    "$ref": "#/definitions/nonEmptyString"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "finding": {
+      "description": "interfaces.md section 2, unchanged. The id pattern is the reserved namespace table made structural: a component cannot invent a seventh namespace by writing one.",
+      "type": "object",
+      "required": ["id", "severity", "title", "detail", "where"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^VG-(CFG|PLG|PROP|INTRO|LINK|ART)-[0-9]{3}$" },
+        "severity": { "enum": ["low", "medium", "high", "critical"] },
+        "title": { "$ref": "#/definitions/nonEmptyString" },
+        "detail": { "$ref": "#/definitions/nonEmptyString" },
+        "where": {
+          "type": "object",
+          "required": ["kind", "path", "unit", "pass"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "enum": ["invocation", "source", "ir", "object", "link", "artifact"] },
+            "path": { "type": ["string", "null"], "pattern": "^(?![/\\\\]|[A-Za-z]:[/\\\\]|~)" },
+            "unit": { "type": ["string", "null"] },
+            "pass": { "type": ["string", "null"] }
+          }
+        },
+        "property": { "type": ["string", "null"] },
+        "point": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

@@ -170,6 +170,13 @@ const failures = [];
  */
 let compilerNote = 'compiler/ not evaluated';
 
+/**
+ * Which top-level directories the composite action builds, and which merely
+ * ride in the tag. Printed on success so the split is visible in a log rather
+ * than only in a failure.
+ */
+let passengerNote = 'Action tree: not classified';
+
 // ── Invariant 1: VS Code types must not outrun the declared engine ──────────
 {
   const pkgPath = join(REPO_ROOT, 'extensions/vscode/package.json');
@@ -1269,7 +1276,13 @@ if (!PRE_BUILD) {
     // written in something this list does not name — say a .S, or a .cmake with
     // a `file(DOWNLOAD ...)` in it — which the tripwire then walks straight past
     // while the summary still says the boundary is clean.
-    const INERT_EXT = ['.md', '.txt', '.json', '.yml', '.yaml', '.toml', '.gitignore'];
+    // `.trace` and `.hex` are recorded tool OUTPUT kept as test input: a
+    // captured linker trace, and a hex dump of an ELF header. They are inert for
+    // the same reason .txt is — nothing executes them, and an egress sink cannot
+    // hide in a file no interpreter reads. They are named here rather than left
+    // to fall through the classifier, because the whole point of this list is
+    // that a file type is either understood or declared, never merely unmatched.
+    const INERT_EXT = ['.md', '.txt', '.json', '.yml', '.yaml', '.toml', '.gitignore', '.trace', '.hex'];
     const INERT_NAMES = ['LICENSE', 'NOTICE', 'README', '.gitignore'];
     const unreadable = listed.filter((path) => {
       const name = path.split('/').pop();
@@ -1432,6 +1445,117 @@ if (!PRE_BUILD) {
   }
 }
 
+// ── INVARIANT: a directory that ships in the Action but is not built by it
+//    must be INERT ────────────────────────────────────────────────────────────
+//
+// The composite action expands the tag's WHOLE TREE into
+// `${{ github.action_path }}` and then runs `npm ci` and a series of
+// `npm run build -w` in it. So every top-level directory in the tag is
+// distributed to every consumer, whether or not the action has any use for it.
+// That is not a bug to be fixed by deleting directories — it is a property of
+// composite actions — but it does mean the tree has two populations, and only
+// one of them was ever reasoned about:
+//
+//   BUILT      the action installs and compiles it. Its dependencies, its build
+//              time and its failure modes are the consumer's problem.
+//   PASSENGER  it rides along and is never touched. Costs bytes, nothing else.
+//
+// A passenger becomes a BUILT directory the moment something makes npm see it —
+// a workspace glob widened, a package.json added at a path a glob already
+// covers, a build step that names it. The change that does this is one line and
+// looks harmless in review; the consequence is that every consumer's CI starts
+// acquiring that directory's toolchain. For the native directory here that
+// means a clang/LLVM prerequisite on machines that have never needed one.
+//
+// So the rule is not "keep directory X out of the tag" — that battle is already
+// lost and re-fighting it would mean rewriting published history. The rule is:
+// a passenger stays inert, and any directory moving between the two populations
+// does so in a diff someone reads.
+{
+  let listed = [];
+  try {
+    listed = execFileSync(
+      'git',
+      ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+      { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 },
+    ).split('\0').map((s) => s.trim()).filter(Boolean);
+  } catch {
+    listed = [];
+  }
+
+  // Counting contract. An empty enumeration here would classify nothing and
+  // report success, which is the failure this file exists to refuse.
+  if (listed.length === 0) {
+    failures.push(
+      'could not enumerate committable paths, so the shipped-but-inert classification did\n' +
+        '  not run. Reported rather than skipped: "checked nothing" and "checked and found\n' +
+        '  nothing wrong" are different claims and must not share an exit code.',
+    );
+  } else {
+    const topDirs = new Set();
+    for (const p of listed) {
+      const slash = p.indexOf('/');
+      if (slash > 0) topDirs.add(p.slice(0, slash));
+    }
+
+    let workspaceGlobs = [];
+    try {
+      workspaceGlobs = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')).workspaces ?? [];
+    } catch { workspaceGlobs = []; }
+    // Only the leading directory of each glob matters for this question: npm
+    // resolves `packages/*` by reading `packages/`, so a directory is reachable
+    // iff some glob starts with its name.
+    const globRoots = new Set(workspaceGlobs.map((g) => String(g).split('/')[0]));
+
+    let actionText = '';
+    try { actionText = readFileSync(join(REPO_ROOT, 'action.yml'), 'utf8'); } catch { actionText = ''; }
+    if (!actionText) {
+      failures.push('action.yml is unreadable, so no directory could be classified as built-or-passenger.');
+    }
+    // The lines that can make npm or a shell reach a directory. Comments are
+    // dropped first: this file's own prose names the native directory, and a
+    // raw substring search over the whole document would classify it as built
+    // on the strength of a sentence explaining that it is not.
+    const actionRunText = actionText
+      .split(/\r?\n/)
+      .filter((l) => !/^\s*#/.test(l))
+      .map((l) => l.replace(/\s#.*$/, ''))
+      .join('\n');
+
+    const built = [];
+    const passengers = [];
+    for (const d of [...topDirs].sort()) {
+      const reachableByNpm = globRoots.has(d);
+      const namedByAction = new RegExp(`(^|[^\\w./-])${d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`, 'm').test(actionRunText);
+      (reachableByNpm || namedByAction ? built : passengers).push(d);
+
+      // The transition that must never happen silently: a passenger that has
+      // acquired a manifest npm would read. `packages/x/package.json` is fine —
+      // that directory is declared. `<passenger>/package.json` is not.
+      if (!reachableByNpm && existsSync(join(REPO_ROOT, d, 'package.json'))) {
+        failures.push(
+          `${d}/package.json exists but ${d}/ is not covered by any workspace glob ` +
+            `(${workspaceGlobs.join(', ') || 'none'}).\n` +
+            `  Either it is meant to be installed — then declare it, and accept that every\n` +
+            `  Action consumer now installs it — or it is not, and the manifest should go.\n` +
+            `  A manifest one glob-widening away from being installed is the state where the\n` +
+            `  decision gets made by accident.`,
+        );
+      }
+    }
+
+    if (built.length === 0) {
+      failures.push(
+        'no directory was classified as built by the Action. The action.yml parse or the\n' +
+          '  workspace globs came back empty, so the passenger list below means nothing.',
+      );
+    }
+    passengerNote =
+      `Action tree: ${built.length} built (${built.join(', ')}), ` +
+      `${passengers.length} inert passenger(s) (${passengers.join(', ') || 'none'})`;
+  }
+}
+
 if (failures.length) {
   console.error('packaging invariants FAILED:\n');
   for (const f of failures) console.error(`  - ${f}\n`);
@@ -1450,3 +1574,4 @@ console.log(
       'bundle sizes in band, action.yml builds every CLI dependency)',
 );
 console.log(`  ${compilerNote}`);
+console.log(`  ${passengerNote}`);

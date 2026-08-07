@@ -10,8 +10,18 @@ apart without anybody noticing.
 | `canon.mjs` | Generation side. `canonicalJson`, `evidenceDigest`, and `sealRecord` — the chokepoint every writer goes through. |
 | `clock.mjs` | The only place in this component allowed to read a clock, plus the audit that proves it is still the only one. |
 | `paths.mjs` | The absolute-path gate. Runs **before** the digest, inside `sealRecord`. |
+| `counting.mjs` | The counting contract: `inputs=N checked=N skipped=S`, and a run that checked nothing does not exit 0. |
+| `fsguard.mjs` | Symlink refusal. A linked component anywhere on the path to an input is refused, not followed. |
+| `machine.mjs` | Machine identity in a record, and the delegation to `scripts/check-disclosure-shape.mjs`. |
+| `store.mjs` | Where measurement records live, and what makes one valid. |
+| `validate-store.mjs` | The measurement-record validator. Written before the first record existed. |
+| `record-run.mjs` | The writer: provenance, measured toolchain, seal, out-of-tree. |
 | `verify.mjs` | Independent verifier. Re-derives the digest from the rules without importing `canon.mjs`. |
 | `testdata/digest-vectors.json` | 22 input/output pairs and 8 inputs that must be refused. |
+| `test/*.test.mjs` | 71 cases. `node --test compiler/evidence/test/*.test.mjs` — glob it; passing the directory throws `MODULE_NOT_FOUND` on newer runtimes. |
+
+The measurement record store — where records live, what one must carry, and what
+none of it can detect — is documented separately in [`STORE.md`](./STORE.md).
 
 ## The rules
 
@@ -136,6 +146,10 @@ node verify.mjs --record <evidence.json>
 node verify.mjs --digest <file.json>   # re-derived digest, nothing else
 node verify.mjs --clock-audit <dir>    # fail if anything but clock.mjs reads a clock
 node verify.mjs --paths <file.json>    # absolute paths, as the gate would see them
+
+node validate-store.mjs --self-test    # every store detector, both directions
+node validate-store.mjs --store <dir>  # every measurement record in a store
+node --test compiler/evidence/test/*.test.mjs
 ```
 
 Exit codes are the shared ones (`../schema/interfaces.md` §7): `0` checked and
@@ -143,7 +157,35 @@ clean, `2` findings at or above the threshold, `3` a check could not be
 completed, `4` the record is malformed and nothing downstream of it means
 anything. `3` is never conflated with `0`: a bundle with no findings but a field
 nothing could check reports `VERIFICATION_INCOMPLETE` and exits `3`, because a
-field nobody checked is not a field that passed.
+field nobody checked is not a field that passed. `--record` now answers the same
+way; it used to return `0` over the same unchecked list, so one record got two
+different verdicts depending on which flag was used to look at it.
+
+### The counting contract
+
+Every mode prints `inputs=N checked=N skipped=S`, and a run that **checked
+nothing** exits `3` unless `--allow-empty` was passed. `checked + skipped` must
+equal `inputs`; a run where it does not also exits `3`. The rule lives in
+`counting.mjs` and is imported, not repeated.
+
+It is a module because this exact bug has appeared three times here. Most
+recently `--self-test`, handed a vector file containing `{"vectors":[]}`,
+reproduced every one of its nought vectors, agreed with `canon.mjs` about all
+nought of them, and exited `0`. Nothing it printed was false; the exit code was.
+The test that pins it is `test/selftest-empty.test.mjs`, and it asserts both
+directions — the empty file exits `3`, the real one still exits `0`.
+
+### Symlinked inputs are refused
+
+A symbolic link on any component of the path to an input — including the
+ancestors, since a linked *directory* redirects everything beneath it at once —
+is refused rather than followed, and exits `2`. `--link-boundary <dir>` stops the
+upward walk for a machine whose home directory is legitimately a link.
+
+A report that names one path and reads another is wrong in every line, and the
+substitution needs no privileges and leaves no trace in the record. What this
+does **not** catch is a coherent regeneration of the evidence; that limit is
+stated in full in [`STORE.md`](./STORE.md).
 
 ### Independence
 

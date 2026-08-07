@@ -1,0 +1,597 @@
+{
+  "schemaVersion": "digest-vectors-v0",
+  "rules": {
+    "keyOrder": "lexicographic at every object level, arrays of objects included",
+    "arrayOrder": "significant, never sorted",
+    "whitespace": "none",
+    "excludedTopLevelKeys": [
+      "context",
+      "evidenceDigest"
+    ],
+    "exclusionIsBySubtree": "the whole `context` value is removed, including every key nested inside it; a key named `context` anywhere below the top level is kept, like any other key",
+    "volatileFieldsConvention": "anything a re-run cannot reproduce (wall clock, host, durations, provenance of other repositories) belongs in top-level `context`; nothing else is excluded, because a list of names only covers what was known when it was written",
+    "numbers": "integers only, within the exact-integer range; a non-integer anywhere is an error and is never rounded",
+    "hash": "sha256, lowercase hex, over the UTF-8 bytes of the canonical text"
+  },
+  "note": "A canonicaliser that reproduces every vector here is calibrated. One that does not has a bug in its own serialisation, not a finding about any record. Expected values were produced by the independent reference implementation outside this repository, never by hand.",
+  "vectors": [
+    {
+      "name": "empty",
+      "origin": "reference test vectors, expected values recomputed here",
+      "input": {},
+      "canonicalText": "{}",
+      "digest": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "name": "flat-key-order",
+      "origin": "reference test vectors, expected values recomputed here",
+      "input": {
+        "b": 2,
+        "a": 1,
+        "C": 3
+      },
+      "canonicalText": "{\"C\":3,\"a\":1,\"b\":2}",
+      "digest": "b5ca072bd7d7c2ed24141bd94bb40d6d29d7fda0dbb92594a60a4ba6ad65b7c8"
+    },
+    {
+      "name": "nested-key-order",
+      "origin": "reference test vectors, expected values recomputed here",
+      "input": {
+        "z": {
+          "d": 4,
+          "a": {
+            "y": 2,
+            "b": 1
+          }
+        },
+        "a": [
+          1,
+          2,
+          3
+        ]
+      },
+      "canonicalText": "{\"a\":[1,2,3],\"z\":{\"a\":{\"b\":1,\"y\":2},\"d\":4}}",
+      "digest": "78c4764089d67b576bdd0e100237900b3688dbcc99f8ef39e9e936de76063f1d"
+    },
+    {
+      "name": "array-order-is-significant",
+      "origin": "reference test vectors, expected values recomputed here",
+      "input": {
+        "xs": [
+          {
+            "b": 1,
+            "a": 2
+          },
+          {
+            "a": 3,
+            "b": 4
+          }
+        ]
+      },
+      "canonicalText": "{\"xs\":[{\"a\":2,\"b\":1},{\"a\":3,\"b\":4}]}",
+      "digest": "e1d435b92ab51bb61b126f9bfe758abeb40be881b6027f70e1389e22e8e323c7"
+    },
+    {
+      "name": "non-ascii-keys",
+      "origin": "reference test vectors, expected values recomputed here",
+      "input": {
+        "é": 1,
+        "e": 2,
+        "z": 3,
+        "あ": 4
+      },
+      "canonicalText": "{\"e\":2,\"z\":3,\"é\":1,\"あ\":4}",
+      "digest": "1cfea1fedf64f6815173be1202986bcf5ded7d1032fa3de793d67940c73e8a85"
+    },
+    {
+      "name": "top-level-exclusions-only",
+      "origin": "reference test vectors, expected values recomputed here",
+      "input": {
+        "context": {
+          "generatedAt": "2020-01-01T00:00:00.000Z",
+          "host": {
+            "node": "v18.19.1"
+          }
+        },
+        "evidenceDigest": "ffff",
+        "inner": {
+          "context": "kept",
+          "evidenceDigest": "kept"
+        },
+        "value": 1
+      },
+      "canonicalText": "{\"inner\":{\"context\":\"kept\",\"evidenceDigest\":\"kept\"},\"value\":1}",
+      "digest": "2c49bceca618e6ac0974781efaa8c9252fd0e6cc67b75f88b719d2beee4d7d3d"
+    },
+    {
+      "name": "context-is-dropped-as-a-subtree",
+      "origin": "reference test vectors, expected values recomputed here",
+      "input": {
+        "context": {
+          "generatedAt": "2020-01-01T00:00:00.000Z",
+          "sourceDateEpoch": 1577836800,
+          "repoProvenance": {
+            "gitSha": "deadbeef",
+            "dirty": true
+          },
+          "nested": {
+            "deeper": {
+              "anything": [
+                1,
+                {
+                  "at": "all"
+                }
+              ]
+            }
+          }
+        },
+        "value": 1
+      },
+      "canonicalText": "{\"value\":1}",
+      "digest": "48208f9428d64634bd8e28ff345bf0eab60d53c18fa2fbdb0b9bc1e84df2b5f6"
+    },
+    {
+      "name": "context-is-dropped-before-the-integer-rule",
+      "origin": "reference test vectors, expected values recomputed here",
+      "input": {
+        "context": {
+          "elapsedSeconds": 41.9
+        },
+        "value": 1
+      },
+      "canonicalText": "{\"value\":1}",
+      "digest": "48208f9428d64634bd8e28ff345bf0eab60d53c18fa2fbdb0b9bc1e84df2b5f6"
+    },
+    {
+      "name": "generatedAt-at-the-top-level-is-no-longer-excluded",
+      "origin": "reference test vectors, expected values recomputed here",
+      "input": {
+        "generatedAt": "2020-01-01T00:00:00.000Z",
+        "value": 1
+      },
+      "canonicalText": "{\"generatedAt\":\"2020-01-01T00:00:00.000Z\",\"value\":1}",
+      "digest": "3558fde92b85ed5c3711c635cd9bf875c230072e854e1d9c59c7503261f5712a"
+    },
+    {
+      "name": "nulls-and-booleans",
+      "origin": "reference test vectors, expected values recomputed here",
+      "input": {
+        "a": null,
+        "b": false,
+        "c": true,
+        "d": [
+          null
+        ]
+      },
+      "canonicalText": "{\"a\":null,\"b\":false,\"c\":true,\"d\":[null]}",
+      "digest": "f7e1a2199081e599cfa65967efcb0daf1579a6e572b40a80427a59bbcf2d7562"
+    },
+    {
+      "name": "negative-and-zero",
+      "origin": "reference test vectors, expected values recomputed here",
+      "input": {
+        "a": 0,
+        "b": -1,
+        "c": 0
+      },
+      "canonicalText": "{\"a\":0,\"b\":-1,\"c\":0}",
+      "digest": "3f2c937caf3fbb3b4f1a0b058a142951f7e648068365101974220c619bc2aaab"
+    },
+    {
+      "name": "deep-arrays-of-objects-sort-inside-the-array",
+      "origin": "added here, expected values computed by the reference canonicaliser",
+      "input": {
+        "outer": [
+          [
+            {
+              "b": 1,
+              "a": 2
+            },
+            {
+              "d": 3,
+              "c": 4
+            }
+          ],
+          [
+            {
+              "z": 5,
+              "y": [
+                {
+                  "n": 1,
+                  "m": 2
+                }
+              ]
+            }
+          ]
+        ],
+        "after": 0
+      },
+      "canonicalText": "{\"after\":0,\"outer\":[[{\"a\":2,\"b\":1},{\"c\":4,\"d\":3}],[{\"y\":[{\"m\":2,\"n\":1}],\"z\":5}]]}",
+      "digest": "1dd1992a0c73697a475533a9d90db0d340e7b433a57206a1ac5d7e201ecc1535"
+    },
+    {
+      "name": "string-escaping",
+      "origin": "added here, expected values computed by the reference canonicaliser",
+      "input": {
+        "quote": "a \"quoted\" word",
+        "backslash": "a\\b",
+        "newline": "line1\nline2",
+        "tab": "a\tb",
+        "control": "a\u0001b",
+        "slash": "a/b"
+      },
+      "canonicalText": "{\"backslash\":\"a\\\\b\",\"control\":\"a\\u0001b\",\"newline\":\"line1\\nline2\",\"quote\":\"a \\\"quoted\\\" word\",\"slash\":\"a/b\",\"tab\":\"a\\tb\"}",
+      "digest": "625196374c7f8cf0b70c684b4f5b52d64e8e5f3842f0c90c898012d4187e6682"
+    },
+    {
+      "name": "astral-and-combining-characters",
+      "origin": "added here, expected values computed by the reference canonicaliser",
+      "input": {
+        "𝄞": "clef",
+        "combining": "é",
+        "precomposed": "é"
+      },
+      "canonicalText": "{\"combining\":\"é\",\"precomposed\":\"é\",\"𝄞\":\"clef\"}",
+      "digest": "fb99c5ae0f4fa2780b05f8a3901f2d98dee2d647555df3b4c13c6c879ec88dcc"
+    },
+    {
+      "name": "empty-containers",
+      "origin": "added here, expected values computed by the reference canonicaliser",
+      "input": {
+        "arr": [],
+        "obj": {},
+        "nestedEmpty": [
+          [],
+          {}
+        ],
+        "filled": [
+          0
+        ]
+      },
+      "canonicalText": "{\"arr\":[],\"filled\":[0],\"nestedEmpty\":[[],{}],\"obj\":{}}",
+      "digest": "8966f7df30fcfa6212ac217d376f532318dc03b166efc26e993bcf12f00d2673"
+    },
+    {
+      "name": "empty-string-key-sorts-first",
+      "origin": "added here, expected values computed by the reference canonicaliser",
+      "input": {
+        "a": 2,
+        "": 1,
+        " ": 3
+      },
+      "canonicalText": "{\"\":1,\" \":3,\"a\":2}",
+      "digest": "b60ad7f68844bf68be8039c6d1bdb8dbb7e57f3cf63aacd9df7a851472d8305a"
+    },
+    {
+      "name": "integer-edges",
+      "origin": "added here, expected values computed by the reference canonicaliser",
+      "input": {
+        "max": 9007199254740991,
+        "min": -9007199254740991,
+        "zero": 0,
+        "one": 1
+      },
+      "canonicalText": "{\"max\":9007199254740991,\"min\":-9007199254740991,\"one\":1,\"zero\":0}",
+      "digest": "8b5165d5ff25eaa6380e3cf13158253757bf739182b244845552c80a96fbf237"
+    },
+    {
+      "name": "key-sort-is-by-code-unit-not-locale",
+      "origin": "added here, expected values computed by the reference canonicaliser",
+      "input": {
+        "Z": 1,
+        "a": 2,
+        "A": 3,
+        "z": 4,
+        "_": 5,
+        "-": 6,
+        "k0": 7,
+        "k10": 8,
+        "k9": 9
+      },
+      "canonicalText": "{\"-\":6,\"A\":3,\"Z\":1,\"_\":5,\"a\":2,\"k0\":7,\"k10\":8,\"k9\":9,\"z\":4}",
+      "digest": "38f157b87c02650042b9f23162ff1223ca5fb8862bde97da64bd2935f2f87dfa"
+    },
+    {
+      "name": "a-context-key-inside-an-array-is-ordinary",
+      "origin": "added here, expected values computed by the reference canonicaliser",
+      "input": {
+        "entries": [
+          {
+            "context": {
+              "volatile": "kept"
+            },
+            "evidenceDigest": "kept",
+            "id": "b"
+          },
+          {
+            "context": null,
+            "id": "a"
+          }
+        ]
+      },
+      "canonicalText": "{\"entries\":[{\"context\":{\"volatile\":\"kept\"},\"evidenceDigest\":\"kept\",\"id\":\"b\"},{\"context\":null,\"id\":\"a\"}]}",
+      "digest": "389516dcc068d6b4f0dbd6ed5b4b549be60886f05199dd076261788f47137d61"
+    },
+    {
+      "name": "a-ratio-is-a-pair-of-integer-counts",
+      "origin": "added here, expected values computed by the reference canonicaliser",
+      "input": {
+        "fragility": {
+          "den": 16,
+          "num": 3
+        },
+        "lost": 3,
+        "evaluated": 16
+      },
+      "canonicalText": "{\"evaluated\":16,\"fragility\":{\"den\":16,\"num\":3},\"lost\":3}",
+      "digest": "02e12a194d28b5f9376c5b3386828222d322c09f28bafffe963eeb9b8483f256"
+    },
+    {
+      "name": "record-shaped",
+      "origin": "added here, expected values computed by the reference canonicaliser",
+      "input": {
+        "schemaVersion": "evidence-v0",
+        "context": {
+          "generatedAt": "2020-01-01T00:00:00.000Z",
+          "timeSource": "SOURCE_DATE_EPOCH",
+          "sourceDateEpoch": 1577836800,
+          "host": {
+            "node": "v18.19.1",
+            "platform": "linux",
+            "arch": "x64"
+          }
+        },
+        "evidenceDigest": "to-be-replaced",
+        "command": {
+          "argv": [
+            "cc",
+            "-O1",
+            "-c",
+            "-o",
+            "build/target.o",
+            "target.c"
+          ]
+        },
+        "artifact": {
+          "path": "artifact/target.o",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "kind": "object"
+        },
+        "coverage": {
+          "observed": 2,
+          "planned": 2
+        },
+        "properties": [
+          {
+            "propertyId": "demo.erasure",
+            "states": [
+              {
+                "checkpoint": "ir-pre",
+                "verdict": "PRESENT",
+                "effect": 1,
+                "control": 1
+              },
+              {
+                "checkpoint": "ir-post",
+                "verdict": "ABSENT",
+                "effect": 0,
+                "control": 1
+              }
+            ],
+            "firstLoss": {
+              "stage": "ir-pass",
+              "pass": "DemoPass",
+              "unit": "wipe",
+              "occurrence": 1
+            },
+            "agreement": {
+              "level": "single",
+              "methods": [
+                "ir"
+              ],
+              "reportedUnits": {
+                "ir": "wipe"
+              }
+            },
+            "confidence": "provisional",
+            "fragility": {
+              "lost": 1,
+              "evaluated": 4
+            }
+          }
+        ],
+        "unresolved": []
+      },
+      "canonicalText": "{\"artifact\":{\"kind\":\"object\",\"path\":\"artifact/target.o\",\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"},\"command\":{\"argv\":[\"cc\",\"-O1\",\"-c\",\"-o\",\"build/target.o\",\"target.c\"]},\"coverage\":{\"observed\":2,\"planned\":2},\"properties\":[{\"agreement\":{\"level\":\"single\",\"methods\":[\"ir\"],\"reportedUnits\":{\"ir\":\"wipe\"}},\"confidence\":\"provisional\",\"firstLoss\":{\"occurrence\":1,\"pass\":\"DemoPass\",\"stage\":\"ir-pass\",\"unit\":\"wipe\"},\"fragility\":{\"evaluated\":4,\"lost\":1},\"propertyId\":\"demo.erasure\",\"states\":[{\"checkpoint\":\"ir-pre\",\"control\":1,\"effect\":1,\"verdict\":\"PRESENT\"},{\"checkpoint\":\"ir-post\",\"control\":1,\"effect\":0,\"verdict\":\"ABSENT\"}]}],\"schemaVersion\":\"evidence-v0\",\"unresolved\":[]}",
+      "digest": "b652d506e1e8466f1d706e2038c931de4313468e842d11a14a510a22152e2825"
+    },
+    {
+      "name": "changing-context-alone-does-not-move-the-digest",
+      "origin": "added here, expected values computed by the reference canonicaliser",
+      "input": {
+        "context": {
+          "generatedAt": "2031-12-31T23:59:59.000Z",
+          "host": {
+            "node": "v22.0.0"
+          },
+          "repoProvenance": {
+            "gitSha": "cafebabe",
+            "dirty": false
+          },
+          "anythingAtAll": [
+            1,
+            2,
+            3
+          ]
+        },
+        "evidenceDigest": "to-be-replaced",
+        "command": {
+          "argv": [
+            "cc",
+            "-O1",
+            "-c",
+            "-o",
+            "build/target.o",
+            "target.c"
+          ]
+        },
+        "artifact": {
+          "path": "artifact/target.o",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "kind": "object"
+        },
+        "coverage": {
+          "observed": 2,
+          "planned": 2
+        },
+        "properties": [
+          {
+            "propertyId": "demo.erasure",
+            "states": [
+              {
+                "checkpoint": "ir-pre",
+                "verdict": "PRESENT",
+                "effect": 1,
+                "control": 1
+              },
+              {
+                "checkpoint": "ir-post",
+                "verdict": "ABSENT",
+                "effect": 0,
+                "control": 1
+              }
+            ],
+            "firstLoss": {
+              "stage": "ir-pass",
+              "pass": "DemoPass",
+              "unit": "wipe",
+              "occurrence": 1
+            },
+            "agreement": {
+              "level": "single",
+              "methods": [
+                "ir"
+              ],
+              "reportedUnits": {
+                "ir": "wipe"
+              }
+            },
+            "confidence": "provisional",
+            "fragility": {
+              "lost": 1,
+              "evaluated": 4
+            }
+          }
+        ],
+        "schemaVersion": "evidence-v0",
+        "unresolved": []
+      },
+      "canonicalText": "{\"artifact\":{\"kind\":\"object\",\"path\":\"artifact/target.o\",\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"},\"command\":{\"argv\":[\"cc\",\"-O1\",\"-c\",\"-o\",\"build/target.o\",\"target.c\"]},\"coverage\":{\"observed\":2,\"planned\":2},\"properties\":[{\"agreement\":{\"level\":\"single\",\"methods\":[\"ir\"],\"reportedUnits\":{\"ir\":\"wipe\"}},\"confidence\":\"provisional\",\"firstLoss\":{\"occurrence\":1,\"pass\":\"DemoPass\",\"stage\":\"ir-pass\",\"unit\":\"wipe\"},\"fragility\":{\"evaluated\":4,\"lost\":1},\"propertyId\":\"demo.erasure\",\"states\":[{\"checkpoint\":\"ir-pre\",\"control\":1,\"effect\":1,\"verdict\":\"PRESENT\"},{\"checkpoint\":\"ir-post\",\"control\":1,\"effect\":0,\"verdict\":\"ABSENT\"}]}],\"schemaVersion\":\"evidence-v0\",\"unresolved\":[]}",
+      "digest": "b652d506e1e8466f1d706e2038c931de4313468e842d11a14a510a22152e2825"
+    }
+  ],
+  "mustFail": [
+    {
+      "name": "a-float-ratio-is-refused-not-rounded",
+      "input": {
+        "ratio": 0.75
+      },
+      "why": "rule 4: carry it as {\"num\":3,\"den\":4}",
+      "refusedByReference": true,
+      "referenceMessage": "canonical JSON forbids non-integer numbers, found 0.75 at $.ratio; carry ratios as a pair of integer counts instead"
+    },
+    {
+      "name": "a-float-inside-an-array-is-refused",
+      "input": {
+        "xs": [
+          1,
+          2,
+          2.5
+        ]
+      },
+      "why": "rule 4 applies at every depth",
+      "refusedByReference": true,
+      "referenceMessage": "canonical JSON forbids non-integer numbers, found 2.5 at $.xs[2]; carry ratios as a pair of integer counts instead"
+    },
+    {
+      "name": "a-float-deep-inside-nested-objects-is-refused",
+      "input": {
+        "a": {
+          "b": {
+            "c": [
+              {
+                "d": 41.9
+              }
+            ]
+          }
+        }
+      },
+      "why": "rule 4 applies at every depth",
+      "refusedByReference": true,
+      "referenceMessage": "canonical JSON forbids non-integer numbers, found 41.9 at $.a.b.c[0].d; carry ratios as a pair of integer counts instead"
+    },
+    {
+      "name": "a-negative-float-is-refused",
+      "input": {
+        "x": -0.5
+      },
+      "why": "rule 4 has no sign exception",
+      "refusedByReference": true,
+      "referenceMessage": "canonical JSON forbids non-integer numbers, found -0.5 at $.x; carry ratios as a pair of integer counts instead"
+    },
+    {
+      "name": "a-float-outside-context-is-still-refused",
+      "input": {
+        "context": {
+          "elapsedSeconds": 41.9
+        },
+        "value": 0.5
+      },
+      "why": "context is removed first, so its float is fine; the one outside is not",
+      "refusedByReference": true,
+      "referenceMessage": "canonical JSON forbids non-integer numbers, found 0.5 at $.value; carry ratios as a pair of integer counts instead"
+    },
+    {
+      "name": "an-integer-beyond-the-exact-range-is-refused",
+      "input": {
+        "x": 9007199254740992
+      },
+      "why": "beyond 2^53-1 two implementations need not agree on the digits",
+      "refusedByReference": false,
+      "strictness": "beyond the reference implementation",
+      "referenceMessage": null,
+      "referenceCanonicalText": "{\"x\":9007199254740992}",
+      "referenceDigest": "9799d751f6b78d19d7d2dfe1b3889007eb2de56c34a92e998389795b26cb14d3"
+    },
+    {
+      "name": "an-integer-written-in-exponent-form-is-refused",
+      "input": {
+        "x": 1e+21
+      },
+      "why": "JSON.stringify(1e21) is \"1e+21\"; another language writes the digits, and the digest moves",
+      "refusedByReference": false,
+      "strictness": "beyond the reference implementation",
+      "referenceMessage": null,
+      "referenceCanonicalText": "{\"x\":1e+21}",
+      "referenceDigest": "f4bcbb57bdf54b5b595d88096406c936d86bf0b6dd316d0ad2b4d2504c610403"
+    },
+    {
+      "name": "an-array-index-key-is-refused",
+      "input": {
+        "0": 7,
+        "9": 9,
+        "10": 8,
+        "-": 6,
+        "a": 2
+      },
+      "why": "a JS engine puts integer-index keys first, in ascending numeric order, ahead of every string key and regardless of insertion order. So \"sort the keys\" does not fix the byte order: an implementation that sorts into a new object and stringifies it, and one that emits the sorted text directly, both obey rule 2 and produce different bytes. Rule 2 does not say which is right, so the key is refused rather than guessed at. Prefix it (\"k10\") or carry the map as an array of {key, value} pairs.",
+      "refusedByReference": false,
+      "strictness": "beyond the reference implementation",
+      "referenceMessage": null,
+      "referenceCanonicalText": "{\"0\":7,\"9\":9,\"10\":8,\"-\":6,\"a\":2}",
+      "referenceDigest": "d93f5b2cffe4ae3986eb673816c863949fe74f2b42eded7a250795b0131abe70",
+      "literalRuleCanonicalText": "{\"-\":6,\"0\":7,\"10\":8,\"9\":9,\"a\":2}",
+      "divergence": "the reference produces \"{\\\"0\\\":7,\\\"9\\\":9,\\\"10\\\":8,\\\"-\\\":6,\\\"a\\\":2}\" and a literal reading of rule 2 produces \"{\\\"-\\\":6,\\\"0\\\":7,\\\"10\\\":8,\\\"9\\\":9,\\\"a\\\":2}\"; both obey the written rule, and they are different bytes"
+    }
+  ]
+}
