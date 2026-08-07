@@ -1,0 +1,10 @@
+; Normalisation 7 (symbol-decoration): the plain symbol.
+declare i32 @helper(i32)
+declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)
+
+define i32 @f(ptr %p, i32 %x) {
+entry:
+  call void @llvm.memset.p0.i64(ptr %p, i8 0, i64 32, i1 false)
+  %r = call i32 @helper(i32 %x)
+  ret i32 %r
+}

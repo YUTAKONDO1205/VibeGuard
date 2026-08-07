@@ -1,0 +1,268 @@
+{
+  "observationVersion": "observation-v0",
+  "context": {
+    "generatedAt": "1970-01-01T00:00:00Z",
+    "timeSource": "SOURCE_DATE_EPOCH",
+    "sourceDateEpoch": 0,
+    "host": {
+      "os": "linux",
+      "arch": "x86_64",
+      "cores": 8
+    },
+    "repository": {
+      "commit": "0000000000000000000000000000000000000000000000000000000000000000",
+      "dirty": false
+    }
+  },
+  "toolchain": {
+    "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "clang": "18.1.3",
+    "packages": [
+      {
+        "name": "clang-18",
+        "version": "18.1.3"
+      },
+      {
+        "name": "lld-18",
+        "version": "18.1.3"
+      }
+    ]
+  },
+  "policy": {
+    "policyVersion": "policy-v0",
+    "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "failOn": "high"
+  },
+  "verdict": {
+    "state": "VERIFICATION_INCOMPLETE",
+    "exitCode": 3,
+    "reason": "the effect was lost and rebuilt in another form, and the artefact checkpoint was never reached",
+    "unobserved": [
+      "the artefact checkpoint"
+    ]
+  },
+  "counts": {
+    "inputs": 1,
+    "checked": 1,
+    "skipped": 0,
+    "skippedNames": [],
+    "pointCoverage": {
+      "num": 4,
+      "den": 5
+    }
+  },
+  "observationPoints": [
+    {
+      "id": "pre-opt",
+      "checkpoint": "pre-opt-ir",
+      "stage": "compile",
+      "reached": true,
+      "unreachedReason": null,
+      "target": "x86_64-linux-gnu",
+      "optLevel": "-O2",
+      "tool": "clang-18"
+    },
+    {
+      "id": "after-dse",
+      "checkpoint": "after-pass",
+      "stage": "compile",
+      "reached": true,
+      "unreachedReason": null,
+      "target": "x86_64-linux-gnu",
+      "optLevel": "-O2",
+      "tool": "clang-18"
+    },
+    {
+      "id": "after-memcpyopt",
+      "checkpoint": "after-pass",
+      "stage": "compile",
+      "reached": true,
+      "unreachedReason": null,
+      "target": "x86_64-linux-gnu",
+      "optLevel": "-O2",
+      "tool": "clang-18"
+    },
+    {
+      "id": "after-sroa",
+      "checkpoint": "after-pass",
+      "stage": "compile",
+      "reached": true,
+      "unreachedReason": null,
+      "target": "x86_64-linux-gnu",
+      "optLevel": "-O2",
+      "tool": "clang-18"
+    },
+    {
+      "id": "artefact",
+      "checkpoint": "linked",
+      "stage": "artifact",
+      "reached": false,
+      "unreachedReason": "the run was a compile-only invocation, so no artefact existed to inspect",
+      "target": "x86_64-linux-gnu",
+      "optLevel": "-O2",
+      "tool": null
+    }
+  ],
+  "properties": [
+    {
+      "id": "prop.erasure.stack-buffer",
+      "kind": "must-survive",
+      "scope": {
+        "functions": [
+          "handle_request"
+        ],
+        "files": [
+          "fixtures/secret.c"
+        ]
+      },
+      "control": {
+        "unit": "wipe_kept",
+        "state": "PRESENT",
+        "count": {
+          "callSites": 1,
+          "oracle": "call-site",
+          "naiveSymbolMatches": 2
+        }
+      },
+      "history": [
+        {
+          "index": 0,
+          "point": "pre-opt",
+          "phase": "before",
+          "state": "PRESENT",
+          "attribution": {
+            "pass": "VerifierPass",
+            "unit": "handle_request",
+            "unitKind": "function",
+            "lineage": "handle_request",
+            "seq": 1
+          },
+          "count": {
+            "callSites": 1,
+            "oracle": "call-site",
+            "naiveSymbolMatches": 3
+          }
+        },
+        {
+          "index": 1,
+          "point": "after-dse",
+          "phase": "after",
+          "state": "LOST",
+          "attribution": {
+            "pass": "DSEPass",
+            "unit": "handle_request",
+            "unitKind": "function",
+            "lineage": "handle_request",
+            "seq": 200
+          },
+          "count": {
+            "callSites": 0,
+            "oracle": "call-site",
+            "naiveSymbolMatches": 2
+          }
+        },
+        {
+          "index": 2,
+          "point": "after-memcpyopt",
+          "phase": "after",
+          "state": "REINTRODUCED",
+          "attribution": {
+            "pass": "MemCpyOptPass",
+            "unit": "handle_request",
+            "unitKind": "function",
+            "lineage": "handle_request",
+            "seq": 244
+          },
+          "count": {
+            "callSites": 1,
+            "oracle": "call-site",
+            "naiveSymbolMatches": 3
+          }
+        },
+        {
+          "index": 3,
+          "point": "after-sroa",
+          "phase": "after",
+          "state": "NOT_APPLICABLE",
+          "attribution": {
+            "pass": "SROAPass",
+            "unit": "handle_request",
+            "unitKind": "function",
+            "lineage": "handle_request",
+            "seq": 288
+          },
+          "count": {
+            "callSites": 0,
+            "oracle": "call-site",
+            "naiveSymbolMatches": 2
+          }
+        },
+        {
+          "index": 4,
+          "point": "artefact",
+          "phase": null,
+          "state": "NOT_OBSERVED",
+          "attribution": {
+            "pass": null,
+            "unit": "handle_request",
+            "unitKind": null,
+            "lineage": "handle_request",
+            "seq": null
+          },
+          "count": {
+            "callSites": 0,
+            "oracle": "call-site",
+            "naiveSymbolMatches": 0
+          }
+        }
+      ],
+      "historyComplete": true,
+      "firstLoss": {
+        "pass": "DSEPass",
+        "unit": "handle_request",
+        "seq": 200,
+        "historyIndex": 1
+      },
+      "finalState": "NOT_OBSERVED",
+      "lossEpisodes": 1,
+      "fate": "NOT_OBSERVED",
+      "verdict": "VERIFICATION_INCOMPLETE",
+      "note": "the buffer was promoted out of memory at SROAPass, so the question stopped having the same referent; that is NOT_APPLICABLE and not a loss"
+    }
+  ],
+  "layers": {
+    "compile": {
+      "observed": true,
+      "unobservedReason": null,
+      "target": "x86_64-linux-gnu",
+      "optLevel": "-O2",
+      "passPluginsLoaded": [
+        {
+          "name": "libPropertyObserver.so",
+          "sha256": "e855861615b090bc1dd6891cc891034c55dde15158940a5f552d8e28f935643e",
+          "authorised": true
+        }
+      ],
+      "passesSeen": 578,
+      "unitsTracked": 2
+    },
+    "link": {
+      "observed": false,
+      "unobservedReason": "a compile-only invocation produces no link",
+      "linker": null,
+      "ltoMode": "none",
+      "backendObserved": false,
+      "backendUnobservedReason": null,
+      "inputs": []
+    },
+    "artifact": {
+      "observed": false,
+      "unobservedReason": "a compile-only invocation produces no artefact",
+      "path": "build/secret.o",
+      "format": null,
+      "machine": null,
+      "checks": []
+    }
+  },
+  "findings": []
+}

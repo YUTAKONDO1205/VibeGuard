@@ -1,0 +1,10 @@
+; The semantic control for instruction-order: two stores to the same address.
+; Their order decides what the memory holds, so it is not free to move. A
+; normaliser that sorted anchors would call these two files the same and could
+; no longer tell a wipe-then-write from a write-then-wipe.
+define void @f(ptr %p) {
+entry:
+  store i32 7, ptr %p, align 4
+  store i32 0, ptr %p, align 4
+  ret void
+}

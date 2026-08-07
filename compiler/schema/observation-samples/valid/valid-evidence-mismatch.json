@@ -1,0 +1,184 @@
+{
+  "observationVersion": "observation-v0",
+  "context": {
+    "generatedAt": "1970-01-01T00:00:00Z",
+    "timeSource": "SOURCE_DATE_EPOCH",
+    "sourceDateEpoch": 0,
+    "host": {
+      "os": "linux",
+      "arch": "x86_64",
+      "cores": 8
+    },
+    "repository": {
+      "commit": "0000000000000000000000000000000000000000000000000000000000000000",
+      "dirty": false
+    }
+  },
+  "toolchain": {
+    "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "clang": "18.1.3",
+    "packages": [
+      {
+        "name": "clang-18",
+        "version": "18.1.3"
+      },
+      {
+        "name": "lld-18",
+        "version": "18.1.3"
+      }
+    ]
+  },
+  "policy": {
+    "policyVersion": "policy-v0",
+    "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "failOn": "high"
+  },
+  "verdict": {
+    "state": "EVIDENCE_MISMATCH",
+    "exitCode": 4,
+    "reason": "the control did not survive the link-time backend: it was inlined and then erased, so a subject count of zero is not attributable to anything",
+    "unobserved": []
+  },
+  "counts": {
+    "inputs": 1,
+    "checked": 1,
+    "skipped": 0,
+    "skippedNames": [],
+    "pointCoverage": {
+      "num": 2,
+      "den": 2
+    }
+  },
+  "observationPoints": [
+    {
+      "id": "lto-start",
+      "checkpoint": "pre-opt-ir",
+      "stage": "lto-backend",
+      "reached": true,
+      "unreachedReason": null,
+      "target": "x86_64-linux-gnu",
+      "optLevel": "-O2",
+      "tool": "ld.lld-18"
+    },
+    {
+      "id": "lto-end",
+      "checkpoint": "after-pass",
+      "stage": "lto-backend",
+      "reached": true,
+      "unreachedReason": null,
+      "target": "x86_64-linux-gnu",
+      "optLevel": "-O2",
+      "tool": "ld.lld-18"
+    }
+  ],
+  "properties": [
+    {
+      "id": "prop.erasure.stack-buffer",
+      "kind": "must-survive",
+      "scope": {
+        "functions": [
+          "handle_request"
+        ],
+        "files": [
+          "fixtures/secret.c"
+        ]
+      },
+      "control": {
+        "unit": "wipe_kept",
+        "state": "LOST",
+        "count": {
+          "callSites": 0,
+          "oracle": "call-site",
+          "naiveSymbolMatches": 1
+        }
+      },
+      "history": [
+        {
+          "index": 0,
+          "point": "lto-start",
+          "phase": "before",
+          "state": "ABSENT",
+          "attribution": {
+            "pass": "VerifierPass",
+            "unit": "handle_request",
+            "unitKind": "function",
+            "lineage": "handle_request",
+            "seq": 1
+          },
+          "count": {
+            "callSites": 0,
+            "oracle": "call-site",
+            "naiveSymbolMatches": 1
+          }
+        },
+        {
+          "index": 1,
+          "point": "lto-end",
+          "phase": "after",
+          "state": "ABSENT",
+          "attribution": {
+            "pass": "InlinerPass",
+            "unit": "handle_request",
+            "unitKind": "function",
+            "lineage": "handle_request",
+            "seq": 97
+          },
+          "count": {
+            "callSites": 0,
+            "oracle": "call-site",
+            "naiveSymbolMatches": 1
+          }
+        }
+      ],
+      "historyComplete": true,
+      "firstLoss": null,
+      "finalState": "ABSENT",
+      "lossEpisodes": 0,
+      "fate": "ERASED",
+      "verdict": "EVIDENCE_MISMATCH",
+      "note": "InlinerPass erased the subject at sequence 97 and GlobalOptPass erased the control at 102; both disappearances are unit fates, not property losses"
+    }
+  ],
+  "layers": {
+    "compile": {
+      "observed": true,
+      "unobservedReason": null,
+      "target": "x86_64-linux-gnu",
+      "optLevel": "-O2",
+      "passPluginsLoaded": [
+        {
+          "name": "libPropertyObserver.so",
+          "sha256": "e855861615b090bc1dd6891cc891034c55dde15158940a5f552d8e28f935643e",
+          "authorised": true
+        }
+      ],
+      "passesSeen": 578,
+      "unitsTracked": 2
+    },
+    "link": {
+      "observed": true,
+      "unobservedReason": null,
+      "linker": "ld.lld-18",
+      "ltoMode": "full",
+      "backendObserved": true,
+      "backendUnobservedReason": null,
+      "inputs": [
+        {
+          "path": "build/secret-lto.o",
+          "kind": "bitcode",
+          "authorised": true,
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      ]
+    },
+    "artifact": {
+      "observed": false,
+      "unobservedReason": "a compile-only invocation produces no artefact",
+      "path": "build/secret.o",
+      "format": null,
+      "machine": null,
+      "checks": []
+    }
+  },
+  "findings": []
+}

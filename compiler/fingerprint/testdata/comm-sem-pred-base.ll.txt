@@ -1,0 +1,5 @@
+define i1 @f(i32 %x, i32 %y) {
+entry:
+  %c = icmp slt i32 %x, %y
+  ret i1 %c
+}

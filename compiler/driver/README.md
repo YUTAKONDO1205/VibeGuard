@@ -33,12 +33,36 @@ before another component here adds a `bin/`.
    checked against an unreadable policy is a record of nothing.
 2. **Normalisation.** Response files expanded, `-Xclang` values paired,
    `-Wl,`/`-Xlinker` split, output and source files identified.
-3. **Toolchain pin.** Every file the pin names is hashed and compared, and the
-   version clang reports is compared with the version the pin records. A
-   mismatch is `VG-CFG-001`; with `toolchain.requireDigestMatch` (default true)
-   it is **exit 4** and the compiler is never run.
+3. **Toolchain pin.** Every file the pin names is hashed and compared, the
+   version clang reports is compared with the version the pin records, and
+   `packages[].version` is compared with the version this machine reports for
+   that package. A digest mismatch is `VG-CFG-001` and a package-version
+   mismatch is `VG-CFG-013`; with `toolchain.requireDigestMatch` (default true)
+   either is **exit 4** and the compiler is never run. A pinned version that
+   could not be read back at all is `VG-CFG-014` and exit 3, not exit 4 —
+   nothing disagreed, the check simply did not happen.
+   Then the binary that will *actually be executed* — from `--vg-clang`, from
+   `drivers.cc`/`drivers.cxx`, or from `PATH` — is reconciled with the pinned
+   set, symlinks resolved on both sides. Running something the pin does not
+   cover is `VG-CFG-012` and **exit 4**, and that one is *not* gated on
+   `requireDigestMatch`: that switch downgrades "the pinned files are not the
+   pinned bytes", and was never a decision to let the driver run a compiler the
+   pin has never seen. `--vg-clang` is recorded as `VG-CFG-015` and confessed in
+   `toolchain.compiler.overriddenByFlag`, which is inside the digested part of
+   the record.
 4. **Flags.** `flags.required` (`VG-CFG-004`), `flags.forbidden`
    (`VG-CFG-002`), `flags.optLevels` (`VG-CFG-003`).
+4b. **Declared properties.** Every `policy.properties[]` entry is cross-checked
+   against `compiler/schema/properties.json`: the id must be in the catalogue
+   (`VG-CFG-016`), the kind must agree with it (`VG-CFG-017`), and there must be
+   an implemented extractor at a checkpoint the policy asked for
+   (`VG-CFG-018`). Any of those is **exit 3**, because `policy.schema.json`
+   already writes that code down: "A property with no reachable checkpoint is
+   exit 3, not a pass." An unreadable catalogue is `VG-CFG-019` and also exit 3.
+   `properties: []` is legal and is recorded as `requested: 0` with a `claim`
+   string saying in words that nothing was asked and therefore nothing was met;
+   `properties` absent is a *different* recorded state (`configured: false`).
+   Neither is ever rendered as "all requirements met".
 5. **Plugin integrity.** `checkPlugins` from `plugin-integrity/integrity.mjs`,
    a static import. If that module is missing the driver refuses to start and
    exits 3 rather than running an unchecked build.
@@ -55,7 +79,8 @@ between them, first match wins:
 
 | | Rule | Compiler run? |
 |---|---|---|
-| **4** | policy malformed, or a pin digest does not match | no |
+| **4** | policy malformed, a pin digest does not match, or the compiler is not in the pinned set | no |
+| **3** | the policy declares a property with no reachable checkpoint | no |
 | **2** | findings at or above `failOn` | **no** — a forbidden configuration produces nothing to ship |
 | **1** | clang failed; its diagnostics already reached the caller | yes, and it failed |
 | **3** | the build succeeded but a check could not be completed, and `verification.failOnIncomplete` (default true) | yes |
@@ -70,6 +95,12 @@ compiler:
   check, both are non-zero, and the incompleteness is in the record either way.
   What must never happen is 3 collapsing to 0, and it cannot: the 0 branch is
   reached only when `complete` is true.
+- **Except for the properties gate, which outranks 2.** That is the one
+  departure, and it is deliberate: `policy.schema.json` fixes the code for that
+  condition at 3, so letting a policy's own `failOn` re-map it to 2 would make
+  the schema's own sentence false. It is also a different kind of statement —
+  a finding says the build did something, this says a question the policy asked
+  was never put to anything.
 - **1 outranks 3, so the incompleteness test runs _after_ the build.** A source
   file that does not compile cannot have its pass pipeline captured, so the
   plugin check reports `complete: false` for every syntax error. Testing
@@ -164,6 +195,14 @@ Everything a re-run cannot reproduce — wall clock, host, durations — lives i
 `context`, which is excluded from the digest as a whole subtree. Two identical
 builds therefore write one file, which is checked in the test suite.
 
+That exclusion is a trap for anything a record needs to *commit* to. Which
+compiler ran used to be recorded in `context`, so `resolvedFrom: "flag"` — the
+record of a build that left the pin — was outside `evidenceDigest`, and a
+pinned build and an overridden one digested identically. It now lives in
+`toolchain.compiler`, and the pair of tests that keeps it there asserts both
+directions: changing `overriddenByFlag` moves the digest, changing a `context`
+field does not.
+
 Absolute paths are gated twice: once by this component, naming the offending
 JSON pointer, and again by `compiler/evidence/`'s own
 `assertNoAbsolutePaths`. Either gate tripping means no file is written and the
@@ -187,11 +226,28 @@ This directory is outside the npm workspace globs, so the tests are `node:test`
 and there are no dependencies:
 
 ```sh
-node --test compiler/driver/test/
+node --test compiler/driver/test/*.test.mjs
 ```
 
-79 tests, no skips on a machine with clang-18. The live ones skip with a
-printed reason elsewhere. One of them exists only to check that they are
-running at all: `node:test` in Node 18 skips on `{ skip: null }` — the check is
-for the property being *present*, not for it being truthy — and this suite once
-reported green with all 26 live tests silently skipped.
+Pass a glob, not the directory: on some Node builds here a bare directory
+argument throws `MODULE_NOT_FOUND` before a single test runs.
+
+139 tests, no skips on a machine with clang-18 and a POSIX shell. The live ones
+skip with a printed reason elsewhere. One of them exists only to check that
+they are running at all: `node:test` in Node 18 skips on `{ skip: null }` — the
+check is for the property being *present*, not for it being truthy — and this
+suite once reported green with all 26 live tests silently skipped.
+
+## Checking policies without compiling
+
+```sh
+node compiler/driver/tools/check-gates.mjs <policy-or-directory>... [--allow-empty]
+```
+
+Runs the pin-reconciliation and property gates over every `.vgpolicy.json` it
+finds, and prints `inputs=N checked=N skipped=S` as its last line. `inputs=0`
+is a **failure** unless `--allow-empty` was passed: a scan pointed at the wrong
+directory finds nothing, and a runner that reports that cheerfully has said a
+tree is clean without opening it. A policy that cannot be read is a failure
+too, not a skip; the only skips are the ones `VG_CHECK_GATES_SKIP` names, and
+each of those is printed by name above the counting line.

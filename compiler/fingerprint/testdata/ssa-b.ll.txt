@@ -1,0 +1,7 @@
+; Same program as ssa-a.ll, every local renamed. The fingerprint must not move.
+define i32 @f(i32 %alpha, i32 %beta) {
+start:
+  %qqq = add i32 %alpha, %beta
+  %zzz = mul i32 %qqq, %alpha
+  ret i32 %zzz
+}

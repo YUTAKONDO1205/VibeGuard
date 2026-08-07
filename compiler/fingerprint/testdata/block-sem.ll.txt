@@ -1,0 +1,16 @@
+; The semantic control for block-names: the two successors of the conditional
+; branch are swapped, and their contents differ, so the program differs.
+define i32 @f(i1 %c) {
+entry:
+  br i1 %c, label %if.else, label %if.then
+
+if.then:
+  br label %join
+
+if.else:
+  br label %join
+
+join:
+  %r = phi i32 [ 11, %if.then ], [ 22, %if.else ]
+  ret i32 %r
+}

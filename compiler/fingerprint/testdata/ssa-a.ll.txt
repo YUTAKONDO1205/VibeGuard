@@ -1,0 +1,8 @@
+; Normalisation 1 (ssa-values): the perturbation side.
+; Named values, ordinary spelling.
+define i32 @f(i32 %x, i32 %y) {
+entry:
+  %sum = add i32 %x, %y
+  %prod = mul i32 %sum, %x
+  ret i32 %prod
+}

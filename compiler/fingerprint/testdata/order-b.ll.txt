@@ -1,0 +1,8 @@
+; order-a.ll with the two independent instructions written the other way round.
+define i32 @f(i32 %x, i32 %y) {
+entry:
+  %b = mul i32 %y, 2
+  %a = add i32 %x, 1
+  %c = sub i32 %a, %b
+  ret i32 %c
+}

@@ -1,0 +1,9 @@
+; Both operand orders flipped. `add` is commutative outright; `slt` becomes
+; `sgt` when its operands swap, which is the same predicate on the same values.
+define i1 @f(i32 %x, i32 %y) {
+entry:
+  %s = add i32 %y, %x
+  %c = icmp sgt i32 %y, %x
+  %t = and i1 true, %c
+  ret i1 %t
+}

@@ -1,0 +1,14 @@
+; Normalisation 4 (inlined-calls): the out-of-line form, as -O0 leaves it.
+define internal i32 @g(i32 %v) {
+entry:
+  %d = mul i32 %v, 3
+  %e = add i32 %d, 5
+  ret i32 %e
+}
+
+define i32 @f(i32 %x) {
+entry:
+  %r = call i32 @g(i32 %x)
+  %s = add i32 %r, 1
+  ret i32 %s
+}

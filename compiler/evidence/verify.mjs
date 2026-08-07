@@ -38,6 +38,8 @@ import { join, dirname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findAbsolutePaths } from './paths.mjs';
 import { auditDirectClockUse } from './clock.mjs';
+import { reportCounts } from './counting.mjs';
+import { assertNoSymlink, findSymlinks, SymlinkRefused } from './fsguard.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -403,6 +405,24 @@ export function verifyRecord(record, opts = {}) {
  */
 export function verifyBundle(dir, opts = {}) {
   const evidencePath = join(dir, 'evidence.json');
+  // Inside a bundle the boundary is the bundle: a link above it is the
+  // caller's problem and was already refused when the caller was handed the
+  // path, but a link on `evidence.json` or on the artefact is this function's.
+  try {
+    assertNoSymlink(evidencePath, { boundary: dir, role: 'the record' });
+  } catch (e) {
+    if (!(e instanceof SymlinkRefused)) throw e;
+    return {
+      verdict: 'FINDINGS_PRESENT',
+      findings: [
+        finding('VG-ART-063', 'critical', 'A symbolic link on the path to the record', e.message, { path: 'evidence.json' }),
+      ],
+      checked: [],
+      unchecked: ['*'],
+      digest: null,
+      error: e.message,
+    };
+  }
   if (!existsSync(evidencePath)) {
     return {
       verdict: 'VERIFICATION_INCOMPLETE',
@@ -468,6 +488,14 @@ export function verifyBundle(dir, opts = {}) {
           path: art.path,
         }),
       );
+    } else if (findSymlinks(p, { boundary: dir }).length > 0) {
+      unchecked.push('artifact.sha256');
+      findings.push(
+        finding('VG-ART-063', 'critical', 'The referenced artefact is reached through a symbolic link', `${art.path} is, or is under, a link; its bytes were neither read nor hashed. A digest taken through a link is a true statement about a file the report does not name.`, {
+          kind: 'artifact',
+          path: art.path,
+        }),
+      );
     } else {
       const actual = createHash('sha256').update(readFileSync(p)).digest('hex');
       if (actual !== art.sha256) {
@@ -529,12 +557,20 @@ export function verifyBundle(dir, opts = {}) {
 
 export function loadVectors(file) {
   const p = file ?? join(HERE, 'testdata', 'digest-vectors.json');
+  // A vector file reached through a link calibrates this verifier against
+  // whatever is at the far end while the report names the near end.
+  assertNoSymlink(p, { role: 'the vector file' });
   return JSON.parse(readFileSync(p, 'utf8'));
 }
 
 /**
  * Reproduce every vector with the re-derivation above, and, unless asked not
  * to, confirm the generator in `canon.mjs` produces the same bytes.
+ *
+ * `total` and `negativesTotal` are the counting contract's `inputs` for this
+ * entry point. They can be zero — a vector file holding `{"vectors":[]}`
+ * reproduces every one of its nought vectors — and the caller must not read
+ * that as success. See counting.mjs.
  */
 export async function selfTest({ crossCheck = true, file, log = () => {} } = {}) {
   const vec = loadVectors(file);
@@ -634,6 +670,12 @@ function usage() {
     '',
     '  --json                           machine-readable output',
     '  --fail-on <low|medium|high|critical>   threshold for exit 2 (default low)',
+    '  --allow-empty                    an empty input set is the expected outcome',
+    '  --link-boundary <dir>            stop the symlink walk at <dir>',
+    '',
+    'Every mode prints `inputs=N checked=N skipped=S`, and N=0 exits 3 unless',
+    '--allow-empty was passed. A symlink anywhere on the path to an input is',
+    'refused rather than followed.',
     '',
     'exit: 0 clean, 2 findings at/above threshold, 3 could not complete, 4 malformed record',
   ].join('\n');
@@ -646,7 +688,28 @@ async function main(argv) {
     return i >= 0 && i + 1 < argv.length ? argv[i + 1] : dflt;
   };
   const asJson = flag('--json');
+  const allowEmpty = flag('--allow-empty');
   const failOn = SEVERITY_ORDER[val('--fail-on', 'low')] ?? 0;
+  const counts = (inputs, checked, skipped, what, where = null) =>
+    reportCounts({ inputs, checked, skipped, allowEmpty, what, where }, { json: asJson });
+  /**
+   * Refuse a linked input. Returns the exit code to use, or `null` when the
+   * path is fine. A link is a finding (2), not an incompleteness (3): the tool
+   * could have read something, and the reason it did not is that what it would
+   * have read is not what it was asked for.
+   */
+  const refuseLink = (p, role) => {
+    if (!p) return null;
+    try {
+      assertNoSymlink(p, { role, boundary: val('--link-boundary') });
+      return null;
+    } catch (e) {
+      if (!(e instanceof SymlinkRefused)) throw e;
+      process.stderr.write(`${e.message}\n`);
+      counts(1, 0, 1, 'input', p);
+      return 2;
+    }
+  };
 
   if (argv.length === 0 || flag('--help') || flag('-h')) {
     process.stdout.write(`${usage()}\n`);
@@ -672,8 +735,21 @@ async function main(argv) {
       }
       for (const f of r.failed) process.stdout.write(`  FAIL ${f.name}: ${f.reason}\n`);
     }
+    // A vector file with nothing in it reproduced every one of its nought
+    // vectors and exited 0, from the day this file was written until the day
+    // the counting contract was applied to it. `inputs` is both halves of the
+    // file — the vectors and the must-fail inputs — because a file that lost
+    // one half is as empty a calibration as one that lost both.
+    //
+    // Every vector that was loaded was examined, so `checked` is `inputs` and
+    // `skipped` is nought: a vector that failed to reproduce was checked, and
+    // calling it skipped would hide a failure inside a count that reads as
+    // housekeeping.
+    const inputs = r.total + r.negativesTotal;
+    const settled = counts(inputs, inputs, 0, 'vector', val('--vectors') ?? 'testdata/digest-vectors.json');
     const bad = r.failed.length > 0 || (r.cross && r.cross.mismatches.length > 0);
-    return bad ? 3 : 0;
+    if (bad) return 3;
+    return settled.code ?? 0;
   }
 
   if (flag('--clock-audit')) {
@@ -686,19 +762,22 @@ async function main(argv) {
     }
     // An empty scan is not a clean scan. Nought findings out of nought files
     // read is the shape of a guard pointed at the wrong directory, and returning
-    // 0 for it is how it stays pointed there. Exit 3 says "not checked", which
-    // is what happened.
-    if (r.filesExamined === 0) {
-      process.stderr.write(`clock audit examined no files under ${dir}; nothing was checked.\n`);
-      return 3;
-    }
-    return r.sites.length === 0 ? 0 : 2;
+    // 0 for it is how it stays pointed there. The emptiness test now lives in
+    // counting.mjs so that this mode and every other one share it.
+    // `filesScanned` counts the exempt file too; `filesExamined` is what was
+    // read. The difference is the skip, and it is named rather than absorbed.
+    const settled = counts(r.filesScanned, r.filesExamined, r.filesScanned - r.filesExamined, 'file', dir);
+    if (r.sites.length > 0) return 2;
+    return settled.code ?? 0;
   }
 
   if (flag('--paths')) {
     const f = val('--paths');
+    const guard = refuseLink(f, 'the file to scan');
+    if (guard !== null) return guard;
     if (!f || !existsSync(f)) {
       process.stderr.write(`cannot read ${f}\n`);
+      counts(1, 0, 1, 'file');
       return 3;
     }
     const leaks = findAbsolutePaths(JSON.parse(readFileSync(f, 'utf8')), { mode: val('--mode', 'strict') });
@@ -707,28 +786,38 @@ async function main(argv) {
       process.stdout.write(`${leaks.length} absolute path(s)\n`);
       for (const l of leaks) process.stdout.write(`  ${l.where} (${l.in}, ${l.kind}): ${JSON.stringify(l.value)}\n`);
     }
-    return leaks.length === 0 ? 0 : 2;
+    const settled = counts(1, 1, 0, 'file', f);
+    if (leaks.length > 0) return 2;
+    return settled.code ?? 0;
   }
 
   if (flag('--digest')) {
     const f = val('--digest');
+    const guard = refuseLink(f, 'the file to digest');
+    if (guard !== null) return guard;
     if (!f || !existsSync(f)) {
       process.stderr.write(`cannot read ${f}\n`);
+      counts(1, 0, 1, 'file');
       return 3;
     }
     try {
       process.stdout.write(`${rederiveDigest(JSON.parse(readFileSync(f, 'utf8')))}\n`);
-      return 0;
+      const settled = counts(1, 1, 0, 'file', f);
+      return settled.code ?? 0;
     } catch (e) {
       process.stderr.write(`malformed record: ${e.message}\n`);
+      counts(1, 0, 1, 'file', f);
       return 4;
     }
   }
 
   if (flag('--record')) {
     const f = val('--record');
+    const guard = refuseLink(f, 'the record');
+    if (guard !== null) return guard;
     if (!f || !existsSync(f)) {
       process.stderr.write(`cannot read ${f}\n`);
+      counts(1, 0, 1, 'record');
       return 3;
     }
     let rec;
@@ -736,6 +825,7 @@ async function main(argv) {
       rec = JSON.parse(readFileSync(f, 'utf8'));
     } catch (e) {
       process.stderr.write(`does not parse: ${e.message}\n`);
+      counts(1, 0, 1, 'record', f);
       return 3;
     }
     let r;
@@ -743,6 +833,7 @@ async function main(argv) {
       r = verifyRecord(rec, { path: f });
     } catch (e) {
       process.stderr.write(`malformed record: ${e.message}\n`);
+      counts(1, 0, 1, 'record', f);
       return 4;
     }
     if (asJson) process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
@@ -751,19 +842,31 @@ async function main(argv) {
       if (r.unchecked.length) process.stdout.write(`unchecked: ${r.unchecked.join(', ')}\n`);
       for (const x of r.findings) process.stdout.write(`  [${x.severity}] ${x.id} ${x.title}\n    ${x.detail}\n`);
     }
-    return r.findings.some((x) => SEVERITY_ORDER[x.severity] >= failOn) ? 2 : 0;
+    const settled = counts(1, 1, 0, 'record', f);
+    if (r.findings.some((x) => SEVERITY_ORDER[x.severity] >= failOn)) return 2;
+    // A field nobody could check is not a field that passed. `verifyBundle`
+    // has always said so by returning VERIFICATION_INCOMPLETE; this mode used
+    // to return 0 over the same unchecked list, so the same record answered
+    // differently depending on which flag was used to look at it.
+    if (r.unchecked.length > 0) return 3;
+    return settled.code ?? 0;
   }
 
   if (flag('--bundle') || flag('--bundles')) {
-    const root = resolve(val('--bundle') ?? val('--bundles'));
+    const given = val('--bundle') ?? val('--bundles');
+    const guard = refuseLink(given, 'the bundle directory');
+    if (guard !== null) return guard;
+    const root = resolve(given);
     if (!existsSync(root) || !statSync(root).isDirectory()) {
       process.stderr.write(`not a directory: ${root}\n`);
+      counts(0, 0, 0, 'bundle', root);
       return 3;
     }
     const dirs = flag('--bundle') ? [root] : findBundleDirs(root);
     if (dirs.length === 0) {
       process.stderr.write(`no bundle directories under ${root}\n`);
-      return 3;
+      const settled = counts(0, 0, 0, 'bundle', root);
+      return settled.code ?? 0;
     }
     const report = [];
     let worst = 0;
@@ -785,10 +888,11 @@ async function main(argv) {
     }
     if (asJson) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     else process.stdout.write(`\n${dirs.length} bundle(s): ${report.filter((r) => r.findings.length === 0 && !r.error).length} clean, ${report.filter((r) => r.findings.length > 0).length} with findings, ${incomplete} incomplete, ${malformed} malformed\n`);
+    const settled = counts(dirs.length, dirs.length - malformed, malformed, 'bundle', root);
     if (malformed > 0) return 4;
     if (worst > failOn) return 2;
     if (incomplete > 0) return 3;
-    return 0;
+    return settled.code ?? 0;
   }
 
   process.stderr.write(`${usage()}\n`);
@@ -799,6 +903,13 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
   main(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (e) => {
+      // A refused link is an answer, not a crash: the tool could have read
+      // something and declined to, because what it would have read is not what
+      // it was asked for. That is a finding, and 2 is what a finding exits.
+      if (e instanceof SymlinkRefused) {
+        process.stderr.write(`${e.message}\n`);
+        process.exit(2);
+      }
       process.stderr.write(`${e.stack ?? e}\n`);
       process.exit(3);
     },

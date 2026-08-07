@@ -1,0 +1,7 @@
+; Semantic control 1: `sub` is not commutative. Swapping its operands negates
+; the result, and a normaliser that sorted every binary operand would lose that.
+define i32 @f(i32 %x, i32 %y) {
+entry:
+  %d = sub i32 %x, %y
+  ret i32 %d
+}

@@ -1,0 +1,5 @@
+define i32 @f(i32 %x, i32 %y) {
+entry:
+  %d = sub i32 %y, %x
+  ret i32 %d
+}

@@ -1,0 +1,8 @@
+; The semantic control for ssa-values: one use rewired, nothing renamed.
+; %y is no longer read at all, so the def-use graph is a different graph.
+define i32 @f(i32 %x, i32 %y) {
+entry:
+  %sum = add i32 %x, %x
+  %prod = mul i32 %sum, %x
+  ret i32 %prod
+}

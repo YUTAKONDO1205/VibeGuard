@@ -1,0 +1,32 @@
+{
+  "name": "@vibeguard/evidence-verifier",
+  "version": "0.3.5",
+  "private": true,
+  "type": "module",
+  "description": "Verifies evidence-carrying artefact bundles: the binding between an artefact, the record that describes it, and the manifest that seals them.",
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./rederive": "./src/rederive.mjs",
+    "./verify-bundle": "./src/verify-bundle.mjs"
+  },
+  "bin": {
+    "evidence-verify-bundle": "./bin/verify-bundle.mjs",
+    "evidence-check-contract-copies": "./bin/check-contract-copies.mjs",
+    "evidence-check-fence": "./bin/check-fence.mjs"
+  },
+  "files": [
+    "src",
+    "bin",
+    "testdata",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node test/_run.mjs",
+    "check:contract": "node bin/check-contract-copies.mjs",
+    "check:fence": "node bin/check-fence.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

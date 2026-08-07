@@ -1,0 +1,17 @@
+; The semantic control for inlined-calls: @f is written identically to
+; inline-a.ll, character for character. Only the callee's body differs. If the
+; expansion is not really pulling the callee in, @f fingerprints the same here
+; as in inline-a.ll and the normalisation is decorative.
+define internal i32 @g(i32 %v) {
+entry:
+  %d = mul i32 %v, 4
+  %e = add i32 %d, 5
+  ret i32 %e
+}
+
+define i32 @f(i32 %x) {
+entry:
+  %r = call i32 @g(i32 %x)
+  %s = add i32 %r, 1
+  ret i32 %s
+}

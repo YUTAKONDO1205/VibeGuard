@@ -1,0 +1,17 @@
+; Same CFG as block-a.ll in the spelling clang actually emits above -O0: the
+; entry block has no header at all and every other label is a number drawn from
+; the same counter as the values. Recovering the entry's implicit name is part
+; of what this pair checks -- get it wrong and the successor edges dangle.
+define i32 @f(i1 %0) {
+  br i1 %0, label %2, label %3
+
+2:
+  br label %4
+
+3:
+  br label %4
+
+4:
+  %5 = phi i32 [ 11, %2 ], [ 22, %3 ]
+  ret i32 %5
+}
