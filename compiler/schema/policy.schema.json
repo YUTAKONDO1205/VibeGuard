@@ -1,0 +1,191 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vibeguard.dev/schema/compiler-policy-v0.json",
+  "title": "Compiler gate policy, version 0",
+  "description": "What a build is allowed to do, and what has to still be true when it finishes. Read by every component in compiler/; written by none of them.",
+  "type": "object",
+  "required": ["policyVersion", "failOn"],
+  "additionalProperties": false,
+  "properties": {
+    "policyVersion": { "const": "policy-v0" },
+
+    "failOn": {
+      "description": "Lowest severity that turns findings into exit code 2.",
+      "enum": ["low", "medium", "high", "critical"]
+    },
+
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "failOnIncomplete": {
+          "type": "boolean",
+          "default": true,
+          "description": "An observation that could not be made is exit 3. Setting this false is a decision to accept unchecked builds and is recorded in the evidence."
+        }
+      }
+    },
+
+    "toolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pin": {
+          "type": "string",
+          "description": "Path to the toolchain pin, relative to the policy file. Its digest is checked before anything is compiled."
+        },
+        "requireDigestMatch": { "type": "boolean", "default": true },
+        "allowedPassPlugins": {
+          "description": "LLVM pass plugins loadable with -fpass-plugin. A plugin not listed here is VG-PLG-002 whatever its digest.",
+          "type": "array",
+          "items": { "$ref": "#/definitions/pluginEntry" }
+        },
+        "allowedFrontendPlugins": {
+          "description": "Clang AST plugins loaded with -fplugin. A separate list on purpose: the two plugin mechanisms take different flags, and a check that knows only one of them passes the other straight through.",
+          "type": "array",
+          "items": { "$ref": "#/definitions/pluginEntry" }
+        },
+        "allowedPassPipeline": {
+          "description": "Pass pipeline the build is expected to run, as reported by the compiler. Absent means the pipeline is recorded but not constrained.",
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "flags": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required": {
+          "description": "Flags that must be present in the normalised command line.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "forbidden": {
+          "description": "Flags that must not be. A match is VG-CFG-002.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "optLevels": {
+          "description": "Optimisation levels this policy has been evaluated at. Compiling at another one is VG-CFG-003, because a property observed to survive -O1 has not been observed to survive -O3.",
+          "type": "array",
+          "items": { "enum": ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz"] }
+        }
+      }
+    },
+
+    "properties": {
+      "description": "Security properties this build is required to preserve, forbid, or account for. Keys are property ids from compiler/schema/properties.json.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "kind": {
+            "enum": [
+              "must-survive",
+              "must-not-appear",
+              "must-originate-from",
+              "must-be-configured",
+              "must-remain-unobservable"
+            ]
+          },
+          "scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "functions": { "type": "array", "items": { "type": "string" } },
+              "files": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "observeAt": {
+            "description": "Checkpoints at which this property is examined. A property with no reachable checkpoint is exit 3, not a pass.",
+            "type": "array",
+            "items": { "enum": ["ast", "pre-opt-ir", "after-pass", "object", "linked"] }
+          }
+        }
+      }
+    },
+
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowedObjects": { "type": "array", "items": { "type": "string" } },
+        "allowedLibraries": { "type": "array", "items": { "type": "string" } },
+        "allowedLinkers": { "type": "array", "items": { "type": "string" } },
+        "forbidLinkerScripts": { "type": "boolean", "default": true }
+      }
+    },
+
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Properties the finished binary must have. Each is decided from a structural field, never from a tool's human-readable line, and the record says which field decided it.",
+      "properties": {
+        "require": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "pie",
+              "nx",
+              "relro-full",
+              "stack-protector",
+              "fortify",
+              "no-writable-executable-section",
+              "no-debug-path",
+              "build-id"
+            ]
+          }
+        },
+        "forbidStrings": {
+          "description": "Literal byte sequences that must not survive into the artefact. Compared against extracted strings; a hit is VG-ART-005.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "allowedDynamicDependencies": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "out": { "type": "string", "description": "Bundle directory. Must resolve outside compiler/." },
+        "sourceDateEpoch": {
+          "type": ["integer", "null"],
+          "description": "When set, every timestamp comes from here and the record says so. Null means wall clock, also recorded."
+        }
+      }
+    },
+
+    "fallback": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Recompiling a function that lost a property, at a lower optimisation level, and checking again. Off by default: it changes what the compiler was asked to do, so it is opted into rather than applied on a checker's initiative.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "profile": { "enum": ["-O0", "-O1"] },
+        "rejectIfStillLost": { "type": "boolean", "default": true }
+      }
+    }
+  },
+
+  "definitions": {
+    "pluginEntry": {
+      "type": "object",
+      "required": ["name", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Basename as loaded. Matching on the name alone is not enough — a file with this name and different bytes is a different plugin, which is why the digest is required rather than optional."
+        },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

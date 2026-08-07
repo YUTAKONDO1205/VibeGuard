@@ -1,0 +1,60 @@
+{
+  "$comment": [
+    "The rule table the AST gate resolves incoming lexical findings against.",
+    "It is DATA, not a claim about what the shipped scanner detects. Three of",
+    "these ids are real shipped C/C++ rules (packages/rules/src/rules/lang-c.ts);",
+    "the two `VG-CEXEC-*` ids are gate-local, because the shipped scanner has no",
+    "C command-execution rule at all - `VG-INJ-003` covers Python os.system/os.popen",
+    "only, and its `languages` list does not include c or cpp. Measured 2026-08-07:",
+    "  grep -rn \"languages:\" packages/rules/src/rules/injection.ts",
+    "If a shipped C command-execution rule ever lands, replace the id here; do not",
+    "leave two ids for one construct.",
+    "",
+    "`requirementKind` belongs to the RULE. `scope`, `expectedCount` and whether a",
+    "requirement is emitted at all belong to the AST. DERIVATION.md is the spec."
+  ],
+  "rules": [
+    {
+      "id": "VG-CEXEC-001",
+      "family": "CEXEC",
+      "targets": ["system", "popen"],
+      "requirementKind": "must-not-appear",
+      "checkpoints": ["ast", "ir-post-opt", "object", "link"]
+    },
+    {
+      "id": "VG-CEXEC-002",
+      "family": "CEXEC",
+      "targets": ["execl", "execlp", "execle", "execv", "execvp", "execvpe"],
+      "requirementKind": "must-not-appear",
+      "checkpoints": ["ast", "ir-post-opt", "object", "link"]
+    },
+    {
+      "id": "VG-MEM-001",
+      "family": "MEM",
+      "targets": ["gets"],
+      "requirementKind": "must-not-appear",
+      "checkpoints": ["ast", "ir-post-opt", "object", "link"]
+    },
+    {
+      "id": "VG-MEM-002",
+      "family": "MEM",
+      "targets": ["strcpy", "strcat", "sprintf", "vsprintf"],
+      "requirementKind": "must-not-appear",
+      "checkpoints": ["ast", "ir-post-opt", "object", "link"]
+    },
+    {
+      "id": "VG-MEM-006",
+      "family": "MEM",
+      "targets": ["memset"],
+      "requirementKind": "must-survive",
+      "checkpoints": ["ast", "ir-pre-opt", "ir-post-opt", "object"]
+    },
+    {
+      "id": "VG-CWIPE-001",
+      "family": "CWIPE",
+      "targets": ["explicit_bzero", "memset_s"],
+      "requirementKind": "must-survive",
+      "checkpoints": ["ast", "ir-pre-opt", "ir-post-opt", "object"]
+    }
+  ]
+}

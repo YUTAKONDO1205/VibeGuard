@@ -122,6 +122,24 @@ compiler/**/*.elf
 # ELF-header check in scripts/check-packaging-invariants.mjs is what catches a
 # binary written anywhere else, loudly, instead of letting it be committed.
 
+# Measurement output under compiler/, listed for the same reason and in the same
+# order — before anything can write one. The rule those sources are written
+# against is that measurements live on the Linux filesystem and never here: a
+# recorded run embeds the local toolchain's digests and the absolute path of the
+# tree it read, so a committed one is machine-specific noise at best and the
+# layout of somebody's disk at worst. Intermediate IR and linker maps are on the
+# list because they are the bulky, regenerable half of the same measurement.
+#
+# Fixtures are deliberately NOT listed. A fixture that turns up here is a
+# decision someone made against the rule, and it should be visible in a diff and
+# argued about, not swallowed silently by this file.
+compiler/**/_lab/
+compiler/**/_results/
+compiler/**/*.log
+compiler/**/*.map
+compiler/**/*.ll
+compiler/**/*.bc
+
 # Local-only maintenance tooling. Scripts here encode naming rules that this
 # repository is not the right place to publish — a checker that lists what it
 # forbids hands the list to anyone who reads it. They run before a push, not in

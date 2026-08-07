@@ -1138,6 +1138,32 @@ if (!PRE_BUILD) {
     ];
     const NATIVE_EXT = ['.c', '.cc', '.cpp', '.cxx', '.h', '.hpp'];
     const isBuildFile = (p) => p.endsWith('.cmake') || p.split('/').pop() === 'CMakeLists.txt';
+
+    // Shell and Python reach a network by running a command, not by importing a
+    // module, so they need needles of their own — and an extensionless file
+    // whose first two bytes are `#!` is one of these too. The driver's two entry
+    // points are exactly that shape. Before this branch existed they were
+    // counted as unreadable, and the vacuity guard below said so out loud rather
+    // than letting the summary claim a boundary it had not looked at.
+    const SHELLISH_EXT = ['.sh', '.bash', '.py'];
+    const SHELLISH_NETWORK = [
+      /\b(curl|wget|ftp|scp|sftp|rsync|ncat|telnet)\b/,
+      /\bnc\s+-/,
+      /\bgit\s+(clone|fetch|pull|push|ls-remote|remote)\b/,
+      /\b(import|from)\s+(socket|ssl|urllib|urllib2|requests|httplib|http\.client|ftplib|smtplib|telnetlib)\b/,
+      /\bhttps?:\/\//,
+    ];
+    const hasShebang = (p) => {
+      try {
+        return readFileSync(join(REPO_ROOT, p)).subarray(0, 2).toString('latin1') === '#!';
+      } catch {
+        return false;
+      }
+    };
+    const isShellish = (p) =>
+      SHELLISH_EXT.some((ext) => p.endsWith(ext)) ||
+      (!p.split('/').pop().includes('.') && hasShebang(p));
+
     let sourcesScanned = 0;
     for (const path of listed) {
       const isNative = NATIVE_EXT.some((ext) => path.endsWith(ext));
@@ -1163,6 +1189,36 @@ if (!PRE_BUILD) {
                 `  returned that day — the opposite of the pinned, reproducible toolchain this\n` +
                 `  directory is built around. Vendor it, or install it through the pinned\n` +
                 `  package set.`,
+            );
+          }
+        }
+        continue;
+      }
+      if (isShellish(path)) {
+        let text;
+        try {
+          text = readFileSync(join(REPO_ROOT, path), 'utf8');
+        } catch {
+          continue;
+        }
+        sourcesScanned++;
+        const lines = text.split(/\r\n|\r|\n/);
+        for (let i = 0; i < lines.length; i++) {
+          // The shebang is not a finding, and a comment is a place to cite a
+          // document rather than to fetch one — the same reading the CMake
+          // branch above takes. A `#` inside a quoted string takes the rest of
+          // that line out of scope with it, which errs towards scanning less;
+          // it is named here rather than left as a surprise.
+          if (i === 0 && lines[i].startsWith('#!')) continue;
+          const line = lines[i].replace(/(^|\s)#.*$/, '$1');
+          const hit = SHELLISH_NETWORK.find((re) => re.test(line));
+          if (hit) {
+            failures.push(
+              `${path}:${i + 1} reaches the network from a script here:\n` +
+                `    ${lines[i].trim().slice(0, 100)}\n` +
+                `  Same rule as the native and build sides: this toolchain reads and writes\n` +
+                `  local files and nothing else. A measurement that fetched something is a\n` +
+                `  measurement of what a server returned that day.`,
             );
           }
         }
@@ -1220,6 +1276,7 @@ if (!PRE_BUILD) {
       if (INERT_NAMES.includes(name)) return false;
       if (INERT_EXT.some((ext) => path.endsWith(ext))) return false;
       if (isBuildFile(path)) return false;
+      if (isShellish(path)) return false;
       return !NATIVE_EXT.some((e) => path.endsWith(e)) && !CODE_EXT.some((e) => path.endsWith(e));
     });
     if (unreadable.length) {
