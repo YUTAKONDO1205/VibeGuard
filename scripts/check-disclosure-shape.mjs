@@ -92,7 +92,14 @@ const SHAPES = [
     // Standards and language editions are written this way too and are not
     // disclosures. Matched against the letters only.
     allow: new Set(['ES', 'ECMA', 'ISO', 'IEC', 'RFC', 'ANSI', 'IEEE', 'UTC', 'GMT', 'NIST', 'OWASP', 'CWE', 'CVE', 'SI', 'W3C', 'IETF']),
-    control: () => 'AB' + 'CD 2099',
+    // Split further than the others, and the year built arithmetically. A two-
+    // fragment split leaves the acronym and the year contiguous INSIDE the
+    // second fragment, which this file's own run then matches — it became a
+    // scanned file the moment it was tracked. It caught that, and then it caught
+    // the comment that had quoted the offending fragment while explaining it.
+    // Both are the behaviour wanted; neither is a spelling anyone would guess to
+    // check by hand.
+    control: () => 'AB' + 'CD' + ' ' + String(2000 + 99),
   },
   {
     id: 'HOME-DIRECTORY',

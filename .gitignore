@@ -46,41 +46,36 @@ vibeguard-chrome-*.zip
 vibeguard-aicoding-*.vsix
 vibeguard-cli-*.tgz
 
-# Paper / research experiment data (local-only; outputs are regenerable,
-# contain machine-specific paths and a stray nested git repo)
-paper_data/
-docs/EVALUATION.md
-docs/reports/*.md
-
-# Design / paper drafts exported as Office / PDF (local-only, e.g. 追加設計書案)
+# Local-only working documents and workspaces.
+#
+# These entries keep drafts, planning notes, measurement dumps and scratch
+# working directories on the machine they were written on. They are not part of
+# the product and are not intended to be published.
+#
+# TWO RULES ABOUT THIS BLOCK.
+#
+# It does not describe what any of them contain. An ignore rule is a public
+# file, so an annotation explaining why something is withheld tells a reader it
+# is worth having — the opposite of the point.
+#
+# It names as little as possible. Everything loose under docs/ is matched by
+# extension rather than by filename, which was already true before any of the
+# filenames were listed: `docs/*.md` has been here since the drafts block, so
+# every individual .md line under it was matched twice and disclosed a title
+# once. Published documentation lives in a subdirectory (docs/runbooks/), which
+# these patterns do not reach. Directories still have to be named — a directory
+# is not an extension — so the remaining names are the ones the mechanism
+# requires, not the ones convenience left behind.
 docs/*.docx
 docs/*.pdf
 docs/*.md
 docs/*.txt
-
-# Research roadmap report + its template (local-only planning docs)
-docs/20260401_report_template.html
-docs/20260709_vibeguard_research_roadmap.html
-
-# Local-only working documents and workspaces.
-#
-# These entries exist so that drafts, planning notes, measurement dumps and
-# scratch working directories stay on the machine they were written on. They are
-# not part of the product and are not intended to be published.
-#
-# Deliberately, this file does not describe what any of them contain. An ignore
-# rule is a public file: an annotation explaining why something is withheld
-# tells a reader that it is worth having, which is the opposite of the point.
+docs/*.html
+docs/*.mjs
+docs/reports/*.md
 docs/weekly/
-docs/VibeGuard_実装設計手順書.md
-docs/VibeGuard_学会別テーマ分解.md
-docs/VibeGuard_進捗ダッシュボード.html
-docs/vibeguard-dashboard-sync.mjs
-docs/実装順.md
-docs/実装順解説.md
-docs/VibeGuard_物理ドック設計書.md
+paper_data/
 dock/
-docs/VibeGuard_可視化実験_設計書.md
 security-experiment/
 
 # Compiler-toolchain experiment workspace (local-only; synthetic fixtures,

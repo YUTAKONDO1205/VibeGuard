@@ -96,10 +96,11 @@ jobs:
   # property is asserted in packages/analyzer-core/src/redos-invariant.test.ts
   # under `npm test`, where a generous per-test budget is affordable.
   #
-  # The B1/B3 corpora are REGENERATED here rather than checked out: they live
-  # under security-experiment/, which .gitignore excludes on purpose (attack
-  # premises stay out of the public service repo), so on a runner they do not
-  # exist. Their inputs — samples/vulnerable and test_problem — are tracked, and
+  # The B1/B3 corpora are REGENERATED here rather than checked out: they live in
+  # an ignored working directory, so on a runner they do not exist. (Why that
+  # directory is withheld is deliberately not recorded here — a workflow file is
+  # as public as an ignore file, and the same reasoning applies to both.) Their
+  # inputs — samples/vulnerable and test_problem — are tracked, and
   # the generators are deterministic, which is what makes the tracked baseline
   # comparable run to run. Budget ~30 s, dominated by B1 corpus generation.
   #
@@ -232,8 +233,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang-18
 
+      # The glob is unquoted so the SHELL expands it, not node. Passing the
+      # directory is what the component's README says, and it throws
+      # MODULE_NOT_FOUND on newer runtimes; quoting the glob makes node do the
+      # matching, which older ones cannot. Shell expansion is the form that works
+      # on both, and it fails loudly if the directory is ever empty.
       - name: Driver
-        run: node --test compiler/driver/test/
+        run: node --test compiler/driver/test/*.test.mjs
 
       # A suite that skipped itself reports the same green as a suite that
       # passed. These tests skip when there is no usable toolchain, which on a
@@ -245,6 +251,7 @@ jobs:
       - name: Assert the live-build tests were not skipped
         run: |
           out=$(node --test compiler/driver/test/driver-e2e.test.mjs 2>&1) || true
+          # 21 cases in this file; 20 of them need a toolchain.
           echo "$out" | tail -12
           skipped=$(echo "$out" | awk '/skipped/ {for (i = 1; i <= NF; i++) if ($i == "skipped") { print $(i + 1); exit }}')
           if [ "${skipped:-unknown}" != "0" ]; then
