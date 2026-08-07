@@ -16,6 +16,19 @@
       "paths": ["scripts/**"],
       "rules": ["VG-CRYPTO-003", "VG-INJ-007", "VG-QUAL-005", "VG-SMELL-003"],
       "reason": "Research harnesses, not shipped code: they generate adversarial corpora and evaluation figures, so they quote payloads and weak primitives on purpose. scripts/ is absent from every published artifact — the CLI tarball is apps/cli only, and the extensions are bundled."
+    },
+    {
+      "paths": [
+        "compiler/elf-verifier/artefact-fixtures.sh",
+        "packages/artifact-integrity/test/**"
+      ],
+      "rules": ["VG-SEC-001", "VG-SEC-003"],
+      "reason": "One planted string, in the two places that plant it and the four that assert on it. artefact-fixtures.sh compiles AWS's own documentation example key — the EXAMPLE-suffixed one from their docs, valid against nothing — into a fixture binary so the residue extractor has a positive control, and greps it back out to show the extractor still finds it; the artifact-integrity suites feed the same string to findForbiddenStrings and record it under `forbiddenString` in the fixture expectations. A residue detector cannot be tested without residue to detect. The key is DESCRIBED here rather than quoted, deliberately: this file is scanned like any other, and the first draft of this very entry was the eighth VG-SEC-001 finding. Named rather than wildcarded, and scoped to the one fixture script and the one test directory, so a key committed anywhere else — including this package's own src/ — still reports."
+    },
+    {
+      "paths": ["compiler/**"],
+      "rules": ["VG-CRYPTO-003", "VG-INJ-007"],
+      "reason": "Same standing as scripts/** above, for the same reason: the toolchain under compiler/ is research code that sits outside the npm workspaces and ships in no artifact. Both rules fire on its shape rather than on a vulnerability — draft-07 $schema identifiers, which are http:// URLs by JSON Schema's own spec and are never fetched, and os.path.join over names the script itself enumerated. VG-SMELL-003 is deliberately NOT on this list: it fired on three long dispatchers here and all three were split rather than silenced, so the rule is live over this directory and the next one that grows will report."
     }
   ]
 }

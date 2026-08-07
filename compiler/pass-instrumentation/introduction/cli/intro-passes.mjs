@@ -36,6 +36,74 @@ function parseArgs(argv) {
   return opts;
 }
 
+/** The per-log section: what was introduced, by which pass, and the series after. */
+function printLog(log, parsed, introduced, problemCount, showAll, out) {
+  out.log(`\n--- ${basename(log)} ---`);
+  out.log(`control=${parsed.handshake.control} (${parsed.stats.controlFinalState}) `
+    + `passesSeen=${parsed.stats.passesSeen} elements=${parsed.stats.elementsTracked} `
+    + `scopes=${parsed.stats.scopes} crossCheckDisagreements=${problemCount}`);
+  out.log(`at-entry (the front end emitted them): ${parsed.summaries.length - introduced.length}`);
+  out.log(`introduced by a pass: ${introduced.length}`);
+  for (const i of introduced) {
+    out.log(`  ${i.kind} ${i.name}`);
+    out.log(`    first introduced by ${i.pass} on ${i.unitKind} ${i.unit} (seq ${i.seq});`
+      + ` the pass before it on that unit was ${i.previousAfterPass ?? '(none)'}`);
+    const entry = parsed.byElement.get(elementKey(i));
+    const series = entry ? entry.series.map((h) => `${h.state}@${h.pass}`).join(' -> ') : '(no series)';
+    out.log(`    series: ${series}`);
+  }
+  if (showAll) {
+    for (const s of parsed.summaries.filter((x) => x.atEntry)) {
+      out.log(`  [at entry] ${s.kind} ${s.name} in ${s.scope}: ${s.finalState}`);
+    }
+  }
+}
+
+/**
+ * Read one log, check it, print its section. Returns what this log contributes
+ * to the run's totals; `entry` is null for a log that produced no result.
+ *
+ * Extracted from `main` for the reason VG-SMELL-003 names: this was the body of
+ * a loop inside an 80-line function, and the two ways a log can fail to produce
+ * a result — unreadable, and readable but broken — sat far enough apart in that
+ * body to read as unrelated. They are the same decision, and they are now
+ * adjacent: one returns a skip, the other returns a broken measurement, and
+ * neither is allowed to look like a log that was fine.
+ */
+function readLog(log, showAll, tally, out) {
+  let parsed;
+  try {
+    parsed = parseIntroLog(readFileSync(log, 'utf8'));
+  } catch (e) {
+    tally.skip(basename(log), `unreadable: ${e.message}`);
+    return { broken: 1, disagreements: 0, entry: null };
+  }
+
+  const fault = measurementFault(parsed);
+  if (fault) {
+    // Not a skip. A broken measurement is a result this run cannot produce,
+    // and reporting it as anything else is how "we did not look" becomes
+    // "it is clean".
+    out.error(`intro-passes: ${basename(log)}: ${fault}`);
+    return { broken: 1, disagreements: 0, entry: null };
+  }
+  tally.counted();
+
+  const problems = crossCheck(parsed);
+  for (const p of problems) {
+    out.error(`intro-passes: ${basename(log)}: the summary and its own history disagree `
+      + `on ${p.field} for ${p.element}: summary says ${p.summary}, the series implies ${p.derived}`);
+  }
+
+  const introduced = passIntroduced(parsed);
+  printLog(log, parsed, introduced, problems.length, showAll, out);
+  return {
+    broken: 0,
+    disagreements: problems.length,
+    entry: { log: basename(log), introduced, stats: parsed.stats },
+  };
+}
+
 export function main(argv, out = console) {
   let opts;
   try {
@@ -58,54 +126,10 @@ export function main(argv, out = console) {
   const all = [];
 
   for (const log of opts.logs) {
-    let parsed;
-    try {
-      parsed = parseIntroLog(readFileSync(log, 'utf8'));
-    } catch (e) {
-      tally.skip(basename(log), `unreadable: ${e.message}`);
-      broken += 1;
-      continue;
-    }
-
-    const fault = measurementFault(parsed);
-    if (fault) {
-      // Not a skip. A broken measurement is a result this run cannot produce,
-      // and reporting it as anything else is how "we did not look" becomes
-      // "it is clean".
-      out.error(`intro-passes: ${basename(log)}: ${fault}`);
-      broken += 1;
-      continue;
-    }
-    tally.counted();
-
-    const problems = crossCheck(parsed);
-    disagreements += problems.length;
-    for (const p of problems) {
-      out.error(`intro-passes: ${basename(log)}: the summary and its own history disagree `
-        + `on ${p.field} for ${p.element}: summary says ${p.summary}, the series implies ${p.derived}`);
-    }
-
-    const introduced = passIntroduced(parsed);
-    out.log(`\n--- ${basename(log)} ---`);
-    out.log(`control=${parsed.handshake.control} (${parsed.stats.controlFinalState}) `
-      + `passesSeen=${parsed.stats.passesSeen} elements=${parsed.stats.elementsTracked} `
-      + `scopes=${parsed.stats.scopes} crossCheckDisagreements=${problems.length}`);
-    out.log(`at-entry (the front end emitted them): ${parsed.summaries.length - introduced.length}`);
-    out.log(`introduced by a pass: ${introduced.length}`);
-    for (const i of introduced) {
-      out.log(`  ${i.kind} ${i.name}`);
-      out.log(`    first introduced by ${i.pass} on ${i.unitKind} ${i.unit} (seq ${i.seq});`
-        + ` the pass before it on that unit was ${i.previousAfterPass ?? '(none)'}`);
-      const entry = parsed.byElement.get(elementKey(i));
-      const series = entry ? entry.series.map((h) => `${h.state}@${h.pass}`).join(' -> ') : '(no series)';
-      out.log(`    series: ${series}`);
-    }
-    if (opts.all) {
-      for (const s of parsed.summaries.filter((x) => x.atEntry)) {
-        out.log(`  [at entry] ${s.kind} ${s.name} in ${s.scope}: ${s.finalState}`);
-      }
-    }
-    all.push({ log: basename(log), introduced, stats: parsed.stats });
+    const r = readLog(log, opts.all, tally, out);
+    broken += r.broken;
+    disagreements += r.disagreements;
+    if (r.entry) all.push(r.entry);
   }
 
   out.log('');

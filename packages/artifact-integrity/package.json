@@ -15,7 +15,7 @@
     "README.md"
   ],
   "scripts": {
-    "test": "node --test \"test/*.test.mjs\"",
+    "test": "node test/_run.mjs",
     "verify": "node bin/vg-artefact-verify.mjs"
   },
   "engines": {

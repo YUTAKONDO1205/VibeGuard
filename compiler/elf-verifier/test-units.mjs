@@ -14,6 +14,8 @@
 import { readFileSync } from 'node:fs';
 import { mangledComponents, readName, readSectionName, stripOptimiserSuffix, stripVersion } from './lib/names.mjs';
 import { canonicalBytes, evidenceDigest, seal } from './lib/canonical.mjs';
+import { DT, SHF, SHN, SHT, STB, STT } from './lib/elf.mjs';
+import { classifyArtifact } from './lib/origins.mjs';
 
 let failed = 0;
 function check(what, got, want) {
@@ -157,6 +159,235 @@ check('canonical keeps array order', canonicalBytes({ a: [3, 1, 2] }).toString()
   }
   check('shared vectors: every must-fail input is refused here too',
     accepted.length === 0 ? true : `accepted: ${accepted.join(', ')}`, true);
+}
+
+// ---- origin classification -------------------------------------------------
+//
+// WHY THESE EXIST. `classifyArtifact` decides, for every symbol and section in
+// an artefact, which permitted origin accounts for it — and until these cases
+// were written nothing tested it. The two files this harness did cover are the
+// two it names at the top; origins.mjs was reachable only through classify.mjs,
+// which needs a real linked binary from artefact-fixtures.sh, so on any machine
+// without the toolchain it was checked by nothing at all.
+//
+// The artefact is synthetic on purpose. `definedSymbols`, `undefinedSymbols`,
+// `readInitArrays` and `neededLibraries` all read plain fields, so a literal is
+// a faithful stand-in for a parsed ELF and lets each rule be aimed at directly.
+// What is asserted is the VERDICT and the RULE that produced it, not the prose:
+// the three-way matched / did-not-match / could-not-run distinction is the one
+// thing this component must never collapse, and it is the thing a refactor is
+// most likely to collapse silently.
+
+const sym = (name, over = {}) => ({
+  name, st_shndx: 1, st_value: 0, type: STT.FUNC, bind: STB.GLOBAL, ...over,
+});
+const sec = (index, name, over = {}) => ({
+  index, name, sh_flags: SHF.ALLOC, sh_type: SHT.PROGBITS, sh_size: 8, ...over,
+});
+
+/** A parsed-artefact stand-in. Every field `classifyArtifact` reads, and no more. */
+function artefact({ symtab = [], sections = [], dynamic = [], buf = Buffer.alloc(0) } = {}) {
+  return {
+    symtab,
+    dynsym: [],
+    dynamic,
+    relocations: [],
+    buf,
+    sections: [sec(0, ''), ...sections],
+    ehdr: { e_type: 2 }, // ET_EXEC: init-array slots carry addresses, not relocations
+  };
+}
+
+/** An empty baseline that MATCHED — so the baseline rules run and find nothing. */
+const EMPTY_BASELINE = { defined: [], undefined: [], sections: [], initArrays: [] };
+
+/** The `a` argument, with everything unavailable unless a case supplies it. */
+function inputs(over = {}) {
+  return {
+    elf: artefact(over.elf ?? {}),
+    baseline: null,
+    baselineState: 'absent',
+    source: { available: false, identifiers: new Set(), sourceBasenames: new Set() },
+    libs: { available: false, index: new Map(), missing: ['libc.so.6'], allowed: null },
+    flags: [],
+    ...over,
+    ...(over.elf ? { elf: artefact(over.elf) } : {}),
+  };
+}
+
+/** The verdict and rule for one named item, as `verdict/rule`. */
+function verdictOf(items, name, kind = null) {
+  const i = items.find((x) => x.name === name && (kind === null || x.kind === kind));
+  if (!i) return '(absent)';
+  return `${i.verdict}/${i.rule ?? '-'}`;
+}
+
+{
+  // A measured baseline is the strongest evidence and is consulted first.
+  const withBaseline = classifyArtifact(inputs({
+    elf: { symtab: [sym('__libc_start_main')], sections: [sec(1, '.text')] },
+    baseline: {
+      defined: [{ name: '__libc_start_main' }], undefined: [],
+      sections: [{ name: '.text' }], initArrays: [],
+    },
+    baselineState: 'matched',
+  }));
+  check('origins: a baselined symbol is Explained by the baseline',
+    verdictOf(withBaseline.items, '__libc_start_main'), 'Explained/baseline-literal');
+  check('origins: a baselined section is Explained by the baseline',
+    verdictOf(withBaseline.items, '.text'), 'Explained/baseline-literal');
+}
+
+{
+  // No baseline: the baseline rules must report could-not-run, which makes an
+  // otherwise unmatched item Unresolved. Reporting Unexplained here is the
+  // false-positive direction of the collapse this component is written against.
+  const noBaseline = classifyArtifact(inputs({
+    elf: { symtab: [sym('mystery_symbol')], sections: [sec(1, '.text')] },
+  }));
+  check('origins: with nothing measured, an unmatched symbol is Unresolved, not Unexplained',
+    verdictOf(noBaseline.items, 'mystery_symbol'), 'Unresolved/-');
+}
+
+{
+  // A name grammar every toolchain emits, with no baseline at all. This is the
+  // rule that must still fire when the baseline rule could not run.
+  const synthesised = classifyArtifact(inputs({
+    elf: {
+      symtab: [sym('_edata'), sym('__start_myseg'), sym('__start_absent')],
+      sections: [sec(1, '.text'), sec(2, 'myseg')],
+    },
+  }));
+  check('origins: a linker-synthesised name is Explained without any baseline',
+    verdictOf(synthesised.items, '_edata'), 'Explained/linker-synthesised-name');
+  check('origins: an encapsulation symbol whose section exists is Explained',
+    verdictOf(synthesised.items, '__start_myseg'), 'Explained/section-encapsulation-symbol');
+  check('origins: an encapsulation symbol naming no section is NOT waved through',
+    verdictOf(synthesised.items, '__start_absent'), 'Unresolved/-');
+}
+
+{
+  // Every rule can run — a baseline that matched, a source universe, located
+  // libraries — so an unmatched item becomes genuinely Unexplained. This is the
+  // finding direction, and the case above is the other side of the same coin:
+  // the SAME artefact is Unresolved when the baseline rule could not run.
+  const withSource = classifyArtifact(inputs({
+    elf: { symtab: [sym('declared_fn'), sym('smuggled_fn')], sections: [sec(1, '.text')] },
+    baseline: EMPTY_BASELINE,
+    baselineState: 'matched',
+    source: {
+      available: true,
+      identifiers: new Set(['declared_fn']),
+      sourceBasenames: new Set(['main.c']),
+      declaresConstructor: false,
+      declaresDestructor: false,
+    },
+    libs: { available: true, index: new Map(), missing: [], allowed: null },
+  }));
+  check('origins: a name the translation unit declares is Explained',
+    verdictOf(withSource.items, 'declared_fn'), 'Explained/unmangled-name-in-translation-unit');
+  check('origins: with every rule able to run, an unaccounted symbol is Unexplained',
+    verdictOf(withSource.items, 'smuggled_fn'), 'Unexplained/-');
+}
+
+{
+  // An undefined symbol that a permitted library provides is the dependency
+  // rule; one that only a forbidden library provides must NOT be explained.
+  const undef = classifyArtifact(inputs({
+    elf: { symtab: [sym('printf', { st_shndx: SHN.UNDEF }), sym('evil', { st_shndx: SHN.UNDEF })] },
+    baseline: EMPTY_BASELINE,
+    baselineState: 'matched',
+    source: {
+      available: true, identifiers: new Set(), sourceBasenames: new Set(),
+      declaresConstructor: false, declaresDestructor: false,
+    },
+    libs: {
+      available: true,
+      index: new Map([['printf', ['libc.so.6']], ['evil', ['libevil.so']]]),
+      missing: [],
+      allowed: new Set(['libc.so.6']),
+    },
+  }));
+  check('origins: an undefined symbol a permitted library provides is Explained',
+    verdictOf(undef.items, 'printf'), 'Explained/resolved-in-needed-library');
+  check('origins: resolving only in an unauthorised library is not an explanation',
+    verdictOf(undef.items, 'evil'), 'Unexplained/-');
+}
+
+{
+  // Sanitizer names are runtime support only when the build asked for the
+  // runtime. The same artefact without the flag must not be waved through.
+  const asked = classifyArtifact(inputs({
+    elf: { symtab: [sym('__asan_init')], sections: [sec(1, '.text')] },
+    flags: ['-fsanitize=address'],
+  }));
+  const notAsked = classifyArtifact(inputs({
+    elf: { symtab: [sym('__asan_init')], sections: [sec(1, '.text')] },
+  }));
+  check('origins: a sanitizer symbol IS runtime support when the flag asked for it',
+    verdictOf(asked.items, '__asan_init'), 'Explained/runtime-support-name');
+  check('origins: the same symbol with no sanitiser flag is not explained by the name',
+    verdictOf(notAsked.items, '__asan_init'), 'Unresolved/-');
+}
+
+{
+  // .init_array is the whole attack surface: putting an otherwise ordinary
+  // function in it is the attack, so being an EXPLAINED SYMBOL must not be
+  // enough to be an explained INITIALISER. Two slots, pointing at two symbols
+  // that are both Explained — one whose job is to initialise and one whose is
+  // not — and the classification has to separate them.
+  const slots = Buffer.alloc(16);
+  slots.writeBigUInt64LE(0x1000n, 0); // -> _GLOBAL__sub_I_main.c
+  slots.writeBigUInt64LE(0x2000n, 8); // -> ordinary_fn
+  const init = classifyArtifact(inputs({
+    elf: {
+      symtab: [
+        sym('_GLOBAL__sub_I_main.c', { st_value: 0x1000 }),
+        sym('ordinary_fn', { st_value: 0x2000 }),
+      ],
+      sections: [
+        sec(1, '.text'),
+        sec(2, '.init_array', { sh_type: SHT.INIT_ARRAY, sh_size: 16, sh_offset: 0, sh_addr: 0x3000 }),
+      ],
+      buf: slots,
+    },
+    baseline: EMPTY_BASELINE,
+    baselineState: 'matched',
+    source: {
+      available: true,
+      identifiers: new Set(['ordinary_fn']),
+      sourceBasenames: new Set(['main.c']),
+      declaresConstructor: false,
+      declaresDestructor: false,
+    },
+    libs: { available: true, index: new Map(), missing: [], allowed: null },
+  }));
+  check('origins: a static initialiser is Explained as a symbol',
+    verdictOf(init.items, '_GLOBAL__sub_I_main.c', 'defined-symbol'),
+    'Explained/static-initialiser-for-declared-source');
+  check('origins: and Explained as an entry in .init_array',
+    verdictOf(init.items, '_GLOBAL__sub_I_main.c', 'init-array-entry'),
+    'Explained/initialiser-is-a-static-initialiser');
+  check('origins: an ordinary function IS explained as a symbol',
+    verdictOf(init.items, 'ordinary_fn', 'defined-symbol'),
+    'Explained/unmangled-name-in-translation-unit');
+  check('origins: but placing it in .init_array is NOT explained — this is the attack',
+    verdictOf(init.items, 'ordinary_fn', 'init-array-entry'), 'Unexplained/-');
+}
+
+{
+  // DT_NEEDED is reported verbatim; the section grammar explains ABI names.
+  const r = classifyArtifact(inputs({
+    elf: {
+      sections: [sec(1, '.text'), sec(2, '.rela.text', { sh_type: SHT.RELA })],
+      dynamic: [{ tag: DT.NEEDED, string: 'libc.so.6' }],
+    },
+  }));
+  check('origins: an ABI section name is Explained by the grammar',
+    verdictOf(r.items, '.text'), 'Explained/abi-section-name');
+  check('origins: a relocation section for a known section is Explained',
+    verdictOf(r.items, '.rela.text'), 'Explained/relocation-section-for-known-section');
+  check('origins: the needed libraries are reported', r.needed, ['libc.so.6']);
 }
 
 console.log(failed === 0 ? '\nall unit cases passed' : `\n${failed} unit case(s) failed`);

@@ -681,7 +681,17 @@ function usage() {
   ].join('\n');
 }
 
-async function main(argv) {
+/**
+ * The argv reader, the counting reporter and the link guard, built once and
+ * handed to whichever mode runs.
+ *
+ * These four used to be closures at the top of `main`, which is what made every
+ * mode below a branch of one 217-line body: seven modes deep, ten-odd decision
+ * points, and no way to read the exit-code contract of one of them without
+ * scrolling past the other six. Each mode is now its own function taking this,
+ * and `main` is the dispatch table it always claimed to be.
+ */
+function cliContext(argv) {
   const flag = (name) => argv.includes(name);
   const val = (name, dflt = null) => {
     const i = argv.indexOf(name);
@@ -710,190 +720,217 @@ async function main(argv) {
       return 2;
     }
   };
+  return { flag, val, asJson, failOn, counts, refuseLink };
+}
 
-  if (argv.length === 0 || flag('--help') || flag('-h')) {
+/** `--self-test`: reproduce every calibration vector. */
+async function runSelfTest({ flag, val, asJson, counts }) {
+  const r = await selfTest({
+    crossCheck: !flag('--no-cross-check'),
+    file: val('--vectors'),
+    log: asJson ? () => {} : (s) => process.stdout.write(`${s}\n`),
+  });
+  if (asJson) {
+    process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
+  } else {
+    process.stdout.write(`\nvectors: ${r.passed}/${r.total} reproduced, must-fail: ${r.negativesPassed}/${r.negativesTotal} refused\n`);
+    if (r.cross) {
+      process.stdout.write(
+        r.cross.mismatches.length === 0
+          ? `cross-check: canon.mjs agrees on all ${r.cross.checked} vectors\n`
+          : `cross-check: ${r.cross.mismatches.length} disagreement(s):\n  ${r.cross.mismatches.join('\n  ')}\n`,
+      );
+    }
+    for (const f of r.failed) process.stdout.write(`  FAIL ${f.name}: ${f.reason}\n`);
+  }
+  // A vector file with nothing in it reproduced every one of its nought
+  // vectors and exited 0, from the day this file was written until the day
+  // the counting contract was applied to it. `inputs` is both halves of the
+  // file — the vectors and the must-fail inputs — because a file that lost
+  // one half is as empty a calibration as one that lost both.
+  //
+  // Every vector that was loaded was examined, so `checked` is `inputs` and
+  // `skipped` is nought: a vector that failed to reproduce was checked, and
+  // calling it skipped would hide a failure inside a count that reads as
+  // housekeeping.
+  const inputs = r.total + r.negativesTotal;
+  const settled = counts(inputs, inputs, 0, 'vector', val('--vectors') ?? 'testdata/digest-vectors.json');
+  const bad = r.failed.length > 0 || (r.cross && r.cross.mismatches.length > 0);
+  if (bad) return 3;
+  return settled.code ?? 0;
+}
+
+/** `--clock-audit`: fail if anything but clock.mjs reads a clock. */
+function runClockAudit({ val, asJson, counts }) {
+  const dir = val('--clock-audit', HERE);
+  const r = auditDirectClockUse(resolve(dir));
+  if (asJson) process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
+  else {
+    process.stdout.write(`clock audit: ${r.filesExamined} of ${r.filesScanned} file(s) examined, ${r.sites.length} direct clock read(s)\n`);
+    for (const s of r.sites) process.stdout.write(`  ${s.file}:${s.line}  ${s.kind}  ${s.text}\n`);
+  }
+  // An empty scan is not a clean scan. Nought findings out of nought files
+  // read is the shape of a guard pointed at the wrong directory, and returning
+  // 0 for it is how it stays pointed there. The emptiness test now lives in
+  // counting.mjs so that this mode and every other one share it.
+  // `filesScanned` counts the exempt file too; `filesExamined` is what was
+  // read. The difference is the skip, and it is named rather than absorbed.
+  const settled = counts(r.filesScanned, r.filesExamined, r.filesScanned - r.filesExamined, 'file', dir);
+  if (r.sites.length > 0) return 2;
+  return settled.code ?? 0;
+}
+
+/** `--paths`: report absolute paths in a JSON file. */
+function runPaths({ val, asJson, counts, refuseLink }) {
+  const f = val('--paths');
+  const guard = refuseLink(f, 'the file to scan');
+  if (guard !== null) return guard;
+  if (!f || !existsSync(f)) {
+    process.stderr.write(`cannot read ${f}\n`);
+    counts(1, 0, 1, 'file');
+    return 3;
+  }
+  const leaks = findAbsolutePaths(JSON.parse(readFileSync(f, 'utf8')), { mode: val('--mode', 'strict') });
+  if (asJson) process.stdout.write(`${JSON.stringify(leaks, null, 2)}\n`);
+  else {
+    process.stdout.write(`${leaks.length} absolute path(s)\n`);
+    for (const l of leaks) process.stdout.write(`  ${l.where} (${l.in}, ${l.kind}): ${JSON.stringify(l.value)}\n`);
+  }
+  const settled = counts(1, 1, 0, 'file', f);
+  if (leaks.length > 0) return 2;
+  return settled.code ?? 0;
+}
+
+/** `--digest`: print the re-derived digest of a JSON file. */
+function runDigest({ val, counts, refuseLink }) {
+  const f = val('--digest');
+  const guard = refuseLink(f, 'the file to digest');
+  if (guard !== null) return guard;
+  if (!f || !existsSync(f)) {
+    process.stderr.write(`cannot read ${f}\n`);
+    counts(1, 0, 1, 'file');
+    return 3;
+  }
+  try {
+    process.stdout.write(`${rederiveDigest(JSON.parse(readFileSync(f, 'utf8')))}\n`);
+    const settled = counts(1, 1, 0, 'file', f);
+    return settled.code ?? 0;
+  } catch (e) {
+    process.stderr.write(`malformed record: ${e.message}\n`);
+    counts(1, 0, 1, 'file', f);
+    return 4;
+  }
+}
+
+/** Read and parse the record named by `--record`, or the exit code to use. */
+function readRecord(f, counts) {
+  if (!f || !existsSync(f)) {
+    process.stderr.write(`cannot read ${f}\n`);
+    counts(1, 0, 1, 'record');
+    return { code: 3 };
+  }
+  try {
+    return { rec: JSON.parse(readFileSync(f, 'utf8')) };
+  } catch (e) {
+    process.stderr.write(`does not parse: ${e.message}\n`);
+    counts(1, 0, 1, 'record', f);
+    return { code: 3 };
+  }
+}
+
+/** `--record`: verify one evidence.json, no filesystem checks. */
+function runRecord({ val, asJson, failOn, counts, refuseLink }) {
+  const f = val('--record');
+  const guard = refuseLink(f, 'the record');
+  if (guard !== null) return guard;
+  const read = readRecord(f, counts);
+  if (read.code !== undefined) return read.code;
+  let r;
+  try {
+    r = verifyRecord(read.rec, { path: f });
+  } catch (e) {
+    process.stderr.write(`malformed record: ${e.message}\n`);
+    counts(1, 0, 1, 'record', f);
+    return 4;
+  }
+  if (asJson) process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
+  else {
+    process.stdout.write(`checked: ${r.checked.join(', ') || '(nothing)'}\n`);
+    if (r.unchecked.length) process.stdout.write(`unchecked: ${r.unchecked.join(', ')}\n`);
+    for (const x of r.findings) process.stdout.write(`  [${x.severity}] ${x.id} ${x.title}\n    ${x.detail}\n`);
+  }
+  const settled = counts(1, 1, 0, 'record', f);
+  if (r.findings.some((x) => SEVERITY_ORDER[x.severity] >= failOn)) return 2;
+  // A field nobody could check is not a field that passed. `verifyBundle`
+  // has always said so by returning VERIFICATION_INCOMPLETE; this mode used
+  // to return 0 over the same unchecked list, so the same record answered
+  // differently depending on which flag was used to look at it.
+  if (r.unchecked.length > 0) return 3;
+  return settled.code ?? 0;
+}
+
+/** One line per bundle, on the human-readable path. */
+function printBundle(name, r) {
+  const n = r.findings.length;
+  process.stdout.write(`${n === 0 ? 'ok  ' : 'FAIL'} ${name}  ${r.verdict}  digest=${(r.digest ?? '-').slice(0, 16)}  checked=${r.checked.length} unchecked=${r.unchecked.length}\n`);
+  for (const f of r.findings) process.stdout.write(`       [${f.severity}] ${f.id} ${f.title}\n         ${f.detail}\n`);
+  if (r.error) process.stdout.write(`       ${r.error}\n`);
+}
+
+/** `--bundle` / `--bundles`: verify one bundle directory, or every one under a root. */
+function runBundles({ flag, val, asJson, failOn, counts, refuseLink }) {
+  const given = val('--bundle') ?? val('--bundles');
+  const guard = refuseLink(given, 'the bundle directory');
+  if (guard !== null) return guard;
+  const root = resolve(given);
+  if (!existsSync(root) || !statSync(root).isDirectory()) {
+    process.stderr.write(`not a directory: ${root}\n`);
+    counts(0, 0, 0, 'bundle', root);
+    return 3;
+  }
+  const dirs = flag('--bundle') ? [root] : findBundleDirs(root);
+  if (dirs.length === 0) {
+    process.stderr.write(`no bundle directories under ${root}\n`);
+    const settled = counts(0, 0, 0, 'bundle', root);
+    return settled.code ?? 0;
+  }
+  const report = [];
+  let worst = 0;
+  let incomplete = 0;
+  let malformed = 0;
+  for (const d of dirs) {
+    const r = verifyBundle(d, {});
+    const name = d.split(sep).pop();
+    report.push({ bundle: name, ...r });
+    if (r.malformed) malformed++;
+    else if (r.verdict === 'VERIFICATION_INCOMPLETE' || r.verdict === 'UNSUPPORTED') incomplete++;
+    for (const f of r.findings) worst = Math.max(worst, SEVERITY_ORDER[f.severity] + 1);
+    if (!asJson) printBundle(name, r);
+  }
+  if (asJson) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  else process.stdout.write(`\n${dirs.length} bundle(s): ${report.filter((r) => r.findings.length === 0 && !r.error).length} clean, ${report.filter((r) => r.findings.length > 0).length} with findings, ${incomplete} incomplete, ${malformed} malformed\n`);
+  const settled = counts(dirs.length, dirs.length - malformed, malformed, 'bundle', root);
+  if (malformed > 0) return 4;
+  if (worst > failOn) return 2;
+  if (incomplete > 0) return 3;
+  return settled.code ?? 0;
+}
+
+async function main(argv) {
+  const cli = cliContext(argv);
+
+  if (argv.length === 0 || cli.flag('--help') || cli.flag('-h')) {
     process.stdout.write(`${usage()}\n`);
     return 0;
   }
 
-  if (flag('--self-test')) {
-    const r = await selfTest({
-      crossCheck: !flag('--no-cross-check'),
-      file: val('--vectors'),
-      log: asJson ? () => {} : (s) => process.stdout.write(`${s}\n`),
-    });
-    if (asJson) {
-      process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
-    } else {
-      process.stdout.write(`\nvectors: ${r.passed}/${r.total} reproduced, must-fail: ${r.negativesPassed}/${r.negativesTotal} refused\n`);
-      if (r.cross) {
-        process.stdout.write(
-          r.cross.mismatches.length === 0
-            ? `cross-check: canon.mjs agrees on all ${r.cross.checked} vectors\n`
-            : `cross-check: ${r.cross.mismatches.length} disagreement(s):\n  ${r.cross.mismatches.join('\n  ')}\n`,
-        );
-      }
-      for (const f of r.failed) process.stdout.write(`  FAIL ${f.name}: ${f.reason}\n`);
-    }
-    // A vector file with nothing in it reproduced every one of its nought
-    // vectors and exited 0, from the day this file was written until the day
-    // the counting contract was applied to it. `inputs` is both halves of the
-    // file — the vectors and the must-fail inputs — because a file that lost
-    // one half is as empty a calibration as one that lost both.
-    //
-    // Every vector that was loaded was examined, so `checked` is `inputs` and
-    // `skipped` is nought: a vector that failed to reproduce was checked, and
-    // calling it skipped would hide a failure inside a count that reads as
-    // housekeeping.
-    const inputs = r.total + r.negativesTotal;
-    const settled = counts(inputs, inputs, 0, 'vector', val('--vectors') ?? 'testdata/digest-vectors.json');
-    const bad = r.failed.length > 0 || (r.cross && r.cross.mismatches.length > 0);
-    if (bad) return 3;
-    return settled.code ?? 0;
-  }
-
-  if (flag('--clock-audit')) {
-    const dir = val('--clock-audit', HERE);
-    const r = auditDirectClockUse(resolve(dir));
-    if (asJson) process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
-    else {
-      process.stdout.write(`clock audit: ${r.filesExamined} of ${r.filesScanned} file(s) examined, ${r.sites.length} direct clock read(s)\n`);
-      for (const s of r.sites) process.stdout.write(`  ${s.file}:${s.line}  ${s.kind}  ${s.text}\n`);
-    }
-    // An empty scan is not a clean scan. Nought findings out of nought files
-    // read is the shape of a guard pointed at the wrong directory, and returning
-    // 0 for it is how it stays pointed there. The emptiness test now lives in
-    // counting.mjs so that this mode and every other one share it.
-    // `filesScanned` counts the exempt file too; `filesExamined` is what was
-    // read. The difference is the skip, and it is named rather than absorbed.
-    const settled = counts(r.filesScanned, r.filesExamined, r.filesScanned - r.filesExamined, 'file', dir);
-    if (r.sites.length > 0) return 2;
-    return settled.code ?? 0;
-  }
-
-  if (flag('--paths')) {
-    const f = val('--paths');
-    const guard = refuseLink(f, 'the file to scan');
-    if (guard !== null) return guard;
-    if (!f || !existsSync(f)) {
-      process.stderr.write(`cannot read ${f}\n`);
-      counts(1, 0, 1, 'file');
-      return 3;
-    }
-    const leaks = findAbsolutePaths(JSON.parse(readFileSync(f, 'utf8')), { mode: val('--mode', 'strict') });
-    if (asJson) process.stdout.write(`${JSON.stringify(leaks, null, 2)}\n`);
-    else {
-      process.stdout.write(`${leaks.length} absolute path(s)\n`);
-      for (const l of leaks) process.stdout.write(`  ${l.where} (${l.in}, ${l.kind}): ${JSON.stringify(l.value)}\n`);
-    }
-    const settled = counts(1, 1, 0, 'file', f);
-    if (leaks.length > 0) return 2;
-    return settled.code ?? 0;
-  }
-
-  if (flag('--digest')) {
-    const f = val('--digest');
-    const guard = refuseLink(f, 'the file to digest');
-    if (guard !== null) return guard;
-    if (!f || !existsSync(f)) {
-      process.stderr.write(`cannot read ${f}\n`);
-      counts(1, 0, 1, 'file');
-      return 3;
-    }
-    try {
-      process.stdout.write(`${rederiveDigest(JSON.parse(readFileSync(f, 'utf8')))}\n`);
-      const settled = counts(1, 1, 0, 'file', f);
-      return settled.code ?? 0;
-    } catch (e) {
-      process.stderr.write(`malformed record: ${e.message}\n`);
-      counts(1, 0, 1, 'file', f);
-      return 4;
-    }
-  }
-
-  if (flag('--record')) {
-    const f = val('--record');
-    const guard = refuseLink(f, 'the record');
-    if (guard !== null) return guard;
-    if (!f || !existsSync(f)) {
-      process.stderr.write(`cannot read ${f}\n`);
-      counts(1, 0, 1, 'record');
-      return 3;
-    }
-    let rec;
-    try {
-      rec = JSON.parse(readFileSync(f, 'utf8'));
-    } catch (e) {
-      process.stderr.write(`does not parse: ${e.message}\n`);
-      counts(1, 0, 1, 'record', f);
-      return 3;
-    }
-    let r;
-    try {
-      r = verifyRecord(rec, { path: f });
-    } catch (e) {
-      process.stderr.write(`malformed record: ${e.message}\n`);
-      counts(1, 0, 1, 'record', f);
-      return 4;
-    }
-    if (asJson) process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
-    else {
-      process.stdout.write(`checked: ${r.checked.join(', ') || '(nothing)'}\n`);
-      if (r.unchecked.length) process.stdout.write(`unchecked: ${r.unchecked.join(', ')}\n`);
-      for (const x of r.findings) process.stdout.write(`  [${x.severity}] ${x.id} ${x.title}\n    ${x.detail}\n`);
-    }
-    const settled = counts(1, 1, 0, 'record', f);
-    if (r.findings.some((x) => SEVERITY_ORDER[x.severity] >= failOn)) return 2;
-    // A field nobody could check is not a field that passed. `verifyBundle`
-    // has always said so by returning VERIFICATION_INCOMPLETE; this mode used
-    // to return 0 over the same unchecked list, so the same record answered
-    // differently depending on which flag was used to look at it.
-    if (r.unchecked.length > 0) return 3;
-    return settled.code ?? 0;
-  }
-
-  if (flag('--bundle') || flag('--bundles')) {
-    const given = val('--bundle') ?? val('--bundles');
-    const guard = refuseLink(given, 'the bundle directory');
-    if (guard !== null) return guard;
-    const root = resolve(given);
-    if (!existsSync(root) || !statSync(root).isDirectory()) {
-      process.stderr.write(`not a directory: ${root}\n`);
-      counts(0, 0, 0, 'bundle', root);
-      return 3;
-    }
-    const dirs = flag('--bundle') ? [root] : findBundleDirs(root);
-    if (dirs.length === 0) {
-      process.stderr.write(`no bundle directories under ${root}\n`);
-      const settled = counts(0, 0, 0, 'bundle', root);
-      return settled.code ?? 0;
-    }
-    const report = [];
-    let worst = 0;
-    let incomplete = 0;
-    let malformed = 0;
-    for (const d of dirs) {
-      const r = verifyBundle(d, {});
-      const name = d.split(sep).pop();
-      report.push({ bundle: name, ...r });
-      if (r.malformed) malformed++;
-      else if (r.verdict === 'VERIFICATION_INCOMPLETE' || r.verdict === 'UNSUPPORTED') incomplete++;
-      for (const f of r.findings) worst = Math.max(worst, SEVERITY_ORDER[f.severity] + 1);
-      if (!asJson) {
-        const n = r.findings.length;
-        process.stdout.write(`${n === 0 ? 'ok  ' : 'FAIL'} ${name}  ${r.verdict}  digest=${(r.digest ?? '-').slice(0, 16)}  checked=${r.checked.length} unchecked=${r.unchecked.length}\n`);
-        for (const f of r.findings) process.stdout.write(`       [${f.severity}] ${f.id} ${f.title}\n         ${f.detail}\n`);
-        if (r.error) process.stdout.write(`       ${r.error}\n`);
-      }
-    }
-    if (asJson) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-    else process.stdout.write(`\n${dirs.length} bundle(s): ${report.filter((r) => r.findings.length === 0 && !r.error).length} clean, ${report.filter((r) => r.findings.length > 0).length} with findings, ${incomplete} incomplete, ${malformed} malformed\n`);
-    const settled = counts(dirs.length, dirs.length - malformed, malformed, 'bundle', root);
-    if (malformed > 0) return 4;
-    if (worst > failOn) return 2;
-    if (incomplete > 0) return 3;
-    return settled.code ?? 0;
-  }
+  // Order matters and is the order it always was: the first flag present wins.
+  if (cli.flag('--self-test')) return runSelfTest(cli);
+  if (cli.flag('--clock-audit')) return runClockAudit(cli);
+  if (cli.flag('--paths')) return runPaths(cli);
+  if (cli.flag('--digest')) return runDigest(cli);
+  if (cli.flag('--record')) return runRecord(cli);
+  if (cli.flag('--bundle') || cli.flag('--bundles')) return runBundles(cli);
 
   process.stderr.write(`${usage()}\n`);
   return 3;
