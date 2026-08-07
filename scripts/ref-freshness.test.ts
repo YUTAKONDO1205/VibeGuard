@@ -267,18 +267,51 @@ describe('ref-freshness: the exit code an operator sees', () => {
   }, 60_000);
 
   it('reports the distance in commits when the remote object is present locally', () => {
-    // A real, older commit stands in for the remote tip of the current branch,
-    // which is the shape of the audit failure: local pointing somewhere the
-    // remote has moved past. `git rev-list` then has real objects to count.
+    // A real commit one step PAST head stands in for the remote tip of the
+    // current branch, which is the shape of the audit failure: local pointing
+    // somewhere the remote has moved past. `git rev-list` then has real objects
+    // to count, and the count is known in advance, so the assertion below can
+    // name it instead of accepting any two digits.
+    //
+    // WHY THE TIP IS BUILT AND NOT BORROWED FROM HISTORY
+    //
+    // The earlier version of this read `HEAD~1`, and there is no `HEAD~1` in a
+    // depth-1 checkout — which is what `actions/checkout` produces by default,
+    // and where this test went red. Deepening CI would have fixed this one job
+    // and left the test asserting something about the fetch depth of whoever
+    // runs it; the same red would come back on the next shallow clone. So the
+    // commit is written here. `commit-tree` adds one unreachable commit object
+    // whose parent is head, touching no ref, no index and no working tree, and
+    // needing no history beyond head itself. Identity and dates are fixed so
+    // the sha is stable — a re-run reuses the same object rather than leaving a
+    // new one behind — and so this still works where no user.name is set, which
+    // on a CI runner is the normal case.
+    const gitEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'vibeguard-test',
+      GIT_AUTHOR_EMAIL: 'ref-freshness-test@invalid',
+      GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z',
+      GIT_COMMITTER_NAME: 'vibeguard-test',
+      GIT_COMMITTER_EMAIL: 'ref-freshness-test@invalid',
+      GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
+    };
     const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
     const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
-    const older = execFileSync('git', ['rev-parse', 'HEAD~1'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
-    expect(older).not.toBe(head);
-    const f = fixture('distance.txt', `${older}\trefs/heads/${branch}\n`);
+    const remoteTip = execFileSync(
+      'git',
+      ['commit-tree', 'HEAD^{tree}', '-p', head, '-m', 'ref-freshness test fixture: a remote tip one commit past head'],
+      { cwd: REPO_ROOT, encoding: 'utf8', env: gitEnv },
+    ).trim();
+    expect(remoteTip).not.toBe(head);
+    const f = fixture('distance.txt', `${remoteTip}\trefs/heads/${branch}\n`);
     const local = fixture('distance-local.txt', `${head} refs/remotes/origin/${branch}\n`);
     const { status, out } = run(['--ls-remote-from', f, '--local-refs-from', local]);
     expect(status).toBe(EXIT_INCOMPLETE);
-    expect(out).toMatch(/local is \d+ commit\(s\) behind and \d+ ahead/);
+    // The exact numbers, not `\d+`: the fixture is built to sit exactly one
+    // commit behind, so the answer is known, and `0 behind and 0 ahead` — what a
+    // degenerate comparison of two refs that do not really differ would print —
+    // satisfies a `\d+` pattern just as well as the right answer does.
+    expect(out).toContain('local is 1 commit(s) behind and 0 ahead');
     expect(out).not.toContain('distance NOT_OBSERVED');
   }, 60_000);
 
