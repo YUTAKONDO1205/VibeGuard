@@ -3,7 +3,7 @@
 # Built out of band, never by `npm run build`. See compiler/README.md for why
 # this directory is outside the npm workspace globs.
 #
-#   cmake -S /mnt/c/Users/PC_User/VibeGuard/compiler/pass-instrumentation/observer \
+#   cmake -S "$REPO"/compiler/pass-instrumentation/observer \
 #         -B ~/vg-build/pass-observer -G Ninja \
 #         -DLLVM_DIR=$(llvm-config-18 --cmakedir)
 #   ninja -C ~/vg-build/pass-observer

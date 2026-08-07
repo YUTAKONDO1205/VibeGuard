@@ -13,7 +13,9 @@ rather than asserted — see [Non-invasiveness](#non-invasiveness).
 Out of band, never by `npm run build`. See `compiler/README.md` for why.
 
 ```sh
-cmake -S /mnt/c/Users/PC_User/VibeGuard/compiler/pass-instrumentation/observer \
+REPO=$(cd "$(git rev-parse --show-toplevel)" && pwd)
+
+cmake -S "$REPO"/compiler/pass-instrumentation/observer \
       -B ~/vg-build/pass-observer -G Ninja \
       -DLLVM_DIR=$(llvm-config-18 --cmakedir)
 ninja -C ~/vg-build/pass-observer

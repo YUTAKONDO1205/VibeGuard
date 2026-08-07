@@ -53,10 +53,16 @@ compiler/<component>/          sources, tracked, LF on disk everywhere
 ~/vg-lab/<component>/          measurement output, logs, fixtures. Never under compiler/.
 ```
 
-The canonical invocation for a C++ component:
+The canonical invocation for a C++ component. `REPO` is wherever this checkout
+is, as the Linux side sees it — under WSL that is a path beneath `/mnt`, and it
+is written as a variable rather than spelled out because a build instruction
+carrying one machine's account name is both a disclosure and wrong for everyone
+else:
 
 ```sh
-cmake -S /mnt/c/Users/PC_User/VibeGuard/compiler/<component> \
+REPO=$(cd "$(git rev-parse --show-toplevel)" && pwd)
+
+cmake -S "$REPO"/compiler/<component> \
       -B ~/vg-build/<component> -G Ninja \
       -DLLVM_DIR=$(llvm-config-18 --cmakedir)
 ninja -C ~/vg-build/<component>

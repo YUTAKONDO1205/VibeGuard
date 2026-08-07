@@ -40,7 +40,7 @@ test('a relative token is left exactly as the caller wrote it', () => {
 
 test('the absolute-path gate finds paths anywhere in the record, not only at the top', () => {
   const hits = findAbsolutePaths({
-    a: [{ detail: 'loaded from /mnt/c/Users/PC_User/x.so' }],
+    a: [{ detail: 'loaded from /mnt/c/checkout/x.so' }],
     b: { c: 'fine' },
   });
   assert.equal(hits.length, 1);

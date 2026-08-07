@@ -5,7 +5,7 @@
 # and a shared aggregate build turns "my component compiles" into a claim about
 # everybody else's.
 #
-#   cmake -S /mnt/c/Users/PC_User/VibeGuard/compiler/pass-instrumentation/marker \
+#   cmake -S "$REPO"/compiler/pass-instrumentation/marker \
 #         -B ~/vg-build/marker -G Ninja \
 #         -DLLVM_DIR=$(llvm-config-18 --cmakedir)
 #   ninja -C ~/vg-build/marker

@@ -66,7 +66,7 @@ jobs:
       - name: Assert node/browser paths agree
         run: node scripts/e1-consistency-eval.mjs >> "$GITHUB_STEP_SUMMARY"
 
-  # H2 — the self-hardening gate (実装設計手順書 §5.5・§9.4). VibeGuard
+  # H2 — the self-hardening gate. VibeGuard
   # regression-tests its OWN attack surface here: the ReDoS surface of the rule
   # regexes (A1), the evasion rate of rewrites against the shipped detector (B1),
   # the concealment rate of triage-abuse disguises (B3), and the finding SETS of

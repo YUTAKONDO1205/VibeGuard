@@ -26,7 +26,7 @@
 //
 // ★ WHY THE DEFINITION IS TAINT-SHAPED AND NOT TEXT-SHAPED
 //
-// 実装設計手順書 §9.3 names the failure of the obvious version outright: today
+// The design notes name the failure of the obvious version outright: today
 // 041 "can only say that a `save` comes after a `validate` in the text, which is
 // a false-positive source", and taint makes it evidence — "the argument of
 // `save` is a tainted variable that does not pass through `validate`". A

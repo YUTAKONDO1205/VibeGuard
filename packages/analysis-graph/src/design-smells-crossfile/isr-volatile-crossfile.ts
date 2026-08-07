@@ -10,11 +10,11 @@
 //
 // ★ WHY THIS DID NOT WAIT FOR TYPE INFORMATION
 //
-// The plan (実装順 #20d) deferred this to 山③ "until type information is
-// available", on the correct observation that `volatile` is a property of the
-// DECLARATION's type and that a lexical scan cannot tell one `count` from
-// another `count`. The premise stopped holding when #20 decided not to take an
-// AST/parser dependency at all: there is no later phase in which types arrive
+// An earlier plan deferred this rule "until type information is available", on
+// the correct observation that `volatile` is a property of the DECLARATION's
+// type and that a lexical scan cannot tell one `count` from
+// another `count`. The premise stopped holding once the decision was taken not
+// to add an AST/parser dependency at all: there is no later phase in which types arrive
 // for free, so "wait for types" would have meant waiting forever while the
 // same-file half of the rule shipped and the cross-file half stayed a TODO. A
 // permanently deferred rule and a deleted rule are the same artefact.
