@@ -177,6 +177,9 @@ let compilerNote = 'compiler/ not evaluated';
  */
 let passengerNote = 'Action tree: not classified';
 
+/** Whether every workspace npm would resolve is present in the lockfile. */
+let lockNote = 'workspaces: not compared against the lockfile';
+
 // ── Invariant 1: VS Code types must not outrun the declared engine ──────────
 {
   const pkgPath = join(REPO_ROOT, 'extensions/vscode/package.json');
@@ -1445,6 +1448,85 @@ if (!PRE_BUILD) {
   }
 }
 
+// ── INVARIANT: every workspace is in the lockfile ───────────────────────────
+//
+// `npm ci` refuses to install when package.json and package-lock.json disagree,
+// and adding a directory under a workspace glob makes them disagree. Nothing a
+// developer runs locally notices: `npm test` and `npm run build` use the
+// node_modules already on disk, so a tree with three unlocked workspaces tests
+// green, builds green, and passes every other invariant in this file.
+//
+// The first thing that runs `npm ci` is the runner, which is to say the first
+// notice is a red default branch. That happened: three new packages went in,
+// every local check passed, and all four workflows then failed at their first
+// step — including the Action's own smoke test, because the composite action
+// runs `npm ci` in the consumer's checkout too.
+//
+// This is precisely the shape this file exists for: correct locally, broken at
+// release. Checked here rather than by adding `npm ci` to a local hook, because
+// `npm ci` deletes node_modules and takes minutes; reading two manifests takes
+// milliseconds and catches the same mistake.
+{
+  let manifest = null;
+  let lock = null;
+  try { manifest = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')); } catch { manifest = null; }
+  try { lock = JSON.parse(readFileSync(join(REPO_ROOT, 'package-lock.json'), 'utf8')); } catch { lock = null; }
+
+  if (manifest === null || lock === null) {
+    failures.push(
+      'package.json or package-lock.json could not be read, so workspace/lockfile agreement\n' +
+        '  was not checked. Reported rather than skipped.',
+    );
+  } else if (!lock.packages || typeof lock.packages !== 'object') {
+    failures.push(
+      'package-lock.json has no `packages` map (lockfileVersion 1?), so this invariant cannot\n' +
+        '  read it. Update the check together with the lockfile format.',
+    );
+  } else {
+    // Resolve the globs the same way npm does for the only form used here,
+    // `<dir>/*`: one level down, directories holding a package.json.
+    const found = [];
+    for (const glob of manifest.workspaces ?? []) {
+      const g = String(glob);
+      if (!g.endsWith('/*')) {
+        if (existsSync(join(REPO_ROOT, g, 'package.json'))) found.push(g);
+        continue;
+      }
+      const base = g.slice(0, -2);
+      let entries = [];
+      try { entries = readdirSync(join(REPO_ROOT, base), { withFileTypes: true }); } catch { entries = []; }
+      for (const e of entries) {
+        if (!e.isDirectory()) continue;
+        const rel = `${base}/${e.name}`;
+        if (existsSync(join(REPO_ROOT, rel, 'package.json'))) found.push(rel);
+      }
+    }
+
+    // Counting contract. Zero resolved workspaces would make the loop below
+    // vacuously true, which is the failure mode this file keeps refusing.
+    if (found.length === 0) {
+      failures.push(
+        `no workspace resolved from ${JSON.stringify(manifest.workspaces ?? [])}, so the\n` +
+          '  lockfile-agreement check compared nothing. Either the globs changed or the\n' +
+          '  resolver here did; both are events, neither is a pass.',
+      );
+    } else {
+      const missing = found.filter((rel) => !(rel in lock.packages));
+      if (missing.length) {
+        failures.push(
+          `${missing.length} workspace(s) are not in package-lock.json: ${missing.join(', ')}.\n` +
+            '  `npm ci` fails outright on this, so every workflow — and every consumer of the\n' +
+            '  composite action, which runs `npm ci` in its own checkout — breaks at the first\n' +
+            '  step. Local `npm test` will not tell you: it uses the node_modules already on\n' +
+            '  disk. Run `npm install --package-lock-only` and commit the lockfile with the\n' +
+            '  package that needed it.',
+        );
+      }
+      lockNote = `workspaces: ${found.length} resolved, ${found.length - missing.length} present in the lockfile`;
+    }
+  }
+}
+
 // ── INVARIANT: a directory that ships in the Action but is not built by it
 //    must be INERT ────────────────────────────────────────────────────────────
 //
@@ -1575,3 +1657,4 @@ console.log(
 );
 console.log(`  ${compilerNote}`);
 console.log(`  ${passengerNote}`);
+console.log(`  ${lockNote}`);
