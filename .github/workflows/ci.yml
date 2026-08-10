@@ -14,6 +14,27 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # scripts/ref-freshness.test.ts and scripts/sweep-disclosure.test.ts build
+      # their fixtures from `git for-each-ref refs/remotes/origin`, because the
+      # thing under test is whether a local ref agrees with the remote. On a
+      # `push` run the checkout leaves one such ref behind and the tests run; on
+      # a `pull_request` run it checks out the merge ref detached and leaves
+      # none, so the fixture comes out empty and five assertions fail for a
+      # reason that has nothing to do with the code in the pull request.
+      #
+      # Measured: every pull_request run of this workflow has failed at `npm
+      # test` since those tests landed, while `push` runs on the default branch
+      # stayed green — so the signal a reviewer reads on a PR had already been
+      # destroyed, quietly, by an environment difference.
+      #
+      # Fetching the branch refs makes the precondition true, which is better
+      # than the alternatives: skipping the tests on PRs would take a gate off
+      # exactly the runs a reviewer looks at, and asserting nothing when the
+      # fixture is empty is the silent pass this repository refuses everywhere
+      # else. Nothing here weakens a check — it gives one the input it needs.
+      - name: Fetch branch refs (the freshness tests read refs/remotes/origin)
+        run: git fetch --no-tags --prune origin '+refs/heads/*:refs/remotes/origin/*'
+
       - uses: actions/setup-node@v7
         with:
           node-version: '20'
