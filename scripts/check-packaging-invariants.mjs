@@ -940,11 +940,18 @@ if (!PRE_BUILD) {
   // There is no `child_process` use in either extension's source today, which
   // is what makes it safe to forbid the shape now rather than after the first
   // one appears.
-  const WORKSPACE_DIR_FLOOR = 11; // measured 2026-08-06: 8 packages + 1 app + 2 extensions
-  // Measured 2026-08-06: 172 files. The floor sits below that so ordinary
-  // deletions do not trip it, and far enough above zero that a skip rule which
-  // swallowed a whole workspace would.
-  const SCANNED_FILE_FLOOR = 150;
+  // Re-measured 2026-08-10: 11 packages + 1 app + 2 extensions = 14. The
+  // previous value of 11 was the 2026-08-06 reading and three workspaces have
+  // been added since, so the floor had drifted three below the tree: it would
+  // have passed with a fifth of the light side no longer enumerated. Exact
+  // rather than slack, because a workspace directory never appears or vanishes
+  // by accident — adding one is a deliberate act that belongs in this diff.
+  const WORKSPACE_DIR_FLOOR = 14;
+  // Measured 2026-08-10: 228 files (was 172 on 2026-08-06, against a floor of
+  // 150). The floor sits ~12% below the reading, the same margin the original
+  // carried, so ordinary deletions do not trip it — but re-anchored, because a
+  // floor left 34% below the tree stops being a narrowing detector.
+  const SCANNED_FILE_FLOOR = 200;
   const CODE_EXT = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
   const SKIP_SEGMENTS = new Set(['node_modules', 'dist', 'out', 'build', 'coverage', '.turbo']);
   const workspaceDirs = manifestDirs
@@ -1361,7 +1368,15 @@ if (!PRE_BUILD) {
   // 32 were suppressed by path there rather than by pragma, so this count grew
   // by three rather than by eighteen. Measured before and after: the
   // CI-equivalent self-scan goes 39 findings → 0.
-  const PRAGMA_FILE_BASELINE = 59; // measured 2026-08-04, counting directives only (prose mentions excluded)
+  // 2026-08-10: 59 → 58. Not a removal — a miscount. The census read AGENTS.md
+  // as a 59th carrier because §8 of that guide shows the directive inside a
+  // ```js fence as the EXAMPLE of how to write one. That is documentation, and
+  // counting it left the ceiling one above the tree: a real new suppression
+  // could land and still pass. Fenced blocks in Markdown are now stripped
+  // before the test (see walkPragma), which drops AGENTS.md and keeps the two
+  // Markdown files that carry a real one on line 1, outside any fence —
+  // CHANGELOG.md and packages/mcp-guard/README.md.
+  const PRAGMA_FILE_BASELINE = 58; // measured 2026-08-10, counting directives only (prose and fenced examples excluded)
   const PRAGMA = 'vibeguard:disable-' + 'file';
   // Comment-opening token, then the directive. `m` so it applies per line.
   // Built from a raw source string, not a template literal: `\s` inside a
@@ -1375,6 +1390,12 @@ if (!PRE_BUILD) {
     'node_modules', '.git', 'dist', 'build', 'out', 'coverage',
     '.claude', '.codex', 'paper_data', 'security-experiment', 'docs', 'dock', 'video', '.wrangler',
   ]);
+  // A fenced code block in a Markdown file is an EXAMPLE, not a suppression.
+  // Nothing reads it, so a census that counts it is describing the guide rather
+  // than the tree — and the ceiling then has room in it for a real one. Only
+  // Markdown is treated this way: in source files a fence is not a construct,
+  // and a directive there is live wherever it sits.
+  const stripFences = (text) => text.replace(/^[ \t]*(```|~~~)[^\n]*\n[\s\S]*?^[ \t]*\1[^\n]*$/gm, '');
   const withPragma = [];
   const walkPragma = (dir) => {
     let entries;
@@ -1386,6 +1407,7 @@ if (!PRE_BUILD) {
       if (!/\.(ts|js|mjs|cjs|tsx|jsx|md|yml|yaml|html)$/.test(e.name)) continue;
       let text;
       try { text = readFileSync(full, 'utf8'); } catch { continue; }
+      if (full.endsWith('.md')) text = stripFences(text);
       // A file COUNTS only when the directive would actually parse — the
       // parser matches raw line text, so prose ABOUT the pragma is
       // indistinguishable from a use of it unless the check is stricter than
@@ -1393,10 +1415,17 @@ if (!PRE_BUILD) {
       // code on the line, as `x(); // …` does) keeps documentation out while
       // still catching every real one, including the accidental kind: this file
       // found two live pragmas inside `suppress.ts`'s own doc comment.
-      if (PRAGMA_LINE.test(text)) withPragma.push(full.replace(/^\.\//, ''));
+      if (PRAGMA_LINE.test(text)) withPragma.push(rel(full));
     }
   };
-  walkPragma('.');
+  // REPO_ROOT, not '.'. The census used to walk the CWD, which made "how many
+  // suppressions does this repository carry" a question about where the caller
+  // happened to be standing: run from a subdirectory it counts a subtree, run
+  // from anywhere else it counts nothing and reports a comfortable pass. The
+  // paths are stored repo-relative so a failure message never publishes the
+  // absolute path — that is a home-directory disclosure, which is a shape this
+  // repo forbids elsewhere.
+  walkPragma(REPO_ROOT);
 
   if (withPragma.length > PRAGMA_FILE_BASELINE) {
     failures.push(
@@ -1424,7 +1453,10 @@ if (!PRE_BUILD) {
   const wildcards = [];
   for (const file of withPragma) {
     let text;
-    try { text = readFileSync(file, 'utf8'); } catch { continue; }
+    // withPragma holds repo-relative paths for reporting; read through
+    // REPO_ROOT so this loop does not reintroduce the CWD dependence above.
+    try { text = readFileSync(join(REPO_ROOT, file), 'utf8'); } catch { continue; }
+    if (file.endsWith('.md')) text = stripFences(text);
     for (const line of text.split(/\r\n|\r|\n/)) {
       const at = line.indexOf(PRAGMA);
       if (at === -1) continue;

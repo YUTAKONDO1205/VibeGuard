@@ -653,7 +653,7 @@ export function compareSeverity(a: Severity, b: Severity): number {
  * on rather than a piece of hygiene advice.
  *
  * This is the shared boundary behind every "utility may not overrule security"
- * enforcement point in the codebase. `SEVERITY_CONFIDENCE_FLOOR` (paper item
+ * enforcement point in the codebase. `SEVERITY_CONFIDENCE_FLOOR` (evaluation
  * ①c, packages/rules/src/confidence.ts) established the principle on the
  * *confidence* axis: a context downgrade is noise reduction, and noise reduction
  * must never be able to decide a security question, so the downgrade is bounded

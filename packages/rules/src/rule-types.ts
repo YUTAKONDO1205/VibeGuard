@@ -42,7 +42,7 @@ export interface RuleDefinition {
   severity: Severity;
   defaultConfidence: Confidence;
   /**
-   * Context-window confidence policy (paper item ①). 'auto' (the default when
+   * Context-window confidence policy (evaluation E6). 'auto' (the default when
    * omitted) lets the analyzer down-rank this rule's matches that sit in a
    * comment, docstring/block comment, or test fixture. Set 'off' for rules
    * where the comment itself is the detection signal (e.g. VG-AUTH-002,

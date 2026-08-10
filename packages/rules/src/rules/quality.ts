@@ -115,7 +115,7 @@ export const openRedirect: RuleDefinition = {
 // declare an abstract contract — the concrete subclass supplies the body. That
 // is intentional, not a shipped stub, so it must not be flagged. (Identified as
 // the dominant VG-QUAL-005 false-positive class in the ai-quality precision
-// benchmark, paper item ③.)
+// benchmark, evaluation E3.)
 function isAbstractMethod(lines: string[], matchLine: number): boolean {
   for (let i = matchLine - 1; i >= 0; i--) {
     if (!/^\s*def\s/.test(lines[i] ?? '')) continue;

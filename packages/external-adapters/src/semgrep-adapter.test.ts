@@ -1,7 +1,8 @@
 // Semgrep adapter, tested against the RECORDED STRUCTURE of a real Semgrep
 // 1.165.0 run over samples/vulnerable (src/fixtures/semgrep-samples-vulnerable.json,
-// trimmed from paper_data/semgrep_vulnerable.json — provenance is the first key
-// of the fixture itself).
+// trimmed from a recorded run held outside the published tree — the fixture
+// carries that provenance as its own first key, which is where to read it; a
+// comment that names the withheld path instead says what the path holds).
 //
 // ⚠ "structure", not "bytes", since #44. The rule identifiers, the Windows
 // backslash paths, the coordinates, the severities, the CWE ids and the

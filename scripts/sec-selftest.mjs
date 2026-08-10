@@ -34,19 +34,20 @@
 // ★ Why the corpora are REGENERATED here instead of being committed
 // ---------------------------------------------------------------------------
 // The obvious design is "commit the B1/B3 corpora, scan them in CI". It cannot
-// work, and the reason is not laziness — it is deliberate:
+// work, and the reason is not laziness — it is deliberate.
 //
-//   $ git check-ignore -v security-experiment/track-b-detection-robustness/\
-//     b1-evasion/corpus
-//   .gitignore:96:security-experiment/
-//   $ git ls-files security-experiment/ | wc -l
-//   0
+// The directory the generators write into is excluded by .gitignore and carries
+// no tracked files, so on a CI runner the corpora DO NOT EXIST. `git add -f`
+// would defeat the exclusion the entry exists to enforce, so it is not an
+// option either.
 //
-// `security-experiment/` is ignored on purpose: it holds attack premises that do
-// not belong in a public service repo until the mitigations and the write-up
-// ship (see the folder's own scope doc). So on a CI runner the corpora DO NOT
-// EXIST. `git add -f` would defeat the exclusion the .gitignore entry exists to
-// enforce, so it is not an option either.
+//   ⚠ Do not restore the worked example that used to sit here. It quoted a
+//     `git check-ignore -v` transcript, which meant this file carried both a
+//     line number into .gitignore — already stale by sixteen lines when it was
+//     found — and a sentence saying what the withheld directory CONTAINS. The
+//     second is the disclosure the ignore-file rule exists to prevent: the
+//     path's name is unavoidable, an annotation explaining why it is worth
+//     having is not. State the mechanism, never the contents.
 //
 // The generators' INPUTS, however, are tracked and small:
 //   samples/vulnerable  13 files      test_problem  2 files (1 with a scanned
@@ -482,8 +483,26 @@ function parseArgs(argv) {
     // one this run produced from tracked inputs.
     b1Manifest: at('--b1-manifest', null),
     b3Manifest: at('--b3-manifest', null),
+    // Public-surface redaction. The B1/B3 gates compare measured evasion and
+    // concealment rates against the baseline, and those rates are the headline
+    // numbers of an unpublished write-up. On a public runner every one of them
+    // reaches three readable surfaces at once — the raw job log (this function
+    // prints to stdout and CI tees it), the run page's step summary, and any
+    // uploaded artefact. Redaction keeps the gate and drops the reading: the
+    // verdict, the gate id and the failed-gate list still cross, so a
+    // regression is still visible and still red, but nobody learns the rate.
+    // Off by default, because a maintainer running this locally needs the
+    // numbers to act on a failure.
+    redactMetrics: argv.includes('--redact-metrics') || process.env.VG_SELFTEST_REDACT === '1',
   };
 }
+
+// Gates whose reading is a measurement from the withheld arms. Matched on the
+// id prefix rather than a list, so a gate added later to either arm inherits
+// the redaction instead of quietly publishing a new number.
+const REDACTED_ARM_PREFIXES = ['b1:', 'b3:'];
+const isRedactedGate = (id) => REDACTED_ARM_PREFIXES.some((p) => String(id).startsWith(p));
+const REDACTED = '[redacted: measured value withheld on a public surface]';
 
 // ------------------------------------------------------------------- utils ---
 /** Deterministic JSON: object keys sorted at every depth, array order kept. */
@@ -1749,15 +1768,25 @@ async function main(argv) {
   console.log('# H2 — self-hardening CI selftest\n');
   console.log(`baseline: ${slash(args.baselinePath)}  ·  arms: ${args.arms.join(', ')}  ·  authoritative: ${complete}`);
   console.log(`observed digest: ${observedDigest}\n`);
+  // `show` is the only path a gate's numbers take to stdout. Routing every one
+  // of them through one function is deliberate: a future line that prints a
+  // reading some other way would bypass the redaction, and the test asserts
+  // against the whole rendered report rather than against this function, so
+  // that bypass fails the suite instead of shipping.
+  const show = (g, v) => (args.redactMetrics && isRedactedGate(g.id) ? REDACTED : typeof v === 'object' ? canonicalJson(v) : v);
   for (const g of result.gates) {
     console.log(`${mark[g.verdict].padEnd(11)} ${g.id}`);
     if (g.verdict === PASS) {
-      if (g.actual != null) console.log(`            ${typeof g.actual === 'object' ? canonicalJson(g.actual) : g.actual}`);
+      if (g.actual != null) console.log(`            ${show(g, g.actual)}`);
       continue;
     }
-    console.log(`            expected: ${typeof g.expected === 'object' ? canonicalJson(g.expected) : g.expected}`);
-    console.log(`            actual:   ${typeof g.actual === 'object' ? canonicalJson(g.actual) : g.actual}`);
-    if (g.detail) console.log(`            ${g.detail}`);
+    console.log(`            expected: ${show(g, g.expected)}`);
+    console.log(`            actual:   ${show(g, g.actual)}`);
+    // `detail` is prose built from the measurement ("evasion rate rose by X"),
+    // so it carries the reading even when `actual` has been withheld. `why` is
+    // a static explanation of the gate and stays: it is the part a reader of a
+    // red public run actually needs.
+    if (g.detail) console.log(`            ${show(g, g.detail)}`);
     if (g.why) console.log(`            why it is gated: ${g.why}`);
   }
   const s = result.summary;
@@ -1767,7 +1796,10 @@ async function main(argv) {
   );
   if (s.failed > 0) console.log(`FAILED GATES: ${s.failedGateIds.join(', ')}`);
   if (s.unmeasured > 0) console.log(`UNMEASURED (not counted as passes): ${s.unmeasuredGateIds.join(', ')}`);
-  console.log(`wrote ${slash(args.manifestOut)}`);
+  // The manifest path names the withheld directory, so on a public surface it
+  // is the same class of disclosure as the readings. The file is still written
+  // — only the announcement of where is withheld.
+  console.log(args.redactMetrics ? 'wrote the run manifest (path withheld)' : `wrote ${slash(args.manifestOut)}`);
 
   return s.ok ? 0 : 1;
 }

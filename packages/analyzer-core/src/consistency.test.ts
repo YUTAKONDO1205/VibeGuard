@@ -94,7 +94,7 @@ const FIXTURE: Record<string, string> = {
   ].join('\n'),
 };
 
-describe('cross-channel consistency (paper item ②)', () => {
+describe('cross-channel consistency (evaluation E1)', () => {
   it('Chrome (browser scan), VS Code (Analyzer.scan) and CLI (scanPath) agree on a fixture', async () => {
     const browser = canonical(scanBrowserFiles(FIXTURE));
 

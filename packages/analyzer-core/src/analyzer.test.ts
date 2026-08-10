@@ -290,7 +290,7 @@ const apiKey = "AKIAIOSFODNN7EXAMPLE";
     });
   });
 
-  // --- Context-window confidence (paper item ①) ---------------------------
+  // --- Context-window confidence (evaluation E6) ---------------------------
 
   it('does not down-rank a high-severity DEBUG=True in a docstring (severity gate)', () => {
     // Pre-gate this resolved to `low` (medium default, docstring -2). VG-FW-001

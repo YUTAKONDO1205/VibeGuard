@@ -150,16 +150,51 @@ export const PLANTS = [
     line: (n) => `the corpus lives in ${n}${'\\'}data`,
   },
   {
-    // Scoped by the detector to ignore-file basenames, so the plant has to BE
-    // one. A plant written to plant-ignore.md would never be scanned by this
-    // shape and would score as an instrument failure.
+    // The detector no longer scopes this shape to ignore-file basenames — the
+    // same annotation reads the same way in a source comment, which is where it
+    // was actually found. What it requires instead is a PAIR: a comment line
+    // that also names a path .gitignore excludes, written as a path. So the
+    // plant has to carry both halves, and the withheld name is read from
+    // .gitignore at plant time rather than written here, for the same reason the
+    // detector reads it there — this file states shapes and holds no proper noun.
     name: 'IGNORE-RATIONALE',
     shape: 'IGNORE-RATIONALE',
     file: '.gitignore',
     needle: 'att' + 'ack',
-    line: (n) => `# holds the ${n} corpus`,
+    line: (n) => `# ${withheldDirName()}/ holds the ${n} corpus`,
+  },
+  {
+    // The other half of the pair, planted in a source comment. This is the case
+    // the basename scope could not see, so an instrument that only plants into
+    // an ignore file would go on reporting a clean tree after the scope came
+    // back by accident.
+    name: 'IGNORE-RATIONALE-IN-SOURCE',
+    shape: 'IGNORE-RATIONALE',
+    file: 'plant-rationale.mjs',
+    needle: 'evas' + 'ion',
+    line: (n) => `// ${withheldDirName()}/ is where the ${n} corpus is kept`,
   },
 ];
+
+/**
+ * A directory name .gitignore withholds, taken from .gitignore itself.
+ *
+ * Both halves of the IGNORE-RATIONALE plant need one, and hard-coding it here
+ * would put a withheld name into a tracked file whose whole premise is that it
+ * contains none. Long enough and free of globs, so it matches the detector's own
+ * rule for what counts as a path rather than a word.
+ */
+function withheldDirName() {
+  const text = readFileSync(join(REPO_ROOT, '.gitignore'), 'utf8');
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line === '' || line.startsWith('#') || line.startsWith('!')) continue;
+    if (line.includes('*') || line.includes('?') || line.includes('.')) continue;
+    const token = line.replace(/^\/+/, '').replace(/\/+$/, '');
+    if (token.length >= 8 && !token.includes('/')) return token;
+  }
+  throw new Error('no withheld directory name in .gitignore: the IGNORE-RATIONALE plant cannot be built, which is an instrument failure rather than a clean tree');
+}
 
 /**
  * The other half of the measurement. Every positive above shows the instrument

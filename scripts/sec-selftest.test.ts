@@ -855,4 +855,70 @@ describe('ci.yml', () => {
     // And it must actually be the job that runs the gate, not an empty stub.
     expect(body).toContain('node scripts/sec-selftest.mjs');
   });
+
+  it('redacts on the public runner, and uploads no manifest artefact', () => {
+    const text = yml();
+    const line = text.split('\n').find((l) => l.includes('node scripts/sec-selftest.mjs'));
+    expect(line!.includes('--redact-metrics'), 'ci.yml runs the gate without --redact-metrics').toBe(true);
+    // The artefact was the third public surface (log, step summary, download).
+    // Named explicitly rather than by a generic upload-artifact check, because
+    // this job legitimately may grow other uploads.
+    expect(text).not.toContain('security-selftest-manifest');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Public-surface redaction
+// ---------------------------------------------------------------------------
+//
+// Measured 2026-08-10 on run 31353542731: the public job log carried the B1
+// evasion rates verbatim, and 357 downloadable artefacts carried the whole run
+// record. Both surfaces are fed by the same stdout this asserts on.
+//
+// The assertions run against the WHOLE RENDERED REPORT of a real run, not
+// against the redaction helper. A helper test would pass while a newly added
+// `console.log` printed a rate around it — which is exactly how the surface
+// grew in the first place. The pair matters as much as the redacted run: a
+// redacted run with no numbers proves nothing if the plain run had none
+// either, so the plain run is this test's positive control.
+describe('--redact-metrics withholds the readings and keeps the gate', () => {
+  let plain: Run;
+  let redacted: Run;
+
+  beforeAll(() => {
+    plain = runArms([], 'redact-control');
+    redacted = runArms(['--redact-metrics'], 'redact-subject');
+  }, 240_000);
+
+  // Positive control first. If this fails the subject assertions are vacuous.
+  it('the plain run does print measured rates (control)', () => {
+    expect(plain.stdout).toMatch(/0\.\d{4,}/);
+  });
+
+  it('the redacted run prints no measured rate anywhere', () => {
+    expect(redacted.stdout).not.toMatch(/0\.\d{4,}/);
+  });
+
+  it('the redacted run does not print where the manifest went', () => {
+    // The real default path names the withheld directory. These runs redirect
+    // it into tmp (runArms) so no test clobbers the tracked record, so the
+    // control here is the redirected path — same shape, same surface, and it
+    // proves the `wrote …` line reaches stdout at all before the subject
+    // asserts that it does not.
+    expect(plain.stdout).toContain('redact-control.json');
+    expect(redacted.stdout).not.toContain('redact-subject.json');
+    expect(redacted.stdout).toContain('path withheld');
+  });
+
+  it('the gate still gates — same verdicts, same exit status', () => {
+    const verdicts = (r: Run) => r.stdout.split(/\r?\n/).filter((l) => /^(PASS|FAIL|UNMEASURED)\s/.test(l));
+    expect(verdicts(redacted).length).toBeGreaterThan(0);
+    expect(verdicts(redacted)).toEqual(verdicts(plain));
+    expect(redacted.status).toBe(plain.status);
+  });
+
+  it('the b1/b3 gates are still named, so a red run is still actionable', () => {
+    expect(redacted.stdout).toMatch(/^\S+\s+b1:/m);
+    expect(redacted.stdout).toMatch(/^\S+\s+b3:/m);
+  });
 });

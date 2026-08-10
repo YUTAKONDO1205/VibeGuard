@@ -1,4 +1,4 @@
-// E1 — cross-channel judgment consistency (paper item ②).
+// E1 — cross-channel judgment consistency (evaluation E1).
 //
 // Upgrades E1 from a structural argument ("the four channels depend on a single
 // analyzer-core package, so they must agree") to an EMPIRICAL, CI-enforced
@@ -115,7 +115,7 @@ const log = (s = '') => {
   console.log(s);
 };
 
-log('# E1 — cross-channel judgment consistency (paper item ②)\n');
+log('# E1 — cross-channel judgment consistency\n');
 log('Built node entry (`scanPath`, used by CLI + GitHub Action) vs built browser');
 log('entry (`scan`, used by Chrome + VS Code) over identical inputs. A divergence');
 log('is any finding tuple present on one path but not the other.\n');
