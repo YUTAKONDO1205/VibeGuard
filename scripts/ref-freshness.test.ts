@@ -295,8 +295,21 @@ describe('ref-freshness: the exit code an operator sees', () => {
       GIT_COMMITTER_EMAIL: 'ref-freshness-test@invalid',
       GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
     };
+    // WHY THE BRANCH NAME IS WRITTEN AND NOT READ FROM HEAD
+    //
+    // Both sides of this comparison are injected — the remote side by
+    // `--ls-remote-from` and the local side by `--local-refs-from` — so the
+    // branch name is a label, and the shas are the whole content of the test.
+    // Reading it from `git rev-parse --abbrev-ref HEAD` bought nothing and cost
+    // the test its portability: on a detached HEAD, which is exactly what
+    // `actions/checkout` leaves behind on a pull_request run, that command
+    // returns the literal string `HEAD`. The local fixture then said
+    // `refs/remotes/origin/HEAD`, which ref-freshness.mjs:130 drops on purpose
+    // as a symbolic ref, so nothing was compared, no distance was printed, and
+    // the assertion below failed for a reason that had nothing to do with
+    // distance. A fixed label cannot be a symbolic ref and cannot collide.
     const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
-    const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
+    const branch = 'ref-freshness-distance-fixture';
     const remoteTip = execFileSync(
       'git',
       ['commit-tree', 'HEAD^{tree}', '-p', head, '-m', 'ref-freshness test fixture: a remote tip one commit past head'],
