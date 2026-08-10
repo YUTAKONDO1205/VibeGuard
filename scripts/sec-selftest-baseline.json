@@ -1,11 +1,15 @@
 {
   "$schema": "none — hand-maintained; every number below was MEASURED, never copied from a plan",
-  "recordedAt": "2026-08-02",
+  "firstRecordedAt": "2026-08-02",
+  "lastAmendedAt": "2026-08-10",
   "recordedFrom": {
-    "note": "Values produced by `node scripts/sec-selftest.mjs` on a clean tree at the commit this file landed in. They are OBSERVATIONS, not targets: nothing here was transcribed from a design document. Re-record deliberately (run the selftest, read the diff, justify every moved number in the PR) — never regenerate it to make a red build green.",
+    "note": "Values produced by `node scripts/sec-selftest.mjs` on a clean tree. They are OBSERVATIONS, not targets: nothing here was transcribed from a design document. Re-record deliberately (run the selftest, read the diff, justify every moved number in the PR) — never regenerate it to make a red build green.",
+    "amendmentNote": "This file is AMENDED, not re-recorded wholesale, so one date and one version cannot describe it and the single pair that used to sit here (2026-08-02 / engine 0.3.3) had stopped describing anything. Both were true of the first recording and of nothing since: the rule census went 71 → 72 → 74 and two whole corpus gates were added afterwards, under 0.3.4 and 0.3.5, while the pair stayed put. A reader who trusted it would have attributed every number below to a tree that predates half of them. What is true: each gate carries the reading taken when that gate last moved, the earliest of those is 2026-08-02 and the latest is the date above.",
+    "engineVersionAtFirstRecording": "0.3.3",
+    "engineVersionAtLastAmendment": "0.3.5",
+    "engineVersionCaveat": "Neither number is a claim that every gate below was observed under it. Making that claim honest needs per-gate provenance, or a full re-record on one tree — until one of those happens, this field says which tree the ENDS of the range were read on and nothing about the middle.",
     "nodeVersion": "v24.14.1",
-    "platform": "win32",
-    "engineVersion": "0.3.3"
+    "platform": "win32"
   },
   "optionalGates": [
     "a1:recheck-superlinear"

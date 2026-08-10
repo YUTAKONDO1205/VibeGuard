@@ -58,6 +58,16 @@ const MAX_BYTES = 4 * 1024 * 1024;
 //
 // `scope` limits a shape to files whose basename matches, for shapes that would
 // be meaningless (or unbearably noisy) everywhere else.
+//
+// ⚠ `scope` is a LOAD-BEARING BLIND SPOT and the reason IGNORE-RATIONALE no
+//   longer has one. That shape was scoped to ignore-file basenames, on the
+//   reasoning that only an ignore file annotates a withheld path. It does not
+//   hold: the same annotation — this directory is withheld, and here is what it
+//   contains — was found in a `//` comment in a build script, where neither the
+//   basename scope nor the `#`-comment filter could see it. A shape scoped to
+//   the file where it was first noticed catches that file and nothing else.
+//   Before adding `scope` to a shape, ask whether the shape is really about the
+//   file, or only about where you happened to find it first.
 const SHAPES = [
   {
     id: 'PLAN-LABEL-ENCLOSED',
@@ -120,12 +130,17 @@ const SHAPES = [
   {
     id: 'IGNORE-RATIONALE',
     why:
-      'A comment in an ignore file that says what a withheld path CONTAINS. The ' +
-      'filename alone is unavoidable — the rule has to name it — but an ' +
-      'annotation saying it is worth having is a strictly worse disclosure than ' +
-      'the filename, and is the opposite of the reason it was withheld.',
-    scope: /^\.(git|npm|vscode|eslint|prettier|docker)ignore$/,
-    // Only the comment lines of an ignore file are examined; see collect().
+      'A comment — in ANY tracked file, not only an ignore file — that names a ' +
+      'withheld path and then says what it CONTAINS. The path name alone is ' +
+      'unavoidable, because the ignore rule has to spell it; an annotation ' +
+      'saying it is worth having is a strictly worse disclosure than the name, ' +
+      'and is the opposite of the reason it was withheld.',
+    // Two conditions, not one. The word list below is noise on its own — this
+    // repository is about attacks and says so on hundreds of lines — so a hit
+    // counts only on a comment line that also names a path .gitignore excludes.
+    // That pairing is the shape; either half alone is ordinary.
+    requiresWithheldPath: true,
+    // Only comment lines are examined, in every comment style, not just `#`; see scanOne().
     re: new RegExp(
       [
         'attack', 'exploit', 'evasion', 'bypass', 'vulnerab', 'payload', 'adversar',
@@ -216,6 +231,55 @@ function exempt(shape, match) {
   return false;
 }
 
+/**
+ * The concrete path names .gitignore withholds — the half of IGNORE-RATIONALE
+ * that keeps it from firing on ordinary security prose.
+ *
+ * Read from .gitignore rather than listed here, so this file still contains no
+ * proper noun: it describes the shape, and the repository supplies the names.
+ * Globs are skipped (a pattern is not a name), and so is anything shorter than
+ * eight characters — `out`, `dist`, `nul` and friends are words before they are
+ * paths, and matching them would put the noise straight back.
+ */
+function withheldPathTokens() {
+  let text;
+  try {
+    text = readFileSync(join(REPO_ROOT, '.gitignore'), 'utf8');
+  } catch {
+    return [];
+  }
+  const out = new Set();
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line === '' || line.startsWith('#') || line.startsWith('!')) continue;
+    if (line.includes('*') || line.includes('?')) continue;
+    const token = line.replace(/^\/+/, '').replace(/\/+$/, '');
+    if (token.length >= 8) out.add(token);
+  }
+  return [...out];
+}
+
+const WITHHELD = withheldPathTokens();
+
+/**
+ * Does this line name a withheld path AS A PATH?
+ *
+ * The distinction is not pedantry, it is the whole false-positive budget. Some
+ * of what .gitignore withholds is spelled with an ordinary English word —
+ * measured on this tree, a bare substring test flagged two lines that say
+ * "adversarial coverage" and "reduce coverage", neither of which is about a
+ * directory at all. A directory is written with a separator after it, and a
+ * withheld FILE carries an extension; a word carries neither.
+ */
+function namesWithheldPath(line) {
+  return WITHHELD.some((t) => (t.includes('.') ? line.includes(t) : line.includes(`${t}/`) || line.includes(`${t}\\`)));
+}
+
+/** Is this line a comment, in any of the styles the tracked surface uses? */
+function isCommentLine(line) {
+  return /^\s*(#|\/\/|\*|<!--|--|;|%)/.test(line) || /\S\s+(\/\/|#)\s/.test(line);
+}
+
 function scanOne(relPath, text) {
   const hits = [];
   const base = basename(relPath);
@@ -224,10 +288,14 @@ function scanOne(relPath, text) {
     if (shape.scope && !shape.scope.test(base)) continue;
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i];
-      // IGNORE-RATIONALE reads comment lines only: an ignore RULE may legitimately
-      // name a path containing any of these words, and flagging the rule itself
-      // would make the check unusable in the one file it exists for.
-      if (shape.id === 'IGNORE-RATIONALE' && !/^\s*#/.test(line)) continue;
+      // IGNORE-RATIONALE reads comment lines only, and only those that name a
+      // withheld path: an ignore RULE may legitimately name a path containing
+      // any of these words, and the words alone appear all over a repository
+      // whose subject is attacks. The pair is the disclosure; neither half is.
+      if (shape.requiresWithheldPath) {
+        if (!isCommentLine(line)) continue;
+        if (!namesWithheldPath(line)) continue;
+      }
       shape.re.lastIndex = 0;
       let m;
       while ((m = shape.re.exec(line)) !== null) {
@@ -260,6 +328,35 @@ function selfTest() {
     shape.re.lastIndex = 0;
     if (shape.re.test(ordinary)) failures.push(`${shape.id}: matched an ordinary ideograph pair (would flag prose)`);
     shape.re.lastIndex = 0;
+  }
+
+  // The paired shapes need their PAIRING controlled, not just their needle. A
+  // needle that matches its control while the second condition can never be
+  // satisfied reports the same clean zero as a clean tree — which is the exact
+  // failure this whole file exists to refuse.
+  for (const shape of SHAPES.filter((s) => s.requiresWithheldPath)) {
+    if (WITHHELD.length === 0) {
+      failures.push(`${shape.id}: no withheld path names could be read, so this shape can never fire`);
+      continue;
+    }
+    const word = 'attack' + ' corpus';
+    const dir = WITHHELD.find((t) => !t.includes('.')) ?? WITHHELD[0];
+    const positive = `// ${dir}/ holds the ${word}`;
+    const negativeNoPath = `// this rule mitigates the ${word}`;
+    const negativeBareWord = `// ${dir} is a word here, and this mentions an ${word}`;
+    const negativeNotComment = `const x = '${dir}/ holds the ${word}';`;
+    if (scanOne('control.mjs', positive).length === 0) {
+      failures.push(`${shape.id}: a comment naming a withheld path and saying what it holds did not match`);
+    }
+    if (scanOne('control.mjs', negativeNoPath).length > 0) {
+      failures.push(`${shape.id}: matched a comment that names no withheld path (would flag ordinary prose)`);
+    }
+    if (scanOne('control.mjs', negativeBareWord).length > 0) {
+      failures.push(`${shape.id}: matched a withheld name used as a word rather than a path (would flag prose)`);
+    }
+    if (scanOne('control.mjs', negativeNotComment).length > 0) {
+      failures.push(`${shape.id}: matched a non-comment line (would flag code and ignore rules)`);
+    }
   }
   return failures;
 }

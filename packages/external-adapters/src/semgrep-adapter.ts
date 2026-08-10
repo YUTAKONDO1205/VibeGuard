@@ -70,10 +70,12 @@ import { classifySemgrepCheckId } from './weakness-class.js';
  * Semgrep severity -> VibeGuard severity.
  *
  * ★ THE OBSERVED VALUE SET IS EXACTLY {ERROR, WARNING, INFO}, measured across
- * every recorded Semgrep artifact in this repository:
- *
- *   paper_data/semgrep_vulnerable.json   Semgrep 1.165.0, 20 results   ERROR, WARNING, INFO
- *   paper_data/race_semgrep.json         Semgrep 1.165.0, 20 results   ERROR, WARNING, INFO
+ * every recorded Semgrep artifact in the evaluation set — two of them, both
+ * Semgrep 1.165.0, 20 results each, the same three levels in both. The
+ * artifacts live outside the published tree and are deliberately not named
+ * here: what a withheld path holds is a worse disclosure than its name, and
+ * this comment needs neither to make its point. The fixture derived from them
+ * carries its own provenance as its first key.
  *
  * ★ WHY `ERROR` IS NOT `critical`. Semgrep has three levels and VibeGuard has
  * five; the mapping has to lose or invent information somewhere. Mapping ERROR to

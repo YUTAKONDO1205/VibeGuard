@@ -203,7 +203,11 @@ jobs:
       # `--redact-metrics`.
 
   # Performance benchmark. Non-blocking by default — it fails only when a
-  # workload exceeds 2× its design-§11.1 target (see scripts/perf-bench.mjs).
+  # workload exceeds 2× its target in docs/DESIGN.ja.md §10.1 (see
+  # scripts/perf-bench.mjs). The section number is cited against the design doc
+  # that ships in this repository, deliberately: the number this line used to
+  # carry indexed a document that is not published, which tells a reader that
+  # such a document exists and how it is laid out, and cannot be looked up.
   # The JSON output is uploaded as an artifact so a future PR can plot trends.
   perf-bench:
     runs-on: ubuntu-latest

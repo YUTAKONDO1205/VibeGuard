@@ -51,6 +51,20 @@
         "Indirect calls are not counted, so a forbidden entry point reached through a table reads as absent.",
         "The control for this polarity is a unit where the forbidden call is certainly still present -- that is what shows the extractor can still see one at this optimisation level. A control chosen the other way round proves nothing."
       ]
+    },
+
+    "invocation.flag-set": {
+      "component": "Driver",
+      "path": "compiler/driver",
+      "checkpoints": ["invocation"],
+      "counts": "Tokens of the normalised command line, matched against policy.flags.required (VG-CFG-004), policy.flags.forbidden (VG-CFG-002) and policy.flags.optLevels (VG-CFG-003). Response files are expanded first, and a response file that cannot be read is exit 3 rather than a clean command line.",
+      "whyItIsHere": "This entry was missing while the component it describes was shipped and tested (compiler/driver/lib/flags.mjs, exercised by test/flags.test.mjs and test/driver-e2e.test.mjs). Its absence is why several must-be-configured entries below said `unimplemented` and why the write-up that reads this file would have reported a kind with no implementation at all. The catalogue is a tracked file: an omission here is an untrue statement about the tree it sits in.",
+      "discriminates": "A flag that is absent from the command line, from a flag that could not be read. The second is exit 3 and is never reported as the first.",
+      "degradationRisk": [
+        "A flag present in one translation unit's command line and absent from another's is two invocations, and this extractor sees one at a time. Only the artefact shows what was actually linked, and the artefact half of this kind has no consumer.",
+        "Matching is against normalised tokens. A flag delivered through an environment variable the driver could not read makes the command line unreadable, which is exit 3 by design rather than a pass.",
+        "The optimisation level is read as written. A build system that rewrites -O2 into -O3 downstream of the recorded invocation is not visible here."
+      ]
     }
   },
 
@@ -362,7 +376,7 @@
       "title": "Cryptographic code comes from the approved implementation",
       "extractor": null,
       "status": "unimplemented",
-      "statusDetail": "This whole kind has no implementation in compiler/. Nothing here classifies where a definition came from.",
+      "statusDetail": "Corrected 2026-08-10. This said the whole kind has no implementation and that nothing here classifies where a definition came from; compiler/elf-verifier/classify.mjs does exactly that, sorting symbols, sections and initialisers into the six permitted origins against a toolchain baseline, and this file's own kindCoverage says so. The entry stays `unimplemented` because the QUESTION differs, not because the component is missing: the classifier answers introduction — what appeared that no permitted origin explains — while this property asks attribution, whether a definition came from the APPROVED implementation, and nothing compares an origin against policy.link.allowedObjects yet. That distinction is the reason to keep the status, and stating it is the reason not to keep the old sentence.",
       "observeAt": [
         { "checkpoint": "linked", "extractor": null, "status": "unimplemented", "component": null }
       ],
@@ -421,32 +435,35 @@
       "id": "configured.optimisation-level",
       "kind": "must-be-configured",
       "title": "The build ran at an optimisation level the policy has been evaluated at",
-      "extractor": null,
-      "status": "unimplemented",
-      "statusDetail": "This whole kind has no implementation in compiler/: nothing here reads a command line. IrCheckpoints observes the consequences of an optimisation level and never the flag, which is a different claim and is not a substitute.",
+      "extractor": "invocation.flag-set",
+      "status": "implemented",
+      "statusDetail": "Corrected 2026-08-10. This entry said `unimplemented`, on the grounds that 'nothing here reads a command line'. That was true when it was written and false when it was read: compiler/driver/lib/flags.mjs compares the normalised command line against policy.flags.optLevels and reports VG-CFG-003, measured by test/flags.test.mjs and by test/driver-e2e.test.mjs. This same file's kindCoverage already said `partial` for the kind, so the catalogue contradicted itself, and anything generated from the per-property entries reported a shipped check as absent. IrCheckpoints still observes only the CONSEQUENCES of an optimisation level and never the flag; that remains a different claim and is still not a substitute.",
       "observeAt": [
-        { "checkpoint": "invocation", "extractor": null, "status": "unimplemented", "component": null }
+        { "checkpoint": "invocation", "extractor": "invocation.flag-set", "status": "implemented", "component": "Driver" }
       ],
       "oracle": {
         "counts": "normalised command-line flags",
-        "detail": "Would compare the normalised command line against policy.flags.optLevels and report VG-CFG-003. A property observed to survive -O1 has not been observed to survive -O3.",
+        "detail": "Compares the normalised command line against policy.flags.optLevels and reports VG-CFG-003. A property observed to survive -O1 has not been observed to survive -O3.",
         "unitOfCount": "one compiler invocation",
         "requiresControl": false,
         "controlRule": "None: a flag either is or is not in the argument vector."
       },
-      "degradationRisk": ["Not applicable: there is no extractor to degrade."],
-      "evidence": null
+      "degradationRisk": [
+        "The level is read as written. A build system that rewrites the flag downstream of the recorded invocation is not visible at this checkpoint.",
+        "One invocation at a time. A project compiled at two levels has two records, and nothing here merges them."
+      ],
+      "evidence": "compiler/driver/test/flags.test.mjs, compiler/driver/test/driver-e2e.test.mjs"
     },
 
     {
       "id": "configured.ndebug",
       "kind": "must-be-configured",
       "title": "NDEBUG is set or unset as the policy requires",
-      "extractor": null,
-      "status": "unimplemented",
-      "statusDetail": "Named here because it is the case this directory exists for: a security decision inside an assert disappears under NDEBUG, which is exactly the class of disappearance being detected. The shipped analyser flags that pattern at the source; nothing here checks the flag.",
+      "extractor": "invocation.flag-set",
+      "status": "implemented",
+      "statusDetail": "Named here because it is the case this directory exists for: a security decision inside an assert disappears under NDEBUG, which is exactly the class of disappearance being detected. The shipped analyser flags that pattern at the source. Corrected 2026-08-10: this entry also said nothing here checks the FLAG, which stopped being true when the driver landed — -DNDEBUG is matched by policy.flags.required (VG-CFG-004) or policy.flags.forbidden (VG-CFG-002) like any other token, and an unreadable command line is exit 3 rather than a pass. What is still absent is an artefact-side confirmation that the define survived into what was built.",
       "observeAt": [
-        { "checkpoint": "invocation", "extractor": null, "status": "unimplemented", "component": null }
+        { "checkpoint": "invocation", "extractor": "invocation.flag-set", "status": "implemented", "component": "Driver" }
       ],
       "oracle": {
         "counts": "normalised command-line flags",
