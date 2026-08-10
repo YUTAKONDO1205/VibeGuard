@@ -149,11 +149,23 @@ jobs:
       # the gate's exit code from being swallowed by tee — without it this job
       # would report the exit status of `tee`, i.e. always success, which is the
       # exact failure mode a self-hardening gate must not have.
+      # `--redact-metrics` is what makes this step safe to run in public. The
+      # B1/B3 gates compare measured evasion and concealment rates against the
+      # tracked baseline, and those rates are the headline numbers of a
+      # write-up that has not been published. Without the flag every run put
+      # them on three readable surfaces at once: this job log (the tee below
+      # prints to stdout), the run page's step summary rendered from the same
+      # log, and the artefact that used to be uploaded at the end of this job.
+      # Measured on run 31353542731 before the fix — the log carried the rates
+      # verbatim. The flag withholds the readings and keeps everything that
+      # makes the gate a gate: the verdict per gate, the gate ids, the
+      # failed-gate list, and the exit status. A regression is still red here;
+      # the maintainer reruns without the flag locally to see by how much.
       - name: Self-hardening gate (A1 / B1 / B3 / corpora)
         shell: bash
         run: |
           set -o pipefail
-          node scripts/sec-selftest.mjs | tee "$RUNNER_TEMP/selftest.log"
+          node scripts/sec-selftest.mjs --redact-metrics | tee "$RUNNER_TEMP/selftest.log"
 
       - name: Render self-hardening report
         if: always()
@@ -167,17 +179,28 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # The robustness metrics themselves, for trend-watching across runs. This
-      # is the local record (§5.5's `_results/manifest.json`), NOT the gate's
-      # authority — the authority is the tracked baseline, and nothing in CI ever
-      # writes back to it.
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: security-selftest-manifest
-          path: security-experiment/_results/manifest.json
-          retention-days: 30
-          if-no-files-found: warn
+      # THE MANIFEST IS DELIBERATELY NOT UPLOADED, and this comment is the
+      # record of why so nobody adds the step back for trend-watching.
+      #
+      # It used to be uploaded under its own name, retained 30 days. That name
+      # is deliberately not written here — the test in
+      # scripts/sec-selftest.test.ts asserts the whole file does not contain it,
+      # so a comment that spelled it out would either fail the test or force the
+      # test to be weakened into something a re-added step could slip past. On a
+      # public repository an artefact is a public download: no token, no
+      # membership, just the run page. The file it carried is the run record of
+      # the B1 and B3 arms, and its `metrics` objects are the measured evasion
+      # and concealment rates of an unpublished write-up — not a summary of
+      # them, the numbers themselves. Measured 2026-08-10: 357 artefacts
+      # existed, many unexpired, the newest from that morning's run.
+      #
+      # The gate never needed it. Its authority is the tracked baseline, the
+      # comparison happens in-process, and nothing in CI has ever written back.
+      # The artefact existed only so a future PR could plot a trend, which is
+      # not worth a standing public disclosure. The manifest is still written
+      # on the runner and still read by the gate in the same job; it simply
+      # stops leaving it. Trends are read locally, from a run without
+      # `--redact-metrics`.
 
   # Performance benchmark. Non-blocking by default — it fails only when a
   # workload exceeds 2× its design-§11.1 target (see scripts/perf-bench.mjs).
