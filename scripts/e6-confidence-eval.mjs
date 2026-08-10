@@ -1,4 +1,4 @@
-// E6 — context-window confidence evaluation (paper item ① + D1 A/B).
+// E6 — context-window confidence evaluation (evaluation E6 + D1 A/B).
 //
 // Demonstrates that the context-window confidence layer DOWN-RANKS findings that
 // sit in a non-executed context (comment / docstring / block comment / test
@@ -215,7 +215,7 @@ function pad(s, n) {
 const e6 = analyze('samples/context-window').sort(
   (a, b) => a.file.localeCompare(b.file) || a.line - b.line,
 );
-console.log('# E6 — context-window confidence (paper item ①) + D1 severity gate\n');
+console.log('# E6 — context-window confidence + D1 severity gate\n');
 console.log('## samples/context-window — control vs treatment, un-gated vs gated\n');
 console.log(
   '| ruleId | location | sev | context signal | ① un-gated | ①+D1 gated | gate |',

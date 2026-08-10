@@ -3,7 +3,7 @@ import type { RuleContext, RuleMatch } from './rule-types.js';
 import { getLineCommentSpec, isCommentLine, lineCommentStartsAt } from './matcher-utils.js';
 
 /**
- * Context-window confidence adjustment (paper item ①).
+ * Context-window confidence adjustment (evaluation E6).
  *
  * VibeGuard's findings carry two orthogonal axes: `severity` (impact if real,
  * static per rule) and `confidence` (certainty the match is real). docs/DESIGN.ja.md

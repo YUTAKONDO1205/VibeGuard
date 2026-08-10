@@ -87,6 +87,28 @@ const SHAPES = [
     re: /[㐀-鿿][A-Z](?![A-Za-z])/gu,
     control: () => String.fromCodePoint(0x5c71) + 'C',
   },
+  // ⚠ A SHAPE THAT WAS TRIED AND WITHDRAWN, so the next person does not spend
+  //   the afternoon rediscovering why. `\b[A-Za-z]{3,} [①-⓿]` — an English word,
+  //   a space, an enclosed alphanumeric — was written to catch the internal item
+  //   label in its ENGLISH spelling. The two shapes above require the label to be
+  //   glued to an ideograph, which is how it is written in Japanese, and both
+  //   walk straight past the spaced English form; one such phrase was printing
+  //   into the public job summary of every CI run while this file called the tree
+  //   clean.
+  //
+  //   Measured on this tree: 62 hits, and they are not one thing. Most are the
+  //   internal sense. But a cross-file rule documents its own three-part
+  //   predicate as `Condition ①/②/③`, which is ordinary technical writing that
+  //   discloses nothing, and no regex separates "the item ① of a document you
+  //   cannot see" from "the first of the three conditions defined ten lines
+  //   above" — the difference is whether the referent is nearby, which is not a
+  //   property of the spelling.
+  //
+  //   Shipping it would have meant either rewriting legitimate documentation or
+  //   carrying an exemption list, and an exemption list is the word list this
+  //   file exists to avoid. The English-spelled instances that named a document
+  //   were fixed at the source instead. If this comes back, it needs a rule about
+  //   REFERENTS, not about characters.
   {
     id: 'ACRONYM-YEAR',
     why:

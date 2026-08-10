@@ -104,7 +104,7 @@ jobs:
 
       - run: npm test
 
-  # Cross-channel judgment consistency (paper item ②). Proves the built node
+  # Cross-channel judgment consistency (evaluation E1). Proves the built node
   # entry (CLI / Action `scanPath`) and the built browser entry (Chrome / VS
   # Code `scan`) emit identical findings on the same inputs. Blocking: a
   # divergence means the four channels disagree, which is a correctness bug.
