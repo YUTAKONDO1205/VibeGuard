@@ -23,6 +23,7 @@
 // inputs), 1 a tool failed.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { parseModule } from '../lib/parse.mjs';
@@ -38,8 +39,17 @@ const opt = (n, d) => {
   return i === -1 || i + 1 >= argv.length ? d : argv[i + 1];
 };
 
-const IR = opt('--ir', '/root/vgc-scratch/fingerprint/ir');
-const OUT = opt('--out', '/root/vgc-scratch/fingerprint/out');
+// Computed from the invoking user's home directory rather than written down.
+// An absolute path in a tracked file names one machine, and this package is the
+// one that imports `findAbsolutePaths` to keep such paths out of its own
+// records — a default that hardcodes one is the checker exempting itself. The
+// `vg-lab` root is the same one `compiler/evidence/store.mjs` and the sibling
+// `compiler/clang-plugin/tools/make-fixtures.sh` already use; the scratch tree
+// stays outside the repository either way, because IR is measurement input and
+// not source.
+const SCRATCH = join(homedir(), 'vg-lab', 'fingerprint');
+const IR = opt('--ir', join(SCRATCH, 'ir'));
+const OUT = opt('--out', join(SCRATCH, 'out'));
 const allowEmpty = flag('--allow-empty');
 const quiet = flag('--quiet');
 const say = quiet ? () => {} : (s) => console.log(s);

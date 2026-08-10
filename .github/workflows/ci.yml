@@ -49,6 +49,29 @@ jobs:
       - name: Check for disclosure-shaped strings
         run: node scripts/check-disclosure-shape.mjs
 
+      # The step above runs the detector. This one runs it again through the
+      # sweep that verifies the instrument first, because the detector was never
+      # the thing that broke — the plumbing around it was, twice, and both times
+      # the symptom was a small confident zero that nobody re-ran.
+      #
+      # Before it says anything about the tree, the sweep writes known-positive
+      # files to disk, hands their paths to the detector as a real child process,
+      # and checks that every planted needle came back byte for byte. A needle
+      # that goes missing between this runner and the matcher stops the run with
+      # exit 3 and NO reading, which is the only honest output from a broken
+      # instrument. It also fails when nothing was scanned, so an empty sweep can
+      # never be reported as a clean one.
+      #
+      # The freshness half is skipped here on purpose and the skip is printed:
+      # the gate exists to catch an audit conducted against a stale
+      # remote-tracking ref, and a fresh CI checkout has nothing to be stale
+      # against. The verdict downgrades itself to "CLEAN against the local refs"
+      # rather than claiming more than it checked.
+      - name: Disclosure sweep (instrument verified before the reading)
+        env:
+          VG_SWEEP_ALLOW_STALE_REF: '1'
+        run: node scripts/sweep-disclosure.mjs
+
       - run: npm run build
 
       # Now that the extensions are built, check the shipped artefacts. This is
@@ -270,3 +293,44 @@ jobs:
       - name: Evidence clock audit
         working-directory: compiler/evidence
         run: node verify.mjs --clock-audit
+
+      # The two steps above run the canonicaliser's own self-checks, which is a
+      # different thing from running its test suite — and the suites of the five
+      # components below were reaching no runner at all. They arrived with their
+      # directories and nothing named them, so the only thing standing between a
+      # regression in them and a release was that nobody had touched them yet.
+      # Measured: 0 failed and 0 skipped for every one — evidence 72, provenance
+      # 55, schema 26, llvm-pass 45, pass-instrumentation 96, which is 294
+      # assertions that were previously running nowhere.
+      #
+      # WHY EACH STEP COUNTS ITS OWN INPUTS FIRST. `node --test` exits 0 when the
+      # glob matched nothing: an unmatched pattern is passed through literally,
+      # node finds no such file, and the run reports success. Two of the five
+      # paths below were wrong on the first attempt for exactly that reason and
+      # the steps went green anyway. A step that cannot tell "the suite passed"
+      # from "the suite was not there" is the failure mode the rest of this
+      # repository refuses, so the count is asserted before the suite runs.
+      #
+      # `fingerprint` and `link-wrapper` are deliberately NOT here. Their suites
+      # need a real compiler and linker reached directly (21 and 15 cases fail
+      # outright without one, by design; each has an env var that converts the
+      # failure into a named skip). They belong in this job, which installs
+      # clang-18 — but nobody has yet seen them green on a runner, and adding an
+      # unmeasured step here is how main was last left red across five commits.
+      # Filed rather than guessed.
+      - name: compiler/ suites that reach no other runner
+        run: |
+          set -eu
+          run_suite() {
+            name=$1; shift
+            n=$#
+            for f in "$@"; do [ -e "$f" ] || { echo "::error::${name}: pattern matched no file (${f})"; exit 1; }; done
+            [ "$n" -gt 0 ] || { echo "::error::${name}: no test files"; exit 1; }
+            echo "--- ${name}: ${n} file(s)"
+            node --test "$@"
+          }
+          run_suite evidence              compiler/evidence/test/*.test.mjs
+          run_suite provenance            compiler/provenance/test/*.test.mjs
+          run_suite schema                compiler/schema/*.test.mjs
+          run_suite llvm-pass             compiler/llvm-pass/scripts/*.test.mjs
+          run_suite pass-instrumentation  compiler/pass-instrumentation/introduction/test/*.test.mjs

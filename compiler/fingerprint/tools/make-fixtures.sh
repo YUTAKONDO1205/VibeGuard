@@ -16,7 +16,7 @@
 # section 4.
 set -eu
 
-SCRATCH="${1:-/root/vgc-scratch/fingerprint}"
+SCRATCH="${1:-$HOME/vg-lab/fingerprint}"
 CC="${CC:-clang-18}"
 
 if ! command -v "$CC" >/dev/null 2>&1; then
