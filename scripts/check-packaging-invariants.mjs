@@ -751,9 +751,26 @@ if (!PRE_BUILD) {
 //
 // So this asserts the two lists agree: every workspace package the CLI depends
 // on, transitively, must appear in action.yml's build block BEFORE the CLI
-// itself. Order is checked as well as membership, because `tsc` needs the
-// dependency's `.d.ts` to exist already — a name in the right list at the wrong
+// itself. Order is checked as well as membership, because the CLI's build reads
+// the dependency's built output — a name in the right list at the wrong
 // position fails in exactly the same way as a name that is missing.
+//
+// ── WHY BOTH DEPENDENCY FIELDS ARE WALKED ─────────────────────────────────
+//
+// The CLI now ships as an esbuild bundle, so its `@vibeguard/*` packages moved
+// from `dependencies` to `devDependencies`: they are build inputs that get
+// inlined, not runtime resolutions the consumer installs. Walking only
+// `dependencies`, as this did, made `needed` EMPTY the moment that move landed
+// — and an empty `needed` makes the loop below run zero times, so this
+// invariant returned green for every possible action.yml. A guard that cannot
+// fail is not a guard.
+//
+// The move did not weaken what has to be true: esbuild resolves
+// `@vibeguard/analyzer-core` through that package's `exports` to its `dist`,
+// so an unbuilt dependency still breaks the Action from a clean checkout,
+// which is the failure this invariant exists to catch. Both fields are walked
+// because either one can carry the edge, and the `@vibeguard/` prefix test in
+// `visit` keeps third-party devDependencies (typescript, vitest, esbuild) out.
 {
   const actionYml = readFileSync(join(REPO_ROOT, 'action.yml'), 'utf8');
 
@@ -772,9 +789,31 @@ if (!PRE_BUILD) {
       return;
     }
     for (const dep of Object.keys(pkg.dependencies ?? {})) visit(dep);
+    for (const dep of Object.keys(pkg.devDependencies ?? {})) visit(dep);
     if (name !== '@vibeguard/cli') needed.push(name);
   };
   visit('@vibeguard/cli');
+
+  // An empty closure is not "the CLI depends on nothing"; it is this check
+  // having lost its grip on the manifest. That already happened once — the
+  // `@vibeguard/*` edges moved to `devDependencies` when the CLI became a
+  // bundle, `needed` silently became `[]`, and the loop below stopped running
+  // at all, so every possible action.yml passed. The vacuous pass is worse than
+  // the failure it replaced, because nothing announced it.
+  //
+  // The CLI has workspace dependencies by construction: it is the program that
+  // runs the engine. If this is ever legitimately zero, the CLI has stopped
+  // being that, and this invariant should be rewritten rather than left to
+  // return green over nothing.
+  if (needed.length === 0) {
+    failures.push(
+      'check-packaging-invariants: invariant 6 computed an EMPTY dependency closure for\n' +
+        '  @vibeguard/cli, so it would have accepted any action.yml. This means the manifest\n' +
+        '  moved the `@vibeguard/*` edges somewhere this walk does not read (it reads\n' +
+        '  `dependencies` and `devDependencies`), not that the CLI has no dependencies.\n' +
+        '  Fix the walk to follow the edges; do not delete this assertion.',
+    );
+  }
 
   const position = new Map();
   const buildLine = /npm run build -w (\S+)/g;

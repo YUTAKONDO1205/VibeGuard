@@ -15,14 +15,31 @@
 // the EXECUTION CLOSURE of the artefacts we scan: every JS/TS file a user can
 // end up running from a VibeGuard install, plus the HTML and CSS the Chrome
 // side panel loads (those egress without any JavaScript at all — see the
-// markup section below). For the CLI that closure is not
-// apps/cli/dist alone — `apps/cli/dist/index.js` is tsc output, not a bundle,
-// and its very first import reaches into @vibeguard/analyzer-core, which pulls
-// in the other workspace packages. Scanning only apps/cli/dist audited a handful
-// of thin re-export files and left the analyzer itself outside the assertion.
-// So `targets()` enumerates packages/*/dist as well, and the closure-completeness
-// check below makes that enumeration self-policing rather than a list somebody
-// has to remember to extend.
+// markup section below).
+//
+// ★ THE CLI'S CLOSURE CHANGED SHAPE IN 0.3.5, AND SO DID THE ARGUMENT FOR
+// SCANNING packages/*/dist. It used to be that `apps/cli/dist/index.js` was tsc
+// output whose very first import reached into @vibeguard/analyzer-core, which
+// pulled in the other workspace packages: scanning only apps/cli/dist audited a
+// handful of thin re-export files and left the analyzer itself outside the
+// assertion. That is why `targets()` enumerates packages/*/dist at all.
+//
+// `apps/cli` is now bundled by `apps/cli/build.mjs` (esbuild, one file, no
+// runtime dependencies — the tsc build produced a tarball that could not be
+// installed, because the six `@vibeguard/*` names it declared exist on no
+// registry). The CLI's execution closure is therefore ONE FILE, and that file
+// contains the analyzer inline, so scanning `apps/cli/dist` now genuinely does
+// scan the analyzer. The packages/*/dist targets remain, and remain required,
+// for two reasons that did not go away:
+//   - the two extensions bundle the same packages, and those bundles are built
+//     by different esbuild invocations with different conditions/entry points,
+//     so `packages/analyzer-core/dist` is what the vscode and chrome artefacts
+//     are made from as much as the CLI is;
+//   - a package's own dist is the only place a sink can be seen BEFORE a
+//     bundler has had a chance to tree-shake it out of one artefact while
+//     leaving it in another.
+// The closure-completeness check below keeps that enumeration self-policing
+// rather than a list somebody has to remember to extend.
 //
 // WHAT THIS DEFENDS. PRIVACY.md claims「コードは端末外に出ない」and SCOPE.md §3
 // A2 makes that claim part of the availability/confidentiality contribution
@@ -298,11 +315,20 @@ function literalText(node) {
  * lib/type resolution we do not have for browser+node mixed targets.
  */
 function scanSource(filePath, text) {
-  // ScriptKind must follow the extension: the CLI tarball ships src/*.ts
-  // alongside dist/*.js (apps/cli/package.json declares no `files` allowlist),
-  // and parsing TypeScript as JS turns every type annotation into a syntax
-  // error, which TS recovers from by discarding subtrees — silently shrinking
-  // the region we searched. A quietly under-parsed file is a false negative.
+  // ScriptKind must follow the extension: `walkScannable` admits `.ts`, and
+  // parsing TypeScript as JS turns every type annotation into a syntax error,
+  // which TS recovers from by discarding subtrees — silently shrinking the
+  // region we searched. A quietly under-parsed file is a false negative.
+  //
+  // HOW A `.ts` FILE GOT INTO A SCANNED ARTEFACT, since the tarball no longer
+  // carries one: `apps/cli/package.json` used to declare no `files` allowlist,
+  // so `npm pack` shipped `src/*.ts` — including the test sources — next to
+  // `dist/*.js`, and a JS-only parse of those was the false negative this
+  // branch was written for. 0.3.5 added `"files": ["dist"]` alongside the
+  // esbuild bundle, so the CLI tarball is now one file. The branch stays
+  // because the guarantee is per-EXTENSION, not per-target: any future target
+  // pointed at a source tree gets the right parser without anyone remembering
+  // this paragraph.
   const kind = /\.(m|c)?ts$/.test(filePath) ? ts.ScriptKind.TS : ts.ScriptKind.JS;
   const sf = ts.createSourceFile(filePath, text, ts.ScriptTarget.Latest, /* setParentNodes */ true, kind);
   const hits = [];
@@ -615,6 +641,10 @@ function walkScannable(root) {
  * clean bill of health. Bump these when a target legitimately grows; never
  * lower them to make a red build go away.
  *
+ * `minBytes` is the same guard expressed in the unit that survives BUNDLING.
+ * See the `cli` target below for why a file count stopped being able to express
+ * it there.
+ *
  * `packageName` is what makes this list self-policing. Any target that IS a
  * published workspace package carries its npm name here, and
  * checkClosureCompleteness() cross-references those names against the
@@ -624,16 +654,64 @@ function walkScannable(root) {
  *
  * The three shipped-artefact targets accept a --*-dir override so CI can point
  * them at the unpacked tarball / .vsix / zip. The workspace package targets do
- * NOT: their bytes are never repackaged (the CLI tarball does not vendor them;
- * `npm i` resolves them from the registry), so the build tree is the only place
- * this script can read them. That means for the packages the scanned bytes are
- * the ones CI just built rather than the ones npm would publish — an honest
- * difference, bounded by the fact that both come from the same tsc invocation
- * on the same commit in the same job.
+ * NOT: they are not themselves published or packaged in any form — the CLI
+ * INLINES them (esbuild, `apps/cli/build.mjs`) and each extension bundle
+ * inlines its own copy — so there is no separate packaged artefact to point at
+ * and the build tree is the only place their un-bundled bytes exist. That means
+ * for the packages the scanned bytes are the ones CI just built rather than the
+ * ones a consumer receives; what a consumer receives is the bundle, which IS
+ * scanned, under the `cli`/`vscode`/`chrome` targets. Both halves come from the
+ * same tsc invocation on the same commit in the same job.
+ *
+ * ★ CORRECTING A CLAIM THIS COMMENT USED TO MAKE. It said the workspace
+ * packages were unpackaged because "the CLI tarball does not vendor them; `npm
+ * i` resolves them from the registry". That was false in both directions and it
+ * mattered: the six `@vibeguard/*` names have never been published — publishing
+ * is permanently abandoned, and `check-packaging-invariants.mjs` invariant 2
+ * asserts `private: true` to keep it that way — so `npm i` resolved nothing and
+ * the release tarball could not be installed at all. It is now false the other
+ * way: the tarball DOES vendor them, inlined into `dist/index.js`, and nothing
+ * is resolved from a registry at install time. The sentence is replaced rather
+ * than patched because the reasoning it supported ("their bytes are never
+ * repackaged") reached the right target list for the wrong reason.
  */
 function targets(opts) {
   return [
-    { id: 'cli', dir: opts.cliDir ?? resolve(REPO_ROOT, 'apps/cli/dist'), minFiles: 5, packageName: '@vibeguard/cli' },
+    // ── THE CLI FLOOR, REWRITTEN FOR A BUNDLED ARTEFACT ───────────────────
+    //
+    // This was `minFiles: 5` against a tsc build that emitted twelve `.js`
+    // files. `apps/cli` is now a single esbuild bundle, so a fresh
+    // `npm run build` leaves EXACTLY ONE scannable file in `apps/cli/dist` and
+    // the old floor would fail every run. The wrong repair — and the one this
+    // comment exists to forbid — is to drop the number to 1 and move on: that
+    // silently retires the guard, because a floor of 1 is satisfied by a
+    // directory containing a single empty file, or by the wrong directory that
+    // happens to have any `.js` in it.
+    //
+    // What the floor was for was never the count; it was "prove you looked at
+    // something substantial". Under a bundle that quantity is BYTES. A complete
+    // bundle is ~680 KB (682,746 measured 2026-08-16) because it carries the
+    // entire rule set — the figure drifts with ordinary source edits;
+    // anything that resolved `@vibeguard/*` to a stub, pointed at a stale or
+    // half-written directory, or marked the workspace packages external comes
+    // out an order of magnitude smaller. So `minFiles` drops to 1 — the count
+    // genuinely carries no information now — and `minBytes` takes over the job
+    // it was doing, at a level (400 KB) no stub can reach and ordinary rule
+    // growth cannot fall below. `apps/cli/build.mjs` asserts the SAME floor on
+    // the build side, independently, so the two have to fail together.
+    //
+    // Both layouts this target sees are now the same bytes: locally and in
+    // `--mode dist` it is `apps/cli/dist`, and in CI it is `--cli-dir
+    // extract/cli/package` = the unpacked tarball, whose `"files": ["dist"]`
+    // allowlist means it carries exactly `dist/index.js`. One floor, one
+    // artefact, and the audited bytes are byte-for-byte the shipped ones.
+    {
+      id: 'cli',
+      dir: opts.cliDir ?? resolve(REPO_ROOT, 'apps/cli/dist'),
+      minFiles: 1,
+      minBytes: 400_000,
+      packageName: '@vibeguard/cli',
+    },
     { id: 'vscode', dir: opts.vscodeDir ?? resolve(REPO_ROOT, 'extensions/vscode/dist'), minFiles: 1 },
     // 4 = background.js, sidepanel/index.js, sidepanel/index.html,
     // sidepanel/index.css. The floor was 2 while only JS was admitted; leaving
@@ -729,22 +807,39 @@ function scanTarget(t) {
   }
   const files = walkScannable(t.dir);
   const hits = [];
+  // Counted from the text actually handed to the parser, not from `statSync`,
+  // so the number in the report is the number of bytes this run READ. A file
+  // that was walked but not parsed must not be able to inflate the floor.
+  let bytes = 0;
   for (const file of files) {
     const rel = relative(REPO_ROOT, file).split(sep).join('/');
-    for (const hit of scanFile(file, readFileSync(file, 'utf8'))) {
+    const text = readFileSync(file, 'utf8');
+    bytes += Buffer.byteLength(text, 'utf8');
+    for (const hit of scanFile(file, text)) {
       if (isAllowlisted(t.id, rel, hit)) continue;
       hits.push({ file: rel, ...hit });
     }
   }
-  const enough = files.length >= t.minFiles;
+  const minBytes = t.minBytes ?? 0;
+  const enoughFiles = files.length >= t.minFiles;
+  const enoughBytes = bytes >= minBytes;
+  const enough = enoughFiles && enoughBytes;
   return {
     id: t.id,
     dir: relative(REPO_ROOT, t.dir).split(sep).join('/'),
     files: files.length,
     minFiles: t.minFiles,
+    bytes,
+    minBytes,
     hits,
     ok: enough && hits.length === 0,
-    error: enough ? undefined : `scanned ${files.length} files, expected >= ${t.minFiles} (vacuous pass guard)`,
+    error: enough
+      ? undefined
+      : !enoughFiles
+        ? `scanned ${files.length} files, expected >= ${t.minFiles} (vacuous pass guard)`
+        : `scanned ${bytes} bytes, expected >= ${minBytes} (vacuous pass guard — a bundle this ` +
+          `small cannot contain what this target is supposed to ship, so "no sinks found" would ` +
+          `mean "nothing was there to find")`,
   };
 }
 
@@ -915,6 +1010,31 @@ function checkProdDeps() {
 // The check is deliberately one-directional. A target with no packageName
 // (vscode, chrome) is fine — those are shipped artefacts, not dependencies.
 // What is not fine is a dependency with no target.
+//
+// ★ HOW FAR THIS REACHES AFTER 0.3.5, STATED PLAINLY BECAUSE IT SHRANK.
+//
+// Bundling the CLI emptied its production dependency closure: `npm ls
+// --omit=dev --workspace @vibeguard/cli` now reports the workspace node and
+// nothing under it, because the six `@vibeguard/*` packages moved to
+// devDependencies (they are inlined at build time, so nothing resolves them at
+// run time). This check therefore now examines exactly one name,
+// `@vibeguard/cli`, and demands that the `cli` target scanned it and passed.
+//
+// That is a smaller claim than it made in 0.3.4, and pretending otherwise would
+// be the kind of quiet over-statement this file exists to refuse. What replaced
+// the reach is not nothing, and it is worth naming precisely:
+//   - the CLI's execution closure is now ONE FILE, and that file is scanned in
+//     full, so there is no longer a gap between "trusted by name" and "read" for
+//     the CLI — there are no names left to trust;
+//   - `apps/cli/build.mjs` asserts at BUILD time that specific packages
+//     (analyzer-core, rules, findings-schema, remediation-engine, plus the three
+//     lazily-imported ones) are actually inside that file, so "the bundle
+//     silently lost the analyzer" fails there rather than passing here;
+//   - a future third-party runtime dependency is still caught by
+//     PROD_DEP_ALLOWLIST, and a future `@vibeguard/*` runtime dependency (one
+//     deliberately left external) still lands here and still demands a target.
+// The teeth are intact for what remains; the surface they bite is smaller
+// because the surface itself got smaller.
 function checkClosureCompleteness(opts, depsResult, distResults) {
   const allTargets = targets(opts);
   const scannedPackages = new Map(
@@ -1138,7 +1258,8 @@ line('');
 
 if (report.checks.dist) {
   for (const t of report.checks.dist) {
-    line(`  [${t.ok ? 'OK  ' : 'FAIL'}] ${t.id.padEnd(7)} ${String(t.files).padStart(3)} file(s) in ${t.dir}`);
+    const size = t.bytes === undefined ? '' : ` / ${String(t.bytes).padStart(7)} byte(s)`;
+    line(`  [${t.ok ? 'OK  ' : 'FAIL'}] ${t.id.padEnd(7)} ${String(t.files).padStart(3)} file(s)${size} in ${t.dir}`);
     if (t.error) {
       line(`           ${t.error}`);
       failures.push(`dist/${t.id}: ${t.error}`);

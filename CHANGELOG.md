@@ -12,6 +12,27 @@ each extension (see `extensions/vscode/CHANGELOG.md`).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **CLI: the release tarball is installable again.** `apps/cli` is now bundled with
+  esbuild into a single self-contained `dist/index.js` and declares **no runtime
+  dependencies**; the six `@vibeguard/*` packages moved to `devDependencies` because they
+  are inlined at build time. Previously the tarball attached to every GitHub Release
+  declared those six as runtime dependencies, and since they are deliberately never
+  published to npm, `npm i vibeguard-cli-X.Y.Z.tgz` failed to resolve them and the CLI
+  could not be installed at all. `release.yml` now installs the packed tarball into an
+  empty directory and requires it to report a non-zero number of findings before the
+  release is created. No change to detection behaviour: the finding COUNTS and the
+  rule-ID multisets on `samples/vulnerable`, `samples/embedded/vulnerable` and
+  `samples/design-smells` are identical to the previous build, and `bin`/`dist/index.js`
+  paths are unchanged. Not byte-identical, and no build of this tool ever can be: every
+  report carries `findingId` (seeded from `Date.now()`), `executionTimeMs` and
+  `generatedAt`, so two runs of the SAME binary differ in those three fields. Comparing
+  them requires normalising the three away first — which is what the comparison behind
+  this entry did.
+
 ## [0.3.5] - 2026-08-06
 
 **Two C/C++ rules for defences that a compiler is allowed to delete.** `ENGINE_VERSION`
