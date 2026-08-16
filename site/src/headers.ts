@@ -97,10 +97,29 @@ export const hostAllowsHsts = (hostname: string): boolean =>
  * Node by scripts/site-gen-headers.mjs, so reading the environment is safe here
  * and only here.
  */
-export const staticHeaders = (): Record<string, string> => ({
-  ...BASE_HEADERS,
-  ...(typeof process !== 'undefined' && process.env?.SITE_ORIGIN ? HSTS_HEADER : {}),
-});
+export const staticHeaders = (): Record<string, string> => {
+  // The origin has to pass the SAME test the Worker applies, not merely exist.
+  //
+  // An earlier version sent HSTS whenever SITE_ORIGIN was set to anything. That
+  // is wrong the moment the site is deployed to *.workers.dev and told its own
+  // URL — which is exactly the plan for the first release. The Worker would
+  // refuse to pin that shared hostname while the static layer pinned it anyway,
+  // so the six pages and the five redirects would disagree about a header whose
+  // whole purpose is to be remembered by the browser. Neither half is allowed
+  // to be the only one that knows the rule.
+  const origin = typeof process !== 'undefined' ? process.env?.SITE_ORIGIN : undefined;
+  let hsts = false;
+  if (origin) {
+    try {
+      hsts = hostAllowsHsts(new URL(origin).hostname);
+    } catch {
+      // A SITE_ORIGIN that is not a URL is a configuration error, and the safe
+      // reading of it is "no domain yet" rather than "pin whatever this is".
+      hsts = false;
+    }
+  }
+  return { ...BASE_HEADERS, ...(hsts ? HSTS_HEADER : {}) };
+};
 
 /**
  * Headers for a response the WORKER generates. `hostname` comes from the

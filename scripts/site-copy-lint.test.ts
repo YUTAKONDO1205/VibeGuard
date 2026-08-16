@@ -505,6 +505,54 @@ describe('R6 the built HTML has no script and loads nothing off-site', () => {
   // shipped three long internal comments this way, one of which explained that
   // naming a submission venue would let a later deletion announce a rejection.
   // It published the reasoning it existed to protect.
+  // The only rule here that is about disclosure rather than truthfulness, and
+  // the one with a live route in. Findings and code on this site are produced
+  // by running the scanner at build time, and the scanner reports the path it
+  // was handed — absolute, for a single-file scan. CI builds on a clean Linux
+  // checkout and would never show it; a local generate-then-deploy would.
+  it('fails on a Windows home-directory path in the artefact', () => {
+    const site = makeSite();
+    const bs = String.fromCharCode(92);
+    const winPath = `C:${bs}Users${bs}someone${bs}VibeGuard${bs}samples${bs}x.py`;
+    const html = readFileSync(join(site, 'dist/index.html'), 'utf8').replace(
+      '</main>',
+      `</main>\n<p>at ${winPath}</p>`,
+    );
+    write(site, 'dist/index.html', html);
+    const result = runLint(site, ['--dist']);
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('Windows home-directory path');
+  });
+
+  it('fails on a POSIX home-directory path in the artefact', () => {
+    const site = makeSite();
+    const html = readFileSync(join(site, 'dist/index.html'), 'utf8').replace(
+      '</main>',
+      '</main>\n<p>at /home/someone/VibeGuard/samples/x.py</p>',
+    );
+    write(site, 'dist/index.html', html);
+    const result = runLint(site, ['--dist']);
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('home-directory path');
+  });
+
+  it('fails on an email address, but not on the footer byline', () => {
+    const site = makeSite();
+    const html = readFileSync(join(site, 'dist/index.html'), 'utf8').replace(
+      '</main>',
+      '</main>\n<p>somebody@example.com</p>',
+    );
+    write(site, 'dist/index.html', html);
+    const result = runLint(site, ['--dist']);
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('email address');
+
+    // The clean fixture already carries `Author: Kondo Yuta`, and it must not
+    // trip: an allow-list by exact name is what lets the pattern stay strict.
+    const clean = runLint(makeSite(), ['--dist']);
+    expect(clean.status).toBe(0);
+  });
+
   it('fails on an HTML comment, which Astro serves to every visitor', () => {
     const site = makeSite();
     const html = readFileSync(join(site, 'dist/index.html'), 'utf8').replace(

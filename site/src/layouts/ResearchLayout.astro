@@ -48,6 +48,22 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : un
     <meta name="description" content={description} />
     {canonical && <link rel="canonical" href={canonical} />}
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
+    {/*
+      Same link-unfurl tags as ProductLayout, and they are safe here for the
+      same reason the rest of this layout is careful: they carry only this
+      page's own title and description, both of which the copy linter already
+      scans for acquisition vocabulary. There is no CTA to leak into a card and
+      no image that could imply a product shot.
+    */}
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="VibeGuard" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    {canonical && <meta property="og:url" content={canonical} />}
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
   </head>
 
   <body>

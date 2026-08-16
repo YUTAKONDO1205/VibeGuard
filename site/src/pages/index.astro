@@ -102,11 +102,22 @@ const totals = rulesData.totals;
  * Screenshots are optional at build time, and their absence must not be papered
  * over.
  *
- * Neither capture exists in the repository today. Two ways to handle that were
- * available and only one of them is honest: draw a convincing mock-up of the
- * extension, or say plainly that there is no picture. A mock-up on a page whose
- * entire argument is "this is the real output" would poison the argument, and
- * the reader has no way to tell which of the two images on the page was real.
+ * The Chrome capture exists; the VS Code one does not yet. Two ways to handle a
+ * missing one were available and only one of them is honest: draw a convincing
+ * mock-up of the extension, or say plainly that there is no picture. A mock-up
+ * on a page whose entire argument is "this is the real output" would poison the
+ * argument, and the reader has no way to tell which of the two images on the
+ * page was real.
+ *
+ * How the Chrome one was taken, so the next one can match: the real built
+ * extension (extensions/chrome/dist) was served over http and handed a real
+ * fixture out of samples/ through the panel's own pendingPush path, with only
+ * chrome.storage/chrome.runtime stubbed — the transport, nothing else. The
+ * panel's own bundled engine did the scanning, and its three findings were
+ * checked against the CLI on the same file before the shot was kept. The
+ * fixture's rule-naming comments were stripped first, for the reason the
+ * triptych strips them: code with the answer written in it does not demonstrate
+ * a scanner.
  *
  * `import.meta.glob` rather than a static import, because a static import of a
  * missing file is a build error, and this band has to build either way. When
@@ -143,7 +154,13 @@ const SHOTS = [
   {
     key: 'chrome',
     size: 'sm',
-    alt: 'The Chrome extension: the Side Panel listing the findings extracted from the code blocks on the page being read.',
+    // Describes what is actually in the frame. The shot is a selection scan —
+    // the panel shows `selection: samples/vulnerable/express_session.js` above
+    // the code — not an extraction of a page's code blocks, which is a
+    // different button. On a site arguing that its pictures are real, an alt
+    // text that does not survive looking at the picture is the same defect as a
+    // caption that names the wrong file.
+    alt: 'The Chrome extension: the Side Panel with a scanned snippet at the top and three findings below it, each showing severity, rule ID, line number and the matching line of code.',
     caption: 'Chrome — scan the code on a page you are reading.',
     missing: 'There is no screenshot of the Chrome extension on this page.',
   },
@@ -152,7 +169,7 @@ const SHOTS = [
 
 <ProductLayout
   title="VibeGuard — a security scanner for AI-generated code"
-  description="VibeGuard finds the security bugs that AI-generated code tends to hide: skipped login checks, hard-coded secrets, unsafe deserialization, swallowed exceptions. It runs in VS Code, in Chrome, and in CI."
+  description="VibeGuard is an open-source (MIT) security scanner for AI-generated code. It finds skipped login checks, hard-coded secrets, unsafe deserialization and swallowed exceptions, and runs in VS Code, in Chrome, and in CI. Your code never leaves your machine."
 >
   {/* Band 2 — the hero. The CTA is not in here; see the band below. */}
   <section class="vg-band vg-band--code vg-hero" aria-labelledby="hero-h">
@@ -182,6 +199,19 @@ const SHOTS = [
         It catches the bugs that "looks fine, ships fine" code tends to hide: missing input checks,
         hard-coded passwords, skipped login checks, exceptions silently caught, and so on.
       </p>
+      {/*
+        One line answering the question the button cannot: "does it run where I
+        work?" Everything above this point establishes what the tool finds; a
+        reader who is convinced by that still has no idea whether it fits their
+        setup, and the four channels are otherwise not mentioned in the visible
+        text until the footer. Putting the answer immediately before the CTA
+        means the click is made with it rather than in spite of it.
+
+        The wording is lifted from this page's own meta description rather than
+        invented, so it asserts nothing new — and it says "runs in", not
+        "install anywhere", because /install is where choosing happens (§2.2).
+      */}
+      <p class="vg-pitch__where">It runs in VS Code, in Chrome, and in CI.</p>
       <CtaButton />
     </div>
   </section>

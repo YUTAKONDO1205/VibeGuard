@@ -833,6 +833,47 @@ if (DIST_MODE) {
       );
     }
 
+    // Nothing that identifies the author's machine or person reaches the page.
+    //
+    // Every other rule here is about the site telling the truth. This one is
+    // about the site not saying more than it meant to, and no existing check
+    // covers it: check-disclosure-shape scans the TRACKED TREE, so it never
+    // looks at dist/, and the rest of this file reads vocabulary rather than
+    // shape. That leaves a real route open. Findings, code snippets and the
+    // hero are produced by running the scanner at build time, and the scanner
+    // reports whatever path it was handed — an absolute one for a single-file
+    // scan. The hero generator normalises it to a basename, and the only thing
+    // keeping that normalisation honest today is that somebody looked once.
+    //
+    // The CI build runs on a clean Linux checkout, so the mistake will not
+    // surface there. It surfaces when a human generates locally and deploys by
+    // hand, which is precisely the path the deploy notes describe for the first
+    // release. So the check belongs on the artefact, where both routes meet.
+    //
+    // `Author: Kondo Yuta` in the footer is deliberate and is not an accident
+    // of tooling; it is allowed by name rather than by pattern, so that the
+    // pattern stays strict.
+    const IDENTITY_ALLOWED = ['Author: Kondo Yuta', 'YUTAKONDO1205', 'yutakondo'];
+    const identityPatterns = [
+      [/[A-Za-z]:[\\/]{1,2}[Uu]sers[\\/][^\s"'<>]+/g, 'a Windows home-directory path'],
+      [/\/(?:home|Users)\/[A-Za-z0-9._-]+/g, 'a home-directory path'],
+      [/\/mnt\/[a-z]\/[Uu]sers\/[^\s"'<>]+/g, 'a WSL home-directory path'],
+      [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, 'an email address'],
+    ];
+    for (const [pattern, what] of identityPatterns) {
+      for (let m = pattern.exec(html); m; m = pattern.exec(html)) {
+        if (IDENTITY_ALLOWED.some((ok) => m[0].includes(ok))) continue;
+        const line = html.slice(0, m.index).split('\n').length;
+        failures.push(
+          `${rel(page.file)}:${line} contains ${what}: ${JSON.stringify(m[0].slice(0, 80))}\n` +
+            `  This is served to every visitor. The likeliest source is generated data: the\n` +
+            `  scanner reports the path it was given, and a single-file scan gives it an\n` +
+            `  absolute one. Normalise it in the generator that produced it — not here, and\n` +
+            `  not by editing the built file, which is overwritten on the next build.`,
+        );
+      }
+    }
+
     // No HTML comments survive into the artefact.
     //
     // This is a disclosure rule, not a tidiness one. Astro emits a template
@@ -964,7 +1005,7 @@ console.log(
   DIST_MODE
     ? 'site copy lint OK, ARTEFACT mode (banned vocabulary, impossible install commands, ' +
       'unshipped scan mode, acquisition vocabulary inside /research <main>, rule IDs, ' +
-      'README/go-target agreement, no <script>, no inline <style>, no HTML comment and no off-site subresource in the built ' +
+      'README/go-target agreement, no home path or email address, no <script>, no inline <style>, no HTML comment and no off-site subresource in the built ' +
       'HTML, _headers complete). ' +
       'The colour-literal rule did NOT run — the build concatenates tokens.css into the ' +
       'same file, so run source mode for that.'

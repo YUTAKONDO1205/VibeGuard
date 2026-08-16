@@ -1154,6 +1154,32 @@
   line-height: 1.6;
 }
 
+/*
+ * A badge is a label on a thing, so it has to be the width of its text.
+ *
+ * .vg-badge is display:flex, and the picker card and the rules heading are both
+ * grid containers, where a grid item stretches to fill its column by default.
+ * Without this the Available pill renders as a full-width green bar across the
+ * card — which reads as a status banner for the whole tile rather than a small
+ * word attached to the channel name, and at narrow widths looks like a broken
+ * progress bar.
+ */
+.vg-picker__card > .vg-badge,
+.vg-h1 > .vg-badge {
+  justify-self: start;
+}
+
+/*
+ * The "where does it run" line. Deliberately quieter than the pitch above it
+ * and closer to the button below it: it is not a second claim competing with
+ * the first, it is the last thing read before the click.
+ */
+.vg-pitch__where {
+  max-width: 46rem;
+  margin-top: var(--vg-space-3);
+  color: var(--vg-ink-muted);
+}
+
 /* ── The two product screens ────────────────────────────────────────────────
  *
  * Five columns, split three and two. The asymmetry is inherited from the model

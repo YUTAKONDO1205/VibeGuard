@@ -190,6 +190,49 @@ const cards = CHANNELS.map((channel) => {
         compares by time-to-first-run; and someone automating a repository is
         better served by the Action, which wraps this same CLI.
       */}
+      {/*
+        The CI channel is the only one whose install does not end at a store
+        button: pressing the card gets you to GitHub Marketplace, and then you
+        still have to write a workflow. That last step is where a CI owner
+        stalls, and it is the highest-value channel to un-stall — one adoption
+        covers a whole team rather than one editor.
+
+        It sits outside the card grid because the card is a single <a>, and a
+        <pre> inside a link cannot be selected without navigating. Folded, so
+        the four-way choice above stays a four-way choice.
+
+        Every key below is checked against action.yml's `inputs:` — path, mode,
+        format, out, fail-on all exist. `mode: standard` is the Action's own
+        default and is written out because the block is copied into a file
+        someone will read later. No key is invented to make the example look
+        richer, which is how a snippet starts describing a tool that does not
+        exist.
+      */}
+      <details class="vg-disclosure">
+        <summary class="vg-disclosure__summary">Add it to a GitHub workflow</summary>
+        <div class="vg-disclosure__body">
+          <pre class="vg-code__pre"><code>- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0      # only needed for a diff scan
+- uses: YUTAKONDO1205/VibeGuard@v0
+  with:
+    path: .
+    mode: standard
+    format: sarif
+    out: vibeguard.sarif
+    fail-on: high
+- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with:
+    sarif_file: vibeguard.sarif
+    category: vibeguard</code></pre>
+          <p>
+            The last step is optional and sends the report to GitHub code scanning, which means the findings —
+            including the matched lines — leave your runner. Drop it and the scan stays entirely inside the job.
+          </p>
+        </div>
+      </details>
+
       <details class="vg-disclosure">
         <summary class="vg-disclosure__summary">Build from source (for developers)</summary>
         <div class="vg-disclosure__body">

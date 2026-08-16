@@ -320,6 +320,22 @@ const fixLabel = (r: Rule): string => (r.fixerSafety === 'safe' ? 'auto-fix · s
         writes and another file reads. These run only with <code>--include-design-smells</code>, in the CLI and the
         GitHub Action. They are not bundled into the VS Code or Chrome extensions.
       </p>
+      {/*
+        A text link, not a button, and placed here for a reason that is about
+        the reader's position rather than about decoration. This paragraph ends
+        by telling someone that the rules they have just read through run in the
+        Action — which is the moment they would go looking for it, and the
+        moment the only route onward is a scroll back to the header.
+
+        This does not break the single-CTA freeze (§2.3). What is frozen is the
+        button: one wording, one destination, one visual form. An inline
+        sentence link is the same device the site already uses for "Read the
+        research", and it points at /install rather than at a store, so the
+        per-channel comparison the redirects are measured on is untouched.
+      */}
+      <p class="vg-rules__note">
+        The GitHub Action and the CLI are two of the four ways to <a href="/install">install VibeGuard</a>.
+      </p>
 
       {
         crossFile.length > 0 && (

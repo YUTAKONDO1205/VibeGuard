@@ -169,11 +169,39 @@ function readTable(source, name, { optional = false } = {}) {
 
 const source = readFileSync(HEADERS_TS, 'utf8');
 
-// HSTS is conditional in headers.ts's own staticHeaders(): it goes out only
-// when SITE_ORIGIN names a real origin. Mirroring that condition here rather
-// than always-or-never is the point of having one definition — the two response
-// paths have to agree about HSTS in every environment, not just in production.
-const withHsts = Boolean(process.env.SITE_ORIGIN && process.env.SITE_ORIGIN.trim());
+// HSTS is conditional in headers.ts's own staticHeaders(), and the condition is
+// NOT "SITE_ORIGIN is set" — it is "SITE_ORIGIN names a host we may pin".
+//
+// This distinction is the entire bug this block used to have. `Boolean(origin)`
+// looks equivalent right up to the first deploy, which is to *.workers.dev with
+// SITE_ORIGIN set to that URL. There the Worker refuses HSTS, because pinning a
+// hostname shared with every other Worker on the platform is not ours to do,
+// and the static layer would have pinned it anyway. Six pages and five
+// redirects disagreeing about a header the browser is asked to REMEMBER is the
+// worst kind of disagreement: it outlives the deploy that caused it.
+//
+// The predicate is spelled out again here rather than imported because
+// headers.ts is TypeScript and this file is dependency-free by design (see the
+// note above). That duplication is the cost of the zero-install property, so it
+// is written to be obvious: same two exclusions, same order, named after the
+// function it mirrors. If hostAllowsHsts() ever grows a third exclusion, this
+// is the other place to edit — and site/worker/index.test.ts covers the Worker
+// half, so a divergence shows up as a test that still passes while curl shows
+// two different answers. Keep them in one commit.
+const mirrorsHostAllowsHsts = (hostname) =>
+  hostname.length > 0 && !hostname.endsWith('.workers.dev') && hostname !== 'localhost';
+
+const rawOrigin = process.env.SITE_ORIGIN?.trim();
+let withHsts = false;
+if (rawOrigin) {
+  try {
+    withHsts = mirrorsHostAllowsHsts(new URL(rawOrigin).hostname);
+  } catch {
+    // Not a URL. Treated as "no domain yet" rather than as a reason to pin
+    // something unparseable.
+    withHsts = false;
+  }
+}
 
 const headers = {
   ...readTable(source, 'BASE_HEADERS'),
