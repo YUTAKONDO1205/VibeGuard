@@ -126,7 +126,16 @@ const cards = CHANNELS.map((channel) => {
           cards.map((card) => (
             <li class="vg-picker__item">
               <a class="vg-picker__card" href={card.href}>
-                <span class="vg-picker__heading">{card.heading}</span>
+                {/*
+                  A real heading, not a styled span. This page's whole content
+                  is the four choices, and as spans they were invisible to the
+                  one navigation aid that matters here: a screen-reader user
+                  listing headings on /install used to get "Install VibeGuard"
+                  and nothing else, on the page whose entire job is to present
+                  four options. h2 is also the correct level — the h1 above is
+                  the page, and each card is a section of it.
+                */}
+                <h2 class="vg-picker__heading">{card.heading}</h2>
                 <span class="vg-badge vg-badge--available">Available</span>
                 {card.channel === DEFAULT_CHANNEL && <span class="vg-picker__badge">Start here</span>}
                 <span class="vg-picker__what">{card.what}</span>

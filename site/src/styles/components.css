@@ -1309,7 +1309,13 @@
   text-underline-offset: 0.15em;
 }
 
+/*
+ * This is an h2, so the browser's own margins have to go — the element was a
+ * span when the card's grid gaps were set, and inheriting a UA margin on top of
+ * them would reopen the spacing the card was tuned to.
+ */
 .vg-picker__heading {
+  margin: 0;
   font-size: var(--vg-fs-700);
   font-weight: 700;
   line-height: 1.3;
