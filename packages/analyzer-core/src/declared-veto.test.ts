@@ -26,7 +26,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Finding } from '@vibeguard/findings-schema';
+import type { Finding, ScanRequest } from '@vibeguard/findings-schema';
 import type { RuleDefinition } from '@vibeguard/rules';
 import { Analyzer, scan } from './analyzer.js';
 import { scan as scanBrowser } from './browser.js';
@@ -444,5 +444,98 @@ describe('declaredPackageVetoes is recorded on the response', () => {
     const r = scanJs(two, ['expresss', 'lodashh']);
     const names = (r.declaredPackageVetoes ?? []).map((v) => v.packageName).sort();
     expect(names).toEqual(['expresss', 'lodashh']);
+  });
+});
+
+/**
+ * THE THREE STATES OF `declaredPackageVetoes` — absent / `[]` / non-empty.
+ *
+ * Recording only what the veto REMOVED left two very different scans looking
+ * identical: one where nobody supplied a lockfile (so no supply-chain finding
+ * could have been refuted) and one where a lockfile was read and refuted
+ * nothing. That difference is the whole content of the Chrome ruling —
+ * `extensions/chrome/src/shared/block-scan.ts` — because the browser channel
+ * has no lockfile and never will: every response it produces is the first
+ * state, permanently, and a reader has to be able to tell that from a CLI
+ * report that actually checked.
+ *
+ * The line is "was the veto ARMED", i.e. did an index get built from a
+ * non-empty declared set. A caller who looked for a lockfile and found nothing
+ * usable armed nothing, so their scan reads as the first state too — which is
+ * correct, and which is why `ScanRequest.declaredPackages` documents that only
+ * the producer can report the difference between "did not look" and "looked and
+ * found none".
+ */
+describe('declaredPackageVetoes distinguishes "did not run" from "ran and removed nothing"', () => {
+  const HALLUCINATED = 'const e = require("expresss");\nmodule.exports = e;\n';
+  const req = (declaredPackages?: readonly string[]): ScanRequest => ({
+    targetType: 'file',
+    content: HALLUCINATED,
+    filePath: 'app.js',
+    language: 'javascript',
+    mode: 'standard',
+    ...(declaredPackages ? { declaredPackages } : {}),
+  });
+
+  it('is ABSENT when no declared set was supplied — the veto did not run', () => {
+    const r = scan(req());
+    expect('declaredPackageVetoes' in r).toBe(false);
+    expect(r.declaredPackageVetoes).toBeUndefined();
+    // Positive control for the whole block: the finding this veto argues about
+    // is really there, so an absent record means "not refuted", not "nothing to
+    // refute".
+    expect(r.findings.filter((f) => f.ruleId === 'VG-AISC-001')).toHaveLength(1);
+  });
+
+  it('is ABSENT on the browser entry, which is every Chrome scan', () => {
+    const r = scanBrowser(req());
+    expect('declaredPackageVetoes' in r).toBe(false);
+    expect(r.findings.some((f) => f.ruleId === 'VG-AISC-001')).toBe(true);
+  });
+
+  it('is an EMPTY ARRAY when a real declared set refuted nothing', () => {
+    // `express` is declared; `expresss` is imported. The veto ran, considered
+    // the match, and kept it.
+    const r = scan(req(['express', 'lodash']));
+    expect('declaredPackageVetoes' in r).toBe(true);
+    expect(r.declaredPackageVetoes).toEqual([]);
+    // TRUE-POSITIVE PRESERVATION: an armed veto that removes nothing must leave
+    // the finding exactly where it was.
+    expect(r.findings.filter((f) => f.ruleId === 'VG-AISC-001')).toHaveLength(1);
+  });
+
+  it('is NON-EMPTY only when it actually removed something', () => {
+    const r = scan(req(['expresss']));
+    expect(r.declaredPackageVetoes).toHaveLength(1);
+    expect(r.declaredPackageVetoes![0]!.packageName).toBe('expresss');
+    expect(r.findings.some((f) => f.ruleId === 'VG-AISC-001')).toBe(false);
+  });
+
+  it('an empty declared set reads as "did not run", not as "ran and removed nothing"', () => {
+    // `[]` arms nothing: no index is built, so no finding could have been
+    // removed. Reporting `[]` here would claim a check that never happened.
+    expect('declaredPackageVetoes' in scan(req([]))).toBe(false);
+  });
+
+  it('a declared set of nothing but blanks also reads as "did not run"', () => {
+    // `buildDeclaredPackageIndex` drops empty and separator-only names, so this
+    // list builds no index either. The response must agree with what actually
+    // happened rather than with the length of the array it was handed.
+    expect('declaredPackageVetoes' in scan(req(['', '   ', '---']))).toBe(false);
+  });
+
+  it('scanPath carries the same three states across a directory walk', async () => {
+    const dir = await makeRepo({ 'app.js': HALLUCINATED });
+
+    const notRun = await scanPath(dir, { config: false });
+    expect('declaredPackageVetoes' in notRun).toBe(false);
+
+    const ranAndKept = await scanPath(dir, { config: false, declaredPackages: ['express'] });
+    expect(ranAndKept.declaredPackageVetoes).toEqual([]);
+    expect(ranAndKept.findings.some((f) => f.ruleId === 'VG-AISC-001')).toBe(true);
+
+    const ranAndRemoved = await scanPath(dir, { config: false, declaredPackages: ['expresss'] });
+    expect(ranAndRemoved.declaredPackageVetoes).toHaveLength(1);
+    expect(ranAndRemoved.findings.some((f) => f.ruleId === 'VG-AISC-001')).toBe(false);
   });
 });

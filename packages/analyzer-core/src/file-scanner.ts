@@ -118,6 +118,13 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
   // on the CLI's stderr. Keyed rule|package|file, so a project depending on a
   // dozen near-miss names gets a dozen lines and not one per match.
   const vetoesByKey = new Map<string, DeclaredPackageVetoRecord>();
+  // Whether the veto was ARMED, which is a different fact from whether it
+  // fired. `Analyzer.scan` marks it by emitting `declaredPackageVetoes` at all
+  // — `[]` when it ran and removed nothing — so this flag is read off the
+  // per-file responses rather than recomputed from `options.declaredPackages`.
+  // Recomputing would drift: a declared list of nothing but blanks builds no
+  // index, and the aggregate would then claim a veto ran that never did.
+  let vetoArmed = false;
   // D8: both suppression channels land in one tally. The analyzer reports the
   // pragma half per file (and that per-file response is otherwise discarded
   // here), the loop below adds the config half.
@@ -203,6 +210,7 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
     // overwritten: these are counts, and two files suppressing the same rule are
     // two suppressions.
     mergeSuppressions(suppressionTally, result.suppressions);
+    if (result.declaredPackageVetoes !== undefined) vetoArmed = true;
     for (const v of result.declaredPackageVetoes ?? []) {
       const k = `${v.ruleId}|${v.packageName}|${v.filePath ?? relPath}`;
       const prev = vetoesByKey.get(k);
@@ -249,6 +257,16 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
     ...(ruleErrorsByRule.size ? { ruleErrors: [...ruleErrorsByRule.values()] } : {}),
     ...(degradationsByFileKind.size ? { degradations: [...degradationsByFileKind.values()] } : {}),
     ...(suppressionTally.size ? { suppressions: collectSuppressions(suppressionTally) } : {}),
-    ...(vetoesByKey.size ? { declaredPackageVetoes: [...vetoesByKey.values()] } : {}),
+    // Same three-state contract the per-file response carries (see
+    // `analyzer.ts`): absent = the veto never ran, `[]` = it ran over these
+    // files and removed nothing, non-empty = it removed these. A directory scan
+    // is the artifact the GitHub Action uploads, so it is the last place where
+    // "nobody checked your lockfile" should be indistinguishable from "your
+    // lockfile refuted nothing".
+    ...(vetoesByKey.size
+      ? { declaredPackageVetoes: [...vetoesByKey.values()] }
+      : vetoArmed
+        ? { declaredPackageVetoes: [] }
+        : {}),
   };
 }

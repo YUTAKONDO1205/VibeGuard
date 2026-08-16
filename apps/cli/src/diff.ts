@@ -290,6 +290,16 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
   // on the CLI's stderr. Keyed rule|package|file, so a project depending on a
   // dozen near-miss names gets a dozen lines and not one per match.
   const vetoesByKey = new Map<string, DeclaredPackageVetoRecord>();
+  // Whether the veto was ARMED, which is a different fact from whether it
+  // fired. Read off the per-file responses exactly as `scanPath` does — the
+  // analyzer emits `declaredPackageVetoes` at all (`[]` included) only when it
+  // ran — rather than recomputed from the request, which would drift.
+  //
+  // This path is the GitHub Action's, so it is the one place where the
+  // distinction matters most: a PR comment that cannot tell "nobody read your
+  // lockfile" from "your lockfile refuted nothing" is the artifact a reviewer
+  // acts on.
+  let vetoArmed = false;
   // D8, mirroring `scanPath`: pragma records come up from the analyzer, config
   // records are added below. Observability only; nothing here gates anything.
   const suppressionTally: SuppressionTally = new Map();
@@ -383,6 +393,7 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
       if (overlapsAdded(kept, added)) findings.push(kept);
     }
     mergeSuppressions(suppressionTally, result.suppressions);
+    if (result.declaredPackageVetoes !== undefined) vetoArmed = true;
     for (const v of result.declaredPackageVetoes ?? []) {
       const k = `${v.ruleId}|${v.packageName}|${v.filePath ?? relPath}`;
       const prev = vetoesByKey.get(k);
@@ -422,6 +433,13 @@ export async function scanDiff(options: ScanDiffOptions): Promise<ScanResponse> 
     ...(ruleErrorsByRule.size ? { ruleErrors: [...ruleErrorsByRule.values()] } : {}),
     ...(degradationsByFileKind.size ? { degradations: [...degradationsByFileKind.values()] } : {}),
     ...(suppressionTally.size ? { suppressions: collectSuppressions(suppressionTally) } : {}),
-    ...(vetoesByKey.size ? { declaredPackageVetoes: [...vetoesByKey.values()] } : {}),
+    // The same three-state contract `scanPath` carries, for the same reason:
+    // absent = never ran, `[]` = ran and removed nothing, non-empty = removed
+    // these. See `ScanResponse.declaredPackageVetoes` in @vibeguard/findings-schema.
+    ...(vetoesByKey.size
+      ? { declaredPackageVetoes: [...vetoesByKey.values()] }
+      : vetoArmed
+        ? { declaredPackageVetoes: [] }
+        : {}),
   };
 }

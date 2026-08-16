@@ -594,7 +594,20 @@ export interface ScanResponse {
    * outside world.
    *
    * Does not contribute to `summary`, does not appear in `findings`, does not
-   * affect the exit code. Present only when non-empty.
+   * affect the exit code.
+   *
+   * THREE STATES, and the difference between the first two is the point:
+   *
+   *   absent     no declared-package list reached the scan, so nothing was
+   *              checked. The channel that could have refuted a finding never
+   *              ran — say so rather than implying it ran and found nothing.
+   *   `[]`       the veto ran over this scan and removed nothing.
+   *   non-empty  the veto removed these.
+   *
+   * `[]` and absent used to be the same value, which made "nobody read your
+   * lockfile" indistinguishable from "your lockfile refuted nothing" in the
+   * artifact the GitHub Action uploads. Producers must keep the distinction:
+   * emit `[]` when armed, and omit the field only when the veto never ran.
    */
   declaredPackageVetoes?: DeclaredPackageVetoRecord[];
 }

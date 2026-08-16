@@ -956,6 +956,41 @@ export class Analyzer {
       ...(ruleErrors.length ? { ruleErrors } : {}),
       ...(degradations.length ? { degradations } : {}),
       ...(suppressionTally.size ? { suppressions: collectSuppressions(suppressionTally) } : {}),
+      // PRESENT WHENEVER THE VETO RAN — including when it removed nothing, in
+      // which case this is an empty array.
+      //
+      // The three states a reader has to tell apart are:
+      //
+      //   field absent   the veto did not run: nobody handed this scan a
+      //                  declared set, so no finding COULD have been removed.
+      //                  Every Chrome scan is this, permanently and by design
+      //                  (a browser has no lockfile, and fetching one would
+      //                  break the zero-egress posture) — see
+      //                  `extensions/chrome/src/shared/block-scan.ts`.
+      //   `[]`           the veto ran against real evidence and removed
+      //                  nothing. The findings above are the whole story.
+      //   non-empty      the veto ran and deleted these.
+      //
+      // Collapsing the first two — which is what emitting the field only when
+      // non-empty did — makes "this tool never looked at your lockfile" and
+      // "this tool looked and your lockfile refuted nothing" the same document.
+      // That matters most for the channel that can never look: a Chrome report
+      // and a CLI report would claim the same clean bill of health while only
+      // one of them had checked. A mechanism that deletes findings has to say
+      // when it was armed, not only when it fired.
+      //
+      // `declared` is the index built from `request.declaredPackages ??
+      // options.declaredPackages`, and it is `undefined` for both "not
+      // supplied" and "supplied but empty" — which is the right line: a caller
+      // who looked for a lockfile and found nothing usable armed the veto with
+      // nothing, and no finding could have been removed either way. The
+      // producer knows which of those two happened and is the only one who can
+      // report it (see `ScanRequest.declaredPackages`).
+      //
+      // Costs nothing to a scan that never supplies a declared set: absent
+      // stays absent, so Chrome's and today's snippet-path responses are
+      // byte-identical to what they produced before.
+      ...(declared && vetoTally.size === 0 ? { declaredPackageVetoes: [] } : {}),
       ...(vetoTally.size
         ? {
             declaredPackageVetoes: [...vetoTally.entries()]
