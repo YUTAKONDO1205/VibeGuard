@@ -160,6 +160,66 @@ const DECORATOR = /(?:^|\n)[^\S\r\n]{0,20}@(?<dec>[\w$.]{1,80})/g;
 const JS_ROUTE =
   /(?:^|[^\w$.])(?<obj>[\w$]{1,40})\.(?<method>get|post|put|patch|delete|head|options|all|use)[^\S\r\n]{0,4}\(/g;
 
+/**
+ * `export default …`, up to but not including the expression.
+ *
+ * The Next.js Pages Router registers an API endpoint by DEFAULT-EXPORTING its
+ * handler and writing no registration at all, so this is the only place the
+ * binding between "this file is an endpoint" and "this function serves it" is
+ * written. See `fileRouteConvention` for why that had to be read.
+ *
+ * Horizontal whitespace only after `default`: `export default\nhandler` is legal
+ * and is not matched, which costs a rare formatting style and keeps the pattern
+ * from running across a line into an unrelated statement.
+ */
+const JS_EXPORT_DEFAULT = /(?:^|\n)[^\S\r\n]{0,8}export[^\S\r\n]{1,4}default[^\S\r\n]{1,8}/g;
+
+/**
+ * `const NAME = callee(…)` — a binding whose initializer is a CALL.
+ *
+ * ★ THE SHAPE THAT MADE VG-SMELL-013 UNREACHABLE ON REAL CODE.
+ *
+ * `JS_HEAD`'s `fnB` alternative accepts `const h = (req,res) => {}` and
+ * `const h = function () {}` and nothing else, so
+ * `const handler = withAnyRole(['admin'], async (req,res) => {…})` — the
+ * dominant way a Next.js endpoint is written — produced NO symbol. Not a symbol
+ * with a wrong span: no symbol at all, which is silent everywhere downstream.
+ * `design-smells-crossfile/index.ts` records the consequence measured over 1,000
+ * repositories: of 569 authorization-shaped decisions, exactly 1 sat inside an
+ * indexed handler body.
+ *
+ * This pattern only finds the HEAD of such a binding. Whether the call actually
+ * wraps a function, and which of its arguments that function is, is decided by
+ * `peelHandlerExpression` — a regex cannot count the brackets.
+ *
+ * `callee` is `[\w$.]{1,80}` rather than an alternation with a bounded dotted
+ * tail, matching `JS_ROUTE`'s house style; the last segment is what a consumer
+ * resolves. It deliberately also matches `async` in `const h = async (…) => {}`,
+ * and that case is refused downstream by requiring at least one wrapper — which
+ * is a stronger test than a keyword blocklist, because it is derived from the
+ * shape rather than from a list somebody has to remember to extend.
+ */
+const JS_WRAPPED_BINDING =
+  /(?:^|[^\w$.])(?:export[^\S\r\n]{1,4})?(?:const|let|var)[^\S\r\n]{1,4}(?<name>[\w$]{1,60})[^\S\r\n]{0,4}(?::[^=\n]{0,120})?=[^\S\r\n]{0,4}(?<callee>[\w$.]{1,80})[^\S\r\n]{0,4}\(/g;
+
+/**
+ * A function expression, anchored at the start of the text it is given.
+ *
+ * The three forms an inline handler is written in, and the `fname` group is
+ * load-bearing rather than decorative: `export default function handler(…)` is
+ * ALREADY indexed by `JS_HEAD`, so synthesising an `<anonymous@N>` symbol for it
+ * would put two symbols with the same body span in one index and let a rule
+ * count one handler twice.
+ *
+ * Every quantifier is bounded and none is nested under another, for the reason
+ * stated on `JS_HEAD`.
+ */
+const FUNCTION_LITERAL_HEAD =
+  /^(?:async[^\S\r\n]{1,4})?(?:function[^\S\r\n]{0,4}\*?[^\S\r\n]{0,4}(?<fname>[\w$]{1,60})?[^\S\r\n]{0,4}\(|\([^()\n]{0,300}\)[^\S\r\n]{0,4}(?::[^=>\n]{0,80})?=>|[\w$]{1,40}[^\S\r\n]{0,4}=>)/;
+
+/** A bare (possibly dotted) identifier at the start of the text it is given. */
+const HANDLER_IDENTIFIER = /^([\w$]{1,60}(?:\.[\w$]{1,60}){0,3})([^\S\r\n]{0,4})/;
+
 /** Python `def` / `async def`, with the indentation that defines its block. */
 const PY_DEF = /(?:^|\n)(?<indent>[^\S\r\n]{0,80})(?:async[^\S\r\n]{1,4})?def[^\S\r\n]{1,4}(?<fn>[\w]{1,60})[^\S\r\n]{0,4}\(/g;
 const PY_CLASS = /(?:^|\n)(?<indent>[^\S\r\n]{0,80})class[^\S\r\n]{1,4}(?<cls>[\w]{1,60})[^\S\r\n]{0,4}(?:\((?<base>[^)\n]{0,120})\))?/g;
@@ -269,6 +329,255 @@ function splitArgs(blanked: string, openParen: number): { text: string; start: n
     }
   }
   return args;
+}
+
+// ---------------------------------------------------------------------------
+// ROUTES DECLARED BY FILE PATH — the Next.js conventions
+//
+// ★ WHY A PATH PREDICATE IS IN AN INDEXER THAT OTHERWISE ONLY READS TEXT.
+//
+// Every other route in this file is found because somebody WROTE a registration
+// — `router.get('/x', guard, handler)` — and the guards are visible because they
+// are arguments. Next.js registers by FILE PATH: `pages/api/users.ts` is the
+// `/api/users` endpoint and there is no call site anywhere in the repository
+// that says so. A reader of the file knows it is an endpoint; the indexer, which
+// only read the text, did not.
+//
+// That is not a cosmetic gap. `design-smells-crossfile/index.ts` records that
+// VG-SMELL-013 reached its decision point 0 times in 1,000 real repositories,
+// and that the cause was structural rather than a threshold: premise (a) needs
+// a guard in a registration's middleware position and these files have no
+// registration, so it could not form at all. LAION-AI/Open-Assistant carries
+// exactly the shape 013 describes — a `withAnyRole` convention over 11 endpoints,
+// one of which re-derives the role inline and returns 403 — and was invisible.
+//
+// ★ WHAT IS DELIBERATELY NOT CLAIMED HERE.
+//
+// This is a CONVENTION, not the framework's own resolution. `routePath` is
+// derived from the segments and keeps `[id]`, `[...slug]` and `@slot` verbatim;
+// route groups `(marketing)` are dropped because they provably contribute no URL
+// segment. It is good enough for the two things a consumer does with a path —
+// test it against `isPublicByDesignRoute`'s vocabulary and print it — and it is
+// NOT a claim that the string is the URL Next.js will serve.
+//
+// ★ THE FALSE-POSITIVE DIRECTION, AND THE GATE THAT CLOSES IT.
+//
+// A directory called `app` is not proof of the App Router, and a file called
+// `route.ts` under one is not proof of a route handler. So the path predicate is
+// necessary and NOT sufficient: a binding is emitted only when the file also
+// EXPORTS what the convention requires — a default export for `pages/api`, an
+// export named for an HTTP method for `app/**/route.ts`. `app/router/route.ts`
+// exporting `createRouter` yields nothing, and neither does `lib/api.ts` or
+// `pages/index.tsx`, which do not match the path predicate in the first place.
+// ---------------------------------------------------------------------------
+
+/** Source extensions a Next.js convention file can carry. */
+const NEXT_ROUTE_EXT = /\.(?:tsx?|jsx?|mjs|cjs)$/;
+
+/** A declaration file has types and no handler, whatever it is called. */
+const DECLARATION_FILE = /\.d\.[cm]?ts$/;
+
+/**
+ * App Router exports that ARE route handlers.
+ *
+ * Uppercase and exact. `app/api/x/route.ts` exporting `get` (lowercase) is a
+ * helper, not a handler — Next.js matches the uppercase name — and admitting the
+ * lowercase spelling would turn every `export const post = …` in the tree into a
+ * route registration.
+ */
+const APP_ROUTE_METHOD: ReadonlySet<string> = new Set([
+  'GET',
+  'POST',
+  'PUT',
+  'PATCH',
+  'DELETE',
+  'HEAD',
+  'OPTIONS',
+]);
+
+interface RouteConvention {
+  kind: 'pages-api' | 'app-route';
+  /** URL path DERIVED from the file path. See the block comment above. */
+  routePath: string;
+}
+
+/**
+ * Which Next.js file-path routing convention, if any, this path follows.
+ *
+ * Returns `null` for everything else, which is every file in most repositories.
+ */
+export function fileRouteConvention(filePath: string): RouteConvention | null {
+  if (DECLARATION_FILE.test(filePath)) return null;
+  const ext = NEXT_ROUTE_EXT.exec(filePath);
+  if (!ext) return null;
+
+  const segments = filePath.split('/');
+  if (segments.length < 2) return null;
+  const fileName = segments[segments.length - 1]!;
+  const stem = fileName.slice(0, fileName.length - ext[0].length);
+  if (stem.length === 0) return null;
+
+  // ── App Router: `app/**/route.{ts,tsx,js,…}` ─────────────────────────────
+  //
+  // `page.tsx` is deliberately absent: a page renders, it does not serve a
+  // method, and treating one as a route would put every React component in the
+  // tree into the handler population.
+  if (stem === 'route') {
+    for (let i = segments.length - 2; i >= 0; i -= 1) {
+      if (segments[i] !== 'app') continue;
+      const parts = segments
+        .slice(i + 1, segments.length - 1)
+        .filter((s) => !(s.startsWith('(') && s.endsWith(')')));
+      return { kind: 'app-route', routePath: `/${parts.join('/')}` };
+    }
+    return null;
+  }
+
+  // ── Pages Router: `pages/api/**` ─────────────────────────────────────────
+  //
+  // `_app`, `_document` and the legacy `_middleware` are Next.js's own reserved
+  // files and are not endpoints; the underscore is the framework's marker for
+  // exactly that, so it is the test used rather than a list of names.
+  if (stem.startsWith('_')) return null;
+  for (let i = segments.length - 3; i >= 0; i -= 1) {
+    if (segments[i] !== 'pages' || segments[i + 1] !== 'api') continue;
+    const parts = segments.slice(i + 1, segments.length - 1);
+    // `pages/api/users/index.ts` serves `/api/users`, not `/api/users/index`.
+    if (stem !== 'index') parts.push(stem);
+    return { kind: 'pages-api', routePath: `/${parts.join('/')}` };
+  }
+  return null;
+}
+
+/**
+ * How many `wrapper(` layers are peeled before giving up.
+ *
+ * Four. `withSentry(withAuth(withValidation(handler)))` is three and is the
+ * deepest stack that occurs in practice; the bound exists so a pathological or
+ * generated expression costs a constant rather than being followed forever.
+ */
+const MAX_WRAPPER_DEPTH = 4;
+
+/** Bound on the whitespace skipped between two tokens of one expression. */
+const MAX_EXPRESSION_GAP = 200;
+
+interface PeeledHandler {
+  /**
+   * Callee identifiers applied AROUND the handler, outermost first.
+   *
+   * ★ THESE ARE MIDDLEWARE, AND THE CLAIM IS THE POINT OF THE WHOLE CHANGE.
+   *
+   * `export default withAnyRole(['admin'], handler)` puts `withAnyRole` in
+   * exactly the position `router.get('/x', requireAdmin, handler)` puts
+   * `requireAdmin`: between the request and the handler, deciding whether the
+   * handler runs. It is the same delegation written in the vocabulary of a
+   * framework that has no registration call, so it lands in the same field.
+   */
+  wrappers: string[];
+  /** The handler's name, when the innermost expression was an identifier. */
+  handlerName?: string;
+  /** The handler's span, when the innermost expression was written in place. */
+  inline?: { headOffset: number; start: number; end: number };
+}
+
+/**
+ * Read `withA(withB(handler))` / `withA(opts, async (req,res) => {…})` and say
+ * what wraps what.
+ *
+ * Bracket counting, not a regex, because the argument that holds the handler is
+ * the LAST one and finding it means balancing everything before it —
+ * `splitArgs` already does that over blanked text and is reused rather than
+ * reimplemented.
+ *
+ * Returns `null` rather than a guess whenever the expression is not one of the
+ * three shapes it understands. A wrong answer here becomes a wrong
+ * `middlewareNames`, which is a premise VG-SMELL-013 reasons FROM — so failing
+ * quiet is the required direction, the same argument the file header makes about
+ * `extractBlockAfter`.
+ */
+function peelHandlerExpression(blanked: string, at: number): PeeledHandler | null {
+  let offset = at;
+  const wrappers: string[] = [];
+
+  for (let depth = 0; depth <= MAX_WRAPPER_DEPTH; depth += 1) {
+    // Whitespace INCLUDING newlines: a wrapper call with three arguments is
+    // routinely formatted one per line, and stopping at the first `\n` would
+    // refuse the most readable spelling of the shape this exists to read.
+    let skipped = 0;
+    while (offset < blanked.length && skipped < MAX_EXPRESSION_GAP && /\s/.test(blanked[offset]!)) {
+      offset += 1;
+      skipped += 1;
+    }
+    const rest = blanked.slice(offset, offset + 420);
+
+    const literal = FUNCTION_LITERAL_HEAD.exec(rest);
+    if (literal) {
+      const named = literal.groups?.fname;
+      if (named) return { wrappers, handlerName: named };
+
+      // ★ A CONCISE ARROW BODY IS REFUSED RATHER THAN GIVEN A GUESSED SPAN, AND
+      // THIS IS THE ONE PLACE THIS FUNCTION COULD HAVE FABRICATED EVIDENCE.
+      //
+      // `extractBlockAfter` finds the first `{` within its head gap. Handed
+      // `(x) => \`${a}\``, `(x) => ({ a })` or `(x) => f(x)`, the nearest `{` is
+      // a template hole, an object literal, or — worst — the body of an
+      // unrelated function four hundred characters further down. Each of those
+      // is a symbol with a plausible name and a span that contains code it does
+      // not contain, which is exactly the failure this file's header says the
+      // anchored patterns exist to avoid.
+      //
+      // So the block has to be the arrow's OWN, and that is decidable: an arrow
+      // whose body is a block writes `{` next. When it does not, nothing is
+      // recorded — and the recall cost is nil, because a concise body holds one
+      // expression and the consumers of this span are looking for a refusing
+      // `if` statement.
+      //
+      // The `function (…)` form is exempt: the match ends at its parameter list
+      // and `extractBlockAfter` walks past it, which is byte-for-byte what
+      // `JS_HEAD` already does for every function declaration in the file.
+      let blockFrom = offset + literal[0].length - 1;
+      if (!literal[0].endsWith('(')) {
+        let gap = 0;
+        let i = offset + literal[0].length;
+        while (i < blanked.length && gap < MAX_EXPRESSION_GAP && /\s/.test(blanked[i]!)) {
+          i += 1;
+          gap += 1;
+        }
+        if (blanked[i] !== '{') return null;
+        blockFrom = i;
+      }
+
+      const block = extractBlockAfter(blanked, blockFrom, { maxHeadGap: 400 });
+      if (!block) return null;
+      return { wrappers, inline: { headOffset: offset, start: block.start, end: block.end } };
+    }
+
+    const id = HANDLER_IDENTIFIER.exec(rest);
+    if (!id) return null;
+    const after = offset + id[0].length;
+    // Not a call: this is the innermost expression, and it names the handler.
+    if (blanked[after] !== '(') return { wrappers, handlerName: id[1]!.split('.').pop()! };
+    if (depth === MAX_WRAPPER_DEPTH) return null;
+
+    // The LAST NON-EMPTY argument, not simply the last. A trailing comma —
+    // which every formatter in this ecosystem emits on a multi-line call — makes
+    // `splitArgs` produce a final entry that is pure whitespace, and reading
+    // that as the handler position refused exactly the calls that are long
+    // enough to be formatted across lines. That is the shape this exists to
+    // read, so it is the shape it must not lose.
+    const args = splitArgs(blanked, after);
+    let last: { text: string; start: number } | undefined;
+    for (let k = args.length - 1; k >= 0; k -= 1) {
+      if (args[k]!.text.trim().length > 0) {
+        last = args[k];
+        break;
+      }
+    }
+    if (!last) return null;
+    wrappers.push(id[1]!.split('.').pop()!);
+    offset = last.start;
+  }
+  return null;
 }
 
 /** Index a TypeScript/JavaScript file. */
@@ -385,6 +694,76 @@ function indexJs(file: SourceFile, blanked: string, lineStarts: number[]): Struc
       ...(enclosing ? { enclosingClass: enclosing } : {}),
     });
     if (JS_HEAD.lastIndex === m.index) JS_HEAD.lastIndex += 1;
+  }
+
+  // ── bindings whose initializer is a wrapper CALL around a function ────────
+  //
+  // `const handler = withAnyRole(['admin'], async (req,res) => {…})`.
+  //
+  // Two things come out of this and only one of them is a symbol. The symbol is
+  // `handler`, spanning the arrow's body, which is what makes "is the check
+  // written INSIDE this handler" an answerable question. The other is the
+  // wrapper chain, which is kept in a LOCAL map rather than on `IndexedSymbol`:
+  // its only consumer is the route synthesis twenty lines below, the field would
+  // otherwise be a public part of the index with one reader, and adding one to
+  // the shared type is a change every other producer of a `StructureIndex` would
+  // then have to have an answer for.
+  //
+  // ★ `wrappers.length > 0` IS THE ADMISSION TEST, and it is doing more work
+  // than it looks like. `const h = async (req,res) => {…}` reaches here (the
+  // pattern's `callee` group happily matches `async`), and `peelHandlerExpression`
+  // reports it as a function literal with NO wrappers — so requiring at least one
+  // refuses it, and `JS_HEAD` keeps its existing, correct symbol for it rather
+  // than gaining a duplicate.
+  const wrapperChains = new Map<string, string[]>();
+  const bindingAlias = new Map<string, string>();
+  /** binding name → the line it is declared on, for a route that cites it. */
+  const bindingLine = new Map<string, number>();
+  JS_WRAPPED_BINDING.lastIndex = 0;
+  for (
+    let m = JS_WRAPPED_BINDING.exec(blanked);
+    m && symbols.length < MAX_SYMBOLS_PER_FILE;
+    m = JS_WRAPPED_BINDING.exec(blanked)
+  ) {
+    const g = m.groups ?? {};
+    const name = g.name;
+    const callee = g.callee;
+    if (!name || !callee) {
+      if (JS_WRAPPED_BINDING.lastIndex === m.index) JS_WRAPPED_BINDING.lastIndex += 1;
+      continue;
+    }
+    const calleeOffset = m.index + m[0].lastIndexOf(callee);
+    const peeled = peelHandlerExpression(blanked, calleeOffset);
+    if (!peeled || peeled.wrappers.length === 0) {
+      if (JS_WRAPPED_BINDING.lastIndex === m.index) JS_WRAPPED_BINDING.lastIndex += 1;
+      continue;
+    }
+
+    const bindingNameOffset = m.index + m[0].lastIndexOf(name);
+    wrapperChains.set(name, peeled.wrappers);
+    bindingLine.set(name, lineAt(lineStarts, bindingNameOffset));
+    if (peeled.handlerName) {
+      // `const h = withAuth(realHandler)` — `h` has no body of its own; the body
+      // belongs to `realHandler`, which is a symbol in its own right (here or in
+      // another file). Recording an alias rather than a second symbol keeps one
+      // function from being counted twice.
+      bindingAlias.set(name, peeled.handlerName);
+    } else if (peeled.inline) {
+      const nameOffset = bindingNameOffset;
+      symbols.push({
+        name,
+        kind: 'function',
+        declaredKind: 'function',
+        filePath: file.filePath,
+        startLine: lineAt(lineStarts, nameOffset),
+        endLine: lineAt(lineStarts, peeled.inline.end),
+        startColumn: columnAt(lineStarts, nameOffset),
+        bodyStart: peeled.inline.start,
+        bodyEnd: peeled.inline.end,
+        exported: /(?:^|[^\w$])export[^\S\r\n]/.test(m[0]),
+      });
+    }
+    if (JS_WRAPPED_BINDING.lastIndex === m.index) JS_WRAPPED_BINDING.lastIndex += 1;
   }
 
   // ── imports ───────────────────────────────────────────────────────────────
@@ -509,6 +888,106 @@ function indexJs(file: SourceFile, blanked: string, lineStarts: number[]): Struc
       ...(inlineHandler ? { inlineHandler } : {}),
     });
     if (JS_ROUTE.lastIndex === m.index) JS_ROUTE.lastIndex += 1;
+  }
+
+  // ── routes declared by FILE PATH (Next.js) ────────────────────────────────
+  //
+  // See the block comment above `fileRouteConvention` for why this exists and
+  // what it does not claim. The path is necessary and not sufficient: nothing is
+  // emitted unless the file also exports what the convention requires.
+  const convention = fileRouteConvention(file.filePath);
+  if (convention) {
+    /** Emit one convention route, resolving a binding's own wrapper chain. */
+    const recordConventionRoute = (
+      method: string,
+      line: number,
+      peeled: PeeledHandler,
+    ): void => {
+      let wrappers = peeled.wrappers;
+      let handlerName = peeled.handlerName;
+      let inlineHandler: IndexedSymbol | undefined;
+
+      if (handlerName) {
+        // `const handler = withAnyRole(…, fn); export default handler;` writes
+        // the guard on the BINDING and the registration on the export, so the
+        // two halves have to be joined or the wrapper is lost — which is the
+        // whole premise VG-SMELL-013 needs.
+        const chain = wrapperChains.get(handlerName);
+        if (chain) wrappers = [...wrappers, ...chain];
+        handlerName = bindingAlias.get(handlerName) ?? handlerName;
+      } else if (peeled.inline) {
+        if (symbols.length >= MAX_SYMBOLS_PER_FILE) return;
+        const headLine = lineAt(lineStarts, peeled.inline.headOffset);
+        inlineHandler = {
+          name: `<anonymous@${headLine}>`,
+          kind: 'route-handler',
+          declaredKind: 'function',
+          filePath: file.filePath,
+          startLine: headLine,
+          endLine: lineAt(lineStarts, peeled.inline.end),
+          startColumn: columnAt(lineStarts, peeled.inline.headOffset),
+          bodyStart: peeled.inline.start,
+          bodyEnd: peeled.inline.end,
+          exported: true,
+        };
+        symbols.push(inlineHandler);
+        handlerName = inlineHandler.name;
+      }
+
+      if (!handlerName) return;
+      routes.push({
+        filePath: file.filePath,
+        line,
+        method,
+        path: convention.routePath,
+        middlewareNames: wrappers,
+        handlerName,
+        ...(inlineHandler ? { inlineHandler } : {}),
+      });
+    };
+
+    if (convention.kind === 'app-route') {
+      // One binding per HTTP-method export. Walked over `symbols` in declaration
+      // order rather than over `APP_ROUTE_METHOD`, so the emitted order is the
+      // file's own and does not depend on a Set's iteration order. The second
+      // walk picks up `export const GET = withAuth(handler)`, which produces no
+      // symbol of its own because the body belongs to `handler`.
+      const emitted = new Set<string>();
+      const emitAppRoute = (name: string, line: number): void => {
+        if (emitted.has(name)) return;
+        emitted.add(name);
+        // `wrappers: []`, NOT the chain: `recordConventionRoute` resolves the
+        // binding's own chain from `handlerName`, and passing it here as well
+        // would name the same guard twice in one registration.
+        recordConventionRoute(name.toLowerCase(), line, { wrappers: [], handlerName: name });
+      };
+      for (const s of [...symbols]) {
+        if (s.kind === 'class') continue;
+        if (!APP_ROUTE_METHOD.has(s.name)) continue;
+        if (!s.exported && !exportedNames.has(s.name)) continue;
+        emitAppRoute(s.name, s.startLine);
+      }
+      for (const [name, line] of bindingLine) {
+        if (!APP_ROUTE_METHOD.has(name)) continue;
+        if (!exportedNames.has(name)) continue;
+        emitAppRoute(name, line);
+      }
+    } else {
+      // `pages/api`: ONE default export, one endpoint, and the method is
+      // genuinely unknown — a single handler there serves every verb and
+      // switches on `req.method` internally. `*` is the value `RouteBinding`
+      // already documents for that, and it is the honest one: reporting `post`
+      // would invent a fact, and reporting `get` would let VG-SMELL-011 reason
+      // about a write it has no evidence of.
+      JS_EXPORT_DEFAULT.lastIndex = 0;
+      const m = JS_EXPORT_DEFAULT.exec(blanked);
+      if (m) {
+        const peeled = peelHandlerExpression(blanked, m.index + m[0].length);
+        if (peeled) {
+          recordConventionRoute('*', lineAt(lineStarts, m.index + m[0].indexOf('export')), peeled);
+        }
+      }
+    }
   }
 
   // ── promote named handlers to the route-handler role ──────────────────────

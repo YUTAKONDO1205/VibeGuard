@@ -449,6 +449,18 @@
         "smell-013-neg-two-routes/README.md",
         "smell-013-neg-two-routes/routes/ledger-routes.ts",
         "smell-013-neg-two-routes/types.ts",
+        "smell-013-next-pages-api/lib/api.ts",
+        "smell-013-next-pages-api/lib/authz.ts",
+        "smell-013-next-pages-api/lib/session.ts",
+        "smell-013-next-pages-api/lib/store.ts",
+        "smell-013-next-pages-api/lib/types.ts",
+        "smell-013-next-pages-api/pages/api/invites.ts",
+        "smell-013-next-pages-api/pages/api/members.ts",
+        "smell-013-next-pages-api/pages/api/reports.ts",
+        "smell-013-next-pages-api/pages/api/teams.ts",
+        "smell-013-next-pages-api/pages/dashboard/settings.tsx",
+        "smell-013-next-pages-api/pages/index.tsx",
+        "smell-013-next-pages-api/README.md",
         "smell-013-scope-check/access/require-billing-permission.ts",
         "smell-013-scope-check/controllers/billing-controller.ts",
         "smell-013-scope-check/README.md",
@@ -995,14 +1007,17 @@
         "crossFileRules": 11,
         "exportedUnregisteredRuleIds": 0,
         "staticFilesScanned": 24,
-        "staticLiterals": 195,
+        "staticLiterals": 204,
         "staticConstructionSites": 24,
         "staticUncompilable": 0
       },
       "_reRecorded": [
         "2026-08-04 (#41 JSEXPORT-COUPLING): staticLiterals 194 -> 195. ONE literal, named: EXPORT_VALUE in design-smells-crossfile/type-erasure.ts. It is the value-side twin of the EXPORT_TYPE pattern already counted here, added because the erasure filter could no longer ask exportedNames whether a name is a runtime value (the indexer binds the modifier WORD, so `export interface Cfg` records `interface`, and the filter was right only by accident).",
         "WHY THIS IS A RE-RECORD AND NOT A LOOSENING: staticConstructionSites stays 24 — no `new RegExp(` was added, and no prose mentioning the token either (MEASURED LIMIT 8e records that prose moves this number for the wrong reason). crossFileRules 11, exportedUnregisteredRuleIds 0, staticFilesScanned 24, staticUncompilable 0 all unchanged. The delta is exactly +1 and the +1 is accounted for.",
-        "SHAPE: a1:crossfile-shape-suspicious-set stayed GREEN across this change, so the new literal is not shape-suspicious. Its quantifiers are bounded throughout ({0,8}/{1,4}/{0,3}/{1,60}) and horizontal whitespace is [^S\r\n] rather than s — the form this project adopted after the A1 ReDoS finding."
+        "SHAPE: a1:crossfile-shape-suspicious-set stayed GREEN across this change, so the new literal is not shape-suspicious. Its quantifiers are bounded throughout ({0,8}/{1,4}/{0,3}/{1,60}) and horizontal whitespace is [^S\r\n] rather than s — the form this project adopted after the A1 ReDoS finding.",
+        "2026-08-16 (#36 REACH): staticLiterals 195 -> 204. NINE literals, all in structure-indexer/index.ts, added so VG-SMELL-013 can reach its decision point on Next.js projects (measured before: 0 reaches across corpus1k, because pages/api writes no route registration and `const h = withX(..., fn)` was never indexed as a handler). Named: JS_EXPORT_DEFAULT, JS_WRAPPED_BINDING, FUNCTION_LITERAL_HEAD, HANDLER_IDENTIFIER, NEXT_ROUTE_EXT, DECLARATION_FILE, two inline horizontal-whitespace tests, and one export-word test.",
+        "WHY THIS IS A RE-RECORD AND NOT A LOOSENING: staticConstructionSites stays 24, crossFileRules 11, exportedUnregisteredRuleIds 0, staticFilesScanned 24, staticUncompilable 0 — every other number in this gate is unchanged. The delta is exactly +9 and each of the nine is named above. No cross-file RULE was added; the change is in the indexer the rules read.",
+        "SHAPE + TIMING, MEASURED BEFORE THE BUMP: a1:crossfile-shape-suspicious-set stayed 0 (none of the nine is adjacent-unbounded, nested-quantifier, or quantified-alternation). Independently measured on this host, patterns written to a FILE rather than passed through `node -e` (which drops backslashes and turns a real failure into a false pass): 6 distinct shapes x 12 adversarial inputs at n=5000, WORST 0.063ms against a 3000ms contract. The same harness ran /^(a+)+$/ over 30 a's as a positive control and took 52607ms, so the measurement can see catastrophic backtracking rather than being blind to it."
       ]
     },
     "a1:crossfile-shape-suspicious-set": {
