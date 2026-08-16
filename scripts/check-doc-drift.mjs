@@ -744,7 +744,19 @@ export function runDriftCheck({ root = DEFAULT_ROOT, docPath = DEFAULT_DOC } = {
   if (counters.pathClaimsChecked === 0) {
     unableToCheck.push('✅/▲ ブロックからリポジトリ相対パスの主張が1本も抽出できなかった（検査 [1] は空振り）');
   }
-  if (counters.unstartedBlocks > 0 && counters.unstartedBlocksProbed === 0) {
+  // 「⬜ が1本も検査できなかった」の分母から、**リポジトリ外だと明示的に宣言済み**の
+  // ブロックを外す。#C8 のような執筆ブロックはツリーに成果物が生えないと最初から
+  // 書いてあり、検査できないことが検査の失敗ではない。ここを外さないと、他の ⬜ が
+  // 全部片付いた瞬間に ── つまり作業が進むほど ── 恒久的に exit 3 になる。
+  //
+  // 警報は残す。外すのは「宣言済みで、なおかつ 対応不明 に名前が出ているもの」だけで、
+  // 未知の ⬜（マッピング欄に entry が無い新設ブロック）は今までどおり分母に入り、
+  // 1本も検査できなければ exit 3 になる。そちらが本当の drift 前兆。
+  const unstartedOutOfRepo = unmapped.filter((u) => u.outOfRepo).length;
+  const unstartedProbable = counters.unstartedBlocks - unstartedOutOfRepo;
+  counters.unstartedBlocksOutOfRepo = unstartedOutOfRepo;
+  counters.unstartedBlocksProbable = unstartedProbable;
+  if (unstartedProbable > 0 && counters.unstartedBlocksProbed === 0) {
     unableToCheck.push('⬜ ブロックはあるのに、期待成果物を1本も検査できなかった（検査 [2] は空振り）');
   }
 
@@ -767,7 +779,8 @@ function render(report, { root, docPath }) {
   L.push(
     `解析: ブロック ${report.counters.blocks} 本（✅/▲ ${report.counters.claimedDoneBlocks} / ⬜ ${report.counters.unstartedBlocks}）` +
       ` ・ パス主張 ${report.counters.pathClaimsChecked} 本 ・ path:line 参照 ${report.counters.lineRefsChecked} 本` +
-      ` ・ ⬜ 期待検査 ${report.counters.unstartedBlocksProbed} ブロック / ${report.counters.globsEvaluated} 条件` +
+      ` ・ ⬜ 期待検査 ${report.counters.unstartedBlocksProbed}/${report.counters.unstartedBlocksProbable} ブロック` +
+      `（うちリポジトリ外と宣言済み ${report.counters.unstartedBlocksOutOfRepo} 本は分母外）/ ${report.counters.globsEvaluated} 条件` +
       ` ・ properties ${report.counters.propertiesChecked} 件`,
   );
   L.push('');

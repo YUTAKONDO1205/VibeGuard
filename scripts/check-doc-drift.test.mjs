@@ -490,6 +490,57 @@ describe('静かな exit 0 を作らない', () => {
     expect(exitCodeFor(report)).toBe(3);
     expect(report.unableToCheck.join('\n')).toContain('検査 [2] は空振り');
   });
+
+  // ── 分母から外してよい ⬜ と、外してはいけない ⬜ ────────────────────────
+  //
+  // 上の警報は「⬜ があるのに1本も検査できなかった」で鳴る。だが #C8 のような
+  // 執筆ブロックは成果物がツリーに生えないと最初から宣言してあり、検査できない
+  // ことは検査の失敗ではない。宣言済みのものを分母に残すと、他の ⬜ が全部
+  // 片付いた瞬間に ── つまり作業が進むほど ── 恒久的に exit 3 になる。
+  //
+  // 2本セットで入れてある。片方だけ通しても買えない形にするため。
+  it('⬜ がリポジトリ外と宣言済みのものだけなら、警報は鳴らない', () => {
+    const dir = newScratch('doc-drift-outofrepo-');
+    mkdirSync(join(dir, 'docs'), { recursive: true });
+    writeFileSync(
+      join(dir, 'docs', 'plan.md'),
+      [
+        '### #V1. DRV — Driver ✅ 実装済（`compiler/driver/`）',
+        '- **実装先**: `compiler/driver/`',
+        '',
+        '### #C8. WRITE — 執筆 ⬜ 未着手',
+        '',
+      ].join('\n'),
+    );
+    const report = runDriftCheck({ root: REPO_ROOT, docPath: join(dir, 'docs', 'plan.md') });
+    expect(exitCodeFor(report)).toBe(0);
+    expect(report.unableToCheck.join('\n')).not.toContain('検査 [2] は空振り');
+    // 黙って消えたのではないこと。対応不明には名前が残る。
+    expect(report.unmapped.map((u) => u.block)).toContain('#C8');
+    expect(report.counters.unstartedBlocksOutOfRepo).toBe(1);
+    expect(report.counters.unstartedBlocksProbable).toBe(0);
+  });
+
+  it('宣言済みのものに未知の ⬜ が1本混ざれば、警報は鳴る', () => {
+    const dir = newScratch('doc-drift-outofrepo-mixed-');
+    mkdirSync(join(dir, 'docs'), { recursive: true });
+    writeFileSync(
+      join(dir, 'docs', 'plan.md'),
+      [
+        '### #V1. DRV — Driver ✅ 実装済（`compiler/driver/`）',
+        '- **実装先**: `compiler/driver/`',
+        '',
+        '### #C8. WRITE — 執筆 ⬜ 未着手',
+        '',
+        '### #V42. NOMAP — 対応不明 ⬜ 未着手',
+        '',
+      ].join('\n'),
+    );
+    const report = runDriftCheck({ root: REPO_ROOT, docPath: join(dir, 'docs', 'plan.md') });
+    expect(report.counters.unstartedBlocksProbable).toBe(1);
+    expect(exitCodeFor(report)).toBe(3);
+    expect(report.unableToCheck.join('\n')).toContain('検査 [2] は空振り');
+  });
 });
 
 // ── 検査 [3] properties.json ───────────────────────────────────────────────

@@ -1,0 +1,458 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vibeguard.dev/compiler/schema/fallback-table.schema.json",
+  "title": "Fallback profile table",
+  "description": "A derived lookup table: for each configuration where a security property was measured to be LOST, the weaker configuration where it was measured to survive -- or one of the two words that say no such measurement exists. Produced by compiler/driver/tools/derive-fallback-table.mjs from a security-configuration envelope. NOTE ON VALIDATORS: this schema uses `if`/`then`/`else`, which compiler/driver/lib/jsonschema.mjs deliberately does not implement (it refuses unknown keywords rather than guessing). The conditional is the point of the document -- it is what stops a row saying `fallback` while pointing at nothing -- so it is written in draft-07 here and checked by a validator that implements it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "source",
+    "generator",
+    "policy",
+    "counts",
+    "rows",
+    "anomalies"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "vibeguard.fallback-table/1"
+    },
+    "source": {
+      "description": "The envelope this table was derived from, pinned by content hash. A table whose source hash no longer matches the envelope on disk is stale, not merely old.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "cells",
+        "schemaVersion"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "cells": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "schemaVersion": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "const": "derive-fallback-table"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "policy": {
+      "description": "The search rule, stated in the artefact rather than only in the code that made it. `fixedAxes` are the axes a fallback may not touch: moving target, ndebug, freestanding or cc produces a different program or a different environment, and moving lto both changes a whole-programme link decision this per-translation-unit recompile cannot make and moves along an envelope label that fuses a build flag with an observation stage (observe-config.sh gives full-prelink and full-backend the same compiler invocation). Either way that is a different experiment, not a fallback.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "variableAxes",
+        "fixedAxes",
+        "direction",
+        "preferenceOrder",
+        "subjectAggregation"
+      ],
+      "properties": {
+        "variableAxes": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "opt"
+            ]
+          }
+        },
+        "fixedAxes": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "cc",
+              "target",
+              "ndebug",
+              "freestanding",
+              "lto"
+            ]
+          }
+        },
+        "direction": {
+          "const": "weaken-only"
+        },
+        "preferenceOrder": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "highest-opt-first",
+              "lexicographic-config"
+            ]
+          }
+        },
+        "subjectAggregation": {
+          "const": "all-subjects-of-the-property-must-hold"
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cells",
+        "controlCells",
+        "lostCells",
+        "lostCellsUnderBrokenInstrument",
+        "rows",
+        "byResolution",
+        "byState",
+        "byMeasurement"
+      ],
+      "properties": {
+        "cells": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "controlCells": {
+          "description": "Cells excluded from the search population because their cellId carries `ctl=`: positive controls for the observer's silent-failure modes. Excluded, counted here, and listed individually in `anomalies`.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "lostCells": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "byResolution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "fallback",
+            "no-safe-target",
+            "not-observed"
+          ],
+          "properties": {
+            "fallback": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "no-safe-target": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "not-observed": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "lostCellsUnderBrokenInstrument": {
+          "description": "Cells reporting state=LOST while measurement says the instrument was broken or the configuration unsupported. They are a statement about the instrument, not about the property, so they get no row and are listed individually in `anomalies`. The same cell would be refused as evidence on the candidate side.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "byState": {
+          "description": "The envelope tally carried through so the table can be reconciled against it without opening the envelope. `state` is about the property and `measurement` is about the instrument; they are counted apart because they are stored apart.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "byMeasurement": {
+          "description": "The envelope tally carried through so the table can be reconciled against it without opening the envelope. `state` is about the property and `measurement` is about the instrument; they are counted apart because they are stored apart.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/row"
+      }
+    },
+    "anomalies": {
+      "description": "Everything the derivation refused to throw away: excluded control cells, non-monotonic survival, fallbacks the current driver mechanism cannot express, duplicate cells. An empty array is a claim, not a default.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "definitions": {
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cc",
+        "freestanding",
+        "lto",
+        "ndebug",
+        "opt",
+        "target"
+      ],
+      "properties": {
+        "cc": {
+          "type": "string"
+        },
+        "freestanding": {
+          "type": "boolean"
+        },
+        "lto": {
+          "type": "string"
+        },
+        "ndebug": {
+          "type": "boolean"
+        },
+        "opt": {
+          "enum": [
+            "-O0",
+            "-O1",
+            "-O2",
+            "-O3"
+          ],
+          "description": "A rung of the weakening ladder. `to` is a recommendation the driver will act on, so it may only name a level the ladder ranks."
+        },
+        "target": {
+          "type": "string"
+        }
+      }
+    },
+    "resolution": {
+      "description": "Three words that must not be collapsed into two. `no-safe-target` is a positive claim about a complete set of measurements; `not-observed` is the admission that the set is incomplete. Merging them turns 'we did not look' into 'there is nothing there'.",
+      "enum": [
+        "fallback",
+        "no-safe-target",
+        "not-observed"
+      ]
+    },
+    "evidenceItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject",
+        "cellId",
+        "state",
+        "measurement",
+        "controlHeld"
+      ],
+      "properties": {
+        "subject": {
+          "type": "string"
+        },
+        "cellId": {
+          "type": "string"
+        },
+        "state": {
+          "const": "PRESENT"
+        },
+        "measurement": {
+          "const": "OK"
+        },
+        "controlHeld": {
+          "const": true
+        }
+      }
+    },
+    "rejectedItem": {
+      "description": "Why one candidate configuration was not adopted, for one subject. `measured-lost` and `measured-absent` are both observations and are different observations: LOST means the property was there and the toolchain removed it, ABSENT means it was never emitted. `not-observed`, `broken-measurement`, `unsupported` and `absent-from-envelope` are statements about the instrument or about coverage, never about the property.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config",
+        "why",
+        "subject"
+      ],
+      "properties": {
+        "config": {
+          "$ref": "#/definitions/config"
+        },
+        "why": {
+          "enum": [
+            "measured-lost",
+            "measured-absent",
+            "not-observed",
+            "broken-measurement",
+            "unsupported",
+            "absent-from-envelope"
+          ]
+        },
+        "subject": {
+          "type": "string"
+        }
+      }
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "propertyId",
+        "from",
+        "lostSubjects",
+        "resolution",
+        "to",
+        "profile",
+        "evidence",
+        "rejected"
+      ],
+      "properties": {
+        "propertyId": {
+          "type": "string"
+        },
+        "from": {
+          "$ref": "#/definitions/observedConfig"
+        },
+        "lostSubjects": {
+          "description": "Every subject of this property that was measured LOST at `from`. A property carried by two programs can lose it in one and keep it in the other; both are named here rather than folded into the property.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "resolution": {
+          "$ref": "#/definitions/resolution"
+        },
+        "to": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "profile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/evidenceItem"
+          }
+        },
+        "rejected": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/rejectedItem"
+          }
+        }
+      },
+      "if": {
+        "required": [
+          "resolution"
+        ],
+        "properties": {
+          "resolution": {
+            "const": "fallback"
+          }
+        }
+      },
+      "then": {
+        "description": "A row that says `fallback` must name the configuration and the profile, and must cite at least one held cell per subject. Without this branch the word `fallback` could be written over a null.",
+        "required": [
+          "to",
+          "profile",
+          "evidence"
+        ],
+        "properties": {
+          "to": {
+            "$ref": "#/definitions/config"
+          },
+          "profile": {
+            "enum": [
+              "-O0",
+              "-O1",
+              "-O2",
+              "-O3"
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/definitions/evidenceItem"
+            }
+          }
+        }
+      },
+      "else": {
+        "description": "`no-safe-target` and `not-observed` are both refusals to name a target, so both must leave `to` and `profile` null and cite nothing. A non-null `to` under either word would be a recommendation with no measurement behind it.",
+        "required": [
+          "to",
+          "profile",
+          "evidence"
+        ],
+        "properties": {
+          "to": {
+            "type": "null"
+          },
+          "profile": {
+            "type": "null"
+          },
+          "evidence": {
+            "type": "array",
+            "items": false
+          }
+        }
+      }
+    },
+    "observedConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cc",
+        "freestanding",
+        "lto",
+        "ndebug",
+        "opt",
+        "target"
+      ],
+      "properties": {
+        "cc": {
+          "type": "string"
+        },
+        "freestanding": {
+          "type": "boolean"
+        },
+        "lto": {
+          "type": "string"
+        },
+        "ndebug": {
+          "type": "boolean"
+        },
+        "opt": {
+          "type": "string",
+          "description": "The level the sweep compiled this cell at. Not restricted to the ladder: an envelope may hold -Os or -Og, and a row about such a cell resolves to not-observed rather than being dropped."
+        },
+        "target": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
