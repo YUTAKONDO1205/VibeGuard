@@ -67,9 +67,25 @@ jobs:
           # rather than as of main. Neither works in a shallow clone.
           fetch-depth: 0
 
+      # 22, not the 20 the other workflows pin.
+      #
+      # Astro 7 declares `"node": ">=22.12.0"` and refuses to build on anything
+      # older — it does not warn, it exits 1 with "Node.js v20.x is not supported
+      # by Astro!". The site is on 7 rather than 5 because 5 shipped with eight
+      # open XSS advisories, and a security scanner's own website failing `npm
+      # audit` is not a trade worth making.
+      #
+      # This raises the floor for THIS workflow only. The four shipped channels
+      # keep building on 20 in ci.yml and release.yml, which is what matters:
+      # the root manifest still says `>=18`, nothing in the release path gained
+      # a newer requirement, and site/ is outside the workspaces precisely so
+      # that its toolchain cannot reach them.
+      #
+      # site/package.json carries the same `>=22.12.0`, so the constraint is
+      # stated where the dependency actually lives rather than only here.
       - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       # ── Data generation (repository root) ─────────────────────────────────
