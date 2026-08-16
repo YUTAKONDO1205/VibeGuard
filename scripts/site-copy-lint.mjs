@@ -850,10 +850,28 @@ if (DIST_MODE) {
     // hand, which is precisely the path the deploy notes describe for the first
     // release. So the check belongs on the artefact, where both routes meet.
     //
-    // `Author: Kondo Yuta` in the footer is deliberate and is not an accident
-    // of tooling; it is allowed by name rather than by pattern, so that the
-    // pattern stays strict.
-    const IDENTITY_ALLOWED = ['Author: Kondo Yuta', 'YUTAKONDO1205', 'yutakondo'];
+    // There is NO allow-list here, and the first draft's was worse than none.
+    //
+    // It held the author's name and GitHub handle, and it was tested with
+    // `match.includes(entry)` — against the matched text rather than its
+    // surroundings. So a Windows home path under that handle, and an address at
+    // any domain under that handle, both contained an allow-listed string and
+    // both were waved through: the author's own home directory and the author's
+    // own address, which are the two things this rule exists to catch. An
+    // allow-list keyed on the name of the person whose identifiers are being
+    // protected inverts the check.
+    //
+    // ★ 2026-08-16: this paragraph used to make the point by SPELLING those two
+    // strings out, and `scripts/check-disclosure-shape.mjs` reported the home
+    // path as a HOME-DIRECTORY shape in the tracked tree — correctly. Writing an
+    // example of the identifier a rule protects is the same disclosure as
+    // leaking it by accident; the reader does not care which one the author
+    // meant. Describe the shape, never instantiate it.
+    //
+    // It also bought nothing. None of those three strings can match any pattern
+    // below — `Author: Kondo Yuta` has no `@` and no path separator, and the
+    // GitHub and Open VSX URLs contain neither `/home/` nor `/Users/` nor an
+    // `@`. Verified against the built site, which passes with the list gone.
     const identityPatterns = [
       [/[A-Za-z]:[\\/]{1,2}[Uu]sers[\\/][^\s"'<>]+/g, 'a Windows home-directory path'],
       [/\/(?:home|Users)\/[A-Za-z0-9._-]+/g, 'a home-directory path'],
@@ -862,7 +880,6 @@ if (DIST_MODE) {
     ];
     for (const [pattern, what] of identityPatterns) {
       for (let m = pattern.exec(html); m; m = pattern.exec(html)) {
-        if (IDENTITY_ALLOWED.some((ok) => m[0].includes(ok))) continue;
         const line = html.slice(0, m.index).split('\n').length;
         failures.push(
           `${rel(page.file)}:${line} contains ${what}: ${JSON.stringify(m[0].slice(0, 80))}\n` +

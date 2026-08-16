@@ -536,6 +536,36 @@ describe('R6 the built HTML has no script and loads nothing off-site', () => {
     expect(result.output).toContain('home-directory path');
   });
 
+  // The regression this pair exists for. The first version of the rule carried
+  // an allow-list of the author's name and handle, tested with
+  // `match.includes(entry)` — so a path or an address containing the handle was
+  // waved through. That is the author's own home directory and the author's own
+  // address: the two identifiers the rule is for.
+  it('flags a home path even when it contains the author handle', () => {
+    const site = makeSite();
+    const bs = String.fromCharCode(92);
+    const html = readFileSync(join(site, 'dist/index.html'), 'utf8').replace(
+      '</main>',
+      `</main>\n<p>at C:${bs}Users${bs}yutakondo${bs}VibeGuard${bs}x.py</p>`,
+    );
+    write(site, 'dist/index.html', html);
+    const result = runLint(site, ['--dist']);
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('Windows home-directory path');
+  });
+
+  it('flags an email even when its local part is the author handle', () => {
+    const site = makeSite();
+    const html = readFileSync(join(site, 'dist/index.html'), 'utf8').replace(
+      '</main>',
+      '</main>\n<p>yutakondo@example.com</p>',
+    );
+    write(site, 'dist/index.html', html);
+    const result = runLint(site, ['--dist']);
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('email address');
+  });
+
   it('fails on an email address, but not on the footer byline', () => {
     const site = makeSite();
     const html = readFileSync(join(site, 'dist/index.html'), 'utf8').replace(
