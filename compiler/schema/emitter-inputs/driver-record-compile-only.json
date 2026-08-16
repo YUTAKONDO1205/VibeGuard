@@ -1,0 +1,205 @@
+{
+  "build": {
+    "artifacts": [
+      {
+        "bytes": 1440,
+        "path": "hello.o",
+        "sha256": "a3af23238d54d093af2ec6bf62e1faecee1162d0a3c50feb3cc98695a8f94656"
+      }
+    ],
+    "observation": null,
+    "shipping": {
+      "attempted": true,
+      "exitCode": 0,
+      "signal": null,
+      "spawnError": null
+    }
+  },
+  "checks": {
+    "flags": {
+      "required": [],
+      "forbidden": [
+        {
+          "pattern": "-fno-stack-protector",
+          "present": false,
+          "token": null
+        }
+      ],
+      "optLevel": {
+        "configured": true,
+        "effective": "-O2",
+        "allowed": [
+          "-O2"
+        ],
+        "fromEnvironment": false
+      },
+      "environmentOverride": {
+        "present": false,
+        "recoverable": true,
+        "prepended": [],
+        "appended": []
+      }
+    },
+    "pluginIntegrity": {
+      "complete": true,
+      "findingCount": 0,
+      "malformedFindings": 0,
+      "pipelineAvailable": true,
+      "pipelineConstrained": false,
+      "pipelineLength": 29
+    },
+    "properties": {
+      "catalogue": {
+        "path": "schema/properties.json",
+        "schemaVersion": "properties-v0",
+        "sha256": "7dfda7f53ae87df78a23bd7ff3fa6bae759e019c25af15ee5bd3032cd757af2e",
+        "entryCount": 24,
+        "status": "loaded"
+      },
+      "claim": "all 1 requested property is defined by the catalogue and have an implemented extractor at a requested checkpoint",
+      "complete": true,
+      "configured": true,
+      "counts": {
+        "checked": 1,
+        "inputs": 1,
+        "skipped": 0
+      },
+      "entries": [
+        {
+          "id": "survive.secure-wipe",
+          "kind": "must-survive",
+          "catalogueKind": "must-survive",
+          "catalogueStatus": "implemented",
+          "requestedCheckpoints": [
+            "pre-opt-ir",
+            "after-pass"
+          ],
+          "reachableCheckpoints": [
+            "pre-opt-ir",
+            "after-pass"
+          ],
+          "verdict": "reachable"
+        }
+      ],
+      "requested": 1,
+      "unanswerable": 0,
+      "usable": 1,
+      "verdict": "all-requested-reachable"
+    },
+    "responseFiles": {
+      "expanded": 0,
+      "unresolved": 0
+    },
+    "toolchainPin": {
+      "compilerReconciliation": "in-pin",
+      "compilerInPinSet": true,
+      "mismatchCount": 0,
+      "mismatches": [],
+      "status": "match",
+      "unobserved": [],
+      "unobservedCount": 0,
+      "versions": [
+        {
+          "name": "clang-18",
+          "pinned": null,
+          "observed": null,
+          "method": "not-pinned",
+          "verdict": "not-pinned"
+        },
+        {
+          "name": "clang++-18",
+          "pinned": null,
+          "observed": null,
+          "method": "not-pinned",
+          "verdict": "not-pinned"
+        }
+      ]
+    }
+  },
+  "component": "driver",
+  "context": {
+    "generatedAt": "2023-11-14T22:13:20.000Z",
+    "timeSource": "SOURCE_DATE_EPOCH",
+    "sourceDateEpoch": 1700000000,
+    "sourceDateEpochFrom": "policy",
+    "host": {
+      "platform": "linux",
+      "arch": "x64",
+      "node": "v18.19.1",
+      "cpus": 12
+    },
+    "timings": {
+      "shippingMs": 79
+    }
+  },
+  "driver": "vgcc",
+  "exitCode": 0,
+  "exitReason": "clean",
+  "findings": [],
+  "invocation": {
+    "action": "compile",
+    "argv": [
+      "-O2",
+      "-c",
+      "hello.c",
+      "-o",
+      "hello.o"
+    ],
+    "cwd": ".",
+    "driver": "vgcc",
+    "linkInputs": [],
+    "optLevels": [
+      "-O2"
+    ],
+    "output": "hello.o",
+    "plugins": {
+      "frontend": [],
+      "legacyLoad": [],
+      "pass": []
+    },
+    "responseFilesExpanded": 0,
+    "sources": [
+      "hello.c"
+    ],
+    "unpairedXclang": 0
+  },
+  "mode": "c",
+  "policy": {
+    "policyVersion": "policy-v0",
+    "failOn": "high",
+    "sha256": "9840a12e5a2276741be9aec87843252f53b46fc5d28a72bebebe46157eb58913",
+    "path": ".vgpolicy.json",
+    "failOnIncomplete": true,
+    "requireDigestMatch": true
+  },
+  "recordVersion": "compiler-evidence-v0",
+  "toolchain": {
+    "clang": "18.1.3",
+    "compiler": {
+      "inPinSet": true,
+      "invokedAs": "clang-18",
+      "located": true,
+      "overriddenByFlag": false,
+      "pinnedAs": "clang-18",
+      "reconciliation": "in-pin",
+      "resolvedFrom": "pin"
+    },
+    "digest": "92ca250b0faf9c7039effde0a612426192ffb07603fb1151fafa92621cdf94e1",
+    "packages": [
+      {
+        "name": "clang-18",
+        "version": null,
+        "sha256": "8ef402d453d1ba4902e4ee0f0f847f6cfa01400c95aa43c24e97818b9c0e3f45"
+      },
+      {
+        "name": "clang++-18",
+        "version": null,
+        "sha256": "8ef402d453d1ba4902e4ee0f0f847f6cfa01400c95aa43c24e97818b9c0e3f45"
+      }
+    ],
+    "pinConfigured": true,
+    "pinStatus": "match"
+  },
+  "evidenceDigest": "f05d66f1c88b372e29722034eb5c80e45ce8aa8b9192b492b2ec00c4f3a0d258"
+}
+
