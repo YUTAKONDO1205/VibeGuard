@@ -134,3 +134,28 @@ scripts-local/
 # so it is not runnable from a clone. Same rule as the block above: this file
 # does not describe what any of it contains.
 scripts/viz-*.mjs
+
+# The design notes under docs/ are local-only, and the rule above matches them
+# by extension — which means renaming one puts it back in reach of `git add .`.
+# That is not hypothetical: the compiler plan document was renamed to
+# `.md.hidden`, and `docs/*.md` stopped matching it. 438 KB of submission
+# deadlines, venue names and working paths sat untracked-but-committable until
+# scripts/check-disclosure-shape.mjs went red over it.
+#
+# So the directory is ignored by shape rather than by extension, and the files
+# that ARE meant to be published are re-admitted by name below. Adding a
+# document to the repository is now a deliberate line in this file, which is the
+# right amount of friction for the decision "this becomes public".
+# The allow-list is exactly the set that is tracked today — no more. An earlier
+# draft re-admitted two documents that had never been published, which turned a
+# tightening into a leak of a different shape.
+docs/*
+!docs/DESIGN.ja.md
+!docs/runbooks/
+
+# wrangler's local state for the website in site/: dev-server cache, local KV,
+# build metadata. Generated and machine-specific. The pragma census in
+# scripts/check-packaging-invariants.mjs already skips `.wrangler`; this is the
+# other half, so the directory stops showing up as untracked and stops being a
+# candidate for `git add .`.
+.wrangler/

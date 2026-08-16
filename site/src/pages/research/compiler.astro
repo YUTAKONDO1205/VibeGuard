@@ -1,0 +1,228 @@
+---
+/**
+ * /research/compiler — the compiler work, described as research and nothing
+ * else.
+ *
+ * ResearchLayout is the reason this page can be written safely. It imports no
+ * CTA, no version badge, no command block and no store links, so the components
+ * that would make this look like something to acquire are not in this page's
+ * import graph at all. The copy linter is the second layer: it scans this
+ * page's <main> — the Japanese section included — for acquisition vocabulary
+ * and for anything shaped like a version, and fails the build on a match.
+ *
+ * The page therefore has no version, no date, no list of what comes next, and
+ * no verb that means "get this". Not because those would be against a
+ * guideline, but because a reader who sees them concludes that something is
+ * available, and nothing is.
+ *
+ * ── WHAT CHANGED, AND WHY THE COPY DID ────────────────────────────────────
+ *
+ * An earlier draft of this page said there was nothing to obtain. That was
+ * accurate while compiler/ held a licence file and little else. It is not
+ * accurate now: the toolchain's source is in the repository, with a README
+ * documenting how to build it against a local LLVM. The claim that is still
+ * true, and the one this page makes, is the distribution claim — nothing is
+ * packaged, and none of the four VibeGuard channels carry it. Saying "nothing
+ * to obtain" today would be its own small untruth, and this page cannot afford
+ * one.
+ *
+ * The link to the source is written as prose inside a sentence, not as a
+ * button and not through /go/*. A button is an invitation; a sentence is an
+ * answer to "where is it, then". And /go/* counts clicks toward distribution
+ * channels, which this is not.
+ *
+ * ── THE JAPANESE SECTION ──────────────────────────────────────────────────
+ *
+ * The rest of the site is English only, because its purpose is to reach users
+ * wherever they are. This page has no such purpose: it is a terminal page with
+ * no conversion goal, its likely readers sit around the venue it is aimed at,
+ * and a second language here changes no routing decision anywhere else. Both
+ * languages live in one page rather than two URLs, so a reader can see at a
+ * glance when only one of them has been updated.
+ */
+import ResearchLayout from '../../layouts/ResearchLayout.astro';
+
+const COMPILER_DIR_URL = 'https://github.com/YUTAKONDO1205/VibeGuard/tree/main/compiler';
+
+/*
+ * ── NOTES ON THE WORDING BELOW ───────────────────────────────────────────
+ *
+ * These were HTML comments in the template until it turned out Astro emits
+ * those into the built page. They explain why particular sentences are
+ * phrased as they are; that reasoning belongs to whoever edits this file,
+ * not to every visitor with a View Source menu.
+ *
+ * WHAT THIS PARAGRAPH IS ALLOWED TO SAY, AND WHY IT SAYS SO LITTLE.
+ *
+ * An earlier draft claimed "of eight memset calls, six were gone". That
+ * misreported the unit: the measurement counted eight BUILD CONFIGURATIONS
+ * (two compilers across -O1..-O3), not eight call sites, and six of those
+ * configurations dropped the scrub. Worse, the working notes rule that
+ * number out of the paper entirely — it was obtained by searching for the
+ * symbol name, and the project's own methodology forbids that oracle,
+ * because a deleted call and a surviving-but-unused declaration look the
+ * same to a grep. It is queued to be re-measured against the zeroing
+ * instructions themselves. A number the project will not put in its own
+ * paper has no business being the first thing a stranger reads.
+ *
+ * The fold is quotable, but only with its conditions attached. The working
+ * notes require it be given as a conditional fact — -O2, x86-64, those
+ * three functions — and the three are not three authorization checks: one
+ * is an authorization check, one is a feature-flag test, and one is a
+ * deliberately meaningless control. That is what makes the result
+ * interesting, so flattening it into "two authorization checks" both
+ * overstates it and throws away the point.
+ *
+ * ────
+ *
+ * The licence line is here rather than left to the shared footer, and the
+ * reason is specific to this page. Every page's footer says "MIT License",
+ * which is correct about the repository. It is not correct about the one
+ * directory this page is entirely about: compiler/ is Apache-2.0 WITH
+ * LLVM-exception, because it links against Clang and LLVM libraries, and
+ * compiler/README.md says so in as many words. Leaving only the footer's
+ * MIT visible on the page whose subject is that directory is how a reader
+ * ends up believing the wrong licence governs the code they just went to
+ * look at.
+ *
+ * ────
+ *
+ * TWO SEPARATE REASONS THIS SENTENCE IS AS SHORT AS IT IS.
+ *
+ * The venue is not named, and that is not squeamishness.
+ * scripts/check-disclosure-shape.mjs refuses an all-caps acronym next to a
+ * current-or-future year anywhere in the tracked tree, because that string
+ * names where unpublished work has been sent — and because the commit that
+ * later deletes it announces that the work was rejected. A public website is
+ * the worst place in the repository to carry that. Name the venue once it
+ * has published the paper; a past year is a citation, and the check exempts
+ * it automatically.
+ *
+ * It also does not say "under peer review", which an earlier draft of this
+ * page did. That was not checkable from anything in this repository: the
+ * manuscript here is a draft and its deadline has not arrived, which makes a
+ * submission unlikely but does not establish one either way. The wording now
+ * claims no milestone at all — "in preparation" is true whether or not it has
+ * gone out, and a status nobody can verify from the tree is not a status this
+ * page should be asserting.
+ */
+---
+
+<ResearchLayout
+  title="VibeGuard Compiler — Research"
+  description="A research project on security properties that survive in source but not in the compiled binary, tracked at LLVM pass granularity."
+>
+  <section class="vg-band vg-band--base" aria-labelledby="compiler-h">
+    <div class="vg-band__inner">
+      <h1 class="vg-h1" id="compiler-h">VibeGuard Compiler</h1>
+
+      <div class="vg-research__prose">
+        <h2 class="vg-h2">
+          <span class="vg-h2__deco" aria-hidden="true">//</span>The question
+        </h2>
+        <p>
+          A security property you wrote can disappear when the compiler optimises your code. A{' '}
+          <code>memset</code> that scrubs a key can be removed as a dead store, because nothing reads the buffer
+          afterwards and the standard lets the compiler say so. Two different permission checks can be folded into
+          the same bytes, because they compute the same thing from the compiler's point of view and differ only in
+          what a human meant by them. The source still says what you meant. The binary no longer does, and nothing
+          in the usual toolchain tells you which of your properties survived.
+        </p>
+
+        <h2 class="vg-h2">
+          <span class="vg-h2__deco" aria-hidden="true">//</span>The method
+        </h2>
+        <p>
+          The work tracks where that happens, one LLVM pass at a time, using the compiler's own public flags rather
+          than a modified compiler: <code>-print-after-all</code> to see the module as each pass leaves it,{' '}
+          <code>-opt-bisect-limit</code> to stop the run at the pass that changed the answer, and{' '}
+          <code>__attribute__((annotate))</code> to mark the property being followed so it can be located in the
+          output after inlining has rearranged everything around it.
+        </p>
+        <p>
+          Working with stock flags is a constraint that pays: a result that needs a patched compiler is a result
+          about that patched compiler, and the question here is what happens to ordinary code under an ordinary
+          toolchain.
+        </p>
+
+        <h2 class="vg-h2">
+          <span class="vg-h2__deco" aria-hidden="true">//</span>What has been measured
+        </h2>
+        <p>
+          One measurement is solid enough to state with its conditions. Compiled at <code>-O2</code> for x86-64,
+          three functions that mean entirely different things to a reader — an authorization check, a feature-flag
+          test, and a control that was written to be meaningless — came out as the same fourteen bytes of machine
+          code. Same bytes, three names, and no diagnostic anywhere saying that the distinction the programmer
+          wrote had stopped existing.
+        </p>
+        <p>
+          Secret-scrubbing writes disappear under optimisation too. How often is being re-measured against the
+          zeroing instructions themselves rather than the name of the function that emitted them, so no rate is
+          quoted here yet.
+        </p>
+
+        <h2 class="vg-h2">
+          <span class="vg-h2__deco" aria-hidden="true">//</span>Where the code is
+        </h2>
+        <p>
+          The toolchain's source is in the repository, under{' '}
+          <code>compiler/</code> (<a href={COMPILER_DIR_URL}>{COMPILER_DIR_URL}</a>), together with a README
+          explaining how to build it against a local LLVM. Nothing there is packaged, and none of the four
+          VibeGuard channels carry any of it: the extensions, the CLI and the GitHub Action are built from the
+          TypeScript workspaces and behave identically on a machine where this directory was never built. That
+          boundary is checked by the repository's own packaging invariants, not maintained by hand.
+        </p>
+        <p>
+          That directory is licensed Apache-2.0 with the LLVM exception rather than the repository's MIT, because
+          it builds against the Clang and LLVM libraries.
+        </p>
+
+        <h2 class="vg-h2">
+          <span class="vg-h2__deco" aria-hidden="true">//</span>Status
+        </h2>
+        <p>A paper about this work is in preparation. It will be linked here once it is published.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="vg-band vg-band--news" lang="ja" aria-labelledby="compiler-ja-h">
+    <div class="vg-band__inner">
+      <div class="vg-research__prose">
+        <h2 class="vg-h2" id="compiler-ja-h">
+          <span class="vg-h2__deco" aria-hidden="true">//</span>概要（日本語）
+        </h2>
+        <p>
+          ソースコードが表明したセキュリティ上の性質は、コンパイラの最適化によって消えることがある。鍵をゼロ埋めする
+          <code>memset</code> は、その後に誰も読まないという理由で不要な書き込みとして削除されうる。意味の異なる関数が、
+          計算内容が同じであるという理由で同一のコードに畳み込まれることもある。ソースは書いたとおりの
+          ことを言い続けるが、生成されたバイナリはもうそう言っていない。
+        </p>
+        <p>
+          この研究は、それがどのパスで起きるかを LLVM のパス単位で追跡する。用いるのは Clang/LLVM が公開している
+          フラグそのもので、<code>-print-after-all</code> で各パス通過後のモジュールを観測し、
+          <code>-opt-bisect-limit</code> で結果が変わったパスまでで停止させ、
+          <code>__attribute__((annotate))</code> で追跡対象の性質に印を付ける。コンパイラ本体には手を入れない。
+          改造したコンパイラで得た結果は、その改造したコンパイラについての結果にしかならないからである。
+        </p>
+        <p>
+          条件を付けた上で言える実測が1つある。x86-64 向けに <code>-O2</code> でコンパイルしたとき、読み手にとって
+          まったく意味の異なる3つの関数 ── 認可チェック、フィーチャーフラグの判定、そして意味を持たないように
+          書かれた対照 ── が、同一の14バイトの機械語になった。バイト列は同じ、名前は3つ、そして
+          プログラマが書き分けた区別が消えたことを知らせる診断は、どこにも出ない。
+        </p>
+        <p>
+          秘密を消去する書き込みも最適化で消える。その頻度については、消去命令そのものを数える方法で測り直している
+          最中なので、ここでは数値を出さない。
+        </p>
+        <p>
+          ツールチェーンのソースはリポジトリの <code>compiler/</code> にあり、ローカルの LLVM に対してビルドする
+          手順を README に記している。ただし、パッケージ化された成果物は無く、VibeGuard の4つの配信チャネルは
+          いずれもこれを含まない。拡張・CLI・GitHub Action は TypeScript のワークスペースから作られており、この
+          ディレクトリを一度もビルドしていない環境でも同一に動作する。この境界はリポジトリ側の検査で機械的に
+          保たれている。
+        </p>
+        <p>この研究についての論文を執筆中である。公表され次第、ここからリンクする。</p>
+      </div>
+    </div>
+  </section>
+</ResearchLayout>

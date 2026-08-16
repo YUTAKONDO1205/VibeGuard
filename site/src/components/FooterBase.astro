@@ -1,0 +1,66 @@
+---
+/**
+ * The footer without a CTA and without a sitemap.
+ *
+ * This is what ResearchLayout uses. Two decisions meet here:
+ *
+ *   · The research page is a terminal page — it does not route visitors onward
+ *     to the product. A sitemap in the footer would be exactly that route.
+ *   · The copy linter's rule R2 fails a research page containing the words
+ *     `install`, `download`, `npm`, `brew` or a version number. A shared footer
+ *     with a sitemap puts "Install" on the page, so R2 would fail every build.
+ *     A linter that is always red is a linter about to be deleted.
+ *
+ * The linter also scopes R2 to <main>, so either fix alone would work. Both are
+ * applied, because the sitemap-free footer is the right footer for a terminal
+ * page regardless of what the linter scans.
+ *
+ * FooterWithCta wraps this rather than this taking a `showCta` flag. A flag
+ * would put CtaButton into ResearchLayout's import graph, which is the one
+ * property this whole split exists to give.
+ */
+interface Props {
+  sitemap?: boolean;
+  version?: string | null;
+}
+const { sitemap = false, version = null } = Astro.props;
+---
+
+<footer class="vg-band vg-band--base vg-footer">
+  <div class="vg-band__inner">
+    <div class="vg-footer__brand">
+      <span class="vg-wordmark">VibeGuard</span>
+      <p class="vg-footer__tagline">A security scanner for AI-generated code.</p>
+    </div>
+
+    <slot />
+
+    {
+      sitemap && (
+        <nav class="vg-footer__sitemap" aria-label="Site map">
+          <ul>
+            <li><a href="/install">Install</a></li>
+            <li><a href="/rules">Rules</a></li>
+            <li><a href="/news">News</a></li>
+          </ul>
+          <ul>
+            <li><a href="/privacy">Privacy</a></li>
+            <li><a href="/research/compiler">Research: VibeGuard Compiler</a></li>
+          </ul>
+          <ul>
+            <li><a href="/go/github">GitHub</a></li>
+          </ul>
+        </nav>
+      )
+    }
+
+    <p class="vg-footer__legal">
+      <span>Author: Kondo Yuta</span>
+      <span aria-hidden="true">·</span>
+      <a href="https://github.com/YUTAKONDO1205/VibeGuard/blob/main/LICENSE">MIT License</a>
+      <span aria-hidden="true">·</span>
+      <a href="https://github.com/YUTAKONDO1205/VibeGuard/blob/main/NOTICE">NOTICE</a>
+      {version && <><span aria-hidden="true">·</span><span class="vg-footer__version">Latest: v{version}</span></>}
+    </p>
+  </div>
+</footer>

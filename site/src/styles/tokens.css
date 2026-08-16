@@ -1,0 +1,335 @@
+/* tokens.css — the only file on this site that is allowed to contain a colour.
+ *
+ * WHY THIS FILE IS ALONE
+ *
+ * Every band on this site re-paints its own foreground. A dark code band is not
+ * a special component with special colours; it is a scope in which `--vg-ink`,
+ * `--vg-brand` and the four severity tokens simply mean something else. A
+ * component therefore writes `var(--vg-sev-high)` and is correct on a white
+ * band and on a near-black one, without knowing which it is standing on.
+ *
+ * That property only holds while the components stay ignorant. One `#B3261E`
+ * written into components.css to "fix" the finding block on the dark band is
+ * enough to break it, and the breakage is invisible until someone opens the
+ * page in the other colour scheme. So the rule is mechanical rather than
+ * cultural: a colour literal outside this file fails CI, and dark mode below is
+ * one block of re-definitions instead of a second copy of the stylesheet.
+ *
+ * WHAT THE NUMBERS IN THE COMMENTS ARE
+ *
+ * The ratios quoted here are WCAG 2.x relative-luminance contrast ratios, and
+ * they are not decoration: `site/scripts/contrast.mjs` parses this file and
+ * recomputes every one of them on each build. Editing a HEX here without
+ * editing the ratio in the comment is safe — the checker is the authority and
+ * will fail the build if the pair drops below its floor. Editing a HEX and
+ * having the build stay green means the pair is genuinely still fine.
+ *
+ * The checker finds its scopes by the `contrast-scope:` sentinel comments
+ * below, and errors out if one of them is missing. A checker that silently
+ * examines nothing is worse than no checker, so the sentinels are required
+ * rather than best-effort.
+ */
+
+/* contrast-scope: light */
+:root {
+  /* ── Surfaces ────────────────────────────────────────────────────────────
+   * Four bands' worth of surface. They are deliberately close together — base
+   * against tint is 1.13 and news against base is 1.20 — because the model this
+   * site is translating separates its sections by a barely-there wash of
+   * colour, not by a hard edge. That is why every band in bands.css also draws
+   * a 1px --vg-rule line at its top: at those ratios the surface alone does not
+   * tell a reader that one section ended and another began.
+   */
+  --vg-surface-base: #FFFFFF;
+  --vg-surface-tint: #EEF3E7;
+  --vg-surface-code: #101A15;
+  --vg-surface-news: #E5EBEF;
+
+  /* ── Ink ─────────────────────────────────────────────────────────────────
+   * base 16.56 / tint 14.67 / news 13.77 for --vg-ink;
+   * base 6.18 / tint 5.48 / news 5.14 for --vg-ink-muted.
+   *
+   * --vg-ink-on-code has two jobs: text on the code band (15.45) and the label
+   * of the CTA button, which sits on a --vg-brand-strong fill (6.86). It is one
+   * token because those two jobs never disagree in the light scheme; see the
+   * dark block for the two places where a similar double job does disagree.
+   */
+  --vg-ink: #16211C;
+  --vg-ink-muted: #55655B;
+  --vg-ink-on-code: #E9F1EA;
+
+  /* ── Brand ───────────────────────────────────────────────────────────────
+   * Green rather than the dark blue that security tooling usually reaches for.
+   * Blue would put this site in the middle of a crowd of sites that look the
+   * same, and green already carries the guard/pass meaning the product is
+   * about.
+   *
+   * --vg-brand: base 5.20 / tint 4.61, and it is what the icon circles are
+   * filled with — the pictogram drawn on top in --vg-ink-on-code reads at 4.52.
+   * --vg-brand-strong: base 7.90 / tint 7.00 / news 6.57. It fills the CTA and
+   * colours links.
+   * --vg-brand-soft: a surface, not a foreground — --vg-ink reads 13.41 on it
+   * and --vg-ink-muted 5.01.
+   */
+  --vg-brand: #3E7A33;
+  --vg-brand-strong: #2B5C24;
+  --vg-brand-soft: #DDECD3;
+
+  /* ── Lines ───────────────────────────────────────────────────────────────
+   * --vg-rule is 1.55 against base and that is on purpose. A rule on this site
+   * is decoration: the dashed separator in the news list, the frame around a
+   * card, the line under the header. Nothing is knowable only by seeing one.
+   * Anything that does carry meaning uses a token that clears 3:1 — the focus
+   * ring below (15.11), or the left edge of an added line (--vg-brand on the
+   * code band, 9.72).
+   *
+   * --vg-focus is never removed and never replaced by a component. It is the
+   * only reason a keyboard user can tell where they are on a site that has no
+   * script to help them.
+   */
+  --vg-rule: #C8D3C6;
+  --vg-focus: #0B2C1A;
+
+  /* ── Severity ────────────────────────────────────────────────────────────
+   * These are not new colours. They are the CLI's own ANSI assignment —
+   * magenta/red/yellow/blue in apps/cli/src/format.ts — moved onto a white
+   * background, so that a red on this site and a red in a terminal mean the
+   * same thing. Changing the hue here would make every screenshot of the real
+   * tool look like a screenshot of something else.
+   *
+   * base 8.54 / 6.54 / 6.92 / 7.94 and tint 7.57 / 5.79 / 6.13 / 7.04.
+   *
+   * RESERVED. A severity token means "this finding is that severe" and nothing
+   * else. It is not available for emphasis, for a warning callout, or for a NEW
+   * badge. The moment amber decorates something, the amber on a `MEDIUM` stops
+   * being information.
+   */
+  --vg-sev-critical: #8A1C6B;
+  --vg-sev-high: #B3261E;
+  --vg-sev-medium: #7A5200;
+  --vg-sev-low: #1B4F9C;
+
+  /* ── Status ──────────────────────────────────────────────────────────────
+   * `Available` borrows the brand green because it means the same thing the
+   * brand does. `Research` is slate, and the reason it is slate is elimination:
+   * green would read as "you can have this", and amber or red are reserved for
+   * severity. A neutral was the only colour left, so it is the one non-green,
+   * non-severity hue on the site — deliberately in the same family as
+   * --vg-surface-news so it still looks like it belongs here.
+   *
+   * available: 6.40 on brand-soft / 6.57 on news.
+   * research: base 8.86 / tint 7.85 / news 7.37.
+   */
+  --vg-status-available: #2B5C24;
+  --vg-status-research: #3E4C55;
+
+  /* ── Space ───────────────────────────────────────────────────────────────
+   * Eight steps on an 8px base. Bands pad top and bottom with --vg-space-8.
+   */
+  --vg-space-1: 0.25rem;
+  --vg-space-2: 0.5rem;
+  --vg-space-3: 0.75rem;
+  --vg-space-4: 1rem;
+  --vg-space-5: 1.5rem;
+  --vg-space-6: 2rem;
+  --vg-space-7: 3rem;
+  --vg-space-8: 4rem;
+
+  /* ── Radius ──────────────────────────────────────────────────────────────
+   * Four steps, and a fifth is not to be added. The rounding is inherited from
+   * the model site; the number of distinct roundings is what keeps it from
+   * looking like four different sites stitched together.
+   */
+  --vg-radius-pill: 999px;
+  --vg-radius-card: 12px;
+  --vg-radius-code: 10px;
+  --vg-radius-chip: 6px;
+
+  /* ── Type scale ──────────────────────────────────────────────────────────
+   * 900 is the hero finding and every h1; 800 is a band heading; 700 is an h3
+   * and the stage labels of the triptych; 500 is body; 400 is code and anything
+   * shaped like CLI output; 300 is captions, dates and badges.
+   *
+   * Only 900 is fluid. The rest are fixed so that a reader who has set a larger
+   * default font size gets it — a clamp() on body text quietly overrides that
+   * preference, which is the opposite of what a fluid scale is for.
+   */
+  --vg-fs-900: clamp(1.75rem, 1.2rem + 2.2vw, 2.5rem);
+  --vg-fs-800: 1.75rem;
+  --vg-fs-700: 1.25rem;
+  --vg-fs-500: 1rem;
+  --vg-fs-400: 0.9375rem;
+  --vg-fs-300: 0.8125rem;
+
+  /* ── Fonts ───────────────────────────────────────────────────────────────
+   * No web font is loaded, from anywhere, in either stack. A third-party font
+   * host contradicts the one sentence this site most wants to be able to say —
+   * that nothing on it reaches out to anyone — and self-hosting trades that
+   * away for a few hundred KB on first paint plus an asset to maintain.
+   *
+   * The Japanese family names at the end of both stacks are not padding.
+   * `system-ui` and `ui-monospace` resolve to different faces per OS, and some
+   * of those faces have no Japanese glyphs; the browser then falls back to
+   * something the page did not choose. Naming the fallbacks fixes where it
+   * lands. In the monospace stack this matters more than it looks: if Japanese
+   * comment text alone falls back to a proportional face, the columns of a code
+   * block stop lining up.
+   */
+  --vg-font-sans:
+    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP",
+    "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif;
+
+  --vg-font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "DejaVu Sans Mono", "Liberation Mono",
+    "BIZ UDGothic", "MS Gothic", monospace;
+}
+
+/* ── The code band ─────────────────────────────────────────────────────────
+ *
+ * This block is the whole architecture in ten declarations. The code band does
+ * not get its own component styles; it re-defines the foreground tokens that
+ * every component already reads, so `.vg-finding` renders correctly inside it
+ * with no knowledge that it is there.
+ *
+ * The alternative — a second set of token names for "on the dark band" — was
+ * rejected because it doubles the vocabulary at every call site: each component
+ * would then have to know which surface it is on in order to pick a name, which
+ * is exactly the knowledge this design is trying not to distribute.
+ *
+ * That the re-definition is necessary is measured, not assumed. The light
+ * --vg-brand (#3E7A33) placed unchanged on the code band reads 3.42 — below the
+ * floor for text. Every value here is chosen against #101A15, and holds against
+ * the darker #070E0B the dark scheme uses, where the ratios only rise.
+ *
+ * Note that --vg-surface-code is NOT re-defined here. The band paints itself
+ * with the root value, which is what lets the dark scheme change the band's
+ * surface without touching this block.
+ */
+/* contrast-scope: code */
+.vg-band--code {
+  --vg-ink: var(--vg-ink-on-code); /* 15.45 */
+  --vg-ink-muted: #9CB2A3; /* 7.89 */
+  --vg-rule: #2A3B32; /* 1.50 — decorative, see above */
+  --vg-brand: #8FD07A; /* 9.72 */
+  /*
+   * Links land on this band — the note under the triptych points at /rules —
+   * and the light --vg-brand-strong is 2.25 here, which is a link nobody can
+   * read. It resolves to the band's own green instead (9.72). Doing this is
+   * only safe because of a separate invariant: the CTA is the other user of
+   * --vg-brand-strong, it needs the token as a FILL, and it is never placed on
+   * this band. If a filled button ever appears here, this line becomes a bug.
+   */
+  --vg-brand-strong: var(--vg-brand); /* 9.72 */
+  --vg-focus: #BFE3C6; /* 12.72 */
+  --vg-sev-critical: #F0A5D8; /* 9.38 */
+  --vg-sev-high: #FF9E92; /* 8.94 */
+  --vg-sev-medium: #F3C55E; /* 10.98 */
+  --vg-sev-low: #92C3FF; /* 9.72 */
+}
+
+/* ── Dark ──────────────────────────────────────────────────────────────────
+ *
+ * `prefers-color-scheme` only. There is no theme toggle and there will not be
+ * one: the site serves `script-src 'none'`, so a toggle would have to be built
+ * from a hidden checkbox and `:has()`, and a toggle whose setting is forgotten
+ * on every navigation is worse than no toggle at all. The absence of a toggle
+ * also removes the three hardest parts of dark mode — persistence, the flash
+ * before the first paint, and keeping the state in sync — so what is left is
+ * this one block.
+ *
+ * This is not an inversion. It is a second set of bands that keeps the first
+ * set's ordering: the code band is still the darkest surface of the four, so a
+ * page reads top to bottom the same way in both schemes. The surfaces are even
+ * closer together here than in light — the four are within 1.03 to 1.08 of each
+ * other, against 1.13 to 1.20 in light — which is the second reason the 1px band
+ * rule is mandatory rather than a nicety. At 1.03 the boundary between the news
+ * band and the tint band is, for practical purposes, not a visible edge at all.
+ *
+ * The `.vg-band--code` block above is not repeated. It is scheme-independent by
+ * construction, and the darker surface underneath it only raises its ratios.
+ */
+@media (prefers-color-scheme: dark) {
+  /* contrast-scope: dark */
+  :root {
+    --vg-surface-base: #0E1512;
+    --vg-surface-tint: #131E18;
+    --vg-surface-code: #070E0B;
+    --vg-surface-news: #101A1E;
+
+    --vg-ink: #E3EBE4; /* base 15.22 / tint 14.08 / news 14.53 */
+    --vg-ink-muted: #9BAFA2; /* base 7.97 / tint 7.38 / news 7.61 */
+    --vg-ink-on-code: #E9F1EA; /* code 16.94 */
+
+    --vg-brand: #85CC70; /* base 9.58 / brand-soft 7.45 */
+    --vg-brand-soft: #1B2E20;
+
+    /*
+     * The one token that genuinely has two values across the schemes, and it is
+     * worth recording why, because the reflex is to normalise it away.
+     *
+     * --vg-brand-strong fills the CTA, and a filled button has to satisfy two
+     * constraints at once: its own label (--vg-ink-on-code) must clear 4.5 on
+     * it, and the button must clear 3.0 against the band behind it. On a dark
+     * band the light-scheme #2B5C24 disappears — 2.34 against the surface — so
+     * the fill has to lighten. #33753A gives 4.87 against the label and 3.30
+     * against the band.
+     */
+    --vg-brand-strong: #33753A;
+
+    --vg-rule: #26362D; /* base 1.45 — decorative */
+    --vg-focus: #A9DCB4; /* base 11.97 */
+
+    --vg-sev-critical: #F0A5D8;
+    --vg-sev-high: #FF9E92;
+    --vg-sev-medium: #F3C55E;
+    --vg-sev-low: #92C3FF;
+
+    --vg-status-available: #85CC70; /* 7.45 on brand-soft */
+    --vg-status-research: #9FB3BE; /* news 8.13 / base 8.52 */
+  }
+
+  /*
+   * Two scopes below, for the two places where a single token is asked to be a
+   * fill in one component and a foreground in another. In the light scheme both
+   * roles happen to want the same value; in the dark scheme they pull apart,
+   * and the fix is the same mechanism the code band uses — re-define the token
+   * where the second role lives, so no component has to learn which scheme is
+   * active.
+   *
+   * Neither of these adds a token name or a colour. Both resolve to values
+   * already defined above, and contrast.mjs checks the resulting pairs as
+   * separate environments.
+   */
+
+  /*
+   * (1) --vg-brand-strong as a foreground. Lightened for the fill (see above),
+   * #33753A only reads 3.30 as text on the dark base and 3.15 on the dark news
+   * surface — enough for a shape, under the floor for a word. Where it is being
+   * read rather than filled, it resolves to --vg-brand instead: 9.58 and 9.14.
+   *
+   * The CTA and the skip link are excluded because they are the fill case: they
+   * paint --vg-brand-strong as a background and put --vg-ink-on-code on top, and
+   * swapping in the lighter green there would leave a near-white label on a
+   * light green button at 1.68.
+   */
+  /* contrast-scope: fg-dark */
+  a:not(.vg-cta):not(.vg-skip),
+  .vg-badge--new {
+    --vg-brand-strong: var(--vg-brand);
+  }
+
+  /*
+   * (2) The icon circle is its own surface. It is filled with --vg-brand and
+   * carries a pictogram stroked in --vg-ink-on-code, which is 4.52 in the light
+   * scheme where the brand green is dark. In the dark scheme the brand green is
+   * light, and a near-white stroke on it falls to 1.68 — the pictogram would be
+   * gone. Inside the circle, therefore, "ink on this fill" is the darkest
+   * surface colour the site owns, which reads at 10.09.
+   */
+  /* contrast-scope: circle-dark */
+  .vg-grid8__circle {
+    --vg-ink-on-code: var(--vg-surface-code);
+  }
+}

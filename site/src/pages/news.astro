@@ -1,0 +1,92 @@
+---
+/**
+ * /news — one line per release, newest first, each linking to the release on
+ * GitHub.
+ *
+ * The rows are drawn by NewsList, the same component the front page uses for
+ * its last four. The two lists ARE the same list; the only difference is how
+ * much of it is shown, which is why that difference is a prop and not a second
+ * component. A copy of the row format would drift, and the copy that drifts is
+ * always the one nobody re-reads after launch.
+ *
+ * ── WHY THE NOTES ARE NOT REPRODUCED HERE ─────────────────────────────────
+ *
+ * The obvious version of this page renders each release's body so a visitor can
+ * read the notes without leaving. It is deliberately not built that way: the
+ * notes would then exist twice, once in the repository and once on the web,
+ * with no mechanism holding the two together. A typo corrected on the GitHub
+ * release does not reach this page until someone redeploys, and nothing
+ * anywhere reports that they differ. A date, a tag, a line and a link leave the
+ * notes with exactly one home.
+ *
+ * ── WHY NOT /go/github ────────────────────────────────────────────────────
+ *
+ * Every row links straight to the release. `/go/*` is the click counter for
+ * distribution channels, and `/go/github` in particular stands for "chose none
+ * of the four" — mixing in visitors who only wanted to read release notes would
+ * make that number mean something else while still looking like a number.
+ *
+ * ── THE SHAPE THIS PAGE CONSUMES ──────────────────────────────────────────
+ *
+ * src/data/releases.json, `{ "releases": Release[] }`, written by
+ * scripts/site-export-releases.mjs from the GitHub Releases API. Field names
+ * are the API's own; NewsList documents them.
+ *
+ * The filtering lives in the exporter, not here: this repository has a moving
+ * `v0` tag that the GitHub Action resolves, plus two working tags, and any of
+ * them arriving in this list would sit at the top looking like the newest
+ * release — with a real release's date, one row below its own duplicate. The
+ * exporter keeps only `v<major>.<minor>.<patch>`, and drops drafts and
+ * prereleases.
+ */
+import ProductLayout from '../layouts/ProductLayout.astro';
+import NewsList, { type Release } from '../components/NewsList.astro';
+import releasesData from '../data/releases.json';
+
+const { releases } = releasesData as unknown as { releases: Release[] };
+
+if (!Array.isArray(releases) || releases.length === 0) {
+  throw new Error(
+    'site/src/data/releases.json holds no releases. Run scripts/site-export-releases.mjs; a Releases ' +
+      'page with nothing on it is indistinguishable from a project that has never shipped anything.',
+  );
+}
+
+/**
+ * Newest first is a property this page depends on rather than hopes for. The
+ * exporter already sorts, and repeating it costs one comparison per row — far
+ * less than the cost of a list that is subtly out of order and looks fine.
+ */
+const ordered = [...releases].sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at));
+---
+
+<ProductLayout
+  title="Releases — VibeGuard"
+  description="Every VibeGuard release, newest first, linking to its notes on GitHub."
+>
+  <section class="vg-band vg-band--base" aria-labelledby="news-h">
+    <div class="vg-band__inner">
+      <h1 class="vg-h1" id="news-h">Releases</h1>
+      <p class="vg-news__lead">
+        Every release, newest first. The notes themselves stay on GitHub, where they are written — this page keeps
+        no second copy of them.
+      </p>
+    </div>
+  </section>
+
+  <section class="vg-band vg-band--news" aria-labelledby="news-list-h">
+    <div class="vg-band__inner">
+      <h2 class="vg-h2" id="news-list-h">
+        <span class="vg-h2__deco" aria-hidden="true">//</span>All releases
+      </h2>
+
+      {/*
+        No `limit`, so the whole list renders. `markNewest` is on because §3.5.1
+        of the design specifies NEW on the newest row of this page; the tag is
+        outlined in --vg-brand and never red, since red and amber mean finding
+        severity everywhere else on this site.
+      */}
+      <NewsList releases={ordered} markNewest={true} />
+    </div>
+  </section>
+</ProductLayout>

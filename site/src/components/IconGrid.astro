@@ -1,0 +1,134 @@
+---
+/**
+ * The eight detection categories, 4x2, on the front page.
+ *
+ * This is the front page's main explanation of the product: not "what is
+ * VibeGuard" but "what does it find". The grouping comes from
+ * shared/taxonomy.ts, which is an editorial decision, and the counts come from
+ * the generated rules.json, which is not. Nobody types a number here — the
+ * count under a circle moves on its own every time a rule lands.
+ *
+ * The circles link to /rules#<id> and never to a store. A visitor who clicks
+ * "Injection" is asking what the tool detects, not asking to install it; the
+ * one place that answers the install question is /install, and routing this
+ * grid there too would ask the same visitor to choose twice (§2.5, §4.1).
+ *
+ * The pictograms are inline SVG for one reason that outranks taste: the CSP
+ * this site serves is `default-src 'self'` with no external hosts, and an icon
+ * font or a sprite from a CDN would simply not load in production. They are
+ * decorative — `aria-hidden`, `focusable="false"` — because the visible label
+ * next to each one already carries the name. An icon that repeats its label to
+ * a screen reader is noise, and an icon that replaces its label is a picture
+ * puzzle.
+ */
+import { BUCKETS } from '../shared/taxonomy.ts';
+import rulesData from '../data/rules.json';
+
+/**
+ * Only the id and the count are read here. The generator emits the whole rule
+ * list per bucket for /rules; this component depends on the smallest possible
+ * slice of that file, so a change to the rest cannot break the front page.
+ */
+const counts = new Map<string, number>(
+  (rulesData.buckets as { id: string; count: number }[]).map((b) => [b.id, b.count]),
+);
+
+/**
+ * Fail the build, do not render a circle with no number under it.
+ *
+ * scripts/site-export-rules.mjs already refuses to emit a bucket set that does
+ * not cover `allRules`, so this check is not looking for a missing rule — it is
+ * looking for the two files having drifted apart: a bucket renamed in
+ * taxonomy.ts and a rules.json generated before the rename. That combination
+ * produces a grid where a category quietly reports nothing, which reads as "we
+ * detect none of these" rather than as a build problem.
+ */
+const missingCounts = BUCKETS.filter((b) => !counts.has(b.id)).map((b) => b.id);
+if (missingCounts.length > 0) {
+  throw new Error(
+    `rules.json has no count for these categories: ${missingCounts.join(', ')}. ` +
+      `Re-run scripts/site-export-rules.mjs after changing shared/taxonomy.ts.`,
+  );
+}
+
+/**
+ * Icon geometry, keyed by bucket id. Held as markup strings so the eight of
+ * them read as a table rather than as eight near-identical template branches.
+ *
+ * These strings are literals in this file and nothing else is ever passed to
+ * `set:html` below — no data from JSON, no data from the network, none from a
+ * visitor. That is the whole justification for using it here.
+ *
+ * Every icon is drawn on the same 24x24 grid with `stroke-width: 1.75` so the
+ * eight of them have one optical weight; a set where one icon is heavier reads
+ * as one category being more important.
+ */
+const ICONS: Record<string, string> = {
+  // Something being pushed into a box that was not asked to receive it.
+  injection:
+    '<rect x="11" y="4" width="9" height="16" rx="2"/><path d="M3 12h6"/><path d="m6 9 3 3-3 3"/>',
+  // A key, because the finding is a literal key sitting in the source.
+  secrets:
+    '<circle cx="8" cy="15" r="3.5"/><path d="m10.6 12.6 8.4-8.4"/><path d="m16.6 6.6 1.9 1.9"/><path d="m14.1 9.1 1.9 1.9"/>',
+  // Shield with a keyhole: who is allowed through, rather than what is secret.
+  auth: '<path d="M12 3.2 5.5 6v5.3c0 4.2 2.8 7.9 6.5 8.8 3.7-.9 6.5-4.6 6.5-8.8V6L12 3.2Z"/><circle cx="12" cy="10.8" r="1.4"/><path d="M12 12.2v2.4"/>',
+  // A padlock whose shackle is open — the protection is nominally present.
+  crypto:
+    '<rect x="4" y="10.5" width="16" height="9.5" rx="2"/><path d="M8.5 10.5V7.4a3.5 3.5 0 0 1 6.7-1.5"/><path d="M12 14v2.6"/>',
+  // Sliders: settings that are individually valid and collectively wrong.
+  framework:
+    '<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/><circle cx="9" cy="7" r="1.8"/><circle cx="15" cy="12" r="1.8"/><circle cx="7" cy="17" r="1.8"/>',
+  // A memory module with its contact pins.
+  memory:
+    '<rect x="3" y="7" width="18" height="8" rx="1.5"/><path d="M6 10.7h12"/><path d="M7 15v2.6"/><path d="M12 15v2.6"/><path d="M17 15v2.6"/>',
+  // A comment left in the code, with the "…" of an unfinished thought.
+  'ai-leftovers': '<path d="M4 5h16v10H9l-5 4V5Z"/><path d="M9 10h.01"/><path d="M12 10h.01"/><path d="M15 10h.01"/>',
+  // A microcontroller seen from above.
+  embedded:
+    '<rect x="7.5" y="7.5" width="9" height="9" rx="1.5"/><path d="M10.5 4v3.5"/><path d="M13.5 4v3.5"/><path d="M10.5 16.5V20"/><path d="M13.5 16.5V20"/><path d="M4 10.5h3.5"/><path d="M4 13.5h3.5"/><path d="M16.5 10.5H20"/><path d="M16.5 13.5H20"/>',
+};
+
+const missingIcons = BUCKETS.filter((b) => !(b.id in ICONS)).map((b) => b.id);
+if (missingIcons.length > 0) {
+  throw new Error(`No pictogram for category: ${missingIcons.join(', ')}.`);
+}
+---
+
+<ul class="vg-grid8">
+  {
+    BUCKETS.map((bucket) => {
+      const count = counts.get(bucket.id)!;
+      return (
+        <li class="vg-grid8__cell">
+          <a class="vg-grid8__item" href={`/rules#${bucket.id}`}>
+            {/* The circle is a surface of its own — filled with --vg-brand, with
+                the pictogram stroked in currentColor on top. It has to be an
+                element rather than a background on the <svg>, because the fill
+                is a fixed-size disc and the pictogram inside it is not. */}
+            <span class="vg-grid8__circle">
+              <svg
+                class="vg-grid8__icon"
+                viewBox="0 0 24 24"
+                width="28"
+                height="28"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+                focusable="false"
+                set:html={ICONS[bucket.id]}
+              />
+            </span>
+            <span class="vg-grid8__label">{bucket.label}</span>
+            <span class="vg-grid8__blurb">{bucket.blurb}</span>
+            <span class="vg-grid8__count">
+              {count} {count === 1 ? 'rule' : 'rules'}
+            </span>
+          </a>
+        </li>
+      );
+    })
+  }
+</ul>

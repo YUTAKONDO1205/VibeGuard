@@ -1,0 +1,245 @@
+---
+/**
+ * /privacy — two parts that never mix.
+ *
+ * Part 1's subject is this website. Part 2's subject is the product. They are
+ * kept in separate sections with separate headings because the single most
+ * likely error on a page like this is a sentence that starts about one and
+ * finishes about the other — "we don't collect anything" is true of the site's
+ * code and true of the product for different reasons, and a reader who cannot
+ * tell which is being claimed has been given nothing.
+ *
+ * ── THE ONE BOUNDARY THAT IS EASY TO GET WRONG ────────────────────────────
+ *
+ * PRIVACY.md says "The extension does not make any network requests. It works
+ * fully offline." The subject of that sentence is the Chrome extension, not
+ * VibeGuard. Widening it to the product would be a stronger claim than the
+ * source document makes, and it would be false in a way a reader can catch: the
+ * GitHub Action uploads SARIF to code scanning when the workflow asks it to.
+ * What can be said about the whole product is the README's own line — VibeGuard
+ * never sends your code anywhere — plus "analysis runs locally", both of which
+ * survive the CI path existing.
+ *
+ * The two unflattering facts (reports carry the matched line; the Chrome
+ * history keeps 200 raw characters per entry) are in the summary on purpose. A
+ * summary that is kinder to the product than the document it summarises is not
+ * a summary. They are also the two facts a reader is most likely to discover on
+ * their own, and discovering them here costs nothing while discovering them
+ * elsewhere costs the rest of the page its credibility.
+ *
+ * ── THE DATE IS READ, NOT TYPED ───────────────────────────────────────────
+ *
+ * PRIVACY.md's own change policy is "commit the new version and update the Last
+ * updated line". This page reads that line out of the file at build time, so a
+ * visitor can see at a glance which revision this summary was made from and go
+ * and check it. A typed date would be correct exactly until the next edit.
+ */
+import ProductLayout from '../layouts/ProductLayout.astro';
+
+/*
+ * ?raw is resolved by the bundler against this file's own location, so the path
+ * does not depend on which directory the build was started from. Reading the
+ * repository's PRIVACY.md directly also means this page has no second source of
+ * truth to fall out of step with — there is no exported copy in between.
+ */
+import privacyMd from '../../../PRIVACY.md?raw';
+
+const REPO = 'https://github.com/YUTAKONDO1205/VibeGuard';
+const PRIVACY_MD_URL = `${REPO}/blob/main/PRIVACY.md`;
+const ISSUES_URL = `${REPO}/issues`;
+const NO_NETWORK_WORKFLOW_URL = `${REPO}/blob/main/.github/workflows/no-network-assert.yml`;
+
+const lastUpdated = /^Last updated:\s*(\d{4}-\d{2}-\d{2})\s*$/m.exec(privacyMd)?.[1];
+if (!lastUpdated) {
+  throw new Error(
+    'Could not read the "Last updated:" line from PRIVACY.md. The summary on /privacy is dated from ' +
+      'that line, and an undated summary gives a reader no way to tell whether it is current.',
+  );
+}
+
+/**
+ * The complete list of what the redirect counter does not keep. It is written
+ * out item by item rather than summarised as "nothing identifying", because
+ * "nothing identifying" is a judgement and this is a list — a reader can check
+ * a list against the Worker source and cannot check a judgement against
+ * anything.
+ */
+const NOT_STORED: readonly string[] = [
+  'Your IP address — not raw, not hashed, not truncated',
+  'Your user agent',
+  'The referring page',
+  'Your Accept-Language',
+  'Cookies — none are set and none are read',
+  'Any visitor identifier or session identifier, random ones included',
+  'Country, region, or network operator',
+];
+
+/*
+ * ── NOTES ON THE WORDING BELOW ───────────────────────────────────────────
+ *
+ * These were HTML comments in the template until it turned out Astro emits
+ * those into the built page. They explain why particular sentences are
+ * phrased as they are; that reasoning belongs to whoever edits this file,
+ * not to every visitor with a View Source menu.
+ *
+ * The tense here is load-bearing and was wrong.
+ * This said the worker "increments a counter", present tense, as a
+ * statement of what happens today. It does not: the analytics binding in
+ * site/wrangler.jsonc is commented out pending confirmation that the
+ * storage it needs is available on this account, and worker/index.ts
+ * returns early when the binding is absent. So today the redirect
+ * redirects and nothing is written at all.
+ * Overstating what is collected is the harmless direction to be wrong in,
+ * which is exactly why it is worth fixing rather than shrugging at: a
+ * privacy page that is casually inaccurate about the safe cases gives a
+ * reader no reason to trust it about the unsafe ones. The ceiling is
+ * stated as a ceiling, and what is true right now is stated separately.
+ */
+---
+
+<ProductLayout
+  title="Privacy — VibeGuard"
+  description="What this website stores (three fields, and the list of what it does not), and a summary of the product's privacy policy."
+>
+  <section class="vg-band vg-band--base" aria-labelledby="privacy-h">
+    <div class="vg-band__inner vg-privacy">
+      <h1 class="vg-h1" id="privacy-h">Privacy</h1>
+      <p class="vg-privacy__lead">
+        Two separate subjects, kept apart: this website, and the VibeGuard software. What is true of one is not
+        automatically true of the other.
+      </p>
+    </div>
+  </section>
+
+  <section class="vg-band vg-band--tint" aria-labelledby="site-h">
+    <div class="vg-band__inner vg-privacy">
+      <h2 class="vg-h2" id="site-h">
+        <span class="vg-h2__deco" aria-hidden="true">//</span>Part 1 — This website
+      </h2>
+
+      <p>
+        This site loads no third-party resources. No analytics, no tag manager, no error collector, no fonts or
+        scripts or images from another host. Nothing runs in your browser: the pages are static HTML and CSS, and
+        the Content-Security-Policy served with them says <code>script-src 'none'</code>, so a script could not run
+        even if one were added by mistake. You can check that yourself with a single <code>curl -I</code>.
+      </p>
+      <p>
+        No cookies are set and none are read. Nothing is written to local storage, session storage, or IndexedDB.
+        There are no forms anywhere on this site, so there is nothing to submit.
+      </p>
+
+      <h3 class="vg-privacy__h3">At most one thing is counted</h3>
+      <p>
+        When you follow a link to a distribution channel, the redirect is served by a small worker. The most that
+        worker will ever record is a counter, and a record has exactly three fields:
+      </p>
+      <ol class="vg-privacy__fields">
+        <li>which channel the link pointed at, from a fixed list of names</li>
+        <li>the date in UTC</li>
+        <li>an integer — how many times that day</li>
+      </ol>
+      <p>
+        That is the whole record. It is stated first rather than last because a page that mentions counting only
+        after three paragraphs of denial reads as though the counting needed hiding, and three fields do not.
+      </p>
+      <p>
+        As it stands the counter is not switched on: the storage it would write to has not been configured, and the
+        worker skips the count when it is absent. So at the moment the redirect only redirects. This paragraph
+        describes the ceiling either way — turning it on cannot add a fourth field without changing the code, this
+        page, and the same commit.
+      </p>
+
+      <h3 class="vg-privacy__h3">What is not stored</h3>
+      <ul class="vg-privacy__not">
+        {NOT_STORED.map((item) => <li>{item}</li>)}
+      </ul>
+      <p>
+        The redirect worker does not read the request's headers or its body, so there is nothing to discard: the
+        values above are not collected and then dropped, they are never looked at.
+      </p>
+
+      <h3 class="vg-privacy__h3">What the count cannot tell anyone</h3>
+      <p>
+        Crawlers and link prefetchers increment the counter like anyone else, and the number is not corrected for
+        them — correcting it would mean inspecting the user agent, which is on the list above. Repeated clicks by
+        one person are indistinguishable from clicks by several people, because nothing here distinguishes people.
+        The number is a count of clicks. It is not a count of visitors, and it is not treated as one.
+      </p>
+
+      <h3 class="vg-privacy__h3">The limit of this statement</h3>
+      <p>
+        Everything above describes the code of this site. Hosting providers keep their own records at their own
+        layer, and what those contain is not something this page has verified, so it is not claimed here either
+        way.
+      </p>
+
+      <p class="vg-privacy__contact">
+        Questions about any of this: <a href={ISSUES_URL}>{ISSUES_URL}</a>
+      </p>
+    </div>
+  </section>
+
+  <section class="vg-band vg-band--base" aria-labelledby="product-h">
+    <div class="vg-band__inner vg-privacy">
+      <h2 class="vg-h2" id="product-h">
+        <span class="vg-h2__deco" aria-hidden="true">//</span>Part 2 — The VibeGuard software
+      </h2>
+      <p class="vg-privacy__lead">
+        A summary of <a href={PRIVACY_MD_URL}>PRIVACY.md</a>, with the subject of each statement named. The point of
+        a summary is to show you that there is a document worth reading, not to save you from reading it.
+      </p>
+
+      <dl class="vg-privacy__summary">
+        <dt>VibeGuard, the product</dt>
+        <dd>
+          VibeGuard does not collect, transmit, store on our servers, sell, or share any data about you, your
+          browsing, or the source code you analyze. VibeGuard never sends your code anywhere.
+        </dd>
+
+        <dt>All four channels</dt>
+        <dd>
+          All security analysis runs locally — in your browser with the Chrome extension, or on your machine with
+          the CLI and the GitHub Action.
+        </dd>
+
+        <dt>The Chrome extension only</dt>
+        <dd>
+          The extension does not make any network requests. It works fully offline. This sentence is about the
+          extension; it is not a statement about the CLI or the Action, and the summary does not widen it into one.
+        </dd>
+
+        <dt>Reports you ask for</dt>
+        <dd>
+          A finding carries the matched line and the matched text. When you ask the CLI or the GitHub Action to
+          write a report — with <code>--out</code>, or a format of <code>json</code>, <code>sarif</code> or{' '}
+          <code>markdown</code> — those fields go into the file. If you then publish it, for example by uploading
+          SARIF to GitHub code scanning, whatever the finding matched travels with it. A scan report is as
+          sensitive as the code it describes.
+        </dd>
+
+        <dt>The Chrome extension, on your own device</dt>
+        <dd>
+          The side panel keeps a scan history in <code>chrome.storage.local</code>, which survives restarting the
+          browser. Each entry holds the first 200 characters of what you scanned, stored verbatim — for a pasted
+          snippet, that is your raw code, and a credential inside those characters is kept as written. At most 50
+          entries are kept. The <b>Clear</b> button in the side panel's History section deletes them, and removing
+          the extension does too.
+        </dd>
+
+        <dt>Third parties</dt>
+        <dd>None. No analytics, no telemetry, no remote logging, no ad networks.</dd>
+      </dl>
+
+      <p>
+        The no-network claim is machine-checked on every pull request, on every push to <code>main</code>, and again
+        every Monday: <a href={NO_NETWORK_WORKFLOW_URL}>.github/workflows/no-network-assert.yml</a>. The workflow
+        states its own scope, which is worth reading before treating it as covering more than it does.
+      </p>
+
+      <p class="vg-privacy__src">
+        Summarised from <a href={PRIVACY_MD_URL}>PRIVACY.md</a>, last updated {lastUpdated}. Where this summary and
+        that file disagree, the file is right.
+      </p>
+    </div>
+  </section>
+</ProductLayout>

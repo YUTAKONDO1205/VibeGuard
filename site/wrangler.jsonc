@@ -1,0 +1,43 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vibeguard-site",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-08-06",
+
+  // One deploy carries both halves of the site. The static pages could be
+  // hosted anywhere, but /go/* has to count a click before it redirects, and
+  // that needs code on the server. Splitting them would mean two deploys and
+  // two DNS setups for one six-page site run by one person.
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+
+    // Requests with a trailing slash get a 307 back to the canonical form, so
+    // /install/ and /install do not both index. This runs in the asset layer,
+    // before the Worker starts — which also means it costs nothing against the
+    // request quota, since a request matched by a static asset never invokes
+    // Worker code at all.
+    "html_handling": "drop-trailing-slash"
+
+    // not_found_handling is deliberately unset: unmatched paths are supposed to
+    // fall through to the Worker, which renders the 404 with the site layout
+    // and attaches security headers to it (see worker/index.ts).
+  }
+
+  // Custom domain. Commented out because no domain is registered yet, and a
+  // pattern here would be a guess that deploys. Attaching one also requires the
+  // domain to be an active Cloudflare zone (nameservers pointed at Cloudflare),
+  // not merely registered. Until then the site runs on *.workers.dev.
+  //
+  // "routes": [{ "pattern": "<domain>", "custom_domain": true }],
+
+  // Click counting. Left off until someone confirms in the Cloudflare dashboard
+  // that Analytics Engine is available on the account's plan — the public docs
+  // do not state it. worker/index.ts already runs without this binding and
+  // simply does not count; the redirect works either way, so enabling this is
+  // additive rather than a prerequisite.
+  //
+  // "analytics_engine_datasets": [
+  //   { "binding": "GO_CLICKS", "dataset": "vibeguard_go_clicks" }
+  // ]
+}

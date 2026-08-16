@@ -1,0 +1,217 @@
+/* base.css — the reset, the type, the focus ring, and the motion policy.
+ *
+ * Element selectors only. Every `.vg-*` class lives in bands.css or
+ * components.css, and keeping that line clean is not tidiness: it is how a
+ * reader can tell, from the file a rule is in, whether it applies to a page
+ * that has not been written yet.
+ *
+ * Nothing here is loaded from anywhere. No font, no reset package, no
+ * normalize. The site serves `default-src 'self'`, so a stylesheet that pulled
+ * a font from a CDN would render one way in development and unstyled in
+ * production — the failure would arrive at deploy time, on the live site, which
+ * is the worst place to discover it.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  /*
+   * Mobile Safari enlarges text on rotation unless told not to. It does it to
+   * body copy and to <pre> alike, and in a code block the effect is not "bigger
+   * text" but "rewrapped lines" — which, in a three-column before/after
+   * comparison, silently destroys the alignment the comparison is made of.
+   */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--vg-surface-base);
+  color: var(--vg-ink);
+  font-family: var(--vg-font-sans);
+  font-size: var(--vg-fs-500);
+  /*
+   * 1.7 rather than the 1.6 that would be enough for English alone. The
+   * Japanese translation of this site is a second set of pages against the same
+   * stylesheet, and Japanese text at 1.6 sits noticeably tighter; setting the
+   * looser value now means the type does not have to be re-set later.
+   */
+  line-height: 1.7;
+  /*
+   * A rule identifier, a long URL, a package name. At 400% zoom the viewport is
+   * a few characters wide and any of those would push the page sideways.
+   * Breaking mid-word is ugly; a horizontally scrolling page is unusable, and
+   * only one element on this site is permitted to scroll sideways (see
+   * .vg-code__pre).
+   */
+  overflow-wrap: break-word;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  line-height: 1.3;
+  font-weight: 700;
+  /*
+   * text-wrap: balance is ignored by browsers that do not have it, which is the
+   * whole reason it is safe to use — the fallback is the ragged line it would
+   * have had anyway.
+   */
+  text-wrap: balance;
+}
+
+h1 {
+  font-size: var(--vg-fs-900);
+}
+
+h2 {
+  font-size: var(--vg-fs-800);
+}
+
+h3 {
+  font-size: var(--vg-fs-700);
+}
+
+p,
+ul,
+ol,
+dl,
+figure {
+  margin: 0;
+}
+
+/* Restore the paragraph rhythm the reset above removed, but only between
+ * siblings, so a paragraph never adds a gap at the top or bottom of the block
+ * that contains it. */
+p + p,
+p + ul,
+p + ol,
+p + dl,
+p + figure,
+ul + p,
+ol + p,
+dl + p,
+figure + p {
+  margin-top: var(--vg-space-4);
+}
+
+a {
+  color: var(--vg-brand-strong);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  text-decoration-thickness: 1px;
+}
+
+a:hover {
+  text-decoration-thickness: 2px;
+}
+
+/*
+ * The site has no script, so `:hover`, `:focus-visible` and `:target` are the
+ * complete set of states it can express. That makes the transition policy easy
+ * to state and easy to keep: colour and the underline only, under 150ms, and
+ * nothing that moves.
+ */
+a,
+summary,
+button {
+  transition:
+    color 120ms linear,
+    background-color 120ms linear,
+    border-color 120ms linear,
+    text-decoration-color 120ms linear;
+}
+
+/*
+ * Never removed, never replaced by a per-component ring, never `outline: none`.
+ * On a site with no script this is the only feedback a keyboard user gets, and
+ * --vg-focus is re-defined by every band so that the ring is legible on all
+ * four surfaces rather than legible on white and invisible on the code band.
+ */
+:focus-visible {
+  outline: 2px solid var(--vg-focus);
+  outline-offset: 2px;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--vg-font-mono);
+  /* 1em, not a token: inline code inside a heading should be the size of the
+   * heading, and inside body copy the size of the body. */
+  font-size: 1em;
+}
+
+pre {
+  margin: 0;
+}
+
+time {
+  font-variant-numeric: tabular-nums;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+th,
+td {
+  text-align: start;
+  padding: var(--vg-space-2) var(--vg-space-3);
+  border-bottom: 1px solid var(--vg-rule);
+  vertical-align: top;
+}
+
+th {
+  color: var(--vg-ink-muted);
+  font-weight: 700;
+  font-size: var(--vg-fs-300);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--vg-rule);
+  margin: var(--vg-space-6) 0;
+}
+
+/*
+ * The header is sticky, so an in-page link would otherwise land with its target
+ * hidden underneath it. 5rem is the header's 4rem plus a little air.
+ */
+[id] {
+  scroll-margin-top: 5rem;
+}
+
+/*
+ * Nothing on this site animates, so this block currently has almost nothing to
+ * switch off. It is here anyway, because the next person to add a transition
+ * will add it to a component and not think about this file — and the honest
+ * place for the policy is one rule that covers everything rather than a
+ * convention that each new rule has to remember.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}

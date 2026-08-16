@@ -1,0 +1,232 @@
+---
+/**
+ * Three cards, each running Before -> what VibeGuard says -> After the fix.
+ *
+ * This is the one region of the front page with no counterpart on the model
+ * site, and it exists to answer the question a security tool is actually judged
+ * on: not "what do you detect" but "what will you do to my file".
+ *
+ * WHY THE STAGES ARE AN <ol>. The three stages are a sequence, and on a narrow
+ * screen they stop being three columns and become three stacked blocks. A grid
+ * says "these belong together" visually and says nothing at all to a screen
+ * reader; an ordered list says it in the markup, so it survives the layout
+ * change and the loss of the layout entirely.
+ *
+ * WHY NOTHING HERE IS TYPED BY HAND. Every string comes from triptych.json,
+ * which scripts/site-export-triptych.mjs produces by running the real scanner
+ * and the real fixer over small demo files. Three things break when this
+ * content is written into a template instead:
+ *   · `confidence` is resolved per match by the context layer, so a literal is
+ *     a guess wearing the clothes of a measurement;
+ *   · the fixer's edit is computed from `startLine`/`startColumn`, so a
+ *     hand-written After cannot be the output of a hand-written Before;
+ *   · a rule change quietly invalidates the card and nothing fails.
+ * The project has already been burnt once by a hand-maintained claim going
+ * stale (F8), which is why this is a generator and not a discipline.
+ *
+ * WHY THE AFTER STAGE IS THE WHOLE FILE RATHER THAN A DIFF HUNK. Line numbers
+ * come from a CSS counter that starts at one, so a block beginning partway
+ * through a file would print numbers belonging to a different file. Both code
+ * stages therefore carry the complete demo file — they are a dozen lines each —
+ * and the change is marked where it sits.
+ */
+import Finding from './Finding.astro';
+import type { FindingView } from './Finding.astro';
+import triptychData from '../data/triptych.json';
+
+/**
+ * The slice of a triptych card this component reads. The export writes more
+ * than this (the raw CLI text, the full findings list, the fix report); the
+ * card renders the structured fields and leaves the raw text alone, because
+ * pasting the CLI's own formatting into HTML would embed `elapsed: 41ms` and
+ * make every build produce a different page.
+ */
+interface Card {
+  ruleId: string;
+  /** The demo file's name, shown in the figcaption. */
+  demoFile: string;
+  /** The fixer as registered in fixers.ts — its own title and safety label. */
+  fixer: { title: string; safety: string };
+  before: {
+    /** The whole demo file, before anything ran. */
+    code: string;
+    /** 1-based line the finding points at. Underlined, nothing else. */
+    focusLine: number;
+  };
+  finding: FindingView;
+  after: {
+    /** The whole demo file after the fixer wrote to it. */
+    code: string;
+  };
+  /** Findings still standing after the fix. The honest half of the feature. */
+  remainingFindings: unknown[];
+}
+
+const cards: Card[] = triptychData.cards;
+
+/**
+ * Three, exactly. Not a layout constraint dressed as a check: two cards leave a
+ * reader wondering whether a third failed to render, and four break the row
+ * into two ragged lines at the width this grid is built for. If the number
+ * should change, it should change here, on purpose.
+ */
+if (cards.length !== 3) {
+  throw new Error(`The triptych needs exactly 3 cards; triptych.json has ${cards.length}.`);
+}
+
+const SAFETIES = ['safe', 'needs-review'];
+for (const card of cards) {
+  if (!SAFETIES.includes(card.fixer.safety)) {
+    throw new Error(
+      `Card ${card.ruleId} reports fixer safety "${card.fixer.safety}"; expected one of ` +
+        `${SAFETIES.join(', ')}. An After stage exists only for a rule with a registered fixer.`,
+    );
+  }
+}
+
+/**
+ * Which lines of the After file the fixer wrote.
+ *
+ * Derived by diffing the two code strings rather than read from
+ * `appliedFixes[].line`, and the difference matters: those line numbers are
+ * positions in the BEFORE file. Card A's fixer inserts a line, so every number
+ * after the insertion point refers to a different line in the After file than
+ * in the Before file, and marking by that number would put the `+` on the wrong
+ * row — the one failure this whole region cannot afford, since the reader is
+ * being shown precisely "which line did it touch".
+ *
+ * Plain longest-common-subsequence over lines. The inputs are demo files of a
+ * dozen lines, so the quadratic table is free, and it is deterministic: the
+ * same two files always produce the same marks, which keeps the built HTML
+ * stable across rebuilds.
+ */
+function addedLineFlags(beforeCode: string, afterCode: string): boolean[] {
+  const a = beforeCode.split('\n');
+  const b = afterCode.split('\n');
+
+  const lcs: number[][] = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+
+  const flags = new Array<boolean>(b.length).fill(false);
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i++;
+      j++;
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+      // A line that only the Before file has: it was removed or rewritten. It
+      // is already visible in the Before stage, so nothing is marked here.
+      i++;
+    } else {
+      flags[j++] = true;
+    }
+  }
+  while (j < b.length) flags[j++] = true;
+  return flags;
+}
+
+/**
+ * Split a line into its indentation and the rest.
+ *
+ * The wavy underline goes on the second half only. Underlining the indentation
+ * too draws a line through empty space to the left of the code, which reads as
+ * a rendering artefact rather than as an annotation, and on a deeply indented
+ * line the underline is mostly not under anything.
+ */
+const splitIndent = (line: string): [string, string] => {
+  const indent = /^\s*/.exec(line)![0];
+  return [indent, line.slice(indent.length)];
+};
+
+const rendered = cards.map((card) => ({
+  card,
+  beforeLines: card.before.code.split('\n'),
+  afterLines: card.after.code.split('\n'),
+  added: addedLineFlags(card.before.code, card.after.code),
+}));
+
+for (const { card, beforeLines } of rendered) {
+  if (card.before.focusLine < 1 || card.before.focusLine > beforeLines.length) {
+    throw new Error(
+      `Card ${card.ruleId} points at line ${card.before.focusLine} of a ${beforeLines.length}-line ` +
+        `file. The underline would land on nothing, or on the wrong line.`,
+    );
+  }
+}
+---
+
+<ul class="vg-triptych-set">
+  {
+    rendered.map(({ card, beforeLines, afterLines, added }) => (
+      <li class="vg-triptych-set__card">
+        {/* The three stages ARE the triptych: .vg-triptych is the row that puts
+            Before / the finding / After side by side and draws the arrows
+            between them. The <ul> above is the set of three such rows. */}
+        <ol class="vg-triptych">
+          <li class="vg-triptych__step">
+            <h3 class="vg-triptych__label">Before</h3>
+            <figure class="vg-code">
+              <figcaption class="vg-code__path">{card.demoFile}</figcaption>
+              {/* One line on purpose: inside <pre> every newline and every space
+                  of the template is part of the rendered text, so indenting this
+                  expression for readability would indent the code it prints. */}
+              <pre class="vg-code__pre"><code class="vg-code__body">{beforeLines.map((line, i) => <Fragment>{i > 0 ? '\n' : ''}<span class="ln">{i + 1 === card.before.focusLine ? <Fragment>{splitIndent(line)[0]}<mark class:list={['vg-hit', `vg-hit--${card.finding.severity}`]}>{splitIndent(line)[1]}</mark></Fragment> : line}</span></Fragment>)}</code></pre>
+            </figure>
+          </li>
+
+          <li class="vg-triptych__step">
+            <h3 class="vg-triptych__label">VibeGuard says</h3>
+            <Finding finding={card.finding} />
+          </li>
+
+          <li class="vg-triptych__step">
+            <h3 class="vg-triptych__label">
+              After <code>--fix</code>
+            </h3>
+            <figure class="vg-code">
+              <figcaption class="vg-code__path">
+                {card.demoFile}
+                <span
+                  class:list={[
+                    'vg-tag',
+                    card.fixer.safety === 'safe' ? 'vg-tag--safe' : 'vg-tag--review',
+                  ]}
+                >
+                  {card.fixer.safety}
+                </span>
+              </figcaption>
+              <pre class="vg-code__pre"><code class="vg-code__body">{afterLines.map((line, i) => <Fragment>{i > 0 ? '\n' : ''}<span class:list={['ln', added[i] && 'vg-added']}>{added[i] ? <Fragment><span class="vg-added__sign">+</span>{line}</Fragment> : line}</span></Fragment>)}</code></pre>
+            </figure>
+            <p class="vg-triptych__fixtitle">{card.fixer.title}</p>
+            {/*
+              The number the feature is usually sold without — and it took two
+              corrections to state honestly.
+
+              It said "findings the fixer declined to touch". That was wrong
+              twice over. Most of what remains was never a candidate: the rules
+              still firing on card three have no fixer registered at all, so
+              nothing declined anything. And the count is taken by re-scanning
+              AFTER the fix, so a finding that the fix incidentally resolves
+              disappears from it — on card two the CLI reports two findings
+              without a deterministic fix while this number showed one, because
+              switching the endpoint to https also cleared the cleartext rule.
+
+              What the re-scan actually answers is the more useful question
+              anyway, and it is the one now asked: run --fix, then look again —
+              what is still there? That is the state the file is in when the
+              tool has done everything it can do on its own.
+            */}
+            <p class="vg-triptych__left">
+              Findings still open after <code>--fix</code>: {card.remainingFindings.length}
+            </p>
+          </li>
+        </ol>
+      </li>
+    ))
+  }
+</ul>

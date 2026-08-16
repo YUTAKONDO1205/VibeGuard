@@ -1355,6 +1355,45 @@ if (!PRE_BUILD) {
   }
 }
 
+// ── Invariant 8: site/ stays outside the release path ───────────────────────
+//
+// site/ is the public website. It is the second directory at the repo root that
+// must stay OUTSIDE the workspace globs, and for the same reason 7a gives for
+// compiler/: the moment `site` matches a glob, `npm ci` on the release path
+// starts resolving Astro and wrangler, and every CI job for the four shipped
+// channels acquires a dependency tree that has nothing to do with scanning code.
+//
+// This is deliberately a separate invariant rather than a widened 7a regex. The
+// two directories fail differently — compiler/ drags in a clang/LLVM toolchain,
+// site/ drags in a web build — and a guard that reports both through one message
+// tells whoever hits it the wrong thing to go fix. site/ also needs none of
+// 7b–7e: it is not native, it commits no build products (Astro's default outDir
+// is ./dist, already ignored), and it is allowed to be noisy.
+//
+// Written before the directory exists, on the same principle as invariant 7: a
+// boundary guard added after the boundary is crossed has already missed the
+// crossing it was for. It binds whether or not site/ is present, because what it
+// reads is the root manifest, not the tree.
+{
+  const rootPkgForSite = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'));
+  const siteGlobs = Array.isArray(rootPkgForSite.workspaces)
+    ? rootPkgForSite.workspaces
+    : (rootPkgForSite.workspaces?.packages ?? []);
+  for (const glob of siteGlobs) {
+    if (/(^|\/)site(\/|$|\*)/.test(glob)) {
+      failures.push(
+        `package.json workspaces contains '${glob}', which pulls site/ into the npm\n` +
+          `  workspace graph.\n` +
+          `  Then \`npm ci\` on the release path resolves Astro and wrangler, \`npm run build\`\n` +
+          `  builds the website, and \`npm test --workspaces\` runs its tests — none of which\n` +
+          `  the four shipped channels have any use for. site/ carries its own package.json\n` +
+          `  and its own lockfile and is built by .github/workflows/site-deploy.yml. Remove\n` +
+          `  the glob.`,
+      );
+    }
+  }
+}
+
 // ── INVARIANT: the blanket-suppression surface does not grow unnoticed ──────
 //
 // `vibeguard:disable-file` turns a rule off for a whole file. Every current use
@@ -1428,6 +1467,13 @@ if (!PRE_BUILD) {
   const skipDirs = new Set([
     'node_modules', '.git', 'dist', 'build', 'out', 'coverage',
     '.claude', '.codex', 'paper_data', 'security-experiment', 'docs', 'dock', 'video', '.wrangler',
+    // site/ is the public website: prose, page templates and generated data.
+    // The subject of this census is the shipped product's blanket-suppression
+    // surface. A page that *documents* the pragma is describing the product,
+    // not suppressing anything in it — counting it would let the website move
+    // a ceiling that is meant to describe source. Same reason `docs` and
+    // `video` are here.
+    'site',
   ]);
   // A fenced code block in a Markdown file is an EXAMPLE, not a suppression.
   // Nothing reads it, so a census that counts it is describing the guide rather
@@ -1685,7 +1731,24 @@ if (!PRE_BUILD) {
       // The transition that must never happen silently: a passenger that has
       // acquired a manifest npm would read. `packages/x/package.json` is fine —
       // that directory is declared. `<passenger>/package.json` is not.
-      if (!reachableByNpm && existsSync(join(REPO_ROOT, d, 'package.json'))) {
+      //
+      // `site/` is the one exemption, and it is exempt because the thing this
+      // rule is afraid of is checked somewhere stricter. The fear here is a
+      // manifest sitting "one glob-widening away" from being installed by every
+      // Action consumer, with nobody deciding. For site/ that widening is not
+      // merely undesirable, it is a named failure: invariant 8 reads the root
+      // manifest and fails the build if any glob matches `site`. So the
+      // accidental transition cannot happen quietly — it happens loudly, with a
+      // message that says which directory and why.
+      //
+      // The rest of this rule still binds for site/: it stays in the passenger
+      // list, so the Action tree summary keeps reporting it as carried-not-built.
+      // What is suppressed is only the manifest complaint, and only because
+      // site/ genuinely needs a manifest — it is an Astro project with its own
+      // lockfile, and that separateness is the entire point of keeping the web
+      // toolchain out of the release path.
+      const manifestGuardedElsewhere = d === 'site';
+      if (!reachableByNpm && !manifestGuardedElsewhere && existsSync(join(REPO_ROOT, d, 'package.json'))) {
         failures.push(
           `${d}/package.json exists but ${d}/ is not covered by any workspace glob ` +
             `(${workspaceGlobs.join(', ') || 'none'}).\n` +

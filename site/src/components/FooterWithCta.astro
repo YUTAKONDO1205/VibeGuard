@@ -1,0 +1,22 @@
+---
+/**
+ * FooterBase plus the CTA and the sitemap. Used by ProductLayout.
+ *
+ * The wrapping is the point — see the note in FooterBase.astro. ResearchLayout
+ * imports FooterBase and never reaches this file, so CtaButton stays out of its
+ * import graph entirely.
+ */
+import FooterBase from './FooterBase.astro';
+import CtaButton from './CtaButton.astro';
+
+interface Props {
+  version?: string | null;
+}
+const { version = null } = Astro.props;
+---
+
+<FooterBase sitemap={true} version={version}>
+  <div class="vg-footer__cta">
+    <CtaButton />
+  </div>
+</FooterBase>

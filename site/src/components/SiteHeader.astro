@@ -1,0 +1,49 @@
+---
+/**
+ * The fixed header: wordmark on the left, CTA and menu on the right, nothing in
+ * the middle. Only ProductLayout uses it.
+ *
+ * The navigation is collapsed behind the menu so that the CTA is the only thing
+ * permanently visible — a header with two visible destinations splits the
+ * clicks, and on a developer-facing site the GitHub link wins that split. The
+ * repository link is in the footer instead.
+ *
+ * The menu opens with <details>/<summary> and no script. That is not a
+ * preference: the CSP this site serves says `script-src 'none'`, so a JS
+ * disclosure would be dead on arrival in production while working fine in dev.
+ *
+ * The header stays on --vg-surface-base at every scroll position. The model
+ * site floats a transparent header over its hero photo, but switching the
+ * header's surface on scroll needs a scroll listener, and without one a
+ * transparent header only works on the one page that has a dark hero.
+ */
+import CtaButton from './CtaButton.astro';
+---
+
+<header class="vg-header">
+  <div class="vg-header__inner">
+    <a class="vg-wordmark vg-header__logo" href="/">VibeGuard</a>
+
+    <div class="vg-header__actions">
+      <CtaButton class="vg-cta--sm" />
+
+      <details class="vg-menu">
+        <summary class="vg-menu__button" aria-label="Menu">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.75" stroke-linecap="round" aria-hidden="true" focusable="false">
+            <path d="M3 6h18M3 12h18M3 18h18" />
+          </svg>
+        </summary>
+        <nav class="vg-menu__panel" aria-label="Main">
+          <ul>
+            <li><a href="/rules">Rules</a></li>
+            <li><a href="/news">News</a></li>
+            <li><a href="/privacy">Privacy</a></li>
+            <li><a href="/research/compiler">Research: VibeGuard Compiler</a></li>
+            <li><a href="/go/github">GitHub</a></li>
+          </ul>
+        </nav>
+      </details>
+    </div>
+  </div>
+</header>

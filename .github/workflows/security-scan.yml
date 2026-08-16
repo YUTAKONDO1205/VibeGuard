@@ -40,6 +40,18 @@ jobs:
   # directory of that name in the repo outside `paper_data/`, which is already
   # ignored, so the basename match is precise enough here — but it is a basename
   # match, and a future `packages/*/fixtures/` would be swept up with it.
+  #
+  # A note on `--ignore site`: site/ is the public website, and it is a page that
+  # shows vulnerable code on purpose — the top page puts a Before snippet next to
+  # the finding VibeGuard raises for it and the fixed After. That is the demo, not
+  # a defect. Without this flag the self-scan reads those snippets, the push gate
+  # fails main on `critical` and the PR gate blocks on `high`, and the Security tab
+  # fills with findings against a marketing page. The snippets themselves are
+  # generated at build time from samples/ (already excluded above) rather than
+  # hand-written, so the payload strings live in generated site/src/data/*.json —
+  # which is exactly why the directory, and not just the sources, has to be
+  # excluded. Same basename caveat as `fixtures`: `site` is the only directory of
+  # that name in the repo, and it sits at the root.
   self-scan:
     runs-on: ubuntu-latest
     steps:
@@ -73,6 +85,7 @@ jobs:
             --ignore test_problem \
             --ignore paper_data \
             --ignore fixtures \
+            --ignore site \
             --ignore dist \
             --ignore node_modules \
             --ignore .git \
@@ -88,6 +101,7 @@ jobs:
             --ignore test_problem \
             --ignore paper_data \
             --ignore fixtures \
+            --ignore site \
             --ignore dist \
             --ignore node_modules \
             --ignore .git \
@@ -118,6 +132,7 @@ jobs:
             --ignore test_problem \
             --ignore paper_data \
             --ignore fixtures \
+            --ignore site \
             --ignore dist \
             --ignore node_modules \
             --ignore .git \
@@ -245,6 +260,7 @@ jobs:
             --ignore samples \
             --ignore test_problem \
             --ignore fixtures \
+            --ignore site \
             --fail-on never
 
       - name: Post diff-scan PR comment
@@ -275,4 +291,5 @@ jobs:
             --ignore samples \
             --ignore test_problem \
             --ignore fixtures \
+            --ignore site \
             --fail-on high

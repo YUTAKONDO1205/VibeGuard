@@ -1,0 +1,82 @@
+---
+/**
+ * The layout for /research/*. Deliberately smaller than ProductLayout, and the
+ * things it is missing are the point.
+ *
+ * NOT imported here, and not to be added:
+ *
+ *   · CtaButton    — there is nothing to install, so the button that says so
+ *                    must not be reachable from this page's import graph.
+ *   · VersionBadge — versions belong to things that ship.
+ *   · CommandBlock — a copyable command block is the single biggest source of
+ *                    "so I can run this today?"
+ *   · GoLink       — the research page does not route visitors to the stores.
+ *   · SiteHeader   — it contains the CTA.
+ *   · FooterWithCta — likewise; FooterBase is used, with no sitemap.
+ *
+ * A convention saying "don't put a CTA on the research page" is only as good as
+ * whoever reads it next. An import graph that does not contain the button is
+ * not a rule anyone has to remember. The copy linter (rule R2) is the second
+ * layer, scanning this page's <main> for acquisition vocabulary; between them,
+ * writing the promise requires defeating a compiler and a CI job rather than
+ * forgetting a guideline.
+ *
+ * The banner is rendered here rather than passed through a slot, so no
+ * individual page can leave it out.
+ */
+import '../styles/tokens.css';
+import '../styles/base.css';
+import '../styles/bands.css';
+import '../styles/components.css';
+
+import ResearchBanner from '../components/ResearchBanner.astro';
+import FooterBase from '../components/FooterBase.astro';
+
+interface Props {
+  title: string;
+  description: string;
+}
+const { title, description } = Astro.props;
+const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : undefined;
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    {canonical && <link rel="canonical" href={canonical} />}
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
+    {/*
+      Same link-unfurl tags as ProductLayout, and they are safe here for the
+      same reason the rest of this layout is careful: they carry only this
+      page's own title and description, both of which the copy linter already
+      scans for acquisition vocabulary. There is no CTA to leak into a card and
+      no image that could imply a product shot.
+    */}
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="VibeGuard" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    {canonical && <meta property="og:url" content={canonical} />}
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+  </head>
+
+  <body>
+    <a class="vg-skip" href="#main">Skip to content</a>
+    <div class="vg-research-head">
+      <div class="vg-band__inner">
+        <a class="vg-wordmark" href="/">VibeGuard</a>
+      </div>
+    </div>
+    <ResearchBanner />
+    <main id="main">
+      <slot />
+    </main>
+    <FooterBase sitemap={false} version={null} />
+  </body>
+</html>

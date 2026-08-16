@@ -1,0 +1,24 @@
+---
+/**
+ * The site's only call to action. Wording and destination are fixed here and
+ * are not props, because the value of a single CTA comes from it being the same
+ * one everywhere — a `label` prop is how a second CTA gets written without
+ * anyone deciding to add one.
+ *
+ * ResearchLayout does not import this file. That is the whole mechanism: the
+ * research page cannot offer a way to get something that is not distributed,
+ * because the button does not exist in its import graph. `grep -rl CtaButton
+ * src/layouts/` is the check.
+ *
+ * Contrast note: the fill is --vg-brand-strong, which reads at 7.90 against
+ * --vg-surface-base and only 2.25 against --vg-surface-code. The button is
+ * therefore only ever placed on base-coloured bands (header, the band under the
+ * hero, footer).
+ */
+interface Props {
+  class?: string;
+}
+const { class: className } = Astro.props;
+---
+
+<a class:list={['vg-cta', className]} href="/install">Install VibeGuard</a>
