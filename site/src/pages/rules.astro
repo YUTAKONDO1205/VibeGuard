@@ -178,14 +178,26 @@ const fixLabel = (r: Rule): string => (r.fixerSafety === 'safe' ? 'auto-fix · s
         Detection rules <span class="vg-badge vg-badge--available">Available</span>
       </h1>
       <p class="vg-rules__lead">
-        Every rule VibeGuard ships — {data.totals.rules} that judge a file on its own, and
+        Every rule VibeGuard ships — {data.totals.rules} that judge a file on its own, and{' '}
         {data.totals.crossFileRules} more that reason across files. Generated from the rule sources at build time.
       </p>
 
       <dl class="vg-rules__stats">
         <div>
-          <dt>Rules</dt>
+          {/*
+            Labelled "single-file", not "Rules". The bare label was accurate
+            only while this page listed one set: now that the cross-file rules
+            are on it too, a tile reading "Rules 74" sits a screen above a
+            section listing eleven more, and the reader is left to work out
+            which number the page meant. Naming the subset costs one word.
+          */}
+          <dt>Single-file rules</dt>
           <dd>{data.totals.rules}</dd>
+        </div>
+
+        <div>
+          <dt>Cross-file rules</dt>
+          <dd>{data.totals.crossFileRules}</dd>
         </div>
         <div>
           <dt>Languages</dt>
