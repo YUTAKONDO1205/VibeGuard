@@ -18,6 +18,9 @@ export const DRIVER_DIR = resolve(HERE, '..');
 export const CC_BIN = join(DRIVER_DIR, 'cli', 'vgcc.mjs');
 export const CXX_BIN = join(DRIVER_DIR, 'cli', 'vg++.mjs');
 
+/** The property observer the fallback tests hand to `--vg-observer`. */
+export const OBSERVER_FIXTURE = join(HERE, 'observer-fixture.mjs');
+
 export const SCRATCH_ROOT = process.env.VG_DRIVER_TEST_SCRATCH
   ?? join(homedir(), 'vg-lab', 'driver', 'test-scratch');
 
@@ -81,6 +84,39 @@ int main(void) {
 }
 `;
 
+/**
+ * The fallback fixture. Two effects, measured on clang-18 (Ubuntu 1:18.1.3):
+ *
+ *   | level | `@vg_authorize` call sites | `@vg_control_sum` call sites |
+ *   |-------|---------------------------|------------------------------|
+ *   | -O0   | 1                         | 1                            |
+ *   | -O1   | 0  (inlined away)         | 1                            |
+ *   | -O2   | 0  (inlined away)         | 1                            |
+ *
+ * That is what makes both fallback controls real rather than staged: a build at
+ * -O2 genuinely loses the guarded call, a recompile at -O0 genuinely brings it
+ * back, and a recompile at -O1 genuinely does not. `noinline` on the control is
+ * load-bearing — without it the control is inlined at -O1 too and the observer
+ * would be reporting from an instrument that had itself been optimised away.
+ */
+export const GUARD_C = `/* A control effect that survives every level, so that "the property is gone"
+   is distinguishable from "the measurement is gone". interfaces.md section 4. */
+__attribute__((noinline)) int vg_control_sum(const char *s) {
+  int n = 0;
+  for (const char *p = s; *p; ++p) n += (unsigned char)*p;
+  return n;
+}
+
+/* The guarded call. static, small, and therefore inlined out of existence at
+   -O1 and above: the call site the policy asks to survive does not. */
+static int vg_authorize(int uid) { return uid == 0; }
+
+int open_vault(int uid, const char *tag) {
+  if (!vg_authorize(uid)) return -1;
+  return vg_control_sum(tag);
+}
+`;
+
 export function makePin({ cc = CLANG, cxx = CLANGXX } = {}) {
   const packages = [];
   for (const [name, path] of [['clang-18', cc], ['clang++-18', cxx]]) {
@@ -115,6 +151,7 @@ export function makeFixture(label, policyOverrides = {}) {
   mkdirSync(evidence, { recursive: true });
 
   writeFileSync(join(src, 'hello.c'), HELLO_C, 'utf8');
+  writeFileSync(join(src, 'guard.c'), GUARD_C, 'utf8');
   if (CLANG) writeFileSync(join(src, 'toolchain.pin.json'), `${JSON.stringify(makePin(), null, 2)}\n`, 'utf8');
 
   const policy = {

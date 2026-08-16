@@ -88,14 +88,95 @@ jobs:
           fi
 
       # ── Package CLI tarball ──────────────────────────────────────────────
+      #
+      # THE TARBALL IS THE ONLY WAY A HUMAN INSTALLS THE CLI. It is not on npm
+      # and never will be (see the note further down), so this asset is the
+      # artefact the README points at. Up to 0.3.4 it was uninstallable: the
+      # `tsc` build left `dist/index.js` importing `@vibeguard/analyzer-core`
+      # and the manifest declared six `@vibeguard/*` runtime dependencies whose
+      # names exist on no registry, so `npm i vibeguard-cli-X.Y.Z.tgz` failed to
+      # resolve them and stopped. Nothing in this workflow noticed, because
+      # `npm pack` succeeds perfectly well on a package that cannot be
+      # installed.
+      #
+      # `apps/cli` is now bundled by esbuild (`apps/cli/build.mjs`): one
+      # self-contained `dist/index.js`, zero runtime dependencies, `"files":
+      # ["dist"]`. The three steps below are ordered so that the thing we
+      # upload is the thing we proved installable, in that order.
       - name: Pack CLI tarball
         id: cli
         run: |
           # `npm pack -w @vibeguard/cli` writes the tarball to the workspace
           # directory by default. Move it to repo root for the release upload.
+          #
+          # The bundle is (re)built here by the workspace's own `prepack`
+          # script, which npm runs for `npm pack`. That is belt AND braces on
+          # top of `npm run build` above, and both are wanted: the root build is
+          # what a human runs, `prepack` is what makes the tarball correct even
+          # if someone packs without it. `--ignore-scripts` would defeat it —
+          # which is why the verification step below reads the packed bytes
+          # rather than trusting that the build ran.
           npm pack --workspace @vibeguard/cli --pack-destination .
           ls -la vibeguard-cli-*.tgz
           echo "tarball=$(ls vibeguard-cli-*.tgz)" >> "$GITHUB_OUTPUT"
+
+      # ── Prove the tarball installs and runs, before it becomes a release ──
+      #
+      # `npm pack` exiting 0 says nothing about installability, and that gap is
+      # exactly how a broken artefact shipped for several releases. This step
+      # closes it with the only test that counts: install the packed bytes into
+      # an EMPTY directory with no workspace, no node_modules and no registry
+      # entry to fall back on, then run the binary and require findings.
+      #
+      # Three assertions, each guarding a different failure:
+      #   1. the packed manifest declares no `@vibeguard/*` runtime dependency —
+      #      the direct cause of the old breakage, checked on the packed bytes
+      #      rather than on the source manifest;
+      #   2. `npm i <tarball>` succeeds in isolation and the binary runs;
+      #   3. it finds a NON-ZERO number of findings in samples/vulnerable. This
+      #      is the assertion that matters most and the one a naive check omits:
+      #      a bundle that tree-shook the rule registry away still installs,
+      #      still runs, still exits 0 — and reports nothing. "Clean scan" and
+      #      "dead scanner" are the same output, so the count has to be checked.
+      - name: Verify the tarball installs and scans in isolation
+        run: |
+          set -euo pipefail
+          TARBALL="$PWD/${{ steps.cli.outputs.tarball }}"
+
+          mkdir -p /tmp/vg-tarball-check
+          tar -xzf "$TARBALL" -C /tmp/vg-tarball-check
+          node -e '
+            const pkg = require("/tmp/vg-tarball-check/package/package.json");
+            const vg = Object.keys(pkg.dependencies || {}).filter((n) => n.startsWith("@vibeguard/"));
+            if (vg.length > 0) {
+              console.error("::error::the packed manifest declares @vibeguard/* runtime dependencies: " + vg.join(", "));
+              console.error("Those names are not on any registry, so this tarball cannot be installed.");
+              console.error("They belong in devDependencies; the packages are inlined by apps/cli/build.mjs.");
+              process.exit(1);
+            }
+            console.log("packed manifest declares " + Object.keys(pkg.dependencies || {}).length + " runtime dependencies");
+          '
+
+          # An empty directory outside the workspace: nothing here can be
+          # satisfied by a hoisted node_modules or a workspace symlink.
+          mkdir -p /tmp/vg-install && cd /tmp/vg-install
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund "$TARBALL"
+          ./node_modules/.bin/vibeguard --version
+
+          cd "$GITHUB_WORKSPACE"
+          /tmp/vg-install/node_modules/.bin/vibeguard samples/vulnerable \
+            --mode standard --format json --fail-on never --out /tmp/vg-install/scan.json
+          node -e '
+            const n = require("/tmp/vg-install/scan.json").findings.length;
+            if (n === 0) {
+              console.error("::error::the installed CLI reported ZERO findings on samples/vulnerable.");
+              console.error("It installed and exited 0, so nothing else in this job would have noticed.");
+              console.error("A bundle that lost the rule registry looks exactly like a clean repository.");
+              process.exit(1);
+            }
+            console.log("installed CLI reported " + n + " findings on samples/vulnerable");
+          '
 
       # ── Package VS Code extension ────────────────────────────────────────
       # --no-dependencies avoids resolving workspace symlinks into the VSIX

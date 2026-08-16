@@ -111,4 +111,8 @@ export const CFG = {
   PROPERTY_KIND_MISMATCH: 'VG-CFG-017',
   PROPERTY_NOT_OBSERVABLE: 'VG-CFG-018',
   PROPERTY_CATALOGUE_UNREADABLE: 'VG-CFG-019',
+  // policy.fallback. Only ever raised when the policy opts in; see fallback.mjs.
+  PROPERTY_LOST: 'VG-CFG-020',
+  FALLBACK_DID_NOT_RESTORE: 'VG-CFG-021',
+  FALLBACK_UNSUPPORTED: 'VG-CFG-022',
 };
