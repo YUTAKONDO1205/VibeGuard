@@ -8,7 +8,7 @@
 //
 // 本物の `docs/実装順（VibeGuardCompiler）.md` は**編集しない**。全て一時コピー。
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
@@ -31,7 +31,33 @@ import {
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REAL_DOC_ABS = join(REPO_ROOT, DEFAULT_DOC);
 
-let tmpRoot;
+// ── 本物の計画文書を要求するアームだけを、名前を付けて落とす ────────────────
+//
+// その文書は `.gitignore` の `docs/*.md` に入っている ── 意図的にローカル限定で、
+// CI のチェックアウトには**永久に**現れない。それを `beforeAll` の
+// `expect(existsSync(...)).toBe(true)` で要求していたので、このスイートは
+// クローンから走らせた時点で全滅していた（測定: run 31922396794、Failed Suites 1、
+// 落ちたのはこの1本だけ）。文書が無いことは、この検査の不具合ではない。
+//
+// スキップは PASS ではない。だから落とすのは「本物の文書の**本文**を読むアーム」
+// だけで、instrument を検査するアームは落とさない ── 部品・合成文書での誤検出テスト・
+// 本物のツリーに対する合成陽性対照・対応不明の明示・静かな exit 0 の禁止・
+// 検査 [3]（compiler/schema/properties.json は追跡ファイル）は CI でも走り続ける。
+// 何を落としたかは下で1度だけ印字する。
+//
+// 理由文にはリポジトリ相対のパスだけを書く。`REAL_DOC_ABS` を印字すると
+// `/home/<誰か>/…` がそのまま実行ログに載る ── このリポジトリが他所で禁じている
+// ホームディレクトリ開示の形そのもの（実際に前回の run はそれを印字している）。
+const skipRealDoc = existsSync(REAL_DOC_ABS)
+  ? false
+  : `計画文書がこのツリーに無い（${DEFAULT_DOC} はローカル限定）。` +
+    'ここでのスキップは PASS ではない ── 落ちているのは「本物の文書の本文」を読む' +
+    'アームだけで、検出器そのものを検査するアームは走っている。';
+
+if (skipRealDoc) {
+  console.warn(`[check-doc-drift.test] ${skipRealDoc}`);
+}
+
 const scratch = [];
 
 function newScratch(prefix = 'doc-drift-') {
@@ -113,11 +139,6 @@ function copyRealDocWith(edit) {
   return out;
 }
 
-beforeAll(() => {
-  tmpRoot = null;
-  expect(existsSync(REAL_DOC_ABS), `本物の文書が見つからない: ${REAL_DOC_ABS}`).toBe(true);
-});
-
 afterAll(() => {
   for (const d of scratch) {
     try {
@@ -178,6 +199,25 @@ describe('部品', () => {
     expect(claims[0].key).toBe('policy.fallback');
   });
 
+  // 撤回された主張は主張ではない。この3本が無いと、この検査を満たす唯一の方法が
+  // 「その行を文書から消すこと」になり、それはこの文書が守っている
+  // 「記録は消さず、訂正を併記する」規約と衝突する。検査が記録の削除を要求しては困る。
+  it('打ち消し線の中の「読み手は 0」は撤回済みとして拾わない', () => {
+    const claims = extractZeroReaderClaims('| 根拠 | ~~`policy.fallback` の読み手は **0**~~ ← 8/16 に実装された |');
+    expect(claims).toHaveLength(0);
+  });
+
+  it('同じ行が撤回を明言していれば拾わない', () => {
+    const claims = extractZeroReaderClaims('「`policy.fallback` の読み手は **0**」は 2026-08-16 に偽になった');
+    expect(claims).toHaveLength(0);
+  });
+
+  it('撤回されていない主張は従来どおり拾う（上2本の逆向き）', () => {
+    const claims = extractZeroReaderClaims('| 根拠 | ~~別の話~~ `policy.fallback` の読み手は **0** |');
+    expect(claims).toHaveLength(1);
+    expect(claims[0].key).toBe('policy.fallback');
+  });
+
   it('extractLineRefs がリポジトリ相対とベース名だけの参照を分ける', () => {
     const { refs, unresolved } = extractLineRefs('見よ `compiler/driver/lib/run.mjs:105` と `README.md:387`');
     expect(refs).toEqual([{ docLine: 1, path: 'compiler/driver/lib/run.mjs', at: 105 }]);
@@ -223,7 +263,7 @@ describe('逆向き（誤検出しないこと）', () => {
     expect(report.counters.unstartedBlocksProbed).toBeGreaterThan(0);
   });
 
-  it('本物のツリーに対して検査 [1]（✅ が主張するパス）は現状きれい', () => {
+  it.skipIf(skipRealDoc)('本物のツリーに対して検査 [1]（✅ が主張するパス）は現状きれい', () => {
     const report = runDriftCheck({ root: REPO_ROOT, docPath: DEFAULT_DOC });
     expect(report.drifts.filter((d) => d.check === '1'), JSON.stringify(report.drifts.filter((d) => d.check === '1'), null, 2)).toEqual([]);
     expect(report.counters.pathClaimsChecked).toBeGreaterThan(20);
@@ -232,8 +272,12 @@ describe('逆向き（誤検出しないこと）', () => {
 });
 
 // ── ① 種入りの嘘に対して赤くなる ──────────────────────────────────────────
+//
+// 本物の文書のコピーに嘘を1つ足して赤くなることを見るアーム。文書の本文が要る
+// ので、クローンでは落ちる（`skipRealDoc` の理由文が印字される）。検出器が
+// 「何かを検査している」ことは、下の合成陽性対照が本物のツリーに対して示す。
 
-describe('種入りの嘘（seeded lie）', () => {
+describe.skipIf(skipRealDoc)('種入りの嘘（seeded lie）', () => {
   it('偽の「✅ 実装済（`compiler/存在しない.mjs`）」を検出する', () => {
     const doc = copyRealDocWith(
       (t) => t + '\n\n### #V99. FAKE — でっちあげブロック ✅ 実装済（`compiler/存在しない.mjs`）\n- **何を**: 何も\n',
@@ -352,7 +396,7 @@ describe('★ 出生時陽性対照（合成）', () => {
 
 // ── ★ 出生時陽性対照（本物の文書。将来 ✅ に直されたら条件が外れる） ─────────
 
-describe('★ 出生時陽性対照（本物の docs/実装順（VibeGuardCompiler）.md）', () => {
+describe.skipIf(skipRealDoc)('★ 出生時陽性対照（本物の計画文書）', () => {
   const realDoc = () => readFileSync(REAL_DOC_ABS, 'utf8');
   const isUnstarted = (id) => {
     const b = parseBlocks(realDoc()).find((x) => x.id === id);
@@ -474,11 +518,39 @@ describe('検査 [3] properties.json の内部整合', () => {
     expect(r.drifts.some((d) => d.kind === 'UNKNOWN_EXTRACTOR')).toBe(true);
   });
 
-  it('checkpoint 側が implemented なのに property 側がそうでなければ鳴る', () => {
+  // この3本は組。`partial` は「一部の checkpoint は実装済み」という意味の語なので、
+  // 実装済み checkpoint があること自体は矛盾ではない ── そこを矛盾と読むと、検査を
+  // 満たす唯一の方法が status を implemented に上げること、つまり測っていない
+  // checkpoint を測ったことにする過大主張になる。鳴るべきなのは「partial を名乗れない
+  // status が implemented な checkpoint を持つとき」と「partial を名乗りながら実は全部
+  // implemented のとき」の2つで、その2つが鳴ることまで含めて固定する。
+  it('checkpoint 側が implemented なのに status=unimplemented なら鳴る', () => {
     const r = withProperties((c) => {
-      c.properties[0].status = 'partial';
+      c.properties[0].status = 'unimplemented';
     });
     expect(r.drifts.some((d) => d.kind === 'KIND_VS_CHECKPOINT_MISMATCH')).toBe(true);
+  });
+
+  it('partial を名乗りながら checkpoint が全て implemented なら鳴る', () => {
+    const r = withProperties((c) => {
+      const p = c.properties[0];
+      p.status = 'partial';
+      p.observeAt = p.observeAt
+        .filter((o) => o.status === 'implemented')
+        .map((o) => ({ ...o }));
+    });
+    expect(r.drifts.some((d) => d.kind === 'KIND_VS_CHECKPOINT_MISMATCH')).toBe(true);
+  });
+
+  it('partial で implemented と未実装の checkpoint が混在していれば鳴らない', () => {
+    const r = withProperties((c) => {
+      const p = c.properties[0];
+      p.status = 'partial';
+      // 元の entry は implemented と unimplemented を両方持つ。それが partial の定義。
+      expect(p.observeAt.some((o) => o.status === 'implemented')).toBe(true);
+      expect(p.observeAt.some((o) => o.status !== 'implemented')).toBe(true);
+    });
+    expect(r.drifts.some((d) => d.kind === 'KIND_VS_CHECKPOINT_MISMATCH')).toBe(false);
   });
 
   it('kindCoverage が "none" なのに実装済み entry があれば鳴る', () => {
@@ -510,8 +582,18 @@ describe('検査 [3] properties.json の内部整合', () => {
     expect(exitCodeFor(r)).toBe(3);
   });
 
-  it('本物の properties.json は「24件・implemented 5」であり、検査 [3] は実際に走っている', () => {
-    const report = runDriftCheck({ root: REPO_ROOT, docPath: DEFAULT_DOC });
+  // 検査 [3] が読むのは文書ではなく `compiler/schema/properties.json` ── 追跡ファイル
+  // なので、この1本はクローンでも走らなければならない。合成文書を渡すのは
+  // `runDriftCheck` が「文書が無い」で早期 return するからで、root は本物のまま。
+  // 本物の計画文書を渡していた頃は、この検査がローカルでしか走っていなかった。
+  it('本物の properties.json は「24件」であり、検査 [3] は実際に走っている', () => {
+    const dir = newScratch('doc-drift-props-');
+    mkdirSync(join(dir, 'docs'), { recursive: true });
+    writeFileSync(
+      join(dir, 'docs', 'plan.md'),
+      ['### #V1. DRV — Driver ✅ 実装済（`compiler/driver/`）', '- **実装先**: `compiler/driver/`', ''].join('\n'),
+    );
+    const report = runDriftCheck({ root: REPO_ROOT, docPath: join(dir, 'docs', 'plan.md') });
     expect(report.counters.propertiesChecked).toBe(24);
   });
 });

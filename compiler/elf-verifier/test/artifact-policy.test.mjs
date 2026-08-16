@@ -60,7 +60,14 @@ const MATRIX_ROWS = [
 ];
 
 const CONTROL = 'artefact-control-string-always-present';
-const SECRET = 'AKIAIOSFODNN7EXAMPLE';
+// The needle `scanBytes` is measured against: AWS's own documentation example
+// key, the EXAMPLE-suffixed one, valid against nothing. A residue scanner
+// cannot be tested without residue to detect. Named rather than wildcarded, and
+// line-scoped rather than file-scoped, so a key written anywhere else in this
+// suite still reports. Same standing as the entry `.vibeguardrc.json` already
+// carries for ../artefact-fixtures.sh, which compiles this string INTO the
+// fixture binaries these tests read.
+const SECRET = 'AKIAIOSFODNN7EXAMPLE'; // vibeguard:disable-line VG-SEC-001 VG-SEC-003
 
 const skipReal = MATRIX
   ? false
