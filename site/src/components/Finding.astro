@@ -1,0 +1,106 @@
+---
+/**
+ * One finding, drawn the way the CLI's human formatter draws it.
+ *
+ * The same component renders the hero on `/` and the middle stage of every
+ * triptych card. That reuse is deliberate and it is what §5.2 of the design
+ * document buys with band-scoped tokens: this file writes `var(--vg-sev-high)`
+ * and never a colour, so identical markup is legible on the dark code band and
+ * on the white base band without a second copy of anything.
+ *
+ * WHY THE PROPS ARE THE SCANNER'S OWN FIELD NAMES. `filePath`, `startLine`,
+ * `remediation.why` — this is the shape a finding has in
+ * @vibeguard/findings-schema, and it is what the export scripts drop into
+ * site/src/data/*.json unchanged. Renaming them on the way in would add a
+ * mapping layer whose only job would be to be wrong one day; passing the
+ * scanner's object straight through means the site cannot describe a field it
+ * did not receive.
+ *
+ * WHY NOTHING HERE IS TYPED BY HAND. A hand-written finding goes stale in
+ * silence. `confidence` especially: it is resolved per match by the context
+ * layer, not read off the rule definition, so a literal `(confidence: medium)`
+ * in a template is a claim nobody re-checks. The generator runs the real
+ * scanner; this file only lays the fields out.
+ *
+ * FIELD ORDER IS THE CLI'S ORDER — severity, title, rule id, confidence, then
+ * the location, then why and fix. Someone who reads this block here and then
+ * runs the scanner should meet the same shape in their terminal. A site that
+ * reorders it for looks has taught them to read something that does not exist.
+ */
+
+/**
+ * The subset of a finding this component renders. Structurally a
+ * `Finding` from @vibeguard/findings-schema, narrowed to what is displayed —
+ * and typed with `string` where the schema has unions, because these values
+ * arrive through a JSON import where TypeScript can only see `string`. The
+ * narrowing happens below, at runtime, where it can fail the build.
+ *
+ * Repeated (not imported) in Triptych.astro: an `.astro` file exports a
+ * component, not its types. If that ever changes, collapse the two.
+ */
+export interface FindingView {
+  severity: string;
+  ruleId: string;
+  title: string;
+  confidence: string;
+  /** Shown after `at`. The demo file's own name, not the scanner's argv path. */
+  filePath: string;
+  startLine: number;
+  startColumn: number;
+  remediation: {
+    /** Printed verbatim under `why:`. One line — the CLI does not wrap it. */
+    why: string;
+    /** Printed verbatim under `fix:`. */
+    how: string;
+  };
+}
+
+interface Props {
+  finding: FindingView;
+  /**
+   * `hero` is this same block at display size. A modifier rather than a
+   * separate component, because the hero's whole argument is that it shows the
+   * real output and not an enlarged illustration of it.
+   */
+  variant?: 'default' | 'hero';
+}
+
+const { finding, variant = 'default' } = Astro.props;
+
+/**
+ * Four, not five. `info` is a real severity in the schema and has no colour
+ * token on this site — §5.3 froze the palette at four — so an `info` finding
+ * would render an unstyled badge that reads as a rendering bug. Failing the
+ * build instead forces the decision to be made where the token list lives.
+ */
+const SEVERITIES = ['critical', 'high', 'medium', 'low'];
+const CONFIDENCES = ['high', 'medium', 'low'];
+
+if (!SEVERITIES.includes(finding.severity)) {
+  throw new Error(
+    `Finding ${finding.ruleId} has severity "${finding.severity}", which this site cannot colour. ` +
+      `Expected one of ${SEVERITIES.join(', ')}. To show "info" findings, add the token first.`,
+  );
+}
+if (!CONFIDENCES.includes(finding.confidence)) {
+  throw new Error(
+    `Finding ${finding.ruleId} has confidence "${finding.confidence}"; expected one of ${CONFIDENCES.join(', ')}.`,
+  );
+}
+
+const at = `${finding.filePath}:${finding.startLine}:${finding.startColumn}`;
+---
+
+<div class:list={['vg-finding', variant === 'hero' && 'vg-finding--hero']}>
+  <p class="vg-finding__head">
+    <span class:list={['vg-sev', `vg-sev--${finding.severity}`]}>{finding.severity.toUpperCase()}</span>
+    <b class="vg-finding__title">{finding.title}</b>
+    <span class="vg-finding__id">[{finding.ruleId}]</span>
+    <span class="vg-finding__conf">(confidence: {finding.confidence})</span>
+  </p>
+  <p class="vg-finding__at">at {at}</p>
+  <dl class="vg-finding__rem">
+    <dt>why</dt><dd>{finding.remediation.why}</dd>
+    <dt>fix</dt><dd>{finding.remediation.how}</dd>
+  </dl>
+</div>

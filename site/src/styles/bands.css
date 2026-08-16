@@ -1,0 +1,76 @@
+/* bands.css — the horizontal slices a page is made of.
+ *
+ * A page here is a stack of bands, each one a full-bleed surface with a centred
+ * column inside it. The model this site is translating separates its sections
+ * by changing the background colour, and that is what is being kept.
+ *
+ * The important half of the mechanism is not in this file. tokens.css re-defines
+ * the foreground tokens inside `.vg-band--code`, so a component dropped onto the
+ * dark band comes out right without knowing it is there. This file only paints
+ * the surfaces and draws the boundary; the boundary is the part that has to be
+ * here rather than left to each page.
+ */
+
+.vg-band {
+  /*
+   * Every band, without exception, and this is measured rather than aesthetic.
+   * Adjacent surfaces on this site differ by as little as 1.13 in the light
+   * scheme and 1.03 in the dark one. At those ratios the change of colour is
+   * not a visible edge — a reader does not perceive that one section ended and
+   * another began. The 1px line is what actually separates them; the surface
+   * colour only sets the mood.
+   *
+   * A band that wants no line at its top is a band that should have been merged
+   * with the one above it.
+   */
+  border-top: 1px solid var(--vg-rule);
+  padding-block: var(--vg-space-8);
+  color: var(--vg-ink);
+}
+
+.vg-band__inner {
+  /*
+   * The column. `min()` rather than `max-width` plus padding, because the two
+   * behave differently at 400% zoom: with padding, the gutter keeps its full
+   * size when there is no room for it and the content is squeezed to nothing.
+   * Here the gutter is part of the width calculation, so the column shrinks
+   * with the viewport and the page never needs to scroll sideways.
+   */
+  width: min(72rem, 100% - var(--vg-space-5) * 2);
+  margin-inline: auto;
+}
+
+/*
+ * The four surfaces. Only the background is set here — the foregrounds that go
+ * with a surface are tokens, re-defined in tokens.css for the one band whose
+ * surface is dark enough to need it.
+ */
+.vg-band--base {
+  background: var(--vg-surface-base);
+}
+
+.vg-band--tint {
+  background: var(--vg-surface-tint);
+}
+
+.vg-band--code {
+  background: var(--vg-surface-code);
+}
+
+.vg-band--news {
+  background: var(--vg-surface-news);
+}
+
+/*
+ * The hero is a code band that has to hold one finding at display size and
+ * nothing else. Its height is bounded rather than set to 100vh: on mobile the
+ * viewport unit changes as the URL bar hides and reveals, and a hero measured
+ * that way clips the very thing it exists to show at exactly the moment the
+ * reader starts to scroll.
+ */
+.vg-band--hero,
+.vg-hero {
+  display: grid;
+  align-items: center;
+  min-height: clamp(24rem, 62vh, 40rem);
+}

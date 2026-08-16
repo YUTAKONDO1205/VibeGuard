@@ -1,0 +1,209 @@
+---
+/**
+ * /install — the channel picker. Every CTA on the site lands here.
+ *
+ * WHY THE HEADER IS OFF. ProductLayout's `header` prop exists for this page and
+ * its own comment says so: this is where the CTA points, and a button offering
+ * to take you to the page you are already on is a dead control at the top of
+ * every screen. SiteHeader has no way to drop the button and keep the menu —
+ * the two live in one component and this page must not edit it — so the header
+ * goes as a unit, and the footer's sitemap carries navigation instead. That is
+ * a real trade and it is the right way round: the visitor arrived here to
+ * choose one of four things, and the four things are the only content.
+ *
+ * WHY THE FOUR CARDS ARE FRAMED AS PLACES. The friction on this page is not
+ * missing information, it is that four equal cards read as "pick one, and pick
+ * right" — when in truth nothing is exclusive and nothing is irreversible
+ * (§4.1). Three counters, all present below: VS Code is marked as the default
+ * so an undecided reader has somewhere to put their click; the line under the
+ * cards says outright that more can be added later; and the CLI is kept out of
+ * the row, because a fifth card is a fifth decision and this one cannot be
+ * installed the way the other four can.
+ *
+ * WHY THE QUESTION ASKS ABOUT A PLACE. "Where do you write (or read) the code?"
+ * is answerable in a second. "What kind of developer are you?" makes the reader
+ * classify themselves first, and self-classification is where people stop.
+ */
+import ProductLayout from '../layouts/ProductLayout.astro';
+import { CHANNELS, CHANNEL_LABELS, goHref, type Channel } from '../shared/links.ts';
+
+/**
+ * The card copy, keyed by channel.
+ *
+ * `heading` says where you are; `what` says what happens there, and nothing
+ * else. No feature lists: they belong on /rules, and unequal ones would give
+ * the four cards unequal heights, which turns a comparison into a ranking
+ * nobody decided on. `channel` names the store the /go/ redirect lands in, so
+ * that pressing a card holds no surprise about where it goes.
+ */
+const CARDS: Record<Channel, { heading: string; what: string } | undefined> = {
+  vscode: {
+    heading: 'VS Code',
+    what: 'Inline diagnostics when you save the file.',
+  },
+  openvsx: {
+    heading: 'Other VS Code–based editors',
+    what: 'Cursor, VSCodium, Gitpod, code-server — the same extension, mirrored on Open VSX.',
+  },
+  chrome: {
+    heading: 'Browser',
+    what: 'Scan code you are reading: GitHub PRs, Stack Overflow, blog posts, chat output.',
+  },
+  action: {
+    heading: 'CI',
+    what: 'Block a pull request before a risky change lands.',
+  },
+  // Not a card. The repository link belongs in the footer; a fifth tile here
+  // would be a way to "install" something that installs nothing.
+  github: undefined,
+};
+
+/**
+ * The channel the undecided reader gets. Named here rather than written into
+ * the loop so that the default is a value someone chose, not a position in an
+ * array that a reorder could move.
+ */
+const DEFAULT_CHANNEL: Channel = 'vscode';
+
+const cards = CHANNELS.map((channel) => {
+  const copy = CARDS[channel];
+  if (!copy) {
+    // A channel in CHANNELS with no copy would otherwise render as an empty
+    // card: a live link with nothing on it, pointing at a store.
+    throw new Error(
+      `links.ts lists the channel "${channel}" but this page has no copy for it. ` +
+        `Add a heading and a one-line description, or take it out of CHANNELS.`,
+    );
+  }
+  return { channel, ...copy, label: CHANNEL_LABELS[channel], href: goHref(channel) };
+});
+
+/*
+ * ── NOTES ON THE WORDING BELOW ───────────────────────────────────────────
+ *
+ * These were HTML comments in the template until it turned out Astro emits
+ * those into the built page. They explain why particular sentences are
+ * phrased as they are; that reasoning belongs to whoever edits this file,
+ * not to every visitor with a View Source menu.
+ *
+ * This paragraph used to say the release archive was a source archive
+ *   whose workspace-internal dependencies could not resolve outside the
+ *   repository. That was true once and is not true now, and the site had
+ *   inherited it from a README paragraph that is equally stale.
+ *
+ *   What the repository actually does today: apps/cli/build.mjs inlines
+ *   every workspace package into dist/index.js, apps/cli/package.json
+ *   ships only ["dist"] and declares no runtime dependencies, and
+ *   release.yml extracts each tarball into an empty directory outside
+ *   the workspace, npm-installs it, runs it, and fails the release if a
+ *   single @vibeguard/* runtime dependency survived or if the scan comes
+ *   back with no findings. The tarball is verified installable on every
+ *   release.
+ *
+ *   So the honest statement is narrower than the old one: not on npm,
+ *   therefore no `npm install -g` and no `npx` — but the attached
+ *   tarball does install. README.md still carries the old wording and
+ *   should be corrected too; that is outside this site's tree.
+ */
+---
+
+<ProductLayout
+  title="Install VibeGuard"
+  description="VibeGuard runs in VS Code, in VS Code–based editors through Open VSX, in Chrome, and in CI through the GitHub Action. Pick the place you write or read code."
+  header={false}
+>
+  <section class="vg-band vg-band--base" aria-labelledby="install-h">
+    <div class="vg-band__inner">
+      <h1 class="vg-h1" id="install-h">Install VibeGuard</h1>
+      <p class="vg-lead">Where do you write (or read) the code?</p>
+    </div>
+  </section>
+
+  <section class="vg-band vg-band--tint" aria-label="Distribution channels">
+    <div class="vg-band__inner">
+      <ul class="vg-picker">
+        {
+          cards.map((card) => (
+            <li class="vg-picker__item">
+              <a class="vg-picker__card" href={card.href}>
+                <span class="vg-picker__heading">{card.heading}</span>
+                <span class="vg-badge vg-badge--available">Available</span>
+                {card.channel === DEFAULT_CHANNEL && <span class="vg-picker__badge">Start here</span>}
+                <span class="vg-picker__what">{card.what}</span>
+                <span class="vg-picker__channel">{card.label}</span>
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+
+      {/*
+        The sentence that removes the cost of choosing. It says "engine", not
+        "result", and the difference is load-bearing: the four surfaces share
+        the analysis engine, and they still differ in what they feed it and in
+        which mode they default to. The disclosure below spells that out rather
+        than leaving the reader to discover it from a disagreement between their
+        editor and their CI.
+      */}
+      <p class="vg-picker__note">
+        All four run the same analysis engine. You can add more later.
+      </p>
+    </div>
+  </section>
+
+  <section class="vg-band vg-band--base" aria-label="Notes">
+    <div class="vg-band__inner">
+      {/*
+        <details>, not a script. The CSP served with this page says
+        script-src 'none', so a JavaScript disclosure would work in dev and be
+        inert in production — the worst possible split. Folded, but not hidden:
+        anyone who wants the caveat can open it, and nobody choosing a channel
+        has to read it first.
+      */}
+      <details class="vg-disclosure">
+        <summary class="vg-disclosure__summary">
+          Why a finding can differ between your editor and CI
+        </summary>
+        <div class="vg-disclosure__body">
+          <ul>
+            <li>
+              <b>Mode defaults differ.</b> The VS Code on-save scan defaults to <code>fast</code>;
+              the CLI, the Action and the Chrome extension use <code>standard</code>, which runs
+              rules that <code>fast</code> skips.
+            </li>
+            <li>
+              <b>What reaches the engine differs.</b> VS Code passes a file, the CLI walks a
+              directory, the Chrome extension joins the code blocks it extracted from a page into
+              one snippet.
+            </li>
+          </ul>
+        </div>
+      </details>
+
+      {/*
+        The CLI, last and folded, and deliberately not a fifth card.
+
+        Three independent reasons, any one of which is enough (§4.4): it cannot
+        be installed from a package registry at all, so a reader who picks it
+        from a row of four is guaranteed to get stuck; getting it takes a clone
+        and a build rather than a button, so it does not belong in a row that
+        compares by time-to-first-run; and someone automating a repository is
+        better served by the Action, which wraps this same CLI.
+      */}
+      <details class="vg-disclosure">
+        <summary class="vg-disclosure__summary">Build from source (for developers)</summary>
+        <div class="vg-disclosure__body">
+          <pre class="vg-code__pre"><code>git clone https://github.com/YUTAKONDO1205/VibeGuard
+npm install &amp;&amp; npm run build
+node apps/cli/dist/index.js ./your-project</code></pre>
+          <p>
+            The CLI is not published to npm, so there is no global install and no <code>npx</code>. Cloning is the
+            way in above; alternatively the tarball attached to each release installs on its own, since the
+            workspace packages are bundled into it. For automation, use the GitHub Action, which wraps this same
+            CLI.
+          </p>
+        </div>
+      </details>
+    </div>
+  </section>
+</ProductLayout>

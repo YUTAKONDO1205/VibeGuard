@@ -134,3 +134,10 @@ scripts-local/
 # so it is not runnable from a clone. Same rule as the block above: this file
 # does not describe what any of it contains.
 scripts/viz-*.mjs
+
+# wrangler's local state for the website in site/: dev-server cache, local KV,
+# build metadata. Generated and machine-specific. The pragma census in
+# scripts/check-packaging-invariants.mjs already skips `.wrangler`; this is the
+# other half, so the directory stops showing up as untracked and stops being a
+# candidate for `git add .`.
+.wrangler/

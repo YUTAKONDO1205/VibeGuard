@@ -1,0 +1,26 @@
+---
+/**
+ * Fixed banner at the top of every research page.
+ *
+ * ResearchLayout renders this directly rather than exposing it as a slot, so an
+ * individual page cannot omit it.
+ *
+ * On the wording: an earlier draft read "There is nothing to obtain here."
+ * That was accurate when compiler/ held a licence file and nothing else. It no
+ * longer is — the toolchain's source is in the repository, 336 files with a
+ * README that documents how to build it against a local LLVM. What remains true,
+ * and what the banner has to say instead, is the distribution claim: nothing is
+ * packaged, and none of the four channels carry it. That is also exactly what
+ * the `Research` status means here — the test is whether one URL gets you the
+ * thing today, and cloning a repository and building a Clang plugin is not that.
+ */
+---
+
+<aside class="vg-research-banner" role="note">
+  <span class="vg-badge vg-badge--research">Research</span>
+  <p>
+    An ongoing research project, written up as a paper. There is no released build of
+    this and none of the VibeGuard channels include it — the source lives in the
+    repository and is built against a local LLVM.
+  </p>
+</aside>

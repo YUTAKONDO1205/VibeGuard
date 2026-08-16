@@ -1,0 +1,16 @@
+# Generated at build time by scripts/site-export-*.mjs, from the rule sources,
+# the fixer registry, samples/ and the GitHub Releases API. Not committed, for
+# the same reason the site does not hand-write any number: a checked-in copy is
+# a snapshot that stops matching the product on the next release, and nothing
+# would report the divergence.
+#
+# Consequence, on purpose: `npm run build` in this directory does not work on a
+# fresh clone until the generators have run. See site/README.md.
+src/data/
+
+# Snippets are derived from samples/ with the rule-naming trailing comments
+# stripped, then run through the CLI. Same rule as above.
+demo/
+
+# Astro's dev-server cache.
+.astro/

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="VibeGuard">
+  <title>VibeGuard</title>
+  <!--
+    The mark is the heading ornament used across the site — the `//` that opens a
+    comment — set inside a rounded square in the brand green.
+
+    Drawn as geometry rather than as a text node. A <text> element in a favicon
+    is rendered with whatever face the browser picks, which differs per platform
+    and can be a face with no slash at the weight this needs; two parallelograms
+    are the same shape everywhere.
+
+    The colours are literals because they have to be: a favicon is rendered
+    outside the page, so it cannot reach the custom properties in tokens.css.
+    They are copies of --vg-brand-strong and --vg-ink-on-code, and they are the
+    only two colours on this site written down twice. Neither scheme's palette
+    is used in preference to the other — a dark green plate with a near-white
+    mark holds its shape against a light tab strip and a dark one alike, which
+    matters more here than matching the page, since a 16px icon has no room to
+    lose contrast.
+
+    No external reference of any kind: no <image>, no <use> pointing elsewhere,
+    no font. The site serves default-src 'self', and an icon that fetched
+    something would be an icon that fails in production only.
+  -->
+  <rect width="32" height="32" rx="8" fill="#2B5C24" />
+  <path d="M14.4 7.5h4.1L11.6 24.5H7.5z" fill="#E9F1EA" />
+  <path d="M24.5 7.5h-4.1L13.5 24.5h4.1z" fill="#E9F1EA" />
+</svg>

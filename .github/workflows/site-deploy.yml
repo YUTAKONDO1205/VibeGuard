@@ -1,0 +1,209 @@
+name: Site deploy
+
+# Builds the website in site/ and, once credentials exist, publishes it to
+# Cloudflare Workers.
+#
+# ── WHY THE TRIGGERS ARE THESE THREE ──────────────────────────────────────────
+#
+# `push` with a paths filter covers the obvious case: the site's own sources
+# changed. `workflow_run` on Release covers the case that is easy to forget —
+# a release changes what /news and the version in the footer should say, and
+# nothing in site/ changed at all. Wiring the deploy to the release is what
+# makes "we shipped but the site still shows the old version" structurally
+# impossible, instead of a step somebody has to remember in a release checklist.
+# It also removes the reason to schedule a nightly rebuild, which would deploy
+# unchanged output most nights and train everyone to ignore its failures.
+# `workflow_dispatch` covers the external causes: a store changes a URL, or the
+# deploy has to be re-run after credentials are added.
+#
+# `packages/rules/**` is deliberately NOT in the paths filter. /rules is
+# generated from the rules package, and firing on a merge there would put a rule
+# on the public site before it exists in anything a visitor can install — the
+# exact failure this project already had once, promising something that had not
+# shipped. The site's rule list moves when a release moves it, which is what the
+# workflow_run trigger above delivers.
+#
+# Double-firing was checked case by case: a `v*` tag push does not match
+# `branches: [main]`, so a release produces one run (via workflow_run) and not
+# two; a push touching only site/ produces one run and no release. `concurrency`
+# below is for the remaining case of two pushes in quick succession, where the
+# older build must not finish last and overwrite the newer one.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'scripts/site-*.mjs'
+      - '.github/workflows/site-deploy.yml'
+  workflow_run:
+    workflows: ['Release']
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-deploy
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    # `workflow_run` fires on completion regardless of outcome, so without this
+    # a failed release would publish a site claiming a release that does not
+    # exist. The other two events have no conclusion to inspect and pass
+    # straight through.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The release exporter reads tags to find the shipped version, and the
+          # rule exporter reads the rules package as of the newest release tag
+          # rather than as of main. Neither works in a shallow clone.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # ── Data generation (repository root) ─────────────────────────────────
+      - run: npm ci
+
+      # The minimum build the site's data actually needs, in the dependency
+      # order the root build script uses. The first three feed the rule list and
+      # the fixer counts; the rest exist because one exporter runs the real CLI
+      # against samples/ to produce the code and findings shown on the home page
+      # — the site never transcribes CLI output by hand, so it has to have a CLI
+      # to run. That exporter reads apps/cli/dist/index.js and fails loudly if it
+      # is absent, which is how this list was determined.
+      #
+      # What is skipped: the two editor extensions (vibeguard-aicoding,
+      # vibeguard-chrome) and mcp-guard. The root `npm run build` bundles all
+      # three, no page reads any of them, and their bundles are the slowest part
+      # of that build.
+      - run: npm run build -w @vibeguard/findings-schema
+      - run: npm run build -w @vibeguard/rules
+      - run: npm run build -w @vibeguard/remediation-engine
+      - run: npm run build -w @vibeguard/sarif-adapter
+      - run: npm run build -w @vibeguard/analyzer-core
+      - run: npm run build -w @vibeguard/analysis-graph
+      - run: npm run build -w @vibeguard/external-adapters
+      - run: npm run build -w @vibeguard/cli
+
+      # Every exporter, discovered rather than listed. A hand-written list here
+      # goes stale silently in the direction that hurts: a new exporter lands,
+      # nobody adds the line, and the page it feeds keeps rendering last month's
+      # committed JSON with no error anywhere. A bare glob has the opposite
+      # failure — a rename empties it and the loop succeeds having run nothing —
+      # so the count is asserted before anything runs. Raising the floor is a
+      # reviewable one-line diff; silently dropping to zero is not.
+      - name: Generate the site's data files
+        env:
+          # site-export-releases.mjs reads the repository's releases through the
+          # GitHub API. The job token is scoped to this repository and read-only
+          # (see `permissions:` above), which is all that call needs.
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          generators=(scripts/site-export-*.mjs)
+          # Floor raised 4 -> 5 when site-export-hero.mjs landed. The number is
+          # the point of the check: the loop runs whatever the glob matches, so
+          # a generator that gets deleted or renamed would otherwise just stop
+          # running and the site would build from whatever data survived.
+          if [ "${#generators[@]}" -lt 5 ]; then
+            echo "Expected at least 5 scripts/site-export-*.mjs generators, found ${#generators[@]}:"
+            printf '  %s\n' "${generators[@]}"
+            exit 1
+          fi
+          for generator in "${generators[@]}"; do
+            echo "── $generator"
+            node "$generator"
+          done
+
+      # Renders site/public/_headers from site/src/headers.ts. Runs before the
+      # site build because public/ is copied into dist/ by that build; running
+      # it after would leave the deployed site with whatever _headers was last
+      # committed, which is the drift the generator exists to remove.
+      - run: node scripts/site-gen-headers.mjs
+
+      # ── Copy linter, source mode ──────────────────────────────────────────
+      # Split in two for the same reason check-packaging-invariants.mjs is: the
+      # checks that only read sources should fail in seconds, before a build is
+      # paid for, and the checks that read build output cannot run until it
+      # exists. Neither call is allowed to skip when its inputs are missing.
+      - run: node scripts/site-copy-lint.mjs
+
+      # ── Worker tests ──────────────────────────────────────────────────────
+      # site/worker/index.test.ts covers the things the redirect must never get
+      # wrong: that each of the five channels answers 302 with the exact Location
+      # from links.ts, that an unlisted segment gets the 404 and never a redirect
+      # (the allowlist is what stops this being an open redirect), that no-store
+      # and noindex ride on /go/* only, and that a missing analytics binding does
+      # not throw.
+      #
+      # Run with the ROOT vitest deliberately. site/ has no test runner of its
+      # own and does not need one — adding vitest to site/package.json would put
+      # a second test framework and its tree into a project whose whole point is
+      # that its dependencies stay small and auditable.
+      #
+      # Until this step existed the suite was run by nothing: site/ is outside
+      # the root workspaces, so `npm test --workspaces` never reaches it, and
+      # `test:root` only scans scripts/. Eighteen passing tests that no pipeline
+      # executes are documentation, not a check.
+      - run: npx vitest run site/worker
+
+      # ── Site build ────────────────────────────────────────────────────────
+      # site/ is outside the root workspaces on purpose, so it installs and
+      # builds on its own. Astro static output, no client JavaScript.
+      - working-directory: site
+        run: npm ci
+      - working-directory: site
+        run: npm run build
+
+      # ── Copy linter, artefact mode ────────────────────────────────────────
+      # Checks the things only the built HTML can answer: that no <script> tag
+      # and no external host survived into dist/, and that dist/_headers exists
+      # and still carries every key from headers.ts. A CSP of `script-src 'none'`
+      # is a promise the build has to keep, not a header that keeps itself.
+      - run: node scripts/site-copy-lint.mjs --dist
+
+      # Recomputes every contrast ratio from the CSS tokens. The accessibility
+      # numbers in the design are derived, and this is what stops a colour edit
+      # from quietly invalidating them.
+      - working-directory: site
+        run: npm run contrast
+
+      # ── Publish ───────────────────────────────────────────────────────────
+      #
+      # GATED, AND MUST STAY GATED UNTIL SOMEONE SETS IT UP.
+      #
+      # No Cloudflare account, API token, or domain exists for this site yet. An
+      # ungated wrangler step would fail on every push to main from the moment
+      # this file merges, and a workflow that is always red is a workflow whose
+      # failures stop being read — including the linter failures above, which
+      # are the reason this pipeline is worth having on day one.
+      #
+      # To turn publishing on, a human sets all three in this repository:
+      #
+      #   Variable  SITE_DEPLOY_ENABLED    = true
+      #   Secret    CLOUDFLARE_API_TOKEN   (Workers Scripts: Edit)
+      #   Secret    CLOUDFLARE_ACCOUNT_ID
+      #
+      # Everything above this step runs unconditionally in the meantime, so the
+      # build and both linters are already protecting main before the site has
+      # anywhere to go.
+      - name: Publish to Cloudflare Workers
+        if: vars.SITE_DEPLOY_ENABLED == 'true'
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: site
+          command: deploy

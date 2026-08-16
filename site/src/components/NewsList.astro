@@ -1,0 +1,83 @@
+---
+/**
+ * The release list: date, tag, one line, dashed separators.
+ *
+ * Used twice — the last four on the front page, all of them on /news — because
+ * the two lists are the same list. A second component would be a second place
+ * for the row format to change, and the front page is the copy that nobody
+ * re-reads after launch.
+ *
+ * The rows are generated from the GitHub Releases API at build time by
+ * scripts/site-export-releases.mjs, which is why the field names below are the
+ * API's own (`tag_name`, `published_at`, `html_url`) rather than tidier ones:
+ * the generator passes the payload through instead of renaming it, so there is
+ * no mapping layer to get wrong, and anyone comparing this file with the API
+ * response is comparing like with like.
+ *
+ * WHAT IS NOT HERE: the release body. A release note copied onto this site
+ * would have two masters, the repository and the page, and the page would lose
+ * — GitHub is where the author fixes a typo, and nothing would carry that fix
+ * across. One line and a link keeps the authority in exactly one place.
+ */
+
+/** The four fields the export script keeps. Everything else is dropped there. */
+export interface Release {
+  tag_name: string;
+  name: string | null;
+  /** ISO 8601 from the API. Sliced, never reformatted — see below. */
+  published_at: string;
+  html_url: string;
+}
+
+interface Props {
+  releases: Release[];
+  /** Front page passes 4; /news passes nothing and gets the lot. */
+  limit?: number;
+  /**
+   * Whether the newest row wears the NEW tag. Off by default: on /news the
+   * newest release is already at the top of a complete list, and a tag that
+   * appears on every page it can appear on stops meaning "look at this".
+   */
+  markNewest?: boolean;
+}
+
+const { releases, limit, markNewest = false } = Astro.props;
+
+const shown = typeof limit === 'number' ? releases.slice(0, limit) : releases;
+
+/**
+ * The date is the first ten characters of the API timestamp and nothing else.
+ *
+ * `toLocaleDateString` would render whatever locale the build machine happens
+ * to have, so the same commit could deploy `8/6/2026` from one runner and
+ * `06/08/2026` from another — two different claims about the same release, and
+ * one of them read wrong by half the audience. `2026-08-06` is unambiguous in
+ * every locale, and it is already exactly what the API returned.
+ */
+const dateOf = (release: Release): string => release.published_at.slice(0, 10);
+---
+
+<ul class="vg-news">
+  {
+    shown.map((release, index) => (
+      <li class="vg-news__item">
+        <time class="vg-news__date" datetime={release.published_at}>
+          {dateOf(release)}
+        </time>
+        <a class="vg-news__link" href={release.html_url}>
+          {release.tag_name}
+        </a>
+        {release.name && release.name !== release.tag_name && (
+          <span class="vg-news__title">{release.name}</span>
+        )}
+        {
+          /* Outlined in --vg-brand, never filled and never red. Red and amber
+             are severity on this site, and a red NEW sitting a few centimetres
+             from a red CRITICAL teaches the reader that the two mean the same
+             kind of thing — it makes a release look like a defect. */
+          markNewest && index === 0 && <span class="vg-badge vg-badge--new">NEW</span>
+        }
+      </li>
+    ))
+  }
+</ul>

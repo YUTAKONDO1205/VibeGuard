@@ -1,0 +1,1551 @@
+/* components.css — every named part of the site.
+ *
+ * The rule that governs this whole file: a component never knows which band it
+ * is standing on. It writes `var(--vg-sev-high)` and gets the red that is
+ * legible on white or the salmon that is legible on near-black, depending on
+ * where it was placed, because the band re-defined the token before the
+ * component was reached. There is exactly one place that needs to be told about
+ * surfaces, and it is tokens.css.
+ *
+ * The consequence is that a colour literal here is not a style choice, it is a
+ * bug with a delay on it: it will look right in whichever scheme it was written
+ * in and wrong in the other, and nobody will see the wrong one until a reader
+ * with the other OS setting arrives. CI fails on `#` in this file for that
+ * reason.
+ *
+ * Nothing below responds to a click. The site serves `script-src 'none'`, so
+ * the disclosure widgets are <details>/<summary> and the states available are
+ * :hover, :focus-visible and :target.
+ */
+
+/* ── Skip link ──────────────────────────────────────────────────────────────
+ *
+ * Off-screen until focused, and moved with a transform rather than hidden with
+ * `display: none` — a display-hidden link is not in the tab order, which turns
+ * the one affordance keyboard users need into decoration for everybody else.
+ */
+.vg-skip {
+  position: absolute;
+  z-index: 100;
+  top: var(--vg-space-3);
+  left: var(--vg-space-3);
+  padding: var(--vg-space-2) var(--vg-space-4);
+  background: var(--vg-brand-strong);
+  color: var(--vg-ink-on-code);
+  border-radius: var(--vg-radius-pill);
+  font-weight: 700;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+
+.vg-skip:focus {
+  transform: translateY(0);
+}
+
+/* ── Call to action ─────────────────────────────────────────────────────────
+ *
+ * One button, one destination, one appearance. The fill is --vg-brand-strong
+ * and the label is --vg-ink-on-code, which is 6.86 in light and 4.87 in dark;
+ * the fill itself clears 3.0 against the band behind it in both.
+ *
+ * That second number is why the button is only ever placed on a base-coloured
+ * band. On the code band the same fill reads 2.25 against the surface and the
+ * button loses its edges entirely. The constraint is enforced in the markup —
+ * the header, the band under the hero and the footer are all base bands — and
+ * recorded here so the next person to place a CTA knows there is a rule.
+ *
+ * Hover thickens the underline rather than lightening the fill. Lightening it
+ * would have to move toward --vg-brand, and --vg-brand in the dark scheme is a
+ * pale green that leaves the near-white label at 1.68.
+ */
+.vg-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vg-space-2);
+  padding: var(--vg-space-3) var(--vg-space-5);
+  background: var(--vg-brand-strong);
+  color: var(--vg-ink-on-code);
+  border-radius: var(--vg-radius-pill);
+  font-weight: 700;
+  line-height: 1.3;
+  text-decoration: none;
+}
+
+.vg-cta:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2em;
+}
+
+.vg-cta--sm {
+  padding: var(--vg-space-2) var(--vg-space-4);
+  font-size: var(--vg-fs-300);
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────────
+ *
+ * Base surface at every scroll position. The model site floats a transparent
+ * header over its hero photograph; that needs a scroll listener to become
+ * opaque, there is no script to run one, and a permanently transparent header
+ * only works on the single page that happens to have a dark hero. Fixing it to
+ * the base surface also fixes the CTA's contrast at one number site-wide.
+ */
+.vg-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--vg-surface-base);
+  border-bottom: 1px solid var(--vg-rule);
+}
+
+.vg-header__inner {
+  width: min(72rem, 100% - var(--vg-space-5) * 2);
+  margin-inline: auto;
+  min-height: 4rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vg-space-4);
+  /* At 400% zoom the two sides stop fitting on one line. Wrapping makes the
+   * header two rows tall, which is correct; not wrapping would make the page
+   * scroll sideways, which is not. */
+  flex-wrap: wrap;
+  padding-block: var(--vg-space-2);
+}
+
+.vg-header__logo {
+  text-decoration: none;
+}
+
+.vg-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--vg-space-3);
+}
+
+.vg-wordmark {
+  font-size: var(--vg-fs-700);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--vg-ink);
+  text-decoration: none;
+}
+
+/* ── Menu ───────────────────────────────────────────────────────────────────
+ *
+ * <details>/<summary>. Not a preference — it is the only disclosure this site
+ * can build, because `script-src 'none'` would leave a JS menu working in dev
+ * and dead in production.
+ *
+ * There is no drop shadow under the open panel, here or anywhere on the site. A
+ * shadow needs a colour, colours live in tokens.css, and the eighteen tokens
+ * are frozen; an opaque surface and a 1px rule separate the panel from the page
+ * without asking for a nineteenth.
+ */
+.vg-menu {
+  position: relative;
+}
+
+.vg-menu__button {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--vg-space-2);
+  border: 1px solid var(--vg-rule);
+  border-radius: var(--vg-radius-chip);
+  color: var(--vg-ink);
+  cursor: pointer;
+  /* Both are needed: the standard property and the WebKit pseudo-element that
+   * predates it. Either one alone leaves a triangle next to the icon. */
+  list-style: none;
+}
+
+.vg-menu__button::-webkit-details-marker {
+  display: none;
+}
+
+.vg-menu__panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--vg-space-2));
+  z-index: 30;
+  width: max-content;
+  max-width: min(20rem, calc(100vw - var(--vg-space-6)));
+  padding: var(--vg-space-3);
+  background: var(--vg-surface-base);
+  border: 1px solid var(--vg-rule);
+  border-radius: var(--vg-radius-card);
+}
+
+.vg-menu__panel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--vg-space-1);
+}
+
+.vg-menu__panel a {
+  display: block;
+  padding: var(--vg-space-2);
+  border-radius: var(--vg-radius-chip);
+  color: var(--vg-ink);
+  text-decoration: none;
+}
+
+.vg-menu__panel a:hover {
+  text-decoration: underline;
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────────────── */
+
+.vg-footer .vg-band__inner {
+  display: grid;
+  gap: var(--vg-space-6);
+}
+
+.vg-footer__brand {
+  display: grid;
+  gap: var(--vg-space-2);
+}
+
+.vg-footer__tagline {
+  color: var(--vg-ink-muted);
+  max-width: 34rem;
+}
+
+.vg-footer__cta {
+  display: flex;
+}
+
+.vg-footer__sitemap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vg-space-5) var(--vg-space-7);
+}
+
+.vg-footer__sitemap ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--vg-space-2);
+  align-content: start;
+}
+
+.vg-footer__legal {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--vg-space-2);
+  padding-top: var(--vg-space-4);
+  border-top: 1px solid var(--vg-rule);
+  color: var(--vg-ink-muted);
+  font-size: var(--vg-fs-300);
+}
+
+.vg-footer__version {
+  font-family: var(--vg-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Research chrome ────────────────────────────────────────────────────────
+ *
+ * The research pages get a thinner head than the product pages, and no CTA in
+ * it, because there is nothing on those pages to act on. The banner underneath
+ * sits on the news surface, which is the only non-green family on the site and
+ * the same family --vg-status-research comes from — so the banner reads as
+ * neutral rather than as either a warning or an offer.
+ */
+.vg-research-head {
+  background: var(--vg-surface-base);
+  border-bottom: 1px solid var(--vg-rule);
+  padding-block: var(--vg-space-4);
+}
+
+.vg-research-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--vg-space-3);
+  background: var(--vg-surface-news);
+  border-bottom: 1px solid var(--vg-rule);
+  color: var(--vg-ink);
+  /*
+   * Full-bleed surface with the content lined up against the same 72rem column
+   * everything else uses. The max() is the gutter: it takes over on narrow
+   * viewports, where the calculated value would go negative.
+   */
+  padding-block: var(--vg-space-4);
+  padding-inline: max(var(--vg-space-5), calc((100% - 72rem) / 2));
+}
+
+.vg-research-banner p {
+  max-width: 44rem;
+  font-size: var(--vg-fs-300);
+  line-height: 1.6;
+}
+
+/* ── Badges ─────────────────────────────────────────────────────────────────
+ *
+ * Three of them, and they are told apart by shape as much as by colour, because
+ * two of the three are green.
+ *
+ *   Available — filled pill. The only filled badge.
+ *   Research  — slate outline, square-ish corners.
+ *   NEW       — green outline, square-ish corners, no fill.
+ *
+ * NEW is not red, although the obvious design for a "new release" tag is. Red
+ * and amber on this site mean `HIGH` and `MEDIUM`, and the front page puts a
+ * news list and two findings on the same scroll; a red NEW next to a red HIGH
+ * reads as though the release announcement had a severity. Filling NEW with
+ * --vg-brand-soft was the other candidate and is worse: 1.03 against the news
+ * surface, i.e. an invisible badge.
+ */
+.vg-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vg-space-1);
+  padding: 0 0.6ch;
+  font-size: var(--vg-fs-300);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.6;
+  border-radius: var(--vg-radius-chip);
+  white-space: nowrap;
+}
+
+.vg-badge--available {
+  background: var(--vg-brand-soft);
+  color: var(--vg-status-available);
+  border-radius: var(--vg-radius-pill);
+  padding: 0 1ch;
+}
+
+.vg-badge--research {
+  color: var(--vg-status-research);
+  border: 1px solid currentColor;
+}
+
+.vg-badge--new {
+  color: var(--vg-brand-strong);
+  border: 1px solid var(--vg-brand);
+}
+
+/* ── Headings ───────────────────────────────────────────────────────────────
+ *
+ * The model site draws a hand-inked sprig of leaves either side of its section
+ * headings. That is right for a park and wrong here: hand-drawn ornament on a
+ * page whose subject is the precision of a scanner invites the reader to
+ * wonder how precise the scanner is. What replaces it is the comment marker of
+ * the languages this tool reads.
+ *
+ * Left side only. The model's ornament is symmetrical, and `//` is not — it is
+ * notation that begins a line. Mirroring it on the right would be a decoration
+ * shaped like a thing that cannot exist. The ornament is kept, the symmetry is
+ * spent on being true to the notation, and there is no second ornament
+ * anywhere on the site.
+ *
+ * The marker is aria-hidden in the markup, so a screen reader hears the heading
+ * and not two slashes.
+ */
+/*
+ * The page title. base.css already sets its size; what it does not set — and
+ * what was missing — is the space under it. Without that, an <h1> and whatever
+ * follows it share a baseline rhythm with body copy and the two run together
+ * into one block of text, which is what /install and the hero both looked like.
+ *
+ * The measure is capped in characters rather than in rem: a title is one line
+ * of large type and the thing that makes it hard to read is the eye's return
+ * sweep, which depends on how many characters it crosses, not on how wide the
+ * band is.
+ */
+.vg-h1 {
+  max-width: 26ch;
+  margin-bottom: var(--vg-space-4);
+  letter-spacing: -0.015em;
+}
+
+/*
+ * The sentence under an <h1>. One step above body size so that the pair reads
+ * as title-then-subtitle; muted so that it does not compete with the title it
+ * is explaining.
+ */
+.vg-lead {
+  max-width: 46rem;
+  font-size: var(--vg-fs-700);
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--vg-ink-muted);
+}
+
+.vg-h2 {
+  font-size: var(--vg-fs-800);
+  margin-bottom: var(--vg-space-6);
+}
+
+.vg-h2__deco {
+  font-family: var(--vg-font-mono);
+  font-weight: 400;
+  color: var(--vg-brand);
+  margin-right: 0.5ch;
+}
+
+/* ── The eight categories ───────────────────────────────────────────────────
+ *
+ * Four across and two down, which is the model's gallery grid kept intact with
+ * its contents replaced. Two across below 640px; never three, because the 4x2
+ * shape is what says "eight things" at a glance.
+ */
+.vg-grid8 {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--vg-space-6) var(--vg-space-5);
+}
+
+@media (min-width: 40rem) {
+  .vg-grid8 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/*
+ * The <li> carries nothing but the grid cell. Everything visible is the link,
+ * so that the whole tile — circle, label, blurb and count — is one target
+ * rather than four words with a hit area the height of a line.
+ */
+.vg-grid8__cell {
+  display: grid;
+  min-width: 0;
+}
+
+.vg-grid8__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  /*
+   * space-2 between the four stacked pieces, not space-3. The label, the blurb
+   * and the count are one paragraph of information about one category, and at
+   * space-3 they read as three separate things that happen to be under the same
+   * circle. The circle takes the wider gap for itself, below.
+   */
+  gap: var(--vg-space-2);
+  color: var(--vg-ink);
+  text-decoration: none;
+}
+
+/*
+ * Only the label underlines on hover. Underlining the whole tile puts a line
+ * under a three-line blurb and a count, which looks like a rendering fault
+ * rather than like a link.
+ */
+.vg-grid8__item:hover .vg-grid8__label {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.15em;
+}
+
+/*
+ * The circle is a surface in its own right: filled with --vg-brand, carrying a
+ * pictogram stroked in currentColor. That is why the pictogram markup sets no
+ * colour of its own — it inherits, so the one line in tokens.css that fixes the
+ * dark scheme's version of this pairing reaches it without the SVG being
+ * touched.
+ */
+.vg-grid8__circle {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: clamp(64px, 8vw, 88px);
+  height: clamp(64px, 8vw, 88px);
+  margin-bottom: var(--vg-space-2);
+  border-radius: var(--vg-radius-pill);
+  background: var(--vg-brand);
+  color: var(--vg-ink-on-code);
+}
+
+/*
+ * Sized as a fraction of the circle rather than in pixels, so the pictogram
+ * keeps the same optical margin inside the disc at every width the clamp above
+ * produces. The SVG carries width/height attributes for the case where this
+ * sheet has not arrived yet; the percentages override them once it has.
+ */
+.vg-grid8__icon {
+  width: 45%;
+  height: 45%;
+}
+
+.vg-grid8__label {
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+/*
+ * The blurb is the line that ran into the label when this grid had no styles.
+ * It is a separate block at a smaller size in the muted ink, which is what
+ * makes "Injection" and "SQL, command, eval, deserialization, template" read as
+ * a name and its gloss rather than as one sentence.
+ */
+.vg-grid8__blurb {
+  font-size: var(--vg-fs-300);
+  line-height: 1.5;
+  color: var(--vg-ink-muted);
+  text-wrap: pretty;
+}
+
+/*
+ * Monospace and tabular, because the eight counts sit in a row and a number
+ * that shifts its own width every time a rule lands makes the row look
+ * unstable. The count is generated; nothing here is typed.
+ */
+.vg-grid8__count {
+  /*
+   * `auto` rather than a fixed step, so the count sits on the bottom edge of
+   * the tallest tile in its row and the four counts line up. Blurbs wrap to one,
+   * two or three lines depending on the category, and counts that follow each
+   * blurb wherever it happens to end make a row of eight numbers look like a
+   * mistake rather than like a table.
+   */
+  margin-top: auto;
+  padding-top: var(--vg-space-1);
+  font-family: var(--vg-font-mono);
+  font-size: var(--vg-fs-300);
+  font-variant-numeric: tabular-nums;
+  color: var(--vg-ink-muted);
+}
+
+/* ── Triptych: Before, the finding, After ───────────────────────────────────
+ *
+ * Three stages side by side on a wide screen and stacked on a narrow one. The
+ * markup is an <ol> because the order is part of the meaning, and an ordered
+ * list keeps it when the columns become rows — a CSS grid would only be
+ * describing the order to sighted readers of wide screens.
+ *
+ * Both the __card/__stage and __step/__label spellings are supported. The
+ * design document uses one pair and the component contract the other; a page
+ * built to either name renders correctly, which is cheaper than a class of bug
+ * that shows up as an unstyled column.
+ */
+/*
+ * The set: three triptychs, stacked. It is a separate block from .vg-triptych
+ * because the two lists mean different things — this one is "three samples",
+ * the one below is "the three stages of one sample" — and collapsing them into
+ * one name is what produced a page where the arrow between stages was drawn
+ * between samples instead.
+ *
+ * The gap is space-8, a whole band's padding, because two adjacent samples
+ * separated by the same space-6 that separates a sample's own stages would read
+ * as one nine-stage sequence.
+ */
+.vg-triptych-set {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--vg-space-8);
+}
+
+.vg-triptych-set__card {
+  min-width: 0;
+}
+
+.vg-triptych {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--vg-space-6);
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 60rem) {
+  .vg-triptych {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/*
+ * minmax(0, 1fr) above and min-width: 0 here, and both are load-bearing. A grid
+ * item defaults to min-width: auto, meaning it refuses to be narrower than its
+ * content; the longest line of the code block would then push its column wider
+ * than a third of the row and the whole page would scroll sideways. With these
+ * two, the overflow is trapped inside .vg-code__pre where it belongs.
+ */
+.vg-triptych__card,
+.vg-triptych__step {
+  min-width: 0;
+  display: grid;
+  gap: var(--vg-space-3);
+  align-content: start;
+}
+
+.vg-triptych__stage,
+.vg-triptych__label {
+  font-size: var(--vg-fs-700);
+  color: var(--vg-ink);
+  margin: 0;
+}
+
+/*
+ * The arrow between stages is drawn with `content` rather than put in the DOM.
+ * It is pure decoration — the <ol> already carries the sequence — and an arrow
+ * in the markup would be read aloud as a word between two headings.
+ */
+@media (min-width: 60rem) {
+  .vg-triptych__card + .vg-triptych__card,
+  .vg-triptych__step + .vg-triptych__step {
+    position: relative;
+  }
+
+  .vg-triptych__card + .vg-triptych__card::before,
+  .vg-triptych__step + .vg-triptych__step::before {
+    content: "\2192";
+    position: absolute;
+    top: 0.25rem;
+    left: calc(var(--vg-space-6) / -2);
+    transform: translateX(-50%);
+    color: var(--vg-ink-muted);
+  }
+}
+
+@media (max-width: 59.999rem) {
+  .vg-triptych__card + .vg-triptych__card::before,
+  .vg-triptych__step + .vg-triptych__step::before {
+    content: "\2193";
+    display: block;
+    text-align: center;
+    color: var(--vg-ink-muted);
+  }
+}
+
+/*
+ * The fixer's own registered title, under the After block. It names the edit
+ * that was made; it is not a heading, because the stage already has one and a
+ * second <h3> here would put a level in the outline that says nothing.
+ */
+.vg-triptych__fixtitle {
+  font-weight: 700;
+  font-size: var(--vg-fs-400);
+  line-height: 1.5;
+}
+
+/*
+ * The count of findings the fixer left alone — the unflattering number, in the
+ * muted ink but at the same size as everything else it sits with. Shrinking it
+ * further would be the page hiding it, which is the opposite of why it is here.
+ */
+.vg-triptych__left {
+  color: var(--vg-ink-muted);
+  font-size: var(--vg-fs-300);
+  line-height: 1.5;
+}
+
+.vg-triptych__note {
+  margin-top: var(--vg-space-6);
+  max-width: 34rem;
+  color: var(--vg-ink-muted);
+  font-size: var(--vg-fs-400);
+}
+
+/* ── Code blocks ────────────────────────────────────────────────────────────
+ *
+ * There is no syntax highlighting, and its absence is a decision rather than an
+ * omission. Ten more colours would drown the four that mean something: on the
+ * code band the only things that carry colour are the wavy underline under a
+ * finding and the `+` of an added line. Code is one colour, so those two are
+ * the only things on the block a reader's eye is pulled toward.
+ */
+.vg-code {
+  margin: 0;
+  border: 1px solid var(--vg-rule);
+  border-radius: var(--vg-radius-code);
+  overflow: hidden;
+}
+
+.vg-code__path {
+  display: flex;
+  align-items: center;
+  gap: var(--vg-space-2);
+  padding: var(--vg-space-2) var(--vg-space-3);
+  border-bottom: 1px solid var(--vg-rule);
+  font-family: var(--vg-font-mono);
+  font-size: var(--vg-fs-300);
+  line-height: 1.4;
+  color: var(--vg-ink-muted);
+}
+
+.vg-code__pre {
+  margin: 0;
+  padding: var(--vg-space-3) 0;
+  /*
+   * The one element on the site allowed to scroll horizontally. A line of code
+   * cannot be rewrapped without changing what it says, so the overflow has to
+   * go somewhere; keeping it inside this box is what lets the page itself stay
+   * put at 400% zoom.
+   */
+  overflow-x: auto;
+  font-family: var(--vg-font-mono);
+  font-size: var(--vg-fs-400);
+  /* 1.55 is the floor at which a wavy underline on one line does not touch the
+   * text of the line below it. */
+  line-height: 1.55;
+  color: var(--vg-ink);
+}
+
+.vg-code__body {
+  counter-reset: ln;
+  display: block;
+}
+
+.vg-code__body .ln {
+  display: block;
+  padding-inline: var(--vg-space-3);
+  /*
+   * `width: max-content` with `min-width: 100%` is what makes the horizontal
+   * scroll behave. A plain block line is exactly as wide as the box, so its
+   * text spills past the right edge and is clipped there: the trailing padding
+   * is lost, the left edge of an added line stops short of the longest row, and
+   * on some engines the container never learns it has anything to scroll. Sized
+   * to its content instead, each line is as wide as it needs to be, the widest
+   * one sets the scroll width, and short lines still stretch the full width so
+   * that .vg-added's rule reaches the right-hand edge.
+   */
+  width: max-content;
+  min-width: 100%;
+}
+
+/*
+ * Line numbers as a counter, not as text. Selecting the block and copying it
+ * then yields the code, without a column of digits welded to the front of every
+ * line — which is the difference between a sample someone can paste and one
+ * they have to clean up first.
+ */
+.vg-code__body .ln::before {
+  counter-increment: ln;
+  content: counter(ln);
+  display: inline-block;
+  width: 2ch;
+  margin-right: 1.5ch;
+  text-align: right;
+  color: var(--vg-ink-muted);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/*
+ * The hit marker. <mark> has a yellow background by default, and yellow is not
+ * one of the four severity colours — it would be a fifth meaning, applied by the
+ * browser. Cancelled here and replaced by an underline, which is what an editor
+ * draws and therefore what a reader already knows how to read.
+ *
+ * The underline is decoration in the strict sense: the exact location is also
+ * stated in words in the finding beside it ("at src/merge.js:2:3"), so nothing
+ * is lost if the line is not seen.
+ */
+.vg-hit {
+  background: none;
+  color: inherit;
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+  /* Without this the wave breaks around every descender and reads as a dotted
+   * line instead of a continuous one. */
+  text-decoration-skip-ink: none;
+}
+
+.vg-hit--critical {
+  text-decoration-color: var(--vg-sev-critical);
+}
+
+.vg-hit--high {
+  text-decoration-color: var(--vg-sev-high);
+}
+
+.vg-hit--medium {
+  text-decoration-color: var(--vg-sev-medium);
+}
+
+.vg-hit--low {
+  text-decoration-color: var(--vg-sev-low);
+}
+
+/*
+ * An added line is marked by a `+` and a left edge, and its background is left
+ * alone. That is forced by measurement: on the code band, the lightest green
+ * that still leaves the code itself readable is about 1.25 against the surface,
+ * which is a fill nobody can see. So the meaning is carried by the `+` — real
+ * text, deliberately not aria-hidden, because "this line was added" must not be
+ * something only a sighted reader can learn — and by the left edge, which is
+ * --vg-brand at 9.72.
+ */
+.vg-added {
+  border-left: 3px solid var(--vg-brand);
+  padding-inline-start: calc(var(--vg-space-3) - 3px);
+}
+
+.vg-added__sign {
+  color: var(--vg-brand);
+  margin-right: 0.5ch;
+}
+
+/* ── A finding ──────────────────────────────────────────────────────────────
+ *
+ * Laid out in the order the CLI prints it, in a monospace face, because the
+ * same finding seen in a terminal and on this page should be recognisably the
+ * same object.
+ *
+ * Severity is a coloured word, never a filled chip. Two reasons. The CLI colours
+ * the word rather than its background, so this matches it. And a chip is a fill,
+ * which would have to be checked against every surface it can land on — four
+ * severities times four bands times two schemes — whereas a coloured word is
+ * already covered by the token table.
+ *
+ * The word itself is always present. Colour is never the only thing saying that
+ * a finding is severe.
+ */
+.vg-finding {
+  font-family: var(--vg-font-mono);
+  font-size: var(--vg-fs-400);
+  line-height: 1.6;
+  color: var(--vg-ink);
+}
+
+.vg-finding__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75ch;
+}
+
+.vg-finding__title {
+  font-weight: 700;
+}
+
+.vg-finding__id,
+.vg-finding__conf,
+.vg-finding__at {
+  color: var(--vg-ink-muted);
+}
+
+.vg-finding__at {
+  margin-top: var(--vg-space-2);
+}
+
+.vg-finding__rem {
+  margin-top: var(--vg-space-3);
+  display: grid;
+  gap: var(--vg-space-2);
+}
+
+.vg-finding__rem dt {
+  color: var(--vg-ink-muted);
+  float: inline-start;
+  margin-right: 0.75ch;
+}
+
+.vg-finding__rem dd {
+  margin: 0;
+}
+
+/* Both spellings again: `.vg-sev` in the design document, `.vg-finding__sev` in
+ * the component contract. */
+.vg-sev,
+.vg-finding__sev {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.vg-sev--critical,
+.vg-finding__sev--critical {
+  color: var(--vg-sev-critical);
+}
+
+.vg-sev--high,
+.vg-finding__sev--high {
+  color: var(--vg-sev-high);
+}
+
+.vg-sev--medium,
+.vg-finding__sev--medium {
+  color: var(--vg-sev-medium);
+}
+
+.vg-sev--low,
+.vg-finding__sev--low {
+  color: var(--vg-sev-low);
+}
+
+/*
+ * The hero is the same finding component at display size. It is not a separate
+ * component, and that is the point of the band mechanism: one finding block,
+ * rendered large on the hero and small inside the triptych, with no second
+ * implementation to keep in step.
+ */
+.vg-finding--hero {
+  font-size: var(--vg-fs-900);
+  line-height: 1.3;
+}
+
+.vg-finding--hero .vg-finding__at,
+.vg-finding--hero .vg-finding__rem {
+  font-size: var(--vg-fs-400);
+  line-height: 1.6;
+}
+
+/* ── Tags ───────────────────────────────────────────────────────────────────
+ *
+ * `needs-review` is neutral — an outline in --vg-rule with muted text — and
+ * specifically not amber. Amber means MEDIUM. Borrowing it to mean "a human
+ * should look at this" would leave two different meanings wearing the same
+ * colour on the same page. A tag on a fixer whose safety really is `safe` may
+ * use --vg-brand.
+ */
+.vg-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.5ch;
+  border: 1px solid var(--vg-rule);
+  border-radius: var(--vg-radius-chip);
+  font-size: var(--vg-fs-300);
+  color: var(--vg-ink-muted);
+  white-space: nowrap;
+}
+
+.vg-tag--review {
+  border-color: var(--vg-rule);
+  color: var(--vg-ink-muted);
+}
+
+.vg-tag--safe {
+  border-color: var(--vg-brand);
+  color: var(--vg-brand);
+}
+
+/* ── News ───────────────────────────────────────────────────────────────────
+ *
+ * Date and one line of title, separated by a dashed rule. The rule is faint on
+ * purpose; what separates one entry from the next for a reader is the date
+ * column, not the line.
+ */
+.vg-news {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.vg-news__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--vg-space-2) var(--vg-space-4);
+  padding-block: var(--vg-space-3);
+  border-bottom: 1px dashed var(--vg-rule);
+}
+
+.vg-news__item time,
+.vg-news__date {
+  flex: none;
+  color: var(--vg-ink-muted);
+  font-size: var(--vg-fs-300);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The tag is the link, and it is the column a reader scans down after the date.
+ * Monospace, because `v0.3.5` is an identifier and reads as one next to the ISO
+ * date on its left.
+ */
+.vg-news__link {
+  flex: none;
+  font-family: var(--vg-font-mono);
+  font-weight: 700;
+}
+
+/* The release's own title, when it has one that is not just the tag again. */
+.vg-news__title {
+  color: var(--vg-ink-muted);
+  font-size: var(--vg-fs-400);
+}
+
+/*
+ * The lead paragraph on /news and the "All releases" link under the front
+ * page's four rows. The link sits below a dashed rule with no separator of its
+ * own, so it needs the space to stop reading as a fifth release.
+ */
+.vg-news__lead {
+  max-width: 46rem;
+  color: var(--vg-ink-muted);
+}
+
+.vg-news__more {
+  margin-top: var(--vg-space-5);
+  font-size: var(--vg-fs-300);
+}
+
+/* ── Channel card ───────────────────────────────────────────────────────────
+ *
+ * No background of its own. It inherits whatever band it was dropped on, which
+ * is the same property every other component here has and the reason the same
+ * card works on the install page and the front page without a variant.
+ */
+.vg-channel-card,
+.vg-picker__card {
+  display: grid;
+  gap: var(--vg-space-3);
+  align-content: start;
+  padding: var(--vg-space-5);
+  border: 1px solid var(--vg-rule);
+  border-radius: var(--vg-radius-card);
+}
+
+.vg-channel-card h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--vg-space-2);
+}
+
+/* ── Disclosure ─────────────────────────────────────────────────────────────
+ *
+ * The only expandable thing on the site, and the only kind there can be. The
+ * marker is a rotating triangle drawn in `content`; the rotation is a transform
+ * with no transition on it, so there is nothing for reduced-motion to suppress
+ * beyond what base.css already covers.
+ */
+.vg-details,
+.vg-disclosure {
+  border: 1px solid var(--vg-rule);
+  border-radius: var(--vg-radius-card);
+  padding: var(--vg-space-4) var(--vg-space-5);
+}
+
+/* Two of them stack on /install, and a collapsed <details> is a single line —
+ * without this they touch and read as one two-line control. */
+.vg-disclosure + .vg-disclosure {
+  margin-top: var(--vg-space-4);
+}
+
+.vg-details > summary,
+.vg-disclosure__summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--vg-space-2);
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.vg-details > summary::-webkit-details-marker,
+.vg-disclosure__summary::-webkit-details-marker {
+  display: none;
+}
+
+.vg-details > summary::before,
+.vg-disclosure__summary::before {
+  content: "\25B8";
+  /* inline-block, because an inline box cannot be transformed and the marker
+   * below would simply never rotate. */
+  display: inline-block;
+  color: var(--vg-ink-muted);
+}
+
+.vg-details[open] > summary::before,
+.vg-disclosure[open] > .vg-disclosure__summary::before {
+  transform: rotate(90deg);
+}
+
+.vg-details[open] > summary,
+.vg-disclosure[open] > .vg-disclosure__summary {
+  margin-bottom: var(--vg-space-3);
+}
+
+/*
+ * The opened panel. Indented to the width of the marker plus its gap, so the
+ * body lines up with the summary's text rather than with its triangle.
+ */
+.vg-disclosure__body {
+  display: grid;
+  gap: var(--vg-space-4);
+  padding-inline-start: calc(1ch + var(--vg-space-2));
+  max-width: 46rem;
+}
+
+.vg-disclosure__body ul {
+  display: grid;
+  gap: var(--vg-space-3);
+  margin: 0;
+  padding-inline-start: var(--vg-space-5);
+}
+
+/*
+ * The build-from-source block is a bare <pre> with no .vg-code frame around it
+ * — there is no file to caption and no finding to point at. It still needs the
+ * frame that tells a reader "this is something you type", so it gets one here
+ * rather than by wrapping it in markup that would imply a scanned file.
+ */
+.vg-disclosure__body .vg-code__pre {
+  padding: var(--vg-space-3);
+  border: 1px solid var(--vg-rule);
+  border-radius: var(--vg-radius-code);
+}
+
+/* ── The hero ───────────────────────────────────────────────────────────────
+ *
+ * The band is a code surface holding one real finding at display size, and the
+ * <h1> above it. Both of those want to be the biggest thing on the screen, and
+ * before this rule existed they both were: the title at --vg-fs-900 in the sans
+ * face and the finding at --vg-fs-900 in the mono face, one line apart, which a
+ * reader meets as a single run-on paragraph rather than as a claim and its
+ * evidence.
+ *
+ * The title yields. It drops to --vg-fs-700, keeps its weight, and takes a rule
+ * and a band of space underneath — so it reads as the label on the exhibit
+ * while the finding stays the exhibit. That is the order the page argues in:
+ * §5.9 puts a finding above the fold precisely so the product is judged on
+ * something it found rather than on a sentence about finding things.
+ */
+.vg-hero .vg-band__inner {
+  display: grid;
+  gap: 0;
+}
+
+.vg-hero .vg-h1 {
+  max-width: 46rem;
+  font-size: var(--vg-fs-700);
+  letter-spacing: 0;
+  margin-bottom: var(--vg-space-5);
+  padding-bottom: var(--vg-space-5);
+  border-bottom: 1px solid var(--vg-rule);
+}
+
+/*
+ * The provenance line. It names the fixture the finding came from, and it is
+ * the last thing on the band rather than the first, because a reader who is
+ * still deciding whether to believe the finding has to have read it first.
+ */
+.vg-hero__caption {
+  margin-top: var(--vg-space-6);
+  max-width: 46rem;
+  font-size: var(--vg-fs-300);
+  line-height: 1.6;
+  color: var(--vg-ink-muted);
+}
+
+/* ── The pitch band ─────────────────────────────────────────────────────────
+ *
+ * One sentence and the button, and nothing else on the band. `justify-items:
+ * start` keeps the CTA at its own width: a grid child stretches by default, and
+ * a pill button stretched to 72rem stops looking like a button at all.
+ */
+.vg-pitch .vg-band__inner {
+  display: grid;
+  justify-items: start;
+  gap: var(--vg-space-6);
+}
+
+.vg-pitch__line {
+  max-width: 46rem;
+  font-size: var(--vg-fs-700);
+  line-height: 1.6;
+}
+
+/* ── The two product screens ────────────────────────────────────────────────
+ *
+ * Five columns, split three and two. The asymmetry is inherited from the model
+ * site and given a meaning it did not have there: the wider tile is the channel
+ * /install marks "Start here", so the size of a picture states the same ranking
+ * the picker does.
+ */
+.vg-shots {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--vg-space-6);
+  align-items: start;
+}
+
+@media (min-width: 48rem) {
+  .vg-shots {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .vg-shot--lg {
+    grid-column: span 3;
+  }
+
+  .vg-shot--sm {
+    grid-column: span 2;
+  }
+}
+
+.vg-shot {
+  display: grid;
+  gap: var(--vg-space-3);
+  min-width: 0;
+  align-content: start;
+}
+
+.vg-shot__img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--vg-rule);
+  border-radius: var(--vg-radius-card);
+}
+
+/*
+ * Deliberately without a frame, a placeholder box, or an aspect ratio held
+ * open. Anything shaped like an image here would be a drawing of the product on
+ * the one page whose argument is that everything shown is real output — and the
+ * reader would have no way to tell which of the two tiles was the drawing. It
+ * is a paragraph saying there is no picture, and it looks like a paragraph.
+ */
+.vg-shot__missing {
+  max-width: 40rem;
+  font-size: var(--vg-fs-400);
+  line-height: 1.6;
+  color: var(--vg-ink-muted);
+}
+
+.vg-shot__caption {
+  font-size: var(--vg-fs-300);
+  line-height: 1.5;
+  color: var(--vg-ink-muted);
+}
+
+/* ── The channel picker ─────────────────────────────────────────────────────
+ *
+ * Four cards, one per distribution channel, and the whole card is the link. A
+ * card whose link is only its heading gives a reader four small targets and
+ * three inert paragraphs, on the one page whose entire job is to be clicked.
+ *
+ * The columns step 1 -> 2 -> 4 rather than going straight to four. At the
+ * middle width four cards are narrower than the longest channel name
+ * ("Other VS Code–based editors"), and a row of four cards that all wrap their
+ * headings differently stops being a comparison.
+ */
+.vg-picker {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--vg-space-5);
+}
+
+@media (min-width: 40rem) {
+  .vg-picker {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 64rem) {
+  .vg-picker {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/*
+ * The cell stretches and the card fills it, so the four cards are the same
+ * height whatever their copy does. Equal height is not cosmetic here: unequal
+ * cards rank the channels, and §4.1 is explicit that nothing on this page is
+ * meant to.
+ */
+.vg-picker__item {
+  display: grid;
+  min-width: 0;
+}
+
+/*
+ * The frame, the padding and the radius come from .vg-channel-card above; this
+ * is only what the card needs in order to be a link. `align-content` is not
+ * `start` here — the rows are allowed to distribute so that the channel name
+ * can be pushed to the bottom edge of every card.
+ */
+.vg-picker__card {
+  align-content: stretch;
+  grid-template-rows: auto auto 1fr;
+  color: var(--vg-ink);
+  text-decoration: none;
+}
+
+.vg-picker__card:hover {
+  border-color: var(--vg-brand);
+}
+
+.vg-picker__card:hover .vg-picker__heading {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.15em;
+}
+
+.vg-picker__heading {
+  font-size: var(--vg-fs-700);
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+/*
+ * "Start here" — the default a reader can take without deciding anything. It is
+ * a soft-filled pill in the brand family, and specifically not one of the three
+ * badges above: `Available` states a fact about a channel, `Research` states a
+ * fact about a page, and this states a recommendation, which is a third kind of
+ * thing. No new colour: --vg-brand-strong on --vg-brand-soft, the pair the CTA
+ * and the NEW tag already use.
+ */
+.vg-picker__badge {
+  justify-self: start;
+  padding: 0 1ch;
+  background: var(--vg-brand-soft);
+  color: var(--vg-brand-strong);
+  border-radius: var(--vg-radius-pill);
+  font-size: var(--vg-fs-300);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.vg-picker__what {
+  font-size: var(--vg-fs-400);
+  line-height: 1.6;
+  color: var(--vg-ink-muted);
+}
+
+/*
+ * The store the /go/ redirect lands in. Monospace and pushed to the bottom of
+ * the card, so that all four destinations line up as one column a reader can
+ * read down — which is the check that pressing a card holds no surprise.
+ */
+.vg-picker__channel {
+  align-self: end;
+  padding-top: var(--vg-space-2);
+  font-family: var(--vg-font-mono);
+  font-size: var(--vg-fs-300);
+  color: var(--vg-brand-strong);
+}
+
+.vg-picker__note {
+  margin-top: var(--vg-space-6);
+  max-width: 46rem;
+  color: var(--vg-ink-muted);
+}
+
+/* ── /rules ─────────────────────────────────────────────────────────────────
+ *
+ * Layout only, and it lives here rather than in a <style> block on the page.
+ * Astro inlines a page's scoped CSS into a <style> element in the head, and the
+ * CSP this site serves says style-src 'self' — so a scoped block renders
+ * correctly under `astro dev` and is dropped on the deployed site, which is
+ * exactly the kind of split the no-inline architecture exists to avoid. Every
+ * rule that used to be scoped to a page is in this file for that reason.
+ */
+.vg-rules__lead {
+  max-width: 46rem;
+}
+
+.vg-rules__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vg-space-5) var(--vg-space-7);
+  margin: var(--vg-space-6) 0;
+}
+
+.vg-rules__stats dt {
+  font-size: var(--vg-fs-300);
+  color: var(--vg-ink-muted);
+}
+
+.vg-rules__stats dd {
+  margin: 0;
+  font-size: var(--vg-fs-700);
+  font-family: var(--vg-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.vg-rules__note,
+.vg-rules__langs,
+.vg-rules__blurb {
+  max-width: 46rem;
+  color: var(--vg-ink-muted);
+}
+
+/*
+ * The blurb sits directly under a section heading, and .vg-h2 already carries
+ * space-6 below it for the case where a component follows. A sentence that
+ * belongs to the heading needs to be nearer than that, or the section reads as
+ * having lost its first paragraph to the gap.
+ */
+.vg-rules__blurb {
+  margin-top: calc(var(--vg-space-5) * -1);
+}
+
+/*
+ * The section index. Chips rather than a bulleted list: eight category names
+ * set as list items are eight lines of link, on a page that then repeats all
+ * eight as headings a screen further down.
+ */
+.vg-rules__toc {
+  margin-top: var(--vg-space-6);
+}
+
+.vg-rules__toc ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vg-space-2);
+}
+
+.vg-rules__toc a {
+  display: inline-block;
+  padding: var(--vg-space-1) var(--vg-space-3);
+  border: 1px solid var(--vg-rule);
+  border-radius: var(--vg-radius-pill);
+  font-size: var(--vg-fs-300);
+  text-decoration: none;
+  color: var(--vg-ink);
+}
+
+.vg-rules__toc a:hover {
+  border-color: var(--vg-brand);
+  text-decoration: underline;
+}
+
+.vg-rules__langs {
+  margin-top: var(--vg-space-5);
+  font-size: var(--vg-fs-300);
+}
+
+.vg-rules__list {
+  list-style: none;
+  padding: 0;
+  margin: var(--vg-space-6) 0 0;
+}
+
+/*
+ * One rule per row, separated by a hairline. Not cards: a hundred-odd bordered
+ * boxes is a page a reader scrolls past, whereas a ruled list is one they scan
+ * down the left edge of.
+ */
+.vg-rule {
+  padding: var(--vg-space-4) 0;
+  border-top: 1px solid var(--vg-rule);
+}
+
+.vg-rule__name {
+  margin: 0 0 var(--vg-space-2);
+  font-size: var(--vg-fs-500);
+}
+
+.vg-rule__id {
+  font-family: var(--vg-font-mono);
+  font-size: var(--vg-fs-300);
+  font-weight: 400;
+  color: var(--vg-ink-muted);
+}
+
+.vg-rule__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--vg-space-1) var(--vg-space-4);
+  margin: 0;
+  font-size: var(--vg-fs-300);
+}
+
+.vg-rule__langs {
+  color: var(--vg-ink-muted);
+}
+
+.vg-rule__cwe {
+  color: var(--vg-ink-muted);
+  font-family: var(--vg-font-mono);
+}
+
+.vg-rule__fixnote {
+  margin: var(--vg-space-2) 0 0;
+  font-size: var(--vg-fs-300);
+  color: var(--vg-ink-muted);
+}
+
+/* ── /privacy ───────────────────────────────────────────────────────────────
+ *
+ * A prose page, so almost all of this is measure. The class is on the band's
+ * inner column rather than on each paragraph: this page is the one place on the
+ * site where an unclassed <p> is the normal case, and tagging forty of them by
+ * hand is forty chances to miss one.
+ */
+.vg-privacy p,
+.vg-privacy__lead,
+.vg-privacy__fields,
+.vg-privacy__not,
+.vg-privacy__summary {
+  max-width: 46rem;
+}
+
+.vg-privacy__h3 {
+  margin-top: var(--vg-space-6);
+  margin-bottom: var(--vg-space-2);
+  font-size: var(--vg-fs-500);
+}
+
+.vg-privacy__fields,
+.vg-privacy__not {
+  display: grid;
+  gap: var(--vg-space-2);
+  padding-inline-start: var(--vg-space-6);
+}
+
+/*
+ * The summary of PRIVACY.md. Each term names the subject the sentence under it
+ * is about, which is the one thing this page cannot afford to leave to the
+ * reader — so the terms are set apart in monospace rather than merely bolded.
+ */
+.vg-privacy__summary dt {
+  margin-top: var(--vg-space-5);
+  font-family: var(--vg-font-mono);
+  font-size: var(--vg-fs-300);
+  color: var(--vg-ink-muted);
+}
+
+.vg-privacy__summary dd {
+  margin: var(--vg-space-1) 0 0;
+}
+
+.vg-privacy__contact,
+.vg-privacy__src {
+  margin-top: var(--vg-space-6);
+  font-size: var(--vg-fs-300);
+  color: var(--vg-ink-muted);
+}
+
+/* ── /research/* prose ──────────────────────────────────────────────────────
+ *
+ * The research pages are a single column of text with no components in them.
+ * The extra space above each heading is the only structure they have, and it
+ * has to be larger than the paragraph rhythm or the sections stop being
+ * visible as sections.
+ */
+.vg-research__prose {
+  max-width: 46rem;
+}
+
+.vg-research__prose .vg-h2 {
+  margin-top: var(--vg-space-7);
+  margin-bottom: var(--vg-space-4);
+}
+
+/*
+ * The first heading follows the page's <h1> rather than a paragraph, and the
+ * <h1> brings its own space with it — the full section gap on top of that reads
+ * as a hole where something failed to render.
+ */
+.vg-research__prose > .vg-h2:first-child {
+  margin-top: var(--vg-space-5);
+}

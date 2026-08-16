@@ -1,0 +1,353 @@
+---
+/**
+ * /rules — every rule VibeGuard ships, and nothing typed by hand.
+ *
+ * There is not one literal fact on this page. The rule count, the language
+ * list, the severities, the CWE identifiers and the auto-fix markers all come
+ * out of src/data/rules.json, which scripts/site-export-rules.mjs writes from
+ * `allRules` and the `fixers` registry at build time. The reason is the one in
+ * site/.gitignore: a hand-written catalogue means a rule change has to be
+ * applied in two places, one of them will lag, and nothing reports the lag. A
+ * generated page is wrong for exactly as long as its source is wrong.
+ *
+ * ── THE SHAPE THIS PAGE CONSUMES ──────────────────────────────────────────
+ *
+ * The same file the front page reads. IconGrid.astro takes each bucket's
+ * `id`/`count`, index.astro takes `totals`, and this page takes the rule lists
+ * inside the buckets. One export, three consumers, no per-page variant to keep
+ * in step.
+ *
+ *   {
+ *     "totals":  { rules, fixers, safeFixers, needsReviewFixers },
+ *     "buckets": [{ id, families, count, rules: Rule[] }],
+ *     "crossFile"?: Rule[]      // see the note on the cross-file section below
+ *   }
+ *
+ *   Rule = { ruleId, name, severity, languages: string[], cwe: string[],
+ *            hasFixer: boolean, fixerSafety: 'safe'|'needs-review'|null,
+ *            fixerTitle: string|null }
+ *
+ * `languages` and `cwe` are always arrays, empty rather than absent — the
+ * generator says why, and the difference matters here because "no CWE" and
+ * "field missing" render identically in a template and only one of them is a
+ * fact about the rule.
+ *
+ * The auto-fix marker is derived from `hasFixer`/`fixerSafety`, which the
+ * generator reads off the real registry keys. That is what makes the number of
+ * fixable rules follow the code in both directions: a fixer added or removed
+ * changes this page on the next build, with nobody remembering to look.
+ *
+ * The order, the labels and the one-line blurbs of the eight sections come from
+ * ../shared/taxonomy.ts rather than from the JSON, because the front page's
+ * circles link into these anchors and both pages have to agree on which eight
+ * there are. The generator reads the same file for the membership rules. The
+ * JSON supplies who is in which bucket; taxonomy.ts supplies the editorial
+ * frame around them.
+ */
+import ProductLayout from '../layouts/ProductLayout.astro';
+import { BUCKETS } from '../shared/taxonomy';
+import rulesData from '../data/rules.json';
+
+interface Rule {
+  ruleId: string;
+  name: string;
+  severity: string;
+  languages: string[];
+  cwe: string[];
+  hasFixer: boolean;
+  fixerSafety: 'safe' | 'needs-review' | null;
+  fixerTitle: string | null;
+}
+interface RulesData {
+  totals: { rules: number; fixers: number; safeFixers: number; needsReviewFixers: number };
+  buckets: { id: string; families: string[]; count: number; rules: Rule[] }[];
+  /**
+   * The cross-file rules, when the generator exports them. It does not today,
+   * and the section below is written so that it tells the truth either way —
+   * see the comment there.
+   */
+  crossFile?: Rule[];
+}
+
+const data = rulesData as unknown as RulesData;
+
+/**
+ * Fail the build rather than render a smaller product than the one that ships.
+ * An export that came out empty because an upstream import moved would
+ * otherwise produce a page that looks finished and lists nothing, and nobody
+ * proofreads a page for the rules that are missing from it.
+ */
+if (!Array.isArray(data.buckets) || data.buckets.length === 0) {
+  throw new Error(
+    'site/src/data/rules.json has no `buckets` array. Run scripts/site-export-rules.mjs; ' +
+      'the shape it writes is documented at the top of src/pages/rules.astro.',
+  );
+}
+
+const byId = new Map(data.buckets.map((b) => [b.id, b]));
+
+/**
+ * Every one of the eight has to be present in the export. IconGrid.astro makes
+ * the same check for the same reason: a bucket renamed in taxonomy.ts against a
+ * rules.json generated before the rename produces a category that silently
+ * reports nothing, and a reader takes that as "this tool detects none of these"
+ * rather than as a build problem.
+ */
+const missing = BUCKETS.filter((b) => !byId.has(b.id)).map((b) => b.id);
+if (missing.length > 0) {
+  throw new Error(
+    `rules.json has no bucket for: ${missing.join(', ')}. ` +
+      'Re-run scripts/site-export-rules.mjs after changing shared/taxonomy.ts.',
+  );
+}
+
+/**
+ * Severity first inside a section, then rule ID.
+ *
+ * The generator sorts by ID, which is the right order for a diff between two
+ * exports. It is the wrong order for reading: someone opening "Injection" wants
+ * to know what the worst of it is, and rule numbers carry no such signal.
+ * Re-sorting here keeps both orders available where each is useful.
+ */
+const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low'];
+const bySeverityThenId = (a: Rule, b: Rule): number => {
+  const d = SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity);
+  return d !== 0 ? d : a.ruleId.localeCompare(b.ruleId);
+};
+
+const sections = BUCKETS.map((bucket) => ({
+  id: bucket.id,
+  label: bucket.label,
+  blurb: bucket.blurb,
+  rules: [...(byId.get(bucket.id)?.rules ?? [])].sort(bySeverityThenId),
+}));
+
+const crossFile = [...(data.crossFile ?? [])].sort(bySeverityThenId);
+
+/**
+ * Counted off the rules actually rendered above, not read out of `totals` — a
+ * headline that says one thing while the list under it says another is the
+ * failure this page exists to prevent. `totals` is then used as a second
+ * opinion: it is computed by different code from the same source, so a
+ * disagreement means one of the two dropped something on the way here.
+ */
+const rendered = sections.flatMap((s) => s.rules);
+const languages = [...new Set(rendered.flatMap((r) => r.languages))].filter((l) => l !== '*').sort();
+
+if (data.totals.rules !== rendered.length) {
+  throw new Error(
+    `rules.json says there are ${data.totals.rules} rules, but the eight buckets hold ` +
+      `${rendered.length}. The front page and this page would print different numbers for the ` +
+      'same thing.',
+  );
+}
+
+/**
+ * The marker always names the safety. "auto-fix" alone reads as "this gets
+ * fixed for you", and for all but one entry in the registry that is not what
+ * happens: those fixers are declared `needs-review` because they change
+ * behaviour, and a reader has to know that before the badge means anything.
+ * Which is which comes from the registry, so this stays true as it moves.
+ */
+const fixLabel = (r: Rule): string => (r.fixerSafety === 'safe' ? 'auto-fix · safe' : 'auto-fix · needs review');
+
+/*
+ * ── NOTES ON THE WORDING BELOW ───────────────────────────────────────────
+ *
+ * These were HTML comments in the template until it turned out Astro emits
+ * those into the built page. They explain why particular sentences are
+ * phrased as they are; that reasoning belongs to whoever edits this file,
+ * not to every visitor with a View Source menu.
+ *
+ * The sentence names both halves because the page lists both halves.
+ * `allRules` is the single-file set that every channel runs; the
+ * cross-file set at the bottom runs only in the CLI and the Action. An
+ * earlier draft said "every rule VibeGuard ships" above the first number
+ * alone, which was 74 of the 85 that actually ship — the kind of claim
+ * that is wrong precisely because it sounds complete.
+ */
+---
+
+<ProductLayout
+  title="Detection rules — VibeGuard"
+  description="Every rule VibeGuard ships, generated from the rule sources at build time: severity, languages, CWE, and which rules carry an automatic fix. Includes the cross-file rules that run in the CLI and the GitHub Action."
+>
+  <section class="vg-band vg-band--base" aria-labelledby="rules-h">
+    <div class="vg-band__inner">
+      <h1 class="vg-h1" id="rules-h">
+        Detection rules <span class="vg-badge vg-badge--available">Available</span>
+      </h1>
+      <p class="vg-rules__lead">
+        Every rule VibeGuard ships — {data.totals.rules} that judge a file on its own, and
+        {data.totals.crossFileRules} more that reason across files. Generated from the rule sources at build time.
+      </p>
+
+      <dl class="vg-rules__stats">
+        <div>
+          <dt>Rules</dt>
+          <dd>{data.totals.rules}</dd>
+        </div>
+        <div>
+          <dt>Languages</dt>
+          <dd>{languages.length}</dd>
+        </div>
+        <div>
+          <dt>With an automatic fix</dt>
+          <dd>{data.totals.fixers}</dd>
+        </div>
+        <div>
+          <dt>Of those, safe to apply unread</dt>
+          <dd>{data.totals.safeFixers}</dd>
+        </div>
+      </dl>
+
+      <p class="vg-rules__note">
+        Most rules carry no automatic fix, and that is the honest state of it: {data.totals.fixers} of {
+          data.totals.rules
+        } have one, {data.totals.needsReviewFixers} of those change behaviour and are marked for review, and
+        only {data.totals.safeFixers} is declared safe to apply without reading the change. The rest of the
+        catalogue tells you where to look and why. The edit stays yours.
+      </p>
+
+      <nav class="vg-rules__toc" aria-label="Rule categories">
+        <ul>
+          {
+            sections.map((s) => (
+              <li>
+                <a href={`#${s.id}`}>{s.label}</a>
+              </li>
+            ))
+          }
+          <li><a href="#cross-file">Cross-file design smells</a></li>
+        </ul>
+      </nav>
+
+      <p class="vg-rules__langs">
+        Languages covered:{' '}
+        {
+          languages.map((l, i) => (
+            <>
+              {i > 0 ? ' ' : ''}
+              <code>{l}</code>
+            </>
+          ))
+        }
+      </p>
+    </div>
+  </section>
+
+  {
+    sections.map((section, i) => (
+      <section
+        class:list={['vg-band', i % 2 === 0 ? 'vg-band--tint' : 'vg-band--base']}
+        id={section.id}
+        aria-labelledby={`h-${section.id}`}
+      >
+        <div class="vg-band__inner">
+          <h2 class="vg-h2" id={`h-${section.id}`}>
+            <span class="vg-h2__deco" aria-hidden="true">
+              //
+            </span>
+            {section.label}
+          </h2>
+          <p class="vg-rules__blurb">{section.blurb}</p>
+
+          <ol class="vg-rules__list">
+            {section.rules.map((r) => (
+              <li class="vg-rule" id={r.ruleId.toLowerCase()}>
+                <h3 class="vg-rule__name">
+                  {r.name} <span class="vg-rule__id">{r.ruleId}</span>
+                </h3>
+
+                <p class="vg-rule__meta">
+                  {/*
+                    The severity word is always written out. Colour reinforces
+                    it and never carries it alone — a reader who cannot separate
+                    the four hues still reads CRITICAL.
+                  */}
+                  <span class:list={['vg-sev', `vg-sev--${r.severity}`]}>{r.severity.toUpperCase()}</span>
+                  <span class="vg-rule__langs">
+                    {r.languages.includes('*')
+                      ? 'any language'
+                      : r.languages.map((l, j) => (
+                          <>
+                            {j > 0 ? ' ' : ''}
+                            <code>{l}</code>
+                          </>
+                        ))}
+                  </span>
+                  {r.cwe.length > 0 && <span class="vg-rule__cwe">{r.cwe.join(' · ')}</span>}
+                  {r.hasFixer && (
+                    <span class:list={['vg-tag', r.fixerSafety === 'safe' ? 'vg-tag--safe' : 'vg-tag--review']}>
+                      {fixLabel(r)}
+                    </span>
+                  )}
+                </p>
+
+                {r.hasFixer && r.fixerTitle && <p class="vg-rule__fixnote">Fix offered: {r.fixerTitle}.</p>}
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+    ))
+  }
+
+  {/*
+    The cross-file rules get their own section, and the sentence in it is the
+    point of the section.
+
+    They need a whole-project graph, so they run in the CLI and the GitHub
+    Action and are not bundled into either extension — a boundary the packaging
+    invariants enforce rather than a packaging accident. Listed among the eight,
+    they would tell a reader that adding an editor extension gets them, and that
+    reader would have no way to find out otherwise until a scan came back short.
+
+    The generator does not export them yet, so today this section states the
+    fact and lists nothing. It deliberately does not state HOW MANY there are:
+    a number typed here would be a number nothing keeps current, which is the
+    one thing no page on this site is allowed to contain. When rules.json gains
+    a `crossFile` array the list below fills itself in.
+  */}
+  <section class="vg-band vg-band--tint" id="cross-file" aria-labelledby="h-cross-file">
+    <div class="vg-band__inner">
+      <h2 class="vg-h2" id="h-cross-file">
+        <span class="vg-h2__deco" aria-hidden="true">//</span>Cross-file design smells
+      </h2>
+      <p class="vg-rules__blurb">
+        A further set of rules reasons across files rather than within one — authorization decided in a dozen
+        handlers instead of one boundary, a generated validator that nothing ever calls, a variable an interrupt
+        writes and another file reads. These run only with <code>--include-design-smells</code>, in the CLI and the
+        GitHub Action. They are not bundled into the VS Code or Chrome extensions.
+      </p>
+
+      {
+        crossFile.length > 0 && (
+          <ol class="vg-rules__list">
+            {crossFile.map((r) => (
+              <li class="vg-rule" id={r.ruleId.toLowerCase()}>
+                <h3 class="vg-rule__name">
+                  {r.name} <span class="vg-rule__id">{r.ruleId}</span>
+                </h3>
+                <p class="vg-rule__meta">
+                  <span class:list={['vg-sev', `vg-sev--${r.severity}`]}>{r.severity.toUpperCase()}</span>
+                  <span class="vg-rule__langs">
+                    {r.languages.includes('*')
+                      ? 'any language'
+                      : r.languages.map((l, j) => (
+                          <>
+                            {j > 0 ? ' ' : ''}
+                            <code>{l}</code>
+                          </>
+                        ))}
+                  </span>
+                  {r.cwe.length > 0 && <span class="vg-rule__cwe">{r.cwe.join(' · ')}</span>}
+                </p>
+              </li>
+            ))}
+          </ol>
+        )
+      }
+    </div>
+  </section>
+</ProductLayout>

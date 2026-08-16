@@ -1,0 +1,50 @@
+---
+/**
+ * The layout for everything that describes something you can actually get:
+ * /, /install, /rules, /news, /privacy, and the 404.
+ *
+ * The counterpart is ResearchLayout, and the difference between the two files
+ * is the entire mechanism protecting the site from promising unshipped work.
+ * This one imports the header, the CTA and the version badge; that one imports
+ * none of them. The separation is checkable — `grep -rl CtaButton src/layouts/`
+ * returns this file and not the other — which is why it is a file split rather
+ * than a documented convention.
+ */
+import '../styles/tokens.css';
+import '../styles/base.css';
+import '../styles/bands.css';
+import '../styles/components.css';
+
+import SiteHeader from '../components/SiteHeader.astro';
+import FooterWithCta from '../components/FooterWithCta.astro';
+import meta from '../data/meta.json';
+
+interface Props {
+  title: string;
+  description: string;
+  /** Set false on /install, which is where the CTA already points. */
+  header?: boolean;
+}
+const { title, description, header = true } = Astro.props;
+const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : undefined;
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    {canonical && <link rel="canonical" href={canonical} />}
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+
+  <body>
+    <a class="vg-skip" href="#main">Skip to content</a>
+    {header && <SiteHeader />}
+    <main id="main">
+      <slot />
+    </main>
+    <FooterWithCta version={meta.toolVersion} />
+  </body>
+</html>

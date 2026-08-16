@@ -1,0 +1,19 @@
+{
+  "name": "vibeguard-site",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The public website for VibeGuard. Deliberately outside the root workspaces globs — see scripts/check-packaging-invariants.mjs invariant 8.",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "contrast": "node scripts/contrast.mjs"
+  },
+  "devDependencies": {
+    "astro": "^7.2.2"
+  },
+  "engines": {
+    "node": ">= 18"
+  }
+}
