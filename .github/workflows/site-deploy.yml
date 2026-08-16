@@ -140,25 +140,6 @@ jobs:
       # exists. Neither call is allowed to skip when its inputs are missing.
       - run: node scripts/site-copy-lint.mjs
 
-      # ── Worker tests ──────────────────────────────────────────────────────
-      # site/worker/index.test.ts covers the things the redirect must never get
-      # wrong: that each of the five channels answers 302 with the exact Location
-      # from links.ts, that an unlisted segment gets the 404 and never a redirect
-      # (the allowlist is what stops this being an open redirect), that no-store
-      # and noindex ride on /go/* only, and that a missing analytics binding does
-      # not throw.
-      #
-      # Run with the ROOT vitest deliberately. site/ has no test runner of its
-      # own and does not need one — adding vitest to site/package.json would put
-      # a second test framework and its tree into a project whose whole point is
-      # that its dependencies stay small and auditable.
-      #
-      # Until this step existed the suite was run by nothing: site/ is outside
-      # the root workspaces, so `npm test --workspaces` never reaches it, and
-      # `test:root` only scans scripts/. Eighteen passing tests that no pipeline
-      # executes are documentation, not a check.
-      - run: npx vitest run site/worker
-
       # ── Site build ────────────────────────────────────────────────────────
       # site/ is outside the root workspaces on purpose, so it installs and
       # builds on its own. Astro static output, no client JavaScript.
@@ -166,6 +147,34 @@ jobs:
         run: npm ci
       - working-directory: site
         run: npm run build
+
+      # ── Worker tests ──────────────────────────────────────────────────────
+      # site/worker/index.test.ts covers the things the redirect must never get
+      # wrong: that each of the five channels answers 302 with the exact Location
+      # from links.ts, that an unlisted segment gets the 404 and never a redirect
+      # (the allowlist is what stops this being an open redirect), that no-store
+      # and noindex ride on /go/* only, that HSTS follows the request's hostname,
+      # and that a missing analytics binding does not throw.
+      #
+      # Run with the ROOT vitest deliberately. site/ has no test runner of its
+      # own and does not need one — adding vitest to site/package.json would put
+      # a second test framework and its tree into a project whose whole point is
+      # that its dependencies stay small and auditable.
+      #
+      # AFTER `npm ci` in site/, and that ordering is load-bearing rather than
+      # tidy. The tests import from site/src, so vitest reads site/tsconfig.json,
+      # which extends `astro/tsconfigs/strict` — a path inside site/node_modules.
+      # Run before the install, the extends cannot resolve and the step dies with
+      # "Cannot find module 'astro/tsconfigs/strict/tsconfig.json'" before a
+      # single test is collected. That is exactly how this failed the first time:
+      # locally the directory always exists, so the ordering only matters on a
+      # clean checkout, which is to say only in CI.
+      #
+      # Until this step existed the suite was run by nothing: site/ is outside
+      # the root workspaces, so `npm test --workspaces` never reaches it, and
+      # `test:root` only scans scripts/. Passing tests that no pipeline executes
+      # are documentation, not a check.
+      - run: npx vitest run site/worker
 
       # ── Copy linter, artefact mode ────────────────────────────────────────
       # Checks the things only the built HTML can answer: that no <script> tag
