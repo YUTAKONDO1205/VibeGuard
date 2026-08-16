@@ -65,8 +65,8 @@
 // candidate.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
 import { CFG, makeFinding } from './findings.mjs';
 import { runObservation } from './invoke.mjs';
@@ -153,6 +153,356 @@ export function mustSurviveIds(policy) {
   return out;
 }
 
+// ── profile: "auto" ─────────────────────────────────────────────────────────
+//
+// `fallback.profile` used to be a level a human wrote into the policy, which is
+// a guess unless that human had measured this program at that level. `"auto"`
+// replaces the guess with a lookup: the driver reads a `vibeguard.fallback-table/1`
+// document derived from the measured configuration envelope, finds the row for
+// the property and the configuration this build is in, and uses the level that
+// row says was observed to keep the property.
+//
+// Everything below resolves `"auto"` to a concrete `-O` string BEFORE the rest
+// of this file runs, and the rest of this file is unchanged. `fb.profile` is
+// consumed as a compiler flag in a dozen places downstream — `flags.optLevels`
+// membership, the `after` observation's extra flags, the candidate build, six
+// finding strings — and letting the literal `"auto"` reach any of them would
+// put a word that is not a flag on a command line and into a record. So the
+// word is spent here and never travels.
+//
+// ── WHAT THE DRIVER MAY MATCH ON, WHICH IS LESS THAN THE TABLE RECORDS ──────
+//
+// The table's rows are keyed by a six-axis configuration: cc, freestanding,
+// lto, ndebug, opt, target. `cmdline.mjs` normalises exactly one of those six
+// into a field: `optLevels`. The other five exist on a command line only as
+// untyped tokens, and recovering them would mean inventing rules this driver
+// does not have — that a missing `-target` means the envelope's `"host"`, that
+// `-flto=thin` is the envelope's `"thin-prelink"` rather than its
+// `"thin-backend"` (the two differ by when the observation was taken, which is
+// not on the command line at all), that a `-DNDEBUG` was not later undone by a
+// `-UNDEBUG`. Each of those is a guess, and a guess here selects which measured
+// row is quoted as the reason for a decision.
+//
+// So the match is on `opt` alone, and the looseness is paid for in the other
+// direction: every row that matches must name the same level, or the run is
+// refused. A build on `host` cannot silently adopt the level measured for
+// `arm-none-eabi` unless the `arm-none-eabi` row and every other matching row
+// agree on it, in which case the level does not depend on the axis we could not
+// read.
+//
+// That argument is not the only thing holding this up. A resolved level is a
+// level to TRY. `evaluateFallback` recompiles at it and asks the observer
+// again, and a property that does not come back is `still-lost` and rejected,
+// exactly as it is for a hand-written profile. A wrong row cannot turn a lost
+// property into a passing build; it can only waste a recompile.
+
+/** The one `fallback.profile` value that is not a compiler flag. */
+export const AUTO_PROFILE = 'auto';
+
+/** The `schemaVersion` this driver knows how to read. */
+export const FALLBACK_TABLE_SCHEMA_VERSION = 'vibeguard.fallback-table/1';
+
+/**
+ * Levels `auto` is allowed to arrive at: the ones `policy.fallback.profile`
+ * admits when written by hand. `auto` picking a level a policy author could not
+ * have written would be the schema's enum meaning one thing for a human and
+ * another for a lookup.
+ */
+export const AUTO_PROFILES = Object.freeze(['-O0', '-O1']);
+
+/** The three the table contract fixes, kept apart on purpose. */
+const TABLE_RESOLUTIONS = Object.freeze(['fallback', 'no-safe-target', 'not-observed']);
+
+/**
+ * Axes of the table's configuration key that `cmdline.mjs` normalises, and so
+ * the only ones a row may be matched on. See the note above for why the list is
+ * this short.
+ */
+export const DRIVER_KNOWN_AXES = Object.freeze(['opt']);
+
+/**
+ * The level this invocation actually compiles at. Last `-O` wins, as clang does
+ * it, and no `-O` at all is `-O0`, as clang does that too.
+ */
+export function shippingOptLevel(normalised) {
+  const levels = Array.isArray(normalised?.optLevels) ? normalised.optLevels : [];
+  return levels.length > 0 ? levels[levels.length - 1] : '-O0';
+}
+
+/** This build's value for each axis the driver can read. */
+export function driverConfigAxes(normalised) {
+  return { opt: shippingOptLevel(normalised) };
+}
+
+function resolutionRecord(extra = {}) {
+  return {
+    envelopeCheck: null,
+    error: null,
+    knownAxes: [...DRIVER_KNOWN_AXES],
+    matchedOn: null,
+    profile: null,
+    rows: [],
+    source: AUTO_PROFILE,
+    table: null,
+    unmatchedAxes: [],
+    ...extra,
+  };
+}
+
+function autoReject(reason, detail, extra = {}) {
+  return { ok: false, reason, detail, record: resolutionRecord({ ...extra, error: { detail, reason } }) };
+}
+
+/** The row fields the record quotes as the reason a level was chosen. */
+function rowIdentity(row) {
+  return {
+    from: row.from ?? null,
+    profile: typeof row.profile === 'string' ? row.profile : null,
+    propertyId: row.propertyId,
+    resolution: row.resolution,
+    to: row.to ?? null,
+  };
+}
+
+/**
+ * Turn `fallback.profile: "auto"` into a concrete level, or refuse and say
+ * which of the ways it could not be done happened.
+ *
+ * The refusals are deliberately not one refusal. "There is no table" and "the
+ * table says there is nowhere safe to fall back to" are opposite situations —
+ * the first is a missing artefact and the second is a measured result — and a
+ * single `fallback-auto-failed` would send a reader to look for a file that is
+ * exactly where it should be.
+ *
+ * @returns {{ok: true, profile: string, record: object}
+ *          | {ok: false, reason: string, detail: string, record: object}}
+ */
+export function resolveAutoProfile({ tablePath, requested, normalised, root }) {
+  if (typeof tablePath !== 'string' || tablePath.length === 0) {
+    return autoReject(
+      'no-profile-table',
+      'policy.fallback.profile is "auto" and policy.fallback.profileTable names no table, so there is nothing to read a '
+      + 'level out of. "auto" means the level is measured elsewhere; with nowhere to look it is not a level at all',
+    );
+  }
+
+  const tableAbs = resolve(root, tablePath);
+  const tableRel = toRecordPath(tableAbs, root);
+
+  let text;
+  try {
+    text = readFileSync(tableAbs, 'utf8');
+  } catch (err) {
+    return autoReject(
+      'fallback-table-unreadable',
+      `the fallback table at ${tableRel} could not be read (${clip(err.code ?? err.message, 40)})`,
+    );
+  }
+
+  let table;
+  try {
+    table = JSON.parse(text);
+  } catch (err) {
+    return autoReject('fallback-table-unreadable', `the fallback table at ${tableRel} is not JSON (${clip(err.message, 60)})`);
+  }
+  const malformed = (why) => autoReject(
+    'fallback-table-unreadable',
+    `the fallback table at ${tableRel} is not a ${FALLBACK_TABLE_SCHEMA_VERSION} document: ${why}`,
+  );
+  if (!table || typeof table !== 'object' || Array.isArray(table)) return malformed('it is not a JSON object');
+  if (table.schemaVersion !== FALLBACK_TABLE_SCHEMA_VERSION) {
+    return malformed(`schemaVersion is ${clip(JSON.stringify(table.schemaVersion), 40)}`);
+  }
+  if (!Array.isArray(table.rows)) return malformed('rows is not an array');
+  const src = table.source;
+  if (!src || typeof src !== 'object' || Array.isArray(src)) return malformed('source is not an object');
+  if (typeof src.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(src.sha256)) {
+    return malformed('source.sha256 is not a sha-256 digest, so the table cannot say which envelope it came from');
+  }
+
+  const tableInfo = {
+    path: tableRel,
+    rows: table.rows.length,
+    schemaVersion: table.schemaVersion,
+    sha256: sha256File(tableAbs),
+  };
+
+  // ---- is the table still describing the envelope on disk? -----------------
+  //
+  // The envelope is a build artefact of compiler/llvm-pass and is not shipped.
+  // On a machine that has never run the sweep, the check cannot be made — and
+  // "could not check" is written down rather than passed off as "checked".
+  let envelopeCheck = 'skipped-no-envelope-path';
+  if (typeof src.path === 'string' && src.path.length > 0) {
+    const candidates = [resolve(dirname(tableAbs), src.path), resolve(root, src.path)];
+    const found = candidates.find((p) => existsSync(p) && statSync(p).isFile()) ?? null;
+    if (found === null) {
+      envelopeCheck = 'skipped-envelope-not-present';
+    } else {
+      const actual = sha256File(found);
+      if (actual !== src.sha256) {
+        return autoReject(
+          'fallback-table-stale',
+          `the fallback table at ${tableRel} was derived from an envelope digesting to ${src.sha256.slice(0, 12)}…, and the `
+          + `envelope at ${toRecordPath(found, root)} now digests to ${actual.slice(0, 12)}…. The table describes measurements `
+          + 'that are not the ones on disk, and a level chosen from it would be chosen from a superseded sweep',
+          { envelopeCheck: 'mismatch', table: tableInfo },
+        );
+      }
+      envelopeCheck = 'matched';
+    }
+  }
+
+  // ---- which rows speak about this build? ----------------------------------
+  const ours = driverConfigAxes(normalised);
+  const wanted = new Set(requested);
+  const axisKeys = new Set();
+  for (const row of table.rows) {
+    if (row && typeof row.from === 'object' && row.from !== null && !Array.isArray(row.from)) {
+      for (const k of Object.keys(row.from)) axisKeys.add(k);
+    }
+  }
+  const unmatchedAxes = [...axisKeys].filter((k) => !DRIVER_KNOWN_AXES.includes(k)).sort();
+  const common = { envelopeCheck, matchedOn: ours, table: tableInfo, unmatchedAxes };
+
+  const matched = table.rows.filter((row) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return false;
+    if (!wanted.has(row.propertyId)) return false;
+    const from = row.from;
+    if (!from || typeof from !== 'object' || Array.isArray(from)) return false;
+    return DRIVER_KNOWN_AXES.every((axis) => from[axis] === ours[axis]);
+  });
+
+  // A property with no row of its own must not ride along on another
+  // property's rows. `matched` is the union over the declared must-survive
+  // set, so without this check a policy declaring two properties where the
+  // table speaks about one of them would resolve on the strength of the one —
+  // the same substitution the table itself refuses when it insists that every
+  // subject of a property hold at the target, one level up.
+  const uncovered = [...wanted].filter((id) => !matched.some((r) => r.propertyId === id)).sort();
+  if (uncovered.length > 0 && matched.length > 0) {
+    return autoReject(
+      'fallback-property-not-in-table',
+      `the fallback table at ${tableRel} has no row for ${uncovered.join(', ')} at `
+      + `${DRIVER_KNOWN_AXES.map((a) => `${a}=${ours[a]}`).join(', ')}, and the rows it does have are about other `
+      + 'must-survive propert'
+      + `${uncovered.length === 1 ? 'ies' : 'ies'}. A level chosen for one property is not a level observed to keep `
+      + 'another, and this policy declares both',
+      { ...common, rows: matched.map(rowIdentity), uncoveredProperties: uncovered },
+    );
+  }
+
+  if (matched.length === 0) {
+    return autoReject(
+      'fallback-no-matching-row',
+      `the fallback table at ${tableRel} has ${tableInfo.rows} row(s) and none of them is about a must-survive property this `
+      + `policy declares at ${DRIVER_KNOWN_AXES.map((a) => `${a}=${ours[a]}`).join(', ')}. A table with nothing to say about this `
+      + 'configuration has not said that nothing was lost in it',
+      common,
+    );
+  }
+  const rows = matched.map(rowIdentity);
+
+  for (const row of matched) {
+    if (!TABLE_RESOLUTIONS.includes(row.resolution)) {
+      return autoReject(
+        'fallback-table-unreadable',
+        `the fallback table at ${tableRel} has a row for ${clip(row.propertyId, 60)} whose resolution is `
+        + `${clip(JSON.stringify(row.resolution), 30)}, which is not one of ${TABLE_RESOLUTIONS.join(', ')}`,
+        { ...common, rows },
+      );
+    }
+  }
+
+  // `no-safe-target` first, and not because it is worse to read. It is the
+  // stronger claim: the weaker configurations WERE measured and all of them
+  // lost the property too. Measuring more will not produce a level. Reporting
+  // `not-observed` over the top of it would send someone to run a sweep that
+  // has already been run and already answered.
+  const noSafe = matched.filter((r) => r.resolution === 'no-safe-target');
+  if (noSafe.length > 0) {
+    return autoReject(
+      'fallback-resolution-no-safe-target',
+      `the fallback table at ${tableRel} records no-safe-target for ${noSafe.map((r) => r.propertyId).join(', ')} at `
+      + `${DRIVER_KNOWN_AXES.map((a) => `${a}=${ours[a]}`).join(', ')}: every weaker configuration it measured lost the property `
+      + 'as well, so there is no level to recompile at and none is invented here',
+      { ...common, rows },
+    );
+  }
+  const notObserved = matched.filter((r) => r.resolution === 'not-observed');
+  if (notObserved.length > 0) {
+    return autoReject(
+      'fallback-resolution-not-observed',
+      `the fallback table at ${tableRel} records not-observed for ${notObserved.map((r) => r.propertyId).join(', ')} at `
+      + `${DRIVER_KNOWN_AXES.map((a) => `${a}=${ours[a]}`).join(', ')}: the weaker configurations were not all measured, so no `
+      + 'level has been observed to keep the property. That is a gap in the sweep, not a level',
+      { ...common, rows },
+    );
+  }
+
+  // ---- every matching row is a `fallback`; do they agree? ------------------
+  const levels = [...new Set(matched.map((r) => r.profile))];
+  for (const level of levels) {
+    if (typeof level !== 'string' || !AUTO_PROFILES.includes(level)) {
+      return autoReject(
+        'fallback-profile-not-permitted',
+        `the fallback table at ${tableRel} names ${clip(JSON.stringify(level), 30)} as the level to fall back to, and `
+        + `policy.fallback.profile admits only ${AUTO_PROFILES.join(', ')}. A lookup may not reach a level a policy author `
+        + 'could not have written by hand',
+        { ...common, rows },
+      );
+    }
+  }
+  for (const row of matched) {
+    const to = row.to;
+    if (!to || typeof to !== 'object' || Array.isArray(to) || to.opt !== row.profile) {
+      return autoReject(
+        'fallback-table-unreadable',
+        `the fallback table at ${tableRel} has a row for ${clip(row.propertyId, 60)} whose profile is `
+        + `${clip(JSON.stringify(row.profile), 20)} and whose to.opt is ${clip(JSON.stringify(to?.opt), 20)}; the row disagrees `
+        + 'with itself about which configuration it is recommending',
+        { ...common, rows },
+      );
+    }
+  }
+  // A row may only ask for something this recompile can actually do: change
+  // the `-O` level of one translation unit. If `to` differs from `from` on any
+  // other axis — target, lto, ndebug, freestanding — then applying the row
+  // means building something else, and the row's evidence was gathered for
+  // that something else rather than for the recompile the driver would run.
+  // The driver cannot read those axes from the command line, so it compares
+  // the row against itself instead of against the build.
+  for (const row of matched) {
+    const moved = Object.keys(row.from)
+      .filter((axis) => !DRIVER_KNOWN_AXES.includes(axis) && row.to[axis] !== row.from[axis])
+      .sort();
+    if (moved.length > 0) {
+      return autoReject(
+        'fallback-row-moves-inapplicable-axis',
+        `the fallback table at ${tableRel} has a row for ${clip(row.propertyId, 60)} whose target differs from its `
+        + `source on ${moved.join(', ')}, and this fallback recompiles one translation unit at a different -O level. `
+        + 'Its evidence was measured somewhere this recompile does not go',
+        { ...common, rows },
+      );
+    }
+  }
+  if (levels.length > 1) {
+    return autoReject(
+      'fallback-profile-disagreement',
+      `the fallback table at ${tableRel} has ${matched.length} rows matching this build and they name different levels `
+      + `(${levels.join(', ')}) for ${[...new Set(matched.map((r) => r.propertyId))].join(', ')}. One recompile happens at one `
+      + 'level, so there is no single level that carries every property the policy requires',
+      { ...common, rows },
+    );
+  }
+
+  return {
+    ok: true,
+    profile: levels[0],
+    record: resolutionRecord({ ...common, profile: levels[0], rows }),
+  };
+}
+
 /**
  * The subset of `compiler/schema/observation.schema.json` the driver reads,
  * checked rather than trusted — the same discipline `isWellFormedFinding`
@@ -237,6 +587,11 @@ function emptyRecord(fb, requested, extra) {
     granularity: GRANULARITY,
     observer: { sha256: null, supplied: false },
     profile: fb.profile,
+    // Where `profile` above came from. Without this a record showing `-O0`
+    // cannot be told apart from a policy that wrote `-O0` and a table that was
+    // consulted and answered `-O0`, and only one of those two is a measurement.
+    profileResolution: fb.profileResolution ?? null,
+    profileSource: fb.profileSource ?? null,
     properties: [],
     reason: 'ok',
     rejectIfStillLost: fb.rejectIfStillLost,
@@ -310,7 +665,15 @@ function observerCommand(path) {
 export function evaluateFallback({
   policy, normalised, compilerArgv, compiler, cwd, root, workDir, observer, env = process.env, blocked = null,
 }) {
-  const fb = readFallbackPolicy(policy);
+  const declared = readFallbackPolicy(policy);
+  // `fb` is rebound once, when `profile: "auto"` is resolved to a level. Every
+  // reader below — including the `unsupported` closure — sees the resolved
+  // value, which is the point: `"auto"` must not reach a command line.
+  let fb = {
+    ...declared,
+    profileResolution: null,
+    profileSource: declared.profile === null ? null : declared.profile === AUTO_PROFILE ? AUTO_PROFILE : 'policy',
+  };
   const requested = mustSurviveIds(policy);
   const findings = [];
   const timings = {};
@@ -375,6 +738,23 @@ export function evaluateFallback({
       + 'so there is nothing this could rescue and the enablement describes a build that was never at issue',
     );
   }
+  // `"auto"` is spent here: from this line on `fb.profile` is a compiler flag
+  // or the run has already been refused. It sits after the must-survive check
+  // so that a policy with nothing to rescue is told that, rather than being
+  // sent to look at a table that was never going to matter, and before the
+  // `no-profile` and `flags.optLevels` checks so that both judge the level that
+  // will actually be compiled at rather than the word that stood in for it.
+  if (fb.profile === AUTO_PROFILE) {
+    const auto = resolveAutoProfile({
+      normalised,
+      requested,
+      root,
+      tablePath: policy?.fallback?.profileTable,
+    });
+    fb = { ...fb, profile: auto.ok ? auto.profile : AUTO_PROFILE, profileResolution: auto.record };
+    if (!auto.ok) return unsupported(auto.reason, auto.detail);
+  }
+
   if (fb.profile === null) {
     return unsupported(
       'no-profile',
@@ -421,9 +801,11 @@ export function evaluateFallback({
   const cmd = observerCommand(observerPath);
   const unit = normalised.sources[0];
   const unitPath = toRecordPath(resolve(cwd, unit), root);
-  const shippingProfile = normalised.optLevels.length > 0
-    ? normalised.optLevels[normalised.optLevels.length - 1]
-    : '-O0';
+  // The same function `driverConfigAxes` matched the table on. Two spellings of
+  // "the level this build compiles at" could drift, and then the record would
+  // name one level as the shipping configuration while a row chosen for another
+  // was quoted as the reason for the fallback.
+  const shippingProfile = shippingOptLevel(normalised);
 
   const withObserver = (extra) => emptyRecord(fb, requested, {
     observer: { sha256: observerSha, supplied: true },

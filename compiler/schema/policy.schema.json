@@ -168,7 +168,14 @@
       "description": "Recompiling a function that lost a property, at a lower optimisation level, and checking again. Off by default: it changes what the compiler was asked to do, so it is opted into rather than applied on a checker's initiative.",
       "properties": {
         "enabled": { "type": "boolean", "default": false },
-        "profile": { "enum": ["-O0", "-O1"] },
+        "profile": {
+          "description": "Which lower level to recompile at. \"-O0\" and \"-O1\" name it here. \"auto\" declines to name it and has the driver read it out of the measured table at `profileTable` instead, so that the level comes from a configuration that was observed to keep the property rather than from a guess written into a policy file. \"auto\" without `profileTable` is refused rather than defaulted; that pairing is checked in the driver and not in this file, because the validator in compiler/driver/lib/jsonschema.mjs implements only the keywords the rest of this schema uses and refuses the rest, so a conditional written here would fail every policy that carries a fallback block.",
+          "enum": ["-O0", "-O1", "auto"]
+        },
+        "profileTable": {
+          "description": "Path to a `vgc.fallback-table/1` document, relative to this policy file. Read only when `profile` is \"auto\", and ignored otherwise. Each of its rows says which weaker configuration was measured to still hold one property that a stated configuration lost. Four things stop the run separately rather than being folded into one message, because they call for different work: the table cannot be read, the table was derived from an envelope that is no longer the one on disk, the table has no row for this build's configuration, and the table has a row that records no safe target. The level a row names is still only a level to try — the property is observed again after the recompile, and a property that does not come back is rejected as it was before.",
+          "type": "string"
+        },
         "rejectIfStillLost": { "type": "boolean", "default": true }
       }
     }
