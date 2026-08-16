@@ -937,12 +937,48 @@ if (DIST_MODE) {
       );
     }
 
+    // The site's own origin is not an off-site destination.
+    //
+    // Once SITE_ORIGIN is set, canonical and og:url become absolute — they have
+    // to be; both are defined as absolute URLs and a relative canonical is
+    // ignored. Those are self-references, and reading them as external links
+    // made this rule fail on every page the moment the site learned its own
+    // address, which is a linter punishing a build for being more correct.
+    //
+    // Matched on origin rather than on the exact strings, so it covers the
+    // canonical, og:url, and the sitemap URL in robots.txt alike, and nothing
+    // else: a link to any OTHER host is still a finding.
+    //
+    // Read out of THIS DOCUMENT'S canonical rather than out of the environment,
+    // and that choice is the point. Taking it from SITE_ORIGIN couples the
+    // linter to a variable the build may have been given and the check may not:
+    // a tree built with an origin and linted without one fails on every page,
+    // which is a difference between two shells rather than a defect in the
+    // site. That is the same shape as the three CI failures this deployment
+    // already produced, all of them invisible locally.
+    //
+    // A document's canonical is written by the layouts from Astro.site, so it
+    // IS the origin this artefact was built for, by construction. Self-exempting
+    // is not a risk worth guarding here: the canonical comes from the same build
+    // as the links being checked, so a wrong origin would make every URL on the
+    // page wrong together and visibly.
+    const ownOrigin = (() => {
+      const canonical = /<link\s[^>]*rel=["']canonical["'][^>]*href=["']([^"']+)["']/i.exec(html);
+      if (!canonical) return null;
+      try {
+        return new URL(canonical[1]).origin;
+      } catch {
+        return null;
+      }
+    })();
+
     const anchors = /\bhref\s*=\s*["']([^"']+)["']/gi;
     for (let m = anchors.exec(html); m; m = anchors.exec(html)) {
       const url = m[1];
       if (!/^https?:\/\//i.test(url)) continue;
       if (goUrls.has(url)) continue;
       if (repoPrefix && url.startsWith(repoPrefix)) continue;
+      if (ownOrigin && url.startsWith(ownOrigin)) continue;
       const line = html.slice(0, m.index).split('\n').length;
       failures.push(
         `${rel(page.file)}:${line} links to the external URL ${JSON.stringify(url)}.\n` +

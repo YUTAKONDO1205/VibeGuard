@@ -31,13 +31,14 @@ import '../styles/components.css';
 
 import ResearchBanner from '../components/ResearchBanner.astro';
 import FooterBase from '../components/FooterBase.astro';
+import { canonicalUrl } from '../shared/canonical.ts';
 
 interface Props {
   title: string;
   description: string;
 }
 const { title, description } = Astro.props;
-const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : undefined;
+const canonical = canonicalUrl(Astro.site, Astro.url.pathname);
 ---
 
 <html lang="en">

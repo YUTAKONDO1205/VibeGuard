@@ -59,6 +59,29 @@ jobs:
       github.event_name != 'workflow_run' ||
       github.event.workflow_run.conclusion == 'success'
 
+    # Where the site currently lives, as an absolute origin.
+    #
+    # Three things read it and none of them can be told at any other moment:
+    # astro.config.mjs turns it into `site`, which is what makes canonical links
+    # and sitemap.xml absolute; site/src/headers.ts and site-gen-headers.mjs use
+    # it to decide HSTS. Left unset, the build is honest but weaker — relative
+    # `<loc>` entries are invalid per the sitemap protocol and crawlers skip
+    # them, and there is no canonical at all.
+    #
+    # Set at job level rather than on the two steps that need it today, because
+    # the alternative is remembering which steps those are: this value is a
+    # property of the deployment, and every step in this job belongs to that
+    # deployment.
+    #
+    # A repository VARIABLE, not a secret: it is the public address of a public
+    # website, and putting it in secrets would only make it unreadable in logs
+    # where seeing it is how you confirm the build used the right one.
+    #
+    # Empty until the first deploy has happened, which is correct — the URL does
+    # not exist before then, and a guessed one publishes a link to nowhere.
+    env:
+      SITE_ORIGIN: ${{ vars.SITE_ORIGIN }}
+
     steps:
       - uses: actions/checkout@v7
         with:
