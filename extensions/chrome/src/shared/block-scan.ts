@@ -41,6 +41,48 @@ export interface BlockScanResult {
   unscanned?: string;
 }
 
+/**
+ * ── RULING: CHROME DOES NOT RUN THE DECLARED-PACKAGE VETO (§17z-b) ────────
+ *
+ * `ScanRequest` has a `declaredPackages` field. The CLI, the GitHub Action and
+ * the VS Code extension fill it from the project's lockfile, and VG-AISC-001
+ * findings for packages the project actually resolved are dropped as refuted.
+ * The request built below deliberately does not carry that field, and no future
+ * one should.
+ *
+ * WHY NOT. There is no lockfile here. This extension scans code blocks lifted
+ * out of a web page — a chat transcript, a tutorial, a gist — and a page is not
+ * a project: there is no `package-lock.json` on the other side of the DOM, and
+ * the snippet's "project" may not exist anywhere at all. The only way to obtain
+ * the evidence would be to ask a registry whether the name resolves, and that
+ * is the one thing this extension must never do. Its `manifest.json` requests
+ * no host permissions and its posture is zero egress: nothing about the code a
+ * user pastes or reads leaves the browser. A package-name lookup would send the
+ * exact contents of the user's snippet — the imports — to a third party, in
+ * order to suppress a finding. Trading the extension's central guarantee for a
+ * quieter report is not a trade this codebase makes.
+ *
+ * REJECTED: reading a lockfile the user pastes into the panel, or a manifest
+ * scraped from the same page. A manifest is a wish, not a receipt (see
+ * `declared-veto.ts`), and page-scraped text is attacker-controlled in the
+ * threat model the extension is written for — a page that wants a finding
+ * silenced would simply publish a lockfile-shaped block naming the package.
+ * Evidence a hostile page can author is not evidence.
+ *
+ * WHAT THIS MEANS FOR THE READER. Chrome reports supply-chain findings the CLI
+ * would have refuted, and it must say so rather than look identical to a
+ * channel that checked. It does: `ScanResponse.declaredPackageVetoes` is ABSENT
+ * on every response this channel produces, which is the schema's way of saying
+ * "the veto did not run" — distinct from `[]`, which means it ran and removed
+ * nothing. `declared-veto-ruling.test.ts` pins both halves of that, and pins
+ * that no Chrome source imports the Node-only lockfile reader.
+ *
+ * THE CONSEQUENCE IS A KNOWN FALSE-POSITIVE RATE, NOT A BUG. A near-miss name
+ * that the reader's own project has installed is still flagged here. That is
+ * the honest cost of a channel with no project to consult, and it fails in the
+ * safe direction: a visible, arguable false positive rather than a silent
+ * suppression bought with a network request.
+ */
 export interface ScanBlocksDeps {
   scan: (req: {
     targetType: 'snippet';

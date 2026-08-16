@@ -73,6 +73,12 @@ export async function exportFindings(runner: ScanRunner): Promise<void> {
   // apart, and this file is where the result stops being a session and starts
   // being evidence.
   const suppressions = runner.getAllSuppressions();
+  // The third way a finding can be absent, and the one this channel could not
+  // report at all until the declared-package veto was wired into the runner: a
+  // supply-chain finding the project's lockfile refuted. The CLI's JSON and
+  // SARIF have carried these records since 0.3.2; an editor export that dropped
+  // them would be the same document with one deletion mechanism missing.
+  const declaredPackageVetoes = runner.getAllDeclaredPackageVetoes();
   const response: ScanResponse = {
     summary: findings.length ? summarize(findings) : emptySummary(),
     findings,
@@ -81,6 +87,12 @@ export async function exportFindings(runner: ScanRunner): Promise<void> {
     generatedAt: new Date().toISOString(),
     ...(degradations.length ? { degradations } : {}),
     ...(suppressions.length ? { suppressions } : {}),
+    // Present-but-empty when the veto ran over these documents and removed
+    // nothing; absent only when no scanned document had a lockfile to check
+    // against. Same three-state contract the analyzer and `scanPath` emit.
+    ...(declaredPackageVetoes.length || runner.declaredPackageVetoRan()
+      ? { declaredPackageVetoes }
+      : {}),
   };
 
   const lower = target.fsPath.toLowerCase();
