@@ -127,6 +127,68 @@ must not stop at the first `PRESENT → LOST` transition. Stopping there reports
 a loss that a later pass undid, which is a false positive with a plausible
 story attached, and those are the expensive kind.
 
+## 3.1 Measurement status
+
+Section 3 says what the property did. This column says whether the instrument
+worked, and it is a separate question with a separate, equally fixed vocabulary.
+A cell in a configuration matrix carries both.
+
+| Status | Meaning |
+|---|---|
+| `OK` | The instrument ran and produced a reading. Whether the reading is good news is section 3's business, not this column's. |
+| `UNSUPPORTED` | The toolchain refused the invocation, so there was nothing to read. The configuration was asked for and could not be built. |
+| `BROKEN_MEASUREMENT` | The invocation was accepted and no usable reading came back: the observer never registered, or never reached its extension points, or left behind a record that no longer hashes to its own digest. |
+
+These three are the whole vocabulary. A component that needs a fourth reports
+that and it is added here first — the same rule this file opens with, and the
+reason it applies here is that three separate components already read this
+column, in two languages.
+
+### Why this is not a seventh property state
+
+Because neither of the failure words is a claim about the property. `UNSUPPORTED`
+is a claim about the compiler; `BROKEN_MEASUREMENT` is a claim about the
+observer. Section 3 opens by saying that "we did not see it" and "it is not
+there" are different claims and that merging them is how a checker starts lying.
+Adding either word to section 3's table performs that merge *inside the table
+that exists to prevent it*: every consumer that switches on a property state
+acquires two entries it must remember not to grade, and the first one that
+forgets reports an unexamined build as a clean one.
+
+Kept in its own column the pair composes instead. A cell that failed to measure
+is `state = NOT_OBSERVED` — section 3's own word for "no observation was made
+here" — with the reason in `measurement`. It is then excluded by every consumer
+that already handles section 3 correctly, without any of them being taught a new
+word, and the reason survives for a reader.
+
+### The pairing rule
+
+**A cell whose `measurement` is not `OK` must have `state` = `NOT_OBSERVED`.**
+No reading came back, so there is no property state to report, and any other
+state on such a cell is a verdict invented for a measurement that did not happen.
+For the same reason such a cell's `controlHeld` is `null` — not `false`, which
+would claim a control was run and failed — and its `completesTheCheck` is
+`false`.
+
+**The converse does not hold. `state = NOT_OBSERVED` with `measurement = OK` is
+legal**, and it is not a loophole; it is a third situation that a symmetric rule
+would erase. The instrument ran, the record hashes, the control was measured —
+and at this point there was no reading of *this* property, because the subject
+was not in the translation unit, or the observation point was never reached. An
+instrument that worked and found nothing to look at is a different fact from an
+instrument that did not work, and this file's whole argument is that facts of
+that shape are kept apart. Such a cell is ungradeable either way, so nothing
+downstream changes; what changes is what the exclusion list says happened, and a
+denominator whose removals are misdescribed is not a denominator anyone can
+check.
+
+A component that assembles a matrix writes this column on every cell. A consumer
+that receives a cell without it reads `OK`. That default is permissive in
+appearance only: on a cell that omits the column the apparatus claim is already
+being made by `controlHeld` and `completesTheCheck`, and the pairing rule means
+the cells this column would have excluded are exactly the ones those two exclude
+already.
+
 ## 4. Counting an effect — the oracle rule
 
 Never decide whether an effect is present by searching for a symbol name.

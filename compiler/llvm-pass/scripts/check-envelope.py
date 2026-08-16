@@ -53,14 +53,30 @@ ENVELOPE = os.environ.get(
     os.path.join(HERE, "..", "_results", "envelope", "envelope.json"))
 
 # The apparatus verdict, not the property state. build-envelope.py writes
-# state=NOT_OBSERVED for both of these and carries the reason in "measurement",
-# because interfaces.md section 3 fixes the property states and neither of these
-# is a claim about the property. Graded here off "measurement" for that reason.
-BROKEN = ("UNSUPPORTED", "BROKEN_MEASUREMENT")
+# state=NOT_OBSERVED for both of the failure words and carries the reason in
+# "measurement", because interfaces.md section 3 fixes the property states and
+# neither of these is a claim about the property. The three words and the rule
+# that pairs them with "state" are interfaces.md section 3.1; these are its
+# bindings, named rather than spelled at each use so that this file and
+# build-envelope.py and compiler/envelope/fragility.mjs can be checked against
+# each other and against the section.
+MEASUREMENT_OK = "OK"
+MEASUREMENT_UNSUPPORTED = "UNSUPPORTED"
+MEASUREMENT_BROKEN = "BROKEN_MEASUREMENT"
+MEASUREMENT_STATES = (MEASUREMENT_OK, MEASUREMENT_UNSUPPORTED, MEASUREMENT_BROKEN)
+STATE_NOT_OBSERVED = "NOT_OBSERVED"
+
+# The words that mean no reading came back. Derived from the vocabulary rather
+# than listed again, so a word added to section 3.1 cannot be added to the
+# vocabulary here and forgotten here.
+BROKEN = tuple(m for m in MEASUREMENT_STATES if m != MEASUREMENT_OK)
 
 
 def meas(c):
-    return c.get("measurement", "OK")
+    """interfaces.md section 3.1: a cell without the column reads OK. The other
+    two columns already carry the apparatus claim on such a cell, and the checks
+    below read those too, so the default cannot let an unmeasured cell grade."""
+    return c.get("measurement", MEASUREMENT_OK)
 
 
 def key(c):
@@ -110,6 +126,26 @@ def main():
                         "plugin builds (%s); readings from different observers cannot "
                         "be compared" % (len(shas), sorted(shas)))
 
+    # --- the two label columns say what section 3.1 says they say -------------
+    # Checked before anything reads them. Every rule below branches on `meas(c)`
+    # or on `c["state"]`, so a cell whose labels are outside the vocabulary, or
+    # whose pair is impossible, is one whose grading is meaningless rather than
+    # merely wrong -- a measurement=BROKEN_MEASUREMENT cell carrying state=PRESENT
+    # would be counted as a graded survival by the canary below.
+    for c in cells:
+        m = meas(c)
+        if m not in MEASUREMENT_STATES:
+            problems.append("%s: measurement %r is not one of interfaces.md section "
+                            "3.1's %s. An unrecognised label is refused, not bucketed: "
+                            "every rule in this file branches on it."
+                            % (c["cellId"], m, "/".join(MEASUREMENT_STATES)))
+        elif m != MEASUREMENT_OK and c["state"] != STATE_NOT_OBSERVED:
+            problems.append("%s: measurement=%s with state=%s. Section 3.1 pairs a "
+                            "cell that produced no reading with state=%s -- any other "
+                            "state here is a verdict invented for a measurement that "
+                            "did not happen."
+                            % (c["cellId"], m, c["state"], STATE_NOT_OBSERVED))
+
     # --- a declared outcome must be falsifiable in both directions ------------
     for c in cells:
         broken = meas(c) in BROKEN
@@ -123,8 +159,13 @@ def main():
             problems.append("%s: graded with no handshake; the record is invalid before "
                             "its verdict is read (%s)" % (c["cellId"], c["handshake"]))
         if not broken and c["controlHeld"] is not True:
+            # VG-INJ-001 is a false positive on the next line and the suppression
+            # is recorded rather than dodged by rewording. Its pattern is a quoted
+            # run containing FROM/INTO/UPDATE followed by a word, then `" %` — which
+            # is what a `%`-formatted English sentence ending in "from an oracle"
+            # looks like. There is no SQL in this file and no database to reach.
             problems.append("%s: the control did not hold, so this cell cannot tell a "
-                            "removed property from an oracle that stopped working"
+                            "removed property from an oracle that stopped working"  # vibeguard:disable-line VG-INJ-001
                             % c["cellId"])
 
     # --- the envelope's own positive controls ---------------------------------
@@ -132,19 +173,19 @@ def main():
     if pce1 is None:
         problems.append("pce1 (plugin absent) did not run; nothing shows an unloadable "
                         "observer is noticed")
-    elif not (meas(pce1) == "UNSUPPORTED" and pce1["rc"] == 1):
-        problems.append("pce1: state %s rc %s, expected UNSUPPORTED with rc 1" %
-                        (meas(pce1), pce1["rc"]))
+    elif not (meas(pce1) == MEASUREMENT_UNSUPPORTED and pce1["rc"] == 1):
+        problems.append("pce1: measurement %s rc %s, expected %s with rc 1" %
+                        (meas(pce1), pce1["rc"], MEASUREMENT_UNSUPPORTED))
 
     pce2 = find("erasure", "-O2", tag="pce2-observer-unregistered")
     if pce2 is None:
         problems.append("pce2 (observer unregistered) did not run; nothing shows the "
                         "silent no-observation mode is noticed")
-    elif not (meas(pce2) == "BROKEN_MEASUREMENT" and pce2["rc"] == 3):
-        problems.append("pce2: state %s rc %s, expected BROKEN_MEASUREMENT with rc 3 -- "
+    elif not (meas(pce2) == MEASUREMENT_BROKEN and pce2["rc"] == 3):
+        problems.append("pce2: measurement %s rc %s, expected %s with rc 3 -- "
                         "the compiler exits 0 in this mode, so a cell that reads clean "
                         "here is reading an unexamined build as examined" %
-                        (meas(pce2), pce2["rc"]))
+                        (meas(pce2), pce2["rc"], MEASUREMENT_BROKEN))
 
     # --- the optimisation canary ---------------------------------------------
     for opt in ("-O2", "-O3"):

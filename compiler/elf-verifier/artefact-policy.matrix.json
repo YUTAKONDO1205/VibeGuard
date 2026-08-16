@@ -1,0 +1,8 @@
+{
+  "failOn": "medium",
+  "artifact": {
+    "require": ["pie", "nx", "relro-full", "no-writable-executable-section"],
+    "forbidStrings": ["-artefact-residue-marker"],
+    "expectStrings": ["artefact-control-string-always-present"]
+  }
+}

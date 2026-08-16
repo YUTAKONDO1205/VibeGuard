@@ -15,7 +15,8 @@
     "test:root": "vitest run --dir scripts",
     "clean": "npm run clean --workspaces --if-present",
     "scan": "node apps/cli/dist/index.js",
-    "bench": "node scripts/perf-bench.mjs"
+    "bench": "node scripts/perf-bench.mjs",
+    "check:docs": "node scripts/check-doc-drift.mjs"
   },
   "devDependencies": {
     "typescript": "^5.4.5",

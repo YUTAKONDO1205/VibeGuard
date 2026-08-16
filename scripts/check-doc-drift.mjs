@@ -1,9 +1,22 @@
 #!/usr/bin/env node
 // check-doc-drift — 計画文書と実ツリーの食い違いを機械で見つける。
 //
-//   node scripts/check-doc-drift.mjs
+//   npm run check:docs
 //   node scripts/check-doc-drift.mjs --json
 //   node scripts/check-doc-drift.mjs --doc <別の md> --root <別のツリー>
+//
+// ⚠ CI に置くな。**恒久的に赤になる。**
+//
+// この検査のオラクルは計画文書だが、その文書は `.gitignore:71`（`docs/*.md`）で
+// 意図的に追跡対象外 ── つまり CI のチェックアウトには存在しない。文書が無いとき
+// この検査は exit 3（検査を完了できなかった）を返す。これは正しい振る舞いであって、
+// 「対象ゼロなので成功」と言わないための設計だが、CI では毎ラン赤になる。
+// 赤の原因が欠陥ではなく設計なら、その赤は数週間で無視されるようになり、
+// 本物の赤も一緒に無視される。だから**ゲートにせず、手で走らせる入口として置く**。
+// 走らせる相手は、この文書を実際に持っている人間とエージェント。
+//
+// 文書を追跡対象にすればゲートにできる。だがその判断は公開衛生の裁定であって、
+// この検査が単独で決めてよいことではない（文書は計画ラベルと会場名を含む）。
 //
 // WHY THIS FILE EXISTS
 //
@@ -293,14 +306,34 @@ export function extractLineRefs(docText) {
 }
 
 /** §2.14(c) 型の「`policy.X` の読み手は **0**」を、文書が自分で出した検査可能な主張として拾う。 */
+// 打ち消し線 `~~…~~` の中にある主張は、文書が**自分で撤回した**主張であって、
+// 現に述べている主張ではない。この区別が無いと、この検査は撤回を認識できず、
+// 満たす唯一の方法が「履歴の行ごと削除」になる ── それはこの文書が §2.13(e) 以来
+// 守っている「消さずに訂正を併記する」規約と正面から衝突する。
+// 検査が、記録を消すことでしか黙らないなら、その検査は記録を敵に回している。
+const STRUCK_THROUGH = /~~[^~]*~~/g;
+
+// 撤回の明示。打ち消し線を付けずに散文で「これは偽になった」と書く形も同じ扱いにする。
+// 活用語尾ではなく語幹で拾う ── 「偽になった」だけを見ていたので「偽になっていること」を
+// 取りこぼし、撤回を報告している文自身が撤回されていない主張として鳴った（2026-08-16 実測）。
+// 撤回の言い回しを網羅しようとするのは負ける勝負なので、語幹＋打ち消し線の二本立てにしてある。
+const RETRACTION_NEARBY = /(偽になっ|もはや真ではな|真でなくなっ|この記述は誤り|訂正|反証)/;
+
 export function extractZeroReaderClaims(docText) {
   const lines = docText.split(/\r?\n/);
   const re = /`(policy\.[A-Za-z0-9_.]+)`\s*の読み手は\s*\*{0,2}0\*{0,2}/g;
   const out = [];
   for (let i = 0; i < lines.length; i++) {
+    // 撤回済みの引用を落としてから走査する。行の残りに主張が残っていれば、
+    // それは撤回されていない主張なので、従来どおり検査対象。
+    const live = lines[i].replace(STRUCK_THROUGH, '');
     re.lastIndex = 0;
     let m;
-    while ((m = re.exec(lines[i]))) out.push({ docLine: i + 1, key: m[1] });
+    while ((m = re.exec(live))) {
+      // 同じ行が撤回を明言しているなら、それは主張ではなく主張への言及。
+      if (RETRACTION_NEARBY.test(lines[i])) continue;
+      out.push({ docLine: i + 1, key: m[1] });
+    }
   }
   return out;
 }
@@ -604,13 +637,28 @@ export function runDriftCheck({ root = DEFAULT_ROOT, docPath = DEFAULT_DOC } = {
             });
           }
         }
-        if (implCps.length > 0 && p.status !== 'implemented') {
+        // `partial` は「一部の checkpoint は実装済みで、残りはそうでない」という意味の語であって、
+        // 実装済み checkpoint の存在はその定義そのもの ── 矛盾ではない。旧規則はここを矛盾と読み、
+        // `notappear.forbidden-external-call`（IR では測れる／object と linked では測れない）を
+        // 恒久的に DRIFT にしていた。カタログを黙らせる方法は status を `implemented` に上げることだけで、
+        // それは「測っていない checkpoint を測ったことにする」＝このカタログが 2026-08-10 に直した誤りの再演。
+        // 検査を満たす唯一の道が過大主張なら、その検査は過大主張を要求している。
+        //
+        // 矛盾として残すのは、`partial` を名乗れない status のとき。`unimplemented` を名乗りながら
+        // 実装済み checkpoint を持つのは、部分実装の記述漏れであって、部分実装ではない。
+        const partialIsHonest =
+          p.status === 'partial' && implCps.length < observeAt.length;
+        if (implCps.length > 0 && p.status !== 'implemented' && !partialIsHonest) {
           drifts.push({
             check: '3',
             kind: 'KIND_VS_CHECKPOINT_MISMATCH',
-            detail: `\`${p.id}\` は property 側 status=${p.status} なのに checkpoint 側に implemented がある（${implCps
-              .map((o) => o.checkpoint)
-              .join(', ')}）`,
+            detail:
+              `\`${p.id}\` は property 側 status=${p.status} なのに checkpoint 側に implemented がある（${implCps
+                .map((o) => o.checkpoint)
+                .join(', ')}）` +
+              (p.status === 'partial'
+                ? ' ── partial を名乗っているが checkpoint が全て implemented なので、部分ではなく implemented'
+                : ''),
           });
         }
         if (implCps.length === 0 && p.status === 'implemented') {

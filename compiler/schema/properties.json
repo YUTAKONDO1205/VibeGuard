@@ -65,6 +65,37 @@
         "Matching is against normalised tokens. A flag delivered through an environment variable the driver could not read makes the command line unreadable, which is exit 3 by design rather than a pass.",
         "The optimisation level is read as written. A build system that rewrites -O2 into -O3 downstream of the recorded invocation is not visible here."
       ]
+    },
+
+    "artifact.hardening-fields": {
+      "component": "ArtefactPolicy",
+      "path": "compiler/elf-verifier",
+      "checkpoints": ["artifact"],
+      "counts": "Structural fields of the finished image, not lines of a tool's output: e_type together with PT_INTERP for position independence, the PF_X bit of PT_GNU_STACK for a non-executable stack, and PT_GNU_RELRO together with DT_BIND_NOW / DF_BIND_NOW for relocation-readonly. The record names the field that decided each.",
+      "whyItIsHere": "The `artifact` checkpoint had no owner, so `policy.artifact.require` was a key the schema accepted and nothing read -- a policy the build ignores while appearing to honour it. This is the reader. It is the artefact half of must-be-configured: invocation.flag-set says what was asked for, this says what was got, and a build can pass the first and fail the second.",
+      "discriminates": "Full relocation-readonly from partial. Partial is the state a build regresses into, and a boolean reading reports it as a pass. Also NOT_APPLICABLE from PRESENT: a shared object has no PT_INTERP, and its position independence is a different question rather than a satisfied one.",
+      "degradationRisk": [
+        "Four requirement names it accepts are not decided here at all -- stack-protector, fortify, no-debug-path and build-id. Each is exit 3 when a policy requires it, never a pass. Reporting an undecidable requirement as satisfied is the failure this refuses.",
+        "A static read cannot see protection a loader or a post-link tool changes at runtime.",
+        "The image must parse as ELF64 LSB. Anything else is exit 3 -- could not look -- and never exit 0."
+      ]
+    },
+
+    "artifact.section-flags": {
+      "component": "ArtefactPolicy",
+      "path": "compiler/elf-verifier",
+      "checkpoints": ["artifact"],
+      "counts": "Segments and sections whose flag bits carry write and execute at once, read from the flag words themselves.",
+      "whyItIsHere": "The one must-not-appear question in this catalogue that needs no control, because it is a structural field rather than a pattern match: there is no oracle here that can quietly stop matching. Recorded separately from artifact.hardening-fields because it answers a different kind -- what must not be there, rather than what must be configured -- and merging them would put one status on two questions.",
+      "discriminates": "A hit from a clean image, with both directions measured. A detector that has only ever fired has not been shown to stop firing.",
+      "degradationRisk": [
+        "Only the linked image is read. A relocatable object carries the flags too, so a writable-executable section introduced and dropped before link is not seen.",
+        "Flag bits are what the image states. Runtime protection changes are outside a static read."
+      ]
+    },
+
+    "_notAnExtractor.artifactByteScan": {
+      "whyThisIsNotListedAsAnExtractor": "compiler/elf-verifier scans artefact bytes for forbidden sequences against required control sequences, and that machinery works -- a control string absent from the image makes the scan BROKEN at exit 3 rather than clean, which is the whole point of requiring controls. It is NOT registered as an extractor for notappear.test-credential, notappear.internal-url, unobservable.secret-literal or unobservable.stale-credential, and the reason is a gap in the FIXTURES rather than in the code. Every fixture in the matrix that carries the control string also carries the forbidden string, so the scanner has been shown to report a hit and to refuse a broken control, and has never once been shown to report CLEAN with a live control and a forbidden string configured. Until an image exists that holds the control and not the secret, the satisfied case is unmeasured, and a status column that said otherwise would be describing code rather than measurement. Measured 2026-08-16; the fixture generator is compiler/elf-verifier/artefact-fixtures.sh."
     }
   },
 
@@ -76,14 +107,14 @@
     "object": "Partially owned. compiler/elf-verifier reads objects and linked images for the INTRODUCTION question -- what appeared that no permitted origin explains. It does not yet answer the must-not-appear or must-remain-unobservable questions, which need a forbidden-string and secret-residue extractor that does not exist.",
     "linked": "compiler/elf-verifier, same scope and same limit as object.",
     "invocation": "compiler/driver normalises the command line, including the tokens behind -Xclang, -Wl, and a response file, and checks flags.required / flags.forbidden / flags.optLevels against the policy -- and the environment override that edits the line before clang sees it. That is the must-be-configured kind, at this checkpoint, implemented.",
-    "artifact": "compiler/elf-verifier reads the finished binary structurally (Elf64_Ehdr / Elf64_Phdr / dynamic entries) rather than by parsing a tool's prose. What it does NOT do is check the hardening requirements a policy can ask for: policy.artifact.require has no consumer."
+    "artifact": "compiler/elf-verifier reads the finished binary structurally (Elf64_Ehdr / Elf64_Phdr / dynamic entries) rather than by parsing a tool's prose. Corrected 2026-08-16: this said policy.artifact.require has no consumer, and it now has one -- lib/artifact-policy.mjs decides PIE, NX, full RELRO and writable-executable sections, and artefact-require.mjs is its command line. Four of the names a policy may use are still not decided here (stack-protector, fortify, no-debug-path, build-id) and each is exit 3 when required rather than a pass, so the checkpoint is owned but not completely."
   },
 
   "kindCoverage": {
     "must-survive": "partial -- two extractors, both measured, both at IR checkpoints only",
-    "must-not-appear": "partial -- one extractor at IR checkpoints; the authoritative object and linked checkpoints have no implementation",
+    "must-not-appear": "partial -- one extractor at IR checkpoints, and one structural extractor at the linked image for the writable-executable question, measured in both directions on 2026-08-16. The string-shaped entries in this kind are still unimplemented, and the obstacle is the fixture matrix rather than the scanner: every image in it that carries the control string also carries the forbidden one, so a clean scan under a live control has never been observed. See _notAnExtractor.artifactByteScan",
     "must-originate-from": "partial -- compiler/elf-verifier classifies symbols, sections and initialisers into source-derived / generator-derived / dependency-derived / toolchain-derived / linker-generated / runtime-support, with a toolchain baseline keyed on (toolchain digest, flag set, link form) and six negative controls at Unexplained = 0. No property below is yet declared against it in this catalogue",
-    "must-be-configured": "partial -- compiler/driver checks required, forbidden and optimisation-level flags at the invocation checkpoint, and refuses to call a command line clean when an environment override made it unreadable. What is absent is the artefact half: policy.artifact.require (PIE, NX, RELRO, stack protector, FORTIFY) has no consumer",
+    "must-be-configured": "partial -- compiler/driver checks required, forbidden and optimisation-level flags at the invocation checkpoint, and refuses to call a command line clean when an environment override made it unreadable. Corrected 2026-08-16: the artefact half is no longer absent. PIE, NX and RELRO are read from the finished image, with the partial-RELRO case measured rather than collapsed into a boolean, so this kind now has both what was asked for and what was got. Stack protector and FORTIFY remain undecided here and are exit 3 when a policy requires them",
     "must-remain-unobservable": "none -- no extractor, no checkpoint, no measurement"
   },
 
@@ -352,22 +383,32 @@
       "id": "notappear.writable-executable-section",
       "kind": "must-not-appear",
       "title": "A section that is both writable and executable",
-      "extractor": null,
-      "status": "unimplemented",
-      "statusDetail": "A structural field of the finished image. Belongs to an artefact verifier that does not exist here.",
+      "extractor": "artifact.section-flags",
+      "status": "implemented",
+      "statusDetail": "Promoted 2026-08-16. The artefact verifier this entry said did not exist now does: compiler/elf-verifier/lib/artifact-policy.mjs reads the flag bits and artefact-require.mjs is its command line. Both polarities were measured on this machine against the fixture matrix, which is what `implemented` means in this file -- the wx-on image reports one hit and the VG-ART-004 finding at exit 2, and the hardened image reports zero at exit 0. A promotion on the strength of the code alone would be the error this file made before 2026-08-10 and corrected.",
       "observeAt": [
         { "checkpoint": "object", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "linked", "extractor": null, "status": "unimplemented", "component": null }
+        { "checkpoint": "linked", "extractor": "artifact.section-flags", "status": "implemented", "component": "ArtefactPolicy" }
       ],
       "oracle": {
         "counts": "sections",
-        "detail": "Would read the section and segment flags and decide from the flag bits, never from a tool's human-readable line, and record which field decided it.",
+        "detail": "Reads the section and segment flags and decides from the flag bits, never from a tool's human-readable line, and records which field decided it.",
         "unitOfCount": "the linked image",
         "requiresControl": false,
         "controlRule": "None: a structural flag has no oracle that can quietly stop working the way a pattern match can."
       },
-      "degradationRisk": ["Not applicable: there is no extractor to degrade."],
-      "evidence": null
+      "degradationRisk": [
+        "The object checkpoint is still unimplemented. A relocatable object can carry the flags too, and only the linked image is read here, so a W+X section introduced and then dropped before link is invisible to this entry.",
+        "The decision is the flag bits as the image states them. A loader or a post-link tool that changes protection at runtime is outside what a static read can see, and this entry does not claim otherwise.",
+        "The two granularities are not equally evidenced -- see evidence.granularity. The segment reading has never been produced by a real toolchain here, only by a byte writer, so a regression in it would not be caught by the fixture matrix."
+      ],
+      "evidence": {
+        "measuredOn": "2026-08-16",
+        "fixtures": ["wx-on", "hardened"],
+        "readings": "wx-on: one hit, finding VG-ART-004, exit 2. hardened: zero, exit 0. The negative is recorded beside the positive because a detector that has only ever fired has not been shown to stop.",
+        "granularity": "The wx-on hit is a SECTION (.vgwx, sh_flags = ALLOC|WRITE|EXECINSTR), not a segment: this was checked by reading the hit rather than assumed from the fixture's name. No row of the matrix carries a PT_LOAD with PF_W|PF_X, because objcopy re-flags the section after the link and the containing PT_LOAD stays RW-. The segment half of this extractor is therefore evidenced only by a synthetic image assembled byte by byte in test/synth-elf64.mjs, which shows the decider reads the field it says it reads and shows nothing about whether a toolchain emits it. Recorded because `implemented` on the strength of the fixture name would have been an over-claim about the half a real link never produced.",
+        "generator": "compiler/elf-verifier/artefact-fixtures.sh"
+      }
     },
 
     {
@@ -522,10 +563,11 @@
       "id": "configured.pie-relro-nx",
       "kind": "must-be-configured",
       "title": "The image is position independent, non-executable where it should be, and fully read-only after relocation",
-      "extractor": null,
-      "status": "unimplemented",
+      "extractor": "artifact.hardening-fields",
+      "status": "implemented",
+      "statusDetail": "Promoted 2026-08-16, and it is the artefact half this kind was missing: `configured.optimisation-level` and `configured.ndebug` read the command line, which says what was ASKED for, while this reads the finished image, which says what was GOT. All three of PIE, NX and RELRO were measured in both directions on this machine, including the partial-RELRO case, which is the one a boolean reading would silently pass.",
       "observeAt": [
-        { "checkpoint": "artifact", "extractor": null, "status": "unimplemented", "component": null }
+        { "checkpoint": "artifact", "extractor": "artifact.hardening-fields", "status": "implemented", "component": "ArtefactPolicy" }
       ],
       "oracle": {
         "counts": "structural fields of the image",
@@ -534,8 +576,17 @@
         "requiresControl": false,
         "controlRule": "None."
       },
-      "degradationRisk": ["Not applicable: there is no extractor to degrade."],
-      "evidence": null
+      "degradationRisk": [
+        "A shared object has no PT_INTERP and its position independence is not the same question as an executable's. The reading is NOT_APPLICABLE there rather than PRESENT, and a caller that treats NOT_APPLICABLE as a pass is reading it wrong.",
+        "RELRO has three readings and only one of them is full. A consumer that maps this to a boolean turns the partial case -- the one a build actually regresses into -- into a pass.",
+        "Four of the requirement names this component accepts are not decided by it at all: stack-protector, fortify, no-debug-path and build-id are exit 3 when required, never a pass. They are named here so the absence is in the catalogue rather than only in the source."
+      ],
+      "evidence": {
+        "measuredOn": "2026-08-16",
+        "fixtures": ["pie-on", "pie-off", "nx-on", "nx-off", "relro-full", "relro-part", "relro-none"],
+        "readings": "pie-on/pie-off gave PRESENT/ABSENT, nx-on/nx-off gave PRESENT/ABSENT, and relro-full/part/none gave full/partial/none. Every negative exited 2 with a finding; every positive exited 0.",
+        "generator": "compiler/elf-verifier/artefact-fixtures.sh"
+      }
     },
 
     {

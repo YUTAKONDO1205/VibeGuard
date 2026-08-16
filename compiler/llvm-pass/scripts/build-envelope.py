@@ -21,7 +21,8 @@ overwritten with a label when it fails:
   measurement=UNSUPPORTED         the toolchain refused the invocation (rc 1)
   measurement=BROKEN_MEASUREMENT  the toolchain accepted it and nothing was observed
   (both carry state=NOT_OBSERVED: interfaces.md section 3 is the property state,
-   and neither of these is a claim about the property. See the note at the else.)
+   and neither of these is a claim about the property. The measurement vocabulary
+   and the pairing rule are interfaces.md section 3.1; see the note at the else.)
 
 Neither is a hole to be filled in later by whatever the neighbouring cell said.
 
@@ -43,6 +44,22 @@ OUT_DIR = os.environ.get(
 
 SCHEMA = "ir-checkpoints-v0"
 COMPONENT = "IrCheckpoints"
+
+# The measurement vocabulary, from compiler/schema/interfaces.md section 3.1.
+# Named here rather than spelled at each use because two other components read
+# this column -- check-envelope.py grades off it, compiler/envelope/fragility.mjs
+# validates it -- and a fourth word invented at one end of that is a contract
+# change, not a local one. The section is the authority; these are its bindings.
+MEASUREMENT_OK = "OK"
+MEASUREMENT_UNSUPPORTED = "UNSUPPORTED"
+MEASUREMENT_BROKEN = "BROKEN_MEASUREMENT"
+MEASUREMENT_STATES = (MEASUREMENT_OK, MEASUREMENT_UNSUPPORTED, MEASUREMENT_BROKEN)
+
+# The property-state vocabulary, interfaces.md section 3. Verbatim, in section
+# order, because a state that arrives from a record is checked against it below.
+KNOWN_STATES = ("PRESENT", "ABSENT", "LOST", "REINTRODUCED",
+                "NOT_APPLICABLE", "NOT_OBSERVED")
+STATE_NOT_OBSERVED = "NOT_OBSERVED"
 
 
 def canonical(obj):
@@ -194,7 +211,7 @@ def build():
 
         if rec is not None and hs["ok"]:
             cell["state"] = rec["verdict"]["state"]
-            cell["measurement"] = "OK"
+            cell["measurement"] = MEASUREMENT_OK
             cell["reason"] = rec["verdict"]["reason"]
             cell["controlHeld"] = rec["control"]["held"]
             cell["completesTheCheck"] = rec["verdict"]["completesTheCheck"]
@@ -225,8 +242,14 @@ def build():
             # Nothing is lost: every consumer that excluded the old labels excludes
             # `NOT_OBSERVED` already, and the reason is now readable without
             # widening a shared vocabulary from one end of it.
-            cell["state"] = "NOT_OBSERVED"
-            cell["measurement"] = "UNSUPPORTED" if rc == 1 else "BROKEN_MEASUREMENT"
+            #
+            # That new column is not a free-form field. Its three words and the
+            # rule that pairs them with `state` are interfaces.md section 3.1,
+            # written there for the same reason section 3 is written there: a
+            # vocabulary fixed in one implementation's comments is not fixed.
+            cell["state"] = STATE_NOT_OBSERVED
+            cell["measurement"] = (MEASUREMENT_UNSUPPORTED if rc == 1
+                                   else MEASUREMENT_BROKEN)
             cell["reason"] = (b64(kv.get("stderrB64", "")).strip().split("\n") or [""])[0][:300]
             cell["controlHeld"] = None
             cell["completesTheCheck"] = False
@@ -236,7 +259,39 @@ def build():
 
         cells.append(cell)
 
-    graded = [c for c in cells if c["measurement"] == "OK"]
+    # interfaces.md section 3.1, checked on the way out. Two of the three ways
+    # this can fail are reachable from input: `state` for a graded cell is copied
+    # straight out of the record's verdict, so an observer that emits a word
+    # section 3 does not define -- including either of the measurement words,
+    # which is exactly the confusion 3.1 exists to stop -- would otherwise land it
+    # in the state column and be graded. The third, a measurement outside the
+    # vocabulary, can only come from an edit to the branches above; it is checked
+    # anyway because the cost is one comparison and the failure it catches is a
+    # silently mislabelled envelope.
+    violations = []
+    for c in cells:
+        if c["measurement"] not in MEASUREMENT_STATES:
+            violations.append(
+                "%s: measurement=%r is not one of %s"
+                % (c["cellId"], c["measurement"], "/".join(MEASUREMENT_STATES)))
+        elif c["state"] not in KNOWN_STATES:
+            violations.append(
+                "%s: state=%r is not one of the six in interfaces.md section 3 (%s)"
+                % (c["cellId"], c["state"], "/".join(KNOWN_STATES)))
+        elif c["measurement"] != MEASUREMENT_OK and c["state"] != STATE_NOT_OBSERVED:
+            violations.append(
+                "%s: measurement=%s with state=%s; a cell that produced no reading "
+                "has no property state to report, so section 3.1 pairs it with %s"
+                % (c["cellId"], c["measurement"], c["state"], STATE_NOT_OBSERVED))
+    if violations:
+        print("interfaces.md section 3.1 is not satisfied by %d cell(s); refusing to "
+              "write an envelope whose labels cannot be read:" % len(violations),
+              file=sys.stderr)
+        for v in violations:
+            print("  " + v, file=sys.stderr)
+        return None
+
+    graded = [c for c in cells if c["measurement"] == MEASUREMENT_OK]
     env = {
         "schemaVersion": "security-configuration-envelope-v0",
         "component": "IrCheckpoints",
@@ -250,8 +305,10 @@ def build():
         "counts": {
             "cells": len(cells),
             "graded": len(graded),
-            "unsupported": sum(1 for c in cells if c["measurement"] == "UNSUPPORTED"),
-            "brokenMeasurement": sum(1 for c in cells if c["measurement"] == "BROKEN_MEASUREMENT"),
+            "unsupported": sum(1 for c in cells
+                               if c["measurement"] == MEASUREMENT_UNSUPPORTED),
+            "brokenMeasurement": sum(1 for c in cells
+                                     if c["measurement"] == MEASUREMENT_BROKEN),
             "handshakeOk": sum(1 for c in cells if c["handshake"]["ok"]),
         },
         # Split, because "absent" turns up here legitimately: one positive

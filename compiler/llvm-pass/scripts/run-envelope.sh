@@ -12,6 +12,16 @@
 #          check-envelope.py grades it, so the thing that produces the number is
 #          not the thing that grades it.
 #
+# This script is one stage of four and leaves cells, not a result. To get from
+# cells to the fragility score in one go, run the driver instead:
+#
+#   node compiler/envelope/envelope-pipeline.mjs
+#
+# It runs this file, then build-envelope.py, then check-envelope.py, then
+# compiler/envelope/fragility.mjs, stopping at the first non-zero. The grading
+# and the scoring stay outside this file for the reason above; the driver only
+# decides the order and what to do with the exit codes.
+#
 # Why a second lab rather than more cells in run-matrix.sh: the optimisation
 # matrix is a graded artefact with a published expectation for every cell, and a
 # sweep that writes into its records directory can only make that grade less
@@ -198,4 +208,8 @@ cell erasure -O2 0 none host 0 pce2-observer-unregistered \
 
 echo
 echo "cells written to ${LAB#"$HOME/"}/cells"
+# Said out loud because a sweep that ends here has measured everything and
+# concluded nothing, and the run's last line is where that is easiest to miss.
+echo "cells only -- not assembled, not graded, not scored."
+echo "run 'node compiler/envelope/envelope-pipeline.mjs' to go all the way to the score."
 exit $fail

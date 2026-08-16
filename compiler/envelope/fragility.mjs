@@ -65,6 +65,43 @@ export const KNOWN_STATES = Object.freeze([
   'NOT_OBSERVED',
 ]);
 
+/** interfaces.md section 3.1 pairs this state with every non-OK measurement. */
+export const STATE_NOT_OBSERVED = 'NOT_OBSERVED';
+
+/**
+ * The measurement vocabulary, from interfaces.md section 3.1 — a claim about
+ * the apparatus, in its own column because it is not a claim about the property.
+ *
+ * Three words, and the section rather than this file is where they are fixed:
+ * the envelope assembler and its checker in compiler/llvm-pass/scripts/ bind the
+ * same three, and a vocabulary that lives only in the implementations that use
+ * it is a vocabulary any one of them can widen alone. That is the failure mode
+ * section 3 was written to prevent for property states, reappearing one column
+ * across.
+ */
+export const MEASUREMENT_OK = 'OK';
+export const MEASUREMENT_UNSUPPORTED = 'UNSUPPORTED';
+export const MEASUREMENT_BROKEN = 'BROKEN_MEASUREMENT';
+export const KNOWN_MEASUREMENTS = Object.freeze([
+  MEASUREMENT_OK,
+  MEASUREMENT_UNSUPPORTED,
+  MEASUREMENT_BROKEN,
+]);
+
+/**
+ * interfaces.md section 3.1: a cell without the column reads OK. Safe rather
+ * than permissive, and the reason is the pairing rule — a cell whose apparatus
+ * failed has `controlHeld: null` and `completesTheCheck: false`, both of which
+ * this module already excludes on, so the column is not what keeps such a cell
+ * out of the denominator. It is what lets the exclusion list say which of the
+ * two things went wrong. The adapter in this directory emits cells without it,
+ * because a record it could parse is by construction a measurement that ran.
+ */
+export const DEFAULT_MEASUREMENT = MEASUREMENT_OK;
+
+/** The measurement a cell is read under, defaulting explicitly. */
+export const measurementOf = (cell) => cell.measurement ?? DEFAULT_MEASUREMENT;
+
 /**
  * Which way round a property's states read.
  *
@@ -112,12 +149,20 @@ const POLARITY_TABLE = Object.freeze({
 const polarityOf = (cell) => cell.polarity ?? DEFAULT_POLARITY;
 
 /**
- * State labels a neighbouring component emits that interfaces.md section 3 does
- * not define. Listed only so the refusal can name the conflict; they are NOT
- * accepted. Measured against that component's envelope output: 16 of its 74
- * cells carry one of these, and the same 16 carry `controlHeld: null`.
+ * The two measurement words that are not `OK`, in their capacity as things that
+ * must never appear in the STATE column. Derived from the vocabulary rather than
+ * listed again, so the two lists cannot drift apart here.
+ *
+ * They are named at all because an envelope assembled before section 3.1 existed
+ * put them in `state`, and a refusal that just says "not one of the six" leaves
+ * the reader of an old file guessing. They are still not accepted: section 3.1
+ * pairs them with `NOT_OBSERVED` in `state` and carries the word itself in
+ * `measurement`, and mapping them here instead of refusing would be this module
+ * quietly widening a shared vocabulary from one end.
  */
-const UNJOINED_NEIGHBOUR_STATES = Object.freeze(['BROKEN_MEASUREMENT', 'UNSUPPORTED']);
+const UNJOINED_NEIGHBOUR_STATES = Object.freeze(
+  KNOWN_MEASUREMENTS.filter((m) => m !== MEASUREMENT_OK),
+);
 
 /**
  * Why a cell was removed from the denominator. Every exclusion carries one of
@@ -223,15 +268,40 @@ function validateCell(cell, index) {
         `interfaces.md section 3 (${KNOWN_STATES.join(', ')}). An unrecognised state is not ` +
         `bucketed as surviving — a vocabulary drift would silently lower every score.` +
         (UNJOINED_NEIGHBOUR_STATES.includes(cell.state)
-          ? `\n\n  This label is one the envelope assembler in compiler/llvm-pass/scripts/ ` +
-            `writes for a cell that produced no usable reading. Both of its labels describe ` +
-            `cells this module would exclude from the denominator anyway, so the two components ` +
-            `agree on the substance and differ only on the vocabulary — but interfaces.md ` +
-            `section 3 is the shared list, and a component does not quietly widen it on its own ` +
-            `(section 0: "If a component needs a shape that is not here, it reports that and the ` +
-            `shape is added here first"). Reported rather than mapped.`
+          ? `\n\n  This is a measurement label the envelope assembler in ` +
+            `compiler/llvm-pass/scripts/ writes (interfaces.md section 3.1), not a property ` +
+            `state, and it is in the wrong column. Section 3.1 splits the two on purpose: this ` +
+            `cell's state is ${JSON.stringify(STATE_NOT_OBSERVED)} — no reading came back, so ` +
+            `there is no property state to report — and the word ${JSON.stringify(cell.state)} ` +
+            `belongs in \`measurement\`, where this module reads it. Reported rather than ` +
+            `mapped: a producer on the pre-3.1 format is one whose other columns cannot be ` +
+            `trusted to mean what 3.1 says they mean either.`
           : ''),
     );
+  }
+  // interfaces.md section 3.1. Absent is read as OK — see DEFAULT_MEASUREMENT
+  // for why that is not the permissive reading — but a column that IS present
+  // and says something else is refused rather than ignored.
+  if (cell.measurement !== undefined) {
+    if (!KNOWN_MEASUREMENTS.includes(cell.measurement)) {
+      throw new FragilityInputError(
+        `${where}.measurement is ${JSON.stringify(cell.measurement)}, which is not one of the ` +
+          `three in interfaces.md section 3.1 (${KNOWN_MEASUREMENTS.join(', ')}). The apparatus ` +
+          `vocabulary is fixed in that section for the same reason the property states are ` +
+          `fixed in section 3: an unrecognised label cannot be graded and must not be guessed at.`,
+      );
+    }
+    if (cell.measurement !== MEASUREMENT_OK && cell.state !== STATE_NOT_OBSERVED) {
+      throw new FragilityInputError(
+        `${where} has measurement ${JSON.stringify(cell.measurement)} with state ` +
+          `${JSON.stringify(cell.state)}. Section 3.1 pairs a cell that produced no reading with ` +
+          `state ${JSON.stringify(STATE_NOT_OBSERVED)}: no reading came back, so there is no ` +
+          `property state to report, and ${JSON.stringify(cell.state)} here is a verdict ` +
+          `invented for a measurement that did not happen. Refused rather than downgraded — ` +
+          `a cell this module silently rewrote would be one whose producer never learns it is ` +
+          `emitting a verdict it did not measure.`,
+      );
+    }
   }
   // `null` is allowed for exactly one cell shape: one already declared
   // NOT_OBSERVED. Such a cell is excluded from the denominator on its state
@@ -243,7 +313,7 @@ function validateCell(cell, index) {
   //
   // For every other state the rule is unchanged and deliberately unforgiving:
   // a cell that could be counted must say what its control did.
-  const nullAllowed = cell.state === 'NOT_OBSERVED';
+  const nullAllowed = cell.state === STATE_NOT_OBSERVED;
   for (const field of ['controlHeld', 'completesTheCheck']) {
     const v = cell[field];
     if (typeof v === 'boolean') continue;
@@ -308,7 +378,7 @@ export function classifyCell(cell) {
   // of the 20 removals in the first real envelope this ran on. It is
   // interfaces.md section 3's "we did not see it" versus "it is not there",
   // reappearing one layer out from where section 3 guards it.
-  if (cell.state === 'NOT_OBSERVED' && cell.controlHeld === null) {
+  if (cell.state === STATE_NOT_OBSERVED && cell.controlHeld === null) {
     return { eligible: false, reason: EXCLUSION_REASONS.NOT_OBSERVED };
   }
   if (cell.controlHeld !== true) {
