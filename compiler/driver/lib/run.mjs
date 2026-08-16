@@ -15,6 +15,7 @@ import { resolve } from 'node:path';
 import { splitDriverArgs, expandResponseFiles, normalise } from './cmdline.mjs';
 import { loadEvidenceModule } from './evidence-binding.mjs';
 import { EXIT_OK, EXIT_TOOL_FAILED, EXIT_FINDINGS, EXIT_INCOMPLETE, EXIT_INTEGRITY } from './exit.mjs';
+import { evaluateFallback, readFallbackPolicy } from './fallback.mjs';
 import { CFG, atOrAboveThreshold, isWellFormedFinding, makeFinding, normaliseFinding } from './findings.mjs';
 import { checkFlags } from './flags.mjs';
 import { parsePipeline, runObservation, runShipping } from './invoke.mjs';
@@ -242,6 +243,11 @@ export async function run({
   const labDir = outDir ? resolve(outDir, 'work', 'plugin-integrity') : null;
   if (labDir) mkdirSync(labDir, { recursive: true });
 
+  // Declared here rather than beside the build because §5b writes into it too.
+  // Everything in it is a duration, and durations live in `context`, which is
+  // removed before the record is digested.
+  const timings = {};
+
   let plugin = { findings: [], pipeline: null, pipelineAvailable: null, complete: false };
   let pluginError = null;
   if (integrityFailure) {
@@ -300,9 +306,46 @@ export async function run({
     }));
   }
 
+  // ---- 5b. Security-preserving fallback (policy.fallback; opt-in). ---------
+  //
+  // Entered only when the policy carries a `fallback` block. A policy that does
+  // not mention it never reaches this code and gets no `checks.fallback` key, so
+  // its record is what it was before this step existed — the opt-in cannot move
+  // the default path by a single byte.
+  //
+  // It sits here, after the plugin check and before the exit decision, for two
+  // reasons. It spawns the compiler, so it must not run before the checks that
+  // decide whether this toolchain may be spawned at all. And it produces
+  // findings that the threshold then judges, so it must run before §6.
+  const fallbackPolicy = readFallbackPolicy(policy);
+  let fallbackResult = null;
+  if (fallbackPolicy.configured) {
+    fallbackResult = evaluateFallback({
+      policy,
+      normalised,
+      compilerArgv,
+      compiler: compilerPath,
+      cwd,
+      root,
+      workDir: outDir ? resolve(outDir, 'work', 'driver-fallback') : null,
+      observer: own.observer,
+      env,
+      blocked: integrityFailure ? 'toolchain-or-policy-integrity'
+        : !properties.complete ? 'policy-properties-unanswerable'
+          : atOrAboveThreshold([...driverFindings, ...peerFindings], policy.failOn).length > 0
+            ? 'findings-at-threshold'
+            : null,
+    });
+    driverFindings.push(...fallbackResult.findings);
+    Object.assign(timings, fallbackResult.timings);
+    if (own.verbose || fallbackResult.record.status !== 'disabled') {
+      say(stderr, `fallback ${fallbackResult.record.status}/${fallbackResult.record.verdict} —${fallbackResult.record.claim}`);
+    }
+  }
+
   const findings = [...driverFindings, ...peerFindings];
   const complete = plugin.complete && normalisationComplete && flagResult.complete !== false
-    && properties.complete && pinVersionsComplete;
+    && properties.complete && pinVersionsComplete && (fallbackResult ? fallbackResult.complete : true);
   const overThreshold = atOrAboveThreshold(findings, policy.failOn);
 
   // ---- 6. Decide whether to compile at all. --------------------------------
@@ -353,7 +396,6 @@ export async function run({
   let shipping = null;
   let observation = null;
   let artifacts = [];
-  const timings = {};
 
   if (exitCode === null) {
     const res = runShipping({ compiler: compilerPath, argv: compilerArgv, cwd, env });
@@ -445,6 +487,11 @@ export async function run({
       pinStatus: pinLoadError ? `unreadable:${pinLoadError.reason}` : pinVerification.status,
     },
     checks: {
+      // Spread, not a `fallback: null`. A policy with no `fallback` block must
+      // produce the record it produced before this feature existed, and a key
+      // holding null is still a key: it changes the canonical text and therefore
+      // the digest of every build in the world that never asked for this.
+      ...(fallbackResult ? { fallback: fallbackResult.record } : {}),
       flags: flagResult.detail,
       pluginIntegrity: {
         complete: plugin.complete,

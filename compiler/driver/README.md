@@ -66,6 +66,9 @@ before another component here adds a `bin/`.
 5. **Plugin integrity.** `checkPlugins` from `plugin-integrity/integrity.mjs`,
    a static import. If that module is missing the driver refuses to start and
    exits 3 rather than running an unchecked build.
+5b. **Security-preserving fallback**, and only when `policy.fallback` is
+   present. See the section below. A policy that does not mention it never
+   reaches this step and its record does not grow a `checks.fallback` key.
 6. **Compile.** clang-18 / clang++-18, with the caller's argv. stdout and
    stderr are inherited, so diagnostics arrive unchanged and in order.
 7. **Evidence.** Canonicalised and digested by `compiler/evidence/`. The driver
@@ -208,6 +211,95 @@ JSON pointer, and again by `compiler/evidence/`'s own
 `assertNoAbsolutePaths`. Either gate tripping means no file is written and the
 run does not report clean.
 
+## `policy.fallback` — the security-preserving fallback
+
+`policy.schema.json` has carried a `fallback` block since the schema was
+written, and nothing in `compiler/` read it. It now has one reader, here.
+The intent, from the schema: recompile what lost a property at an approved lower
+optimisation level, check again, and either offer the result as a candidate or
+refuse the build.
+
+**Off by default and opted into per policy.** A policy with no `fallback` block
+never enters this step. This is not a research claim — `-fno-builtin-memset`,
+`volatile`, and `memset_s` all exist — it is an operational feature.
+
+### Where "lost" comes from
+
+The driver does not decide `must-survive` for itself. The implemented extractors
+for that kind are `ir.wipe-effect` and `ir.guarded-call`
+(`compiler/schema/properties.json`), and both live in the C++ pass in
+`compiler/llvm-pass/`, reachable only by loading a pass plugin into the
+compilation — which the non-invasiveness rules above forbid folding into a
+shipping build. A third JavaScript re-implementation of the counting rule inside
+the driver would be a second definition of a measurement that already has one
+home, the mistake `evidence-binding.mjs` refuses to make for canonicalisation.
+
+So the verdict is **read, not derived**:
+
+1. the driver emits textual IR for the invocation as the caller configured it,
+   in a separate observation build the caller never sees;
+2. it hands that IR to the observer named by `--vg-observer` and reads back the
+   subset of `compiler/schema/observation.schema.json` it needs —
+   `properties[].{id, kind, control, historyComplete, finalState}`;
+3. if a declared `must-survive` property is not `PRESENT`, it recompiles at
+   `fallback.profile` and asks **the same observer** again.
+
+One observer for both readings is the point: a "before" from one oracle and an
+"after" from another is not a comparison, and the difference between them would
+be blamed on the recompile.
+
+With `fallback.enabled: true` and no observer, the honest answer is not "nothing
+was lost" — it is that the question was never put. That is `VG-CFG-022`,
+`checks.fallback.status: "unsupported"`, and `complete: false`.
+
+The observer contract, in full:
+
+```
+<observer> --profile <-O0|-O1|…> --unit <source> --ir <path to textual IR>
+```
+
+stdout is the record. A `.mjs`/`.cjs`/`.js` path is run with the node already
+running; anything else is executed directly. A reading is refused, rather than
+quoted, unless `historyComplete` is true **and** the entry's own `control` is
+`PRESENT`: a measurement whose control did not survive has disowned itself.
+`compiler/driver/test/observer-fixture.mjs` is a working one in 90 lines.
+
+### Granularity is the translation unit, and the record says so
+
+The schema's prose says "recompiling a function". A function is not something a
+compiler driver can recompile: clang takes translation units and there is no
+supported way to ask it for one function of one TU at another optimisation
+level. Every record says `granularity: "translation-unit"`, and an invocation
+with more than one source is **refused** (`multi-source-invocation`) rather than
+rebuilt wholesale and described as the unit that lost the property.
+
+### What it can and cannot do to an exit code
+
+| outcome | `VG-CFG-020` | also | candidate |
+|---|---|---|---|
+| property `PRESENT` at the shipping level | — | — | — |
+| lost, restored by the recompile | `high` | — | recorded, with digest and byte count |
+| lost, still lost after the recompile | `critical` | `VG-CFG-021` at `critical`, or `high` with `rejectIfStillLost: false` | **none** |
+| enabled and unable to run | — | `VG-CFG-022` at `high`, `complete: false` | — |
+
+`critical` is the top of the severity ladder, so a still-lost property is at or
+above every legal `failOn` and is exit 2 under all of them. **There is no
+setting of `fallback` that turns a lost `must-survive` property into a pass**,
+and `rejectIfStillLost: false` is not one either — it lowers `VG-CFG-021` by one
+rung, recording that the policy chose not to treat the failed rescue as its own
+separate refusal, and leaves `VG-CFG-020` where it is.
+
+A policy that wants the candidate workflow sets `failOn: critical`, under which
+the restored case (`high`) is exit 0 with the warning and the candidate both in
+the record, and the still-lost case is still exit 2. The caller's own artefact is
+always the one their command line asked for; the candidate is a separate file in
+`<evidence.out>/work/driver-fallback/`, and the finding says so.
+
+`fallback.profile` must appear in `flags.optLevels` when that list is
+non-empty. Recompiling at a level the policy has never been evaluated at is the
+complaint `VG-CFG-003` exists to make, and doing it as a *remedy* would make
+that check meaningless.
+
 ## Driver-owned flags
 
 Consumed by the driver, never forwarded to clang.
@@ -216,6 +308,7 @@ Consumed by the driver, never forwarded to clang.
 |---|---|
 | `--policy <path>` | use this policy instead of searching upward |
 | `--vg-clang <path>` | run this compiler instead of the pinned or `PATH` one |
+| `--vg-observer <path>` | the property observer `policy.fallback` needs. Ignored unless the policy enables fallback; on its own it changes nothing, which the test suite checks by digest |
 | `--vg-observe-pipeline` | additionally run a separate observation build; the shipped artefact is unaffected |
 | `--vg-verbose` | name the evidence record on stderr |
 | `--vg-print-normalised` | dump the normalisation to stderr and carry on |
@@ -232,11 +325,18 @@ node --test compiler/driver/test/*.test.mjs
 Pass a glob, not the directory: on some Node builds here a bare directory
 argument throws `MODULE_NOT_FOUND` before a single test runs.
 
-139 tests, no skips on a machine with clang-18 and a POSIX shell. The live ones
+184 tests, no skips on a machine with clang-18 and a POSIX shell. The live ones
 skip with a printed reason elsewhere. One of them exists only to check that
 they are running at all: `node:test` in Node 18 skips on `{ skip: null }` — the
 check is for the property being *present*, not for it being truthy — and this
 suite once reported green with all 26 live tests silently skipped.
+
+`fallback-e2e.test.mjs` opens with a measurement rather than an assertion about
+the driver: plain clang-18 on `guard.c` reports the `@vg_authorize` call site as
+1 at `-O0`, 0 at `-O1` and 0 at `-O2`, with the `noinline` control at 1
+throughout. The restored control and the reject control in that file differ only
+in `fallback.profile`, so both rest on a difference that has been shown to
+exist rather than on a mock that agrees with whatever it is asked.
 
 ## Checking policies without compiling
 

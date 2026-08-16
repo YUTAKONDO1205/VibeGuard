@@ -338,6 +338,9 @@ export function expectedArtifacts({ action, output, sources }) {
 export const DRIVER_FLAGS = {
   '--policy': 1,
   '--vg-clang': 1,
+  // The property observer `policy.fallback` needs. Consumed only when the policy
+  // enables fallback; on its own it changes nothing. See lib/fallback.mjs.
+  '--vg-observer': 1,
   '--vg-observe-pipeline': 0,
   '--vg-verbose': 0,
   '--vg-print-normalised': 0,
@@ -350,7 +353,9 @@ export const DRIVER_FLAGS = {
  * caller wrote.
  */
 export function splitDriverArgs(argv) {
-  const own = { policy: null, clang: null, observePipeline: false, verbose: false, printNormalised: false };
+  const own = {
+    policy: null, clang: null, observer: null, observePipeline: false, verbose: false, printNormalised: false,
+  };
   const compilerArgv = [];
   const errors = [];
   // Everything after a bare `--` belongs to the compiler, including tokens that
@@ -382,6 +387,7 @@ export function splitDriverArgs(argv) {
     if (!Object.prototype.hasOwnProperty.call(DRIVER_FLAGS, tok)) {
       if (tok.startsWith('--policy=')) { own.policy = tok.slice('--policy='.length); continue; }
       if (tok.startsWith('--vg-clang=')) { own.clang = tok.slice('--vg-clang='.length); continue; }
+      if (tok.startsWith('--vg-observer=')) { own.observer = tok.slice('--vg-observer='.length); continue; }
       compilerArgv.push(tok);
       continue;
     }
@@ -392,6 +398,7 @@ export function splitDriverArgs(argv) {
       i += 1;
       if (tok === '--policy') own.policy = value;
       if (tok === '--vg-clang') own.clang = value;
+      if (tok === '--vg-observer') own.observer = value;
       continue;
     }
     if (tok === '--vg-observe-pipeline') own.observePipeline = true;
