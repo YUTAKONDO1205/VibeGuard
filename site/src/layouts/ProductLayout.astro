@@ -18,6 +18,7 @@ import '../styles/components.css';
 import SiteHeader from '../components/SiteHeader.astro';
 import FooterWithCta from '../components/FooterWithCta.astro';
 import meta from '../data/meta.json';
+import { canonicalUrl } from '../shared/canonical.ts';
 
 interface Props {
   title: string;
@@ -26,7 +27,7 @@ interface Props {
   header?: boolean;
 }
 const { title, description, header = true } = Astro.props;
-const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : undefined;
+const canonical = canonicalUrl(Astro.site, Astro.url.pathname);
 ---
 
 <html lang="en">
