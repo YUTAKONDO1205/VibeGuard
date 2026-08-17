@@ -1,0 +1,113 @@
+{
+  "schemaVersion": "second-vendor-spec-v0",
+  "title": "Second-vendor configuration envelope: clang-18 vs gcc-13, artifact level",
+  "scopeStatement": {
+    "measures": "Whether a security-relevant source construct is still present in the emitted assembly of its own function, for each (vendor x optimisation x mitigation) cell.",
+    "doesNotMeasure": [
+      "pass-level attribution under gcc (see limitations.gccPassAttribution)",
+      "cross-machine reproducibility (see limitations.multiMachine)",
+      "IR-level or link-level checkpoints; this run observes exactly one checkpoint, 'asm'"
+    ],
+    "symmetryRule": "Both vendors are observed with the SAME instrument (assembly of the target function). No clang result in this file is imported from the LLVM pass-plugin observer, because gcc has no counterpart and an asymmetric comparison would not be a comparison."
+  },
+  "vendors": [
+    {
+      "vendorId": "clang-18",
+      "driver": "clang-18",
+      "family": "llvm",
+      "passPluginLoadable": true
+    },
+    {
+      "vendorId": "gcc-13",
+      "driver": "gcc-13",
+      "family": "gcc",
+      "passPluginLoadable": false,
+      "passPluginNote": "gcc cannot load -fpass-plugin LLVM plugins. Pass-level attribution is UNSUPPORTED for this vendor by construction, not merely NOT_OBSERVED."
+    }
+  ],
+  "opts": ["-O0", "-O1", "-O2", "-O3"],
+  "commonFlags": ["-fno-asynchronous-unwind-tables"],
+  "properties": [
+    {
+      "fixtureId": "erasure",
+      "propertyId": "erasure.wipe",
+      "kind": "Must-Survive",
+      "targetFn": "handle_request",
+      "controlFn": "wipe_kept",
+      "referenceConfig": "clang-18/-O0/mit-off",
+      "mitigation": { "name": "-fno-builtin-memset", "off": [], "on": ["-fno-builtin-memset"] },
+      "targetEffect": {
+        "symbols": ["memset", "__memset_chk", "explicit_bzero", "__explicit_bzero_chk", "bzero"],
+        "allowInlineZeroStore": true
+      },
+      "controlEffect": {
+        "symbols": ["memset", "__memset_chk", "explicit_bzero", "__explicit_bzero_chk", "bzero"],
+        "allowInlineZeroStore": true
+      },
+      "sourceAnchor": { "file": "target.c", "line": 13, "expect": "memset(secret, 0, sizeof secret)" }
+    },
+    {
+      "fixtureId": "nullcheck",
+      "propertyId": "nullcheck.guard",
+      "kind": "Must-Survive",
+      "targetFn": "process",
+      "controlFn": "process_control",
+      "referenceConfig": "clang-18/-O0/mit-off",
+      "mitigation": { "name": "-fno-delete-null-pointer-checks", "off": [], "on": ["-fno-delete-null-pointer-checks"] },
+      "targetEffect": { "symbols": ["on_null"], "allowInlineZeroStore": false },
+      "controlEffect": { "symbols": ["on_null_control"], "allowInlineZeroStore": false },
+      "sourceAnchor": { "file": "target.c", "line": 12, "expect": "if (!n) { on_null(); return -1; }" }
+    },
+    {
+      "fixtureId": "signedovf",
+      "propertyId": "signedovf.guard",
+      "kind": "Must-Survive",
+      "targetFn": "add_guarded",
+      "controlFn": "add_guarded_control",
+      "referenceConfig": "clang-18/-O0/mit-off",
+      "mitigation": { "name": "-fwrapv", "off": [], "on": ["-fwrapv"] },
+      "targetEffect": { "symbols": ["on_overflow"], "allowInlineZeroStore": false },
+      "controlEffect": { "symbols": ["on_overflow_control"], "allowInlineZeroStore": false },
+      "sourceAnchor": { "file": "target.c", "line": 8, "expect": "if (x + 1 < x) { on_overflow(); return -1; }" }
+    },
+    {
+      "fixtureId": "authz",
+      "propertyId": "authz.assert",
+      "kind": "Must-Survive",
+      "targetFn": "admin_delete",
+      "controlFn": "admin_delete_control",
+      "referenceConfig": "clang-18/-O0/mit-off",
+      "mitigation": { "name": "-DNDEBUG", "off": [], "on": ["-DNDEBUG"] },
+      "targetEffect": { "symbols": ["__assert_fail"], "allowInlineZeroStore": false },
+      "controlEffect": { "symbols": ["report_denied"], "allowInlineZeroStore": false },
+      "sourceAnchor": { "file": "target.c", "line": 12, "expect": "assert(u->is_admin)" }
+    },
+    {
+      "fixtureId": "configguard",
+      "propertyId": "configguard.ifdef",
+      "kind": "Must-Be-Configured",
+      "targetFn": "login",
+      "controlFn": "login_control",
+      "referenceConfig": "clang-18/-O0/mit-on",
+      "mitigation": { "name": "-DENABLE_AUTH", "off": [], "on": ["-DENABLE_AUTH"] },
+      "targetEffect": { "symbols": ["verify_user"], "allowInlineZeroStore": false },
+      "controlEffect": { "symbols": ["verify_user_control"], "allowInlineZeroStore": false },
+      "sourceAnchor": { "file": "target.c", "line": 9, "expect": "verify_user(uid)" },
+      "note": "Reference configuration is mitigation-ON: the defence only exists when the macro is defined. A mit-off LOST cell here is a configuration loss, not a compiler transformation."
+    }
+  ],
+  "limitations": {
+    "multiMachine": {
+      "status": "UNSUPPORTED",
+      "reason": "Exactly one host is available to this session. A second machine is an infrastructure requirement, not a measurement this generator declined to take. Nothing in the output may be read as evidence about machine-to-machine variation."
+    },
+    "gccPassAttribution": {
+      "status": "UNSUPPORTED",
+      "reason": "gcc does not load LLVM pass plugins, so the instrument that produces firstLossPass for clang has no gcc counterpart. Every gcc cell carries firstLossPass: null with this status. It must never be rendered as a pass name."
+    },
+    "clangPassAttributionInThisRun": {
+      "status": "NOT_OBSERVED",
+      "reason": "This run deliberately uses the asm instrument for BOTH vendors so the comparison is symmetric. clang pass names exist elsewhere (_results/envelope.json) but are not imported here; importing them would silently change the instrument mid-table."
+    }
+  }
+}
