@@ -1,36 +1,40 @@
 {
   "schemaVersion": "properties-v0",
   "title": "The security properties this directory knows how to ask about, and which of them anything actually implements",
-
   "readMeFirst": [
     "This file is a catalogue, not a claim of coverage. Most entries have extractor: null and status: unimplemented, and that is the point: a policy that names a property with no reachable checkpoint has to be exit 3, and a caller can only know that if this file says which properties those are.",
     "status has three values. 'implemented' means an extractor exists and a fixture in this repository measures this property in this configuration. 'candidate' means the extractor exists and would take this configuration, but nothing here has measured it, so nobody should quote it as evidence. 'unimplemented' means there is no extractor at all.",
     "observeAt is per checkpoint, not per property, because a property is very often observable at one checkpoint and not at another, and flattening that into a single list is how a partial check comes to look like a whole one."
   ],
-
   "extractors": {
     "ir.wipe-effect": {
       "component": "IrCheckpoints",
       "path": "compiler/llvm-pass",
-      "checkpoints": ["pre-opt-ir", "after-pass"],
+      "checkpoints": [
+        "pre-opt-ir",
+        "after-pass"
+      ],
       "counts": "Call sites to a configured effect symbol, resolved from the call instruction with CallBase::getCalledFunction, plus inline stores of a zero constant whose underlying object is an alloca in the unit or a pointer parameter of it. Counted inside one IR function.",
       "whyBothForms": "Above -O0 the compiler is entitled to render a wipe either as a call or as inline zeroing. An extractor that knows only the call form reports the control as lost at -O1 and the measurement is then worthless.",
       "discriminates": "LOST from NOT_APPLICABLE. When the count falls to zero, the verdict is decided by whether a stack object of the size the effect acted on still exists in the unit at the post-optimisation checkpoint. If none does, the buffer was promoted out of memory and the question no longer has the same referent.",
       "degradationRisk": [
         "Indirect calls are not counted: getCalledFunction returns null for them, so a wipe reached through a function pointer reads as absent. This biases towards a visible false positive rather than silence.",
-        "The promoted-object test matches by allocation size. Two allocas of the same size in one unit make 'an object of that size survives' true even when the wiped one was promoted, so the verdict falls back to LOST. Again a visible error rather than a silent one.",
+        "The promoted-object test matches by allocation size, and it is a CENSUS rather than an existence test: it compares how many objects of the size the effect acted on are allocated before and after. Two allocas of the same size in one unit therefore do not defeat it -- the count falls with the promoted one and the verdict is correctly NOT_APPLICABLE. What defeats it is a pass that CREATES an object of that size while the subject's is promoted, holding the count steady so that a buffer which left memory is reported LOST. Inlining does exactly that, which is why no source-level size discipline prevents it: measured 2026-08-17, a unit with one 192-byte buffer promoted away and a static helper's own 192-byte local inlined in reads LOST with its control still holding. Again a visible error rather than a silent one.",
         "An alloca whose size is not statically known contributes no size, and the test degrades to 'no stack object survives in the unit at all'.",
         "Anything unrecognised in the escape walk is treated as an escape, which pins the object and pushes the verdict towards LOST.",
         "The symbol list is configuration. A project that wipes through its own helper, or builds with -fno-builtin-memset, changes what the effect is spelled as; a list that does not name it reads as ABSENT. The co-resident control is what catches this -- see the pc4 cell.",
         "The zero-store half recognises stores of a zero constant. A wipe with a non-zero fill byte, or one lowered to a vectorised loop rather than to a store of a zero constant, is not counted by that half.",
-        "Cross-translation-unit inlining under LTO moves the effect into a different unit. The verdict becomes NOT_APPLICABLE and the property has to be re-scoped; it does not silently pass."
+        "Cross-translation-unit inlining under LTO moves the effect into a different unit. The verdict becomes NOT_APPLICABLE and the property has to be re-scoped; it does not silently pass.",
+        "The zero-store half counts ANY store of a zero constant whose underlying object is an alloca in the unit or a pointer parameter of it. There is no requirement that the object be the one the property is about, no size floor, and no relation to the configured symbol list, so an ordinary zero-initialised local -- an `int flag = 0;`, or a loop counter -- is counted as the effect. This is the one risk in this list that errs towards PRESENT: measured 2026-08-17, a unit whose 181-byte wipe had been removed still read PRESENT with a held control because an unrelated zero-initialised local survived, and the same over-count lifts a one-wipe unit to a count of 2 at -O0 through a `for` loop's induction variable. Every other entry here errs towards a visible ABSENT or LOST; this one reports a defence that is not there."
       ]
     },
-
     "ir.guarded-call": {
       "component": "IrCheckpoints",
       "path": "compiler/llvm-pass",
-      "checkpoints": ["pre-opt-ir", "after-pass"],
+      "checkpoints": [
+        "pre-opt-ir",
+        "after-pass"
+      ],
       "counts": "Call sites to a configured deny or reject symbol, counted only while some conditional branch in the unit still tests a value. A branch on a constant decides nothing, so the call it leads to is waiting to be swept up rather than protecting anything.",
       "discriminates": "LOST from NOT_APPLICABLE. For this class NOT_APPLICABLE has one cause -- the unit was inlined away -- because a branch has no memory object to be promoted out of.",
       "degradationRisk": [
@@ -40,11 +44,13 @@
         "A guard whose condition is folded by profile or by a build-time constant is reported as LOST, which is correct, but a guard the compiler merely moved into a caller is reported the same way unless the property is scoped to the caller."
       ]
     },
-
     "ir.forbidden-callee": {
       "component": "IrCheckpoints",
       "path": "compiler/llvm-pass",
-      "checkpoints": ["pre-opt-ir", "after-pass"],
+      "checkpoints": [
+        "pre-opt-ir",
+        "after-pass"
+      ],
       "counts": "Call sites to a configured forbidden symbol, resolved from the call instruction, inside one IR function. Opposite polarity to the other two: a non-zero count is the finding.",
       "degradationRisk": [
         "IR is not the artefact. A forbidden call can arrive at link time, from a static library, from a relocation, or through inline asm, and none of that is visible at an IR checkpoint. Every must-not-appear property is therefore at most 'partial' here, and its authoritative checkpoint is object or linked.",
@@ -52,11 +58,12 @@
         "The control for this polarity is a unit where the forbidden call is certainly still present -- that is what shows the extractor can still see one at this optimisation level. A control chosen the other way round proves nothing."
       ]
     },
-
     "invocation.flag-set": {
       "component": "Driver",
       "path": "compiler/driver",
-      "checkpoints": ["invocation"],
+      "checkpoints": [
+        "invocation"
+      ],
       "counts": "Tokens of the normalised command line, matched against policy.flags.required (VG-CFG-004), policy.flags.forbidden (VG-CFG-002) and policy.flags.optLevels (VG-CFG-003). Response files are expanded first, and a response file that cannot be read is exit 3 rather than a clean command line.",
       "whyItIsHere": "This entry was missing while the component it describes was shipped and tested (compiler/driver/lib/flags.mjs, exercised by test/flags.test.mjs and test/driver-e2e.test.mjs). Its absence is why several must-be-configured entries below said `unimplemented` and why the write-up that reads this file would have reported a kind with no implementation at all. The catalogue is a tracked file: an omission here is an untrue statement about the tree it sits in.",
       "discriminates": "A flag that is absent from the command line, from a flag that could not be read. The second is exit 3 and is never reported as the first.",
@@ -66,11 +73,12 @@
         "The optimisation level is read as written. A build system that rewrites -O2 into -O3 downstream of the recorded invocation is not visible here."
       ]
     },
-
     "artifact.hardening-fields": {
       "component": "ArtefactPolicy",
       "path": "compiler/elf-verifier",
-      "checkpoints": ["artifact"],
+      "checkpoints": [
+        "artifact"
+      ],
       "counts": "Structural fields of the finished image, not lines of a tool's output: e_type together with PT_INTERP for position independence, the PF_X bit of PT_GNU_STACK for a non-executable stack, and PT_GNU_RELRO together with DT_BIND_NOW / DF_BIND_NOW for relocation-readonly. The record names the field that decided each.",
       "whyItIsHere": "The `artifact` checkpoint had no owner, so `policy.artifact.require` was a key the schema accepted and nothing read -- a policy the build ignores while appearing to honour it. This is the reader. It is the artefact half of must-be-configured: invocation.flag-set says what was asked for, this says what was got, and a build can pass the first and fail the second.",
       "discriminates": "Full relocation-readonly from partial. Partial is the state a build regresses into, and a boolean reading reports it as a pass. Also NOT_APPLICABLE from PRESENT: a shared object has no PT_INTERP, and its position independence is a different question rather than a satisfied one.",
@@ -80,11 +88,12 @@
         "The image must parse as ELF64 LSB. Anything else is exit 3 -- could not look -- and never exit 0."
       ]
     },
-
     "artifact.section-flags": {
       "component": "ArtefactPolicy",
       "path": "compiler/elf-verifier",
-      "checkpoints": ["artifact"],
+      "checkpoints": [
+        "artifact"
+      ],
       "counts": "Segments and sections whose flag bits carry write and execute at once, read from the flag words themselves.",
       "whyItIsHere": "The one must-not-appear question in this catalogue that needs no control, because it is a structural field rather than a pattern match: there is no oracle here that can quietly stop matching. Recorded separately from artifact.hardening-fields because it answers a different kind -- what must not be there, rather than what must be configured -- and merging them would put one status on two questions.",
       "discriminates": "A hit from a clean image, with both directions measured. A detector that has only ever fired has not been shown to stop firing.",
@@ -93,12 +102,10 @@
         "Flag bits are what the image states. Runtime protection changes are outside a static read."
       ]
     },
-
     "_notAnExtractor.artifactByteScan": {
       "whyThisIsNotListedAsAnExtractor": "compiler/elf-verifier scans artefact bytes for forbidden sequences against required control sequences, and that machinery works -- a control string absent from the image makes the scan BROKEN at exit 3 rather than clean, which is the whole point of requiring controls. It is NOT registered as an extractor for notappear.test-credential, notappear.internal-url, unobservable.secret-literal or unobservable.stale-credential, and the reason is a gap in the FIXTURES rather than in the code. Every fixture in the matrix that carries the control string also carries the forbidden string, so the scanner has been shown to report a hit and to refuse a broken control, and has never once been shown to report CLEAN with a live control and a forbidden string configured. Until an image exists that holds the control and not the secret, the satisfied case is unmeasured, and a status column that said otherwise would be describing code rather than measurement. Measured 2026-08-16; the fixture generator is compiler/elf-verifier/artefact-fixtures.sh."
     }
   },
-
   "checkpointOwners": {
     "_note": "Written when this catalogue was the only thing in the directory, and every entry said nothing owned the checkpoint. Three of the five acquired an owner in the same batch, and a catalogue that still said otherwise was a tracked file asserting something untrue about the tree it is in. Corrected against the sources, not against a report of them.",
     "ast": "IntentGate (compiler/clang-plugin) classifies a lexical finding as Confirmed, Rejected or Refined and derives requirements from it. It does not yet record property STATE at this checkpoint, so no property below names ast as its observation point.",
@@ -109,7 +116,6 @@
     "invocation": "compiler/driver normalises the command line, including the tokens behind -Xclang, -Wl, and a response file, and checks flags.required / flags.forbidden / flags.optLevels against the policy -- and the environment override that edits the line before clang sees it. That is the must-be-configured kind, at this checkpoint, implemented.",
     "artifact": "compiler/elf-verifier reads the finished binary structurally (Elf64_Ehdr / Elf64_Phdr / dynamic entries) rather than by parsing a tool's prose. Corrected 2026-08-16: this said policy.artifact.require has no consumer, and it now has one -- lib/artifact-policy.mjs decides PIE, NX, full RELRO and writable-executable sections, and artefact-require.mjs is its command line. Four of the names a policy may use are still not decided here (stack-protector, fortify, no-debug-path, build-id) and each is exit 3 when required rather than a pass, so the checkpoint is owned but not completely."
   },
-
   "kindCoverage": {
     "must-survive": "partial -- two extractors, both measured, both at IR checkpoints only",
     "must-not-appear": "partial -- one extractor at IR checkpoints, and one structural extractor at the linked image for the writable-executable question, measured in both directions on 2026-08-16. The string-shaped entries in this kind are still unimplemented, and the obstacle is the fixture matrix rather than the scanner: every image in it that carries the control string also carries the forbidden one, so a clean scan under a live control has never been observed. See _notAnExtractor.artifactByteScan",
@@ -117,7 +123,6 @@
     "must-be-configured": "partial -- compiler/driver checks required, forbidden and optimisation-level flags at the invocation checkpoint, and refuses to call a command line clean when an environment override made it unreadable. Corrected 2026-08-16: the artefact half is no longer absent. PIE, NX and RELRO are read from the finished image, with the partial-RELRO case measured rather than collapsed into a boolean, so this kind now has both what was asked for and what was got. Stack protector and FORTIFY remain undecided here and are exit 3 when a policy requires them",
     "must-remain-unobservable": "none -- no extractor, no checkpoint, no measurement"
   },
-
   "properties": [
     {
       "id": "survive.secure-wipe",
@@ -126,10 +131,30 @@
       "extractor": "ir.wipe-effect",
       "status": "implemented",
       "observeAt": [
-        { "checkpoint": "ast", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "pre-opt-ir", "extractor": "ir.wipe-effect", "status": "implemented", "component": "IrCheckpoints" },
-        { "checkpoint": "after-pass", "extractor": "ir.wipe-effect", "status": "implemented", "component": "IrCheckpoints" },
-        { "checkpoint": "object", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "ast",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "pre-opt-ir",
+          "extractor": "ir.wipe-effect",
+          "status": "implemented",
+          "component": "IrCheckpoints"
+        },
+        {
+          "checkpoint": "after-pass",
+          "extractor": "ir.wipe-effect",
+          "status": "implemented",
+          "component": "IrCheckpoints"
+        },
+        {
+          "checkpoint": "object",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "call sites",
@@ -143,12 +168,25 @@
         "NOT_APPLICABLE is not a pass. The record marks it completesTheCheck: false so a caller maps it to exit 3."
       ],
       "evidence": {
-        "fixtures": ["$IRCK_LAB/fixtures/erasure", "$IRCK_LAB/fixtures/promotion", "$IRCK_LAB/fixtures/inlined", "$IRCK_LAB/fixtures/residue"],
-        "cells": ["erasure-O0", "erasure-O1", "erasure-O2", "erasure-O3", "promotion-escape-off-O2", "promotion-escape-on-O2", "inlined-O2", "residue-O2"],
+        "fixtures": [
+          "$IRCK_LAB/fixtures/erasure",
+          "$IRCK_LAB/fixtures/promotion",
+          "$IRCK_LAB/fixtures/inlined",
+          "$IRCK_LAB/fixtures/residue"
+        ],
+        "cells": [
+          "erasure-O0",
+          "erasure-O1",
+          "erasure-O2",
+          "erasure-O3",
+          "promotion-escape-off-O2",
+          "promotion-escape-on-O2",
+          "inlined-O2",
+          "residue-O2"
+        ],
         "reproduce": "bash compiler/llvm-pass/scripts/run-matrix.sh && python3 compiler/llvm-pass/scripts/check-matrix.py"
       }
     },
-
     {
       "id": "survive.fail-closed-branch",
       "kind": "must-survive",
@@ -156,10 +194,30 @@
       "extractor": "ir.guarded-call",
       "status": "implemented",
       "observeAt": [
-        { "checkpoint": "ast", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "pre-opt-ir", "extractor": "ir.guarded-call", "status": "implemented", "component": "IrCheckpoints" },
-        { "checkpoint": "after-pass", "extractor": "ir.guarded-call", "status": "implemented", "component": "IrCheckpoints" },
-        { "checkpoint": "object", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "ast",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "pre-opt-ir",
+          "extractor": "ir.guarded-call",
+          "status": "implemented",
+          "component": "IrCheckpoints"
+        },
+        {
+          "checkpoint": "after-pass",
+          "extractor": "ir.guarded-call",
+          "status": "implemented",
+          "component": "IrCheckpoints"
+        },
+        {
+          "checkpoint": "object",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "call sites, gated on a live conditional branch",
@@ -173,12 +231,18 @@
         "A guard removed because the build genuinely decided it at compile time and a guard removed by mistake look identical here. That is the correct reading -- both are the property not being enforced at run time -- but it means a build with a legitimately constant policy will report LOST and needs a scope or a policy entry, not a code change."
       ],
       "evidence": {
-        "fixtures": ["$IRCK_LAB/fixtures/authz"],
-        "cells": ["authz-live-O0", "authz-live-O2", "authz-folded-O0", "authz-folded-O2"],
+        "fixtures": [
+          "$IRCK_LAB/fixtures/authz"
+        ],
+        "cells": [
+          "authz-live-O0",
+          "authz-live-O2",
+          "authz-folded-O0",
+          "authz-folded-O2"
+        ],
         "reproduce": "bash compiler/llvm-pass/scripts/run-matrix.sh && python3 compiler/llvm-pass/scripts/check-matrix.py"
       }
     },
-
     {
       "id": "survive.authorization-check",
       "kind": "must-survive",
@@ -186,10 +250,30 @@
       "extractor": "ir.guarded-call",
       "status": "implemented",
       "observeAt": [
-        { "checkpoint": "ast", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "pre-opt-ir", "extractor": "ir.guarded-call", "status": "implemented", "component": "IrCheckpoints" },
-        { "checkpoint": "after-pass", "extractor": "ir.guarded-call", "status": "implemented", "component": "IrCheckpoints" },
-        { "checkpoint": "object", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "ast",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "pre-opt-ir",
+          "extractor": "ir.guarded-call",
+          "status": "implemented",
+          "component": "IrCheckpoints"
+        },
+        {
+          "checkpoint": "after-pass",
+          "extractor": "ir.guarded-call",
+          "status": "implemented",
+          "component": "IrCheckpoints"
+        },
+        {
+          "checkpoint": "object",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "call sites, gated on a live conditional branch",
@@ -203,12 +287,16 @@
         "An authorisation check whose result is consumed rather than branched on -- returned to a caller, stored in a flag -- is not a guarded call and is not seen by this extractor at all."
       ],
       "evidence": {
-        "fixtures": ["$IRCK_LAB/fixtures/authz"],
-        "cells": ["authz-live-O2", "authz-folded-O2"],
+        "fixtures": [
+          "$IRCK_LAB/fixtures/authz"
+        ],
+        "cells": [
+          "authz-live-O2",
+          "authz-folded-O2"
+        ],
         "reproduce": "bash compiler/llvm-pass/scripts/run-matrix.sh && python3 compiler/llvm-pass/scripts/check-matrix.py"
       }
     },
-
     {
       "id": "survive.bounds-check",
       "kind": "must-survive",
@@ -217,9 +305,24 @@
       "status": "candidate",
       "statusDetail": "ir.guarded-call takes llvm.trap and the __ubsan_handle_* family as effect symbols and would count the trap edges. Nothing in this repository has measured it, so no cell may be quoted as evidence for it.",
       "observeAt": [
-        { "checkpoint": "pre-opt-ir", "extractor": "ir.guarded-call", "status": "candidate", "component": "IrCheckpoints" },
-        { "checkpoint": "after-pass", "extractor": "ir.guarded-call", "status": "candidate", "component": "IrCheckpoints" },
-        { "checkpoint": "object", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "pre-opt-ir",
+          "extractor": "ir.guarded-call",
+          "status": "candidate",
+          "component": "IrCheckpoints"
+        },
+        {
+          "checkpoint": "after-pass",
+          "extractor": "ir.guarded-call",
+          "status": "candidate",
+          "component": "IrCheckpoints"
+        },
+        {
+          "checkpoint": "object",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "call sites, gated on a live conditional branch",
@@ -234,7 +337,6 @@
       ],
       "evidence": null
     },
-
     {
       "id": "survive.input-validation",
       "kind": "must-survive",
@@ -243,9 +345,24 @@
       "status": "unimplemented",
       "statusDetail": "Needs an extractor for 'this call site must remain on this path', which is neither the wipe shape nor the guarded-branch shape. None is written.",
       "observeAt": [
-        { "checkpoint": "ast", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "pre-opt-ir", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "after-pass", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "ast",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "pre-opt-ir",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "after-pass",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "call sites",
@@ -254,10 +371,11 @@
         "requiresControl": true,
         "controlRule": "Undecided -- a control for a dominance property is not the same shape as a control for a count."
       },
-      "degradationRisk": ["Not applicable: there is no extractor to degrade."],
+      "degradationRisk": [
+        "Not applicable: there is no extractor to degrade."
+      ],
       "evidence": null
     },
-
     {
       "id": "survive.audit-record",
       "kind": "must-survive",
@@ -266,9 +384,24 @@
       "status": "unimplemented",
       "statusDetail": "A plain 'this call must survive' extractor -- ir.wipe-effect without its zero-store half and without its memory-object discriminator -- is not written. Configuring ir.wipe-effect for it would report a promoted-object NOT_APPLICABLE for a property that has no buffer, which is a wrong answer rather than a missing one.",
       "observeAt": [
-        { "checkpoint": "pre-opt-ir", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "after-pass", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "object", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "pre-opt-ir",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "after-pass",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "object",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "call sites",
@@ -277,10 +410,11 @@
         "requiresControl": true,
         "controlRule": "A co-resident audit call the compiler cannot remove."
       },
-      "degradationRisk": ["Not applicable: there is no extractor to degrade."],
+      "degradationRisk": [
+        "Not applicable: there is no extractor to degrade."
+      ],
       "evidence": null
     },
-
     {
       "id": "notappear.forbidden-external-call",
       "kind": "must-not-appear",
@@ -289,10 +423,30 @@
       "status": "partial",
       "statusDetail": "Measured at the IR checkpoints. The checkpoints that decide this kind -- object and linked -- have no implementation, so an IR-only clean reading is not an answer and must not be reported as one.",
       "observeAt": [
-        { "checkpoint": "pre-opt-ir", "extractor": "ir.forbidden-callee", "status": "implemented", "component": "IrCheckpoints" },
-        { "checkpoint": "after-pass", "extractor": "ir.forbidden-callee", "status": "implemented", "component": "IrCheckpoints" },
-        { "checkpoint": "object", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "linked", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "pre-opt-ir",
+          "extractor": "ir.forbidden-callee",
+          "status": "implemented",
+          "component": "IrCheckpoints"
+        },
+        {
+          "checkpoint": "after-pass",
+          "extractor": "ir.forbidden-callee",
+          "status": "implemented",
+          "component": "IrCheckpoints"
+        },
+        {
+          "checkpoint": "object",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "linked",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "call sites",
@@ -305,12 +459,16 @@
         "See ir.forbidden-callee. The decisive one: the call can arrive after this checkpoint, from a library or from the linker, and nothing here would see it."
       ],
       "evidence": {
-        "fixtures": ["$IRCK_LAB/fixtures/authz"],
-        "cells": ["notappear-O0", "notappear-O2"],
+        "fixtures": [
+          "$IRCK_LAB/fixtures/authz"
+        ],
+        "cells": [
+          "notappear-O0",
+          "notappear-O2"
+        ],
         "reproduce": "bash compiler/llvm-pass/scripts/run-matrix.sh && python3 compiler/llvm-pass/scripts/check-matrix.py"
       }
     },
-
     {
       "id": "notappear.debug-endpoint",
       "kind": "must-not-appear",
@@ -319,9 +477,24 @@
       "status": "candidate",
       "statusDetail": "The extractor takes the configuration. Nothing here has measured it, and an endpoint that is a defined symbol rather than a call site is not what this extractor counts.",
       "observeAt": [
-        { "checkpoint": "pre-opt-ir", "extractor": "ir.forbidden-callee", "status": "candidate", "component": "IrCheckpoints" },
-        { "checkpoint": "object", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "linked", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "pre-opt-ir",
+          "extractor": "ir.forbidden-callee",
+          "status": "candidate",
+          "component": "IrCheckpoints"
+        },
+        {
+          "checkpoint": "object",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "linked",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "call sites at IR; would be defined and exported symbols at object",
@@ -335,7 +508,6 @@
       ],
       "evidence": null
     },
-
     {
       "id": "notappear.test-credential",
       "kind": "must-not-appear",
@@ -344,8 +516,18 @@
       "status": "unimplemented",
       "statusDetail": "A byte-sequence question about an object file. There is no IR reading of it that is not a guess, and nothing in compiler/ reads objects.",
       "observeAt": [
-        { "checkpoint": "object", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "linked", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "object",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "linked",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "strings",
@@ -354,10 +536,11 @@
         "requiresControl": true,
         "controlRule": "A string that is expected to be present, so that an extractor which has stopped finding anything is distinguishable from an artefact that is clean."
       },
-      "degradationRisk": ["Not applicable: there is no extractor to degrade."],
+      "degradationRisk": [
+        "Not applicable: there is no extractor to degrade."
+      ],
       "evidence": null
     },
-
     {
       "id": "notappear.internal-url",
       "kind": "must-not-appear",
@@ -365,8 +548,18 @@
       "extractor": null,
       "status": "unimplemented",
       "observeAt": [
-        { "checkpoint": "object", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "linked", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "object",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "linked",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "strings",
@@ -375,10 +568,11 @@
         "requiresControl": true,
         "controlRule": "As notappear.test-credential."
       },
-      "degradationRisk": ["Not applicable: there is no extractor to degrade."],
+      "degradationRisk": [
+        "Not applicable: there is no extractor to degrade."
+      ],
       "evidence": null
     },
-
     {
       "id": "notappear.writable-executable-section",
       "kind": "must-not-appear",
@@ -387,8 +581,18 @@
       "status": "implemented",
       "statusDetail": "Promoted 2026-08-16. The artefact verifier this entry said did not exist now does: compiler/elf-verifier/lib/artifact-policy.mjs reads the flag bits and artefact-require.mjs is its command line. Both polarities were measured on this machine against the fixture matrix, which is what `implemented` means in this file -- the wx-on image reports one hit and the VG-ART-004 finding at exit 2, and the hardened image reports zero at exit 0. A promotion on the strength of the code alone would be the error this file made before 2026-08-10 and corrected.",
       "observeAt": [
-        { "checkpoint": "object", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "linked", "extractor": "artifact.section-flags", "status": "implemented", "component": "ArtefactPolicy" }
+        {
+          "checkpoint": "object",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "linked",
+          "extractor": "artifact.section-flags",
+          "status": "implemented",
+          "component": "ArtefactPolicy"
+        }
       ],
       "oracle": {
         "counts": "sections",
@@ -404,13 +608,15 @@
       ],
       "evidence": {
         "measuredOn": "2026-08-16",
-        "fixtures": ["wx-on", "hardened"],
+        "fixtures": [
+          "wx-on",
+          "hardened"
+        ],
         "readings": "wx-on: one hit, finding VG-ART-004, exit 2. hardened: zero, exit 0. The negative is recorded beside the positive because a detector that has only ever fired has not been shown to stop.",
         "granularity": "The wx-on hit is a SECTION (.vgwx, sh_flags = ALLOC|WRITE|EXECINSTR), not a segment: this was checked by reading the hit rather than assumed from the fixture's name. No row of the matrix carries a PT_LOAD with PF_W|PF_X, because objcopy re-flags the section after the link and the containing PT_LOAD stays RW-. The segment half of this extractor is therefore evidenced only by a synthetic image assembled byte by byte in test/synth-elf64.mjs, which shows the decider reads the field it says it reads and shows nothing about whether a toolchain emits it. Recorded because `implemented` on the strength of the fixture name would have been an over-claim about the half a real link never produced.",
         "generator": "compiler/elf-verifier/artefact-fixtures.sh"
       }
     },
-
     {
       "id": "origin.crypto-implementation",
       "kind": "must-originate-from",
@@ -419,7 +625,12 @@
       "status": "unimplemented",
       "statusDetail": "Corrected 2026-08-10. This said the whole kind has no implementation and that nothing here classifies where a definition came from; compiler/elf-verifier/classify.mjs does exactly that, sorting symbols, sections and initialisers into the six permitted origins against a toolchain baseline, and this file's own kindCoverage says so. The entry stays `unimplemented` because the QUESTION differs, not because the component is missing: the classifier answers introduction — what appeared that no permitted origin explains — while this property asks attribution, whether a definition came from the APPROVED implementation, and nothing compares an origin against policy.link.allowedObjects yet. That distinction is the reason to keep the status, and stating it is the reason not to keep the old sentence.",
       "observeAt": [
-        { "checkpoint": "linked", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "linked",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "defining inputs",
@@ -428,10 +639,11 @@
         "requiresControl": true,
         "controlRule": "A symbol whose origin is known and expected, so that an attribution step that has stopped resolving anything is visible."
       },
-      "degradationRisk": ["Not applicable: there is no extractor to degrade."],
+      "degradationRisk": [
+        "Not applicable: there is no extractor to degrade."
+      ],
       "evidence": null
     },
-
     {
       "id": "origin.generated-code",
       "kind": "must-originate-from",
@@ -439,7 +651,12 @@
       "extractor": null,
       "status": "unimplemented",
       "observeAt": [
-        { "checkpoint": "linked", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "linked",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "defining inputs",
@@ -448,10 +665,11 @@
         "requiresControl": true,
         "controlRule": "As origin.crypto-implementation."
       },
-      "degradationRisk": ["Not applicable: there is no extractor to degrade."],
+      "degradationRisk": [
+        "Not applicable: there is no extractor to degrade."
+      ],
       "evidence": null
     },
-
     {
       "id": "origin.external-library",
       "kind": "must-originate-from",
@@ -459,7 +677,12 @@
       "extractor": null,
       "status": "unimplemented",
       "observeAt": [
-        { "checkpoint": "linked", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "linked",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "defining inputs and their digests",
@@ -468,10 +691,11 @@
         "requiresControl": true,
         "controlRule": "A pinned input whose digest is expected to match, so that a digest step returning nothing is distinguishable from a clean link."
       },
-      "degradationRisk": ["Not applicable: there is no extractor to degrade."],
+      "degradationRisk": [
+        "Not applicable: there is no extractor to degrade."
+      ],
       "evidence": null
     },
-
     {
       "id": "configured.optimisation-level",
       "kind": "must-be-configured",
@@ -480,7 +704,12 @@
       "status": "implemented",
       "statusDetail": "Corrected 2026-08-10. This entry said `unimplemented`, on the grounds that 'nothing here reads a command line'. That was true when it was written and false when it was read: compiler/driver/lib/flags.mjs compares the normalised command line against policy.flags.optLevels and reports VG-CFG-003, measured by test/flags.test.mjs and by test/driver-e2e.test.mjs. This same file's kindCoverage already said `partial` for the kind, so the catalogue contradicted itself, and anything generated from the per-property entries reported a shipped check as absent. IrCheckpoints still observes only the CONSEQUENCES of an optimisation level and never the flag; that remains a different claim and is still not a substitute.",
       "observeAt": [
-        { "checkpoint": "invocation", "extractor": "invocation.flag-set", "status": "implemented", "component": "Driver" }
+        {
+          "checkpoint": "invocation",
+          "extractor": "invocation.flag-set",
+          "status": "implemented",
+          "component": "Driver"
+        }
       ],
       "oracle": {
         "counts": "normalised command-line flags",
@@ -495,7 +724,6 @@
       ],
       "evidence": "compiler/driver/test/flags.test.mjs, compiler/driver/test/driver-e2e.test.mjs"
     },
-
     {
       "id": "configured.ndebug",
       "kind": "must-be-configured",
@@ -504,7 +732,12 @@
       "status": "implemented",
       "statusDetail": "Named here because it is the case this directory exists for: a security decision inside an assert disappears under NDEBUG, which is exactly the class of disappearance being detected. The shipped analyser flags that pattern at the source. Corrected 2026-08-10: this entry also said nothing here checks the FLAG, which stopped being true when the driver landed — -DNDEBUG is matched by policy.flags.required (VG-CFG-004) or policy.flags.forbidden (VG-CFG-002) like any other token, and an unreadable command line is exit 3 rather than a pass. What is still absent is an artefact-side confirmation that the define survived into what was built.",
       "observeAt": [
-        { "checkpoint": "invocation", "extractor": "invocation.flag-set", "status": "implemented", "component": "Driver" }
+        {
+          "checkpoint": "invocation",
+          "extractor": "invocation.flag-set",
+          "status": "implemented",
+          "component": "Driver"
+        }
       ],
       "oracle": {
         "counts": "normalised command-line flags",
@@ -513,10 +746,11 @@
         "requiresControl": false,
         "controlRule": "None."
       },
-      "degradationRisk": ["Not applicable: there is no extractor to degrade."],
+      "degradationRisk": [
+        "Not applicable: there is no extractor to degrade."
+      ],
       "evidence": null
     },
-
     {
       "id": "configured.sanitizer",
       "kind": "must-be-configured",
@@ -524,8 +758,18 @@
       "extractor": null,
       "status": "unimplemented",
       "observeAt": [
-        { "checkpoint": "invocation", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "artifact", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "invocation",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "artifact",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "normalised command-line flags, then runtime dependencies of the artefact",
@@ -534,10 +778,11 @@
         "requiresControl": false,
         "controlRule": "None."
       },
-      "degradationRisk": ["Not applicable: there is no extractor to degrade."],
+      "degradationRisk": [
+        "Not applicable: there is no extractor to degrade."
+      ],
       "evidence": null
     },
-
     {
       "id": "configured.stack-protector",
       "kind": "must-be-configured",
@@ -545,8 +790,18 @@
       "extractor": null,
       "status": "unimplemented",
       "observeAt": [
-        { "checkpoint": "invocation", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "artifact", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "invocation",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "artifact",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "normalised command-line flags, then a structural field of the artefact",
@@ -555,10 +810,11 @@
         "requiresControl": false,
         "controlRule": "None."
       },
-      "degradationRisk": ["Not applicable: there is no extractor to degrade."],
+      "degradationRisk": [
+        "Not applicable: there is no extractor to degrade."
+      ],
       "evidence": null
     },
-
     {
       "id": "configured.pie-relro-nx",
       "kind": "must-be-configured",
@@ -567,7 +823,12 @@
       "status": "implemented",
       "statusDetail": "Promoted 2026-08-16, and it is the artefact half this kind was missing: `configured.optimisation-level` and `configured.ndebug` read the command line, which says what was ASKED for, while this reads the finished image, which says what was GOT. All three of PIE, NX and RELRO were measured in both directions on this machine, including the partial-RELRO case, which is the one a boolean reading would silently pass.",
       "observeAt": [
-        { "checkpoint": "artifact", "extractor": "artifact.hardening-fields", "status": "implemented", "component": "ArtefactPolicy" }
+        {
+          "checkpoint": "artifact",
+          "extractor": "artifact.hardening-fields",
+          "status": "implemented",
+          "component": "ArtefactPolicy"
+        }
       ],
       "oracle": {
         "counts": "structural fields of the image",
@@ -583,12 +844,19 @@
       ],
       "evidence": {
         "measuredOn": "2026-08-16",
-        "fixtures": ["pie-on", "pie-off", "nx-on", "nx-off", "relro-full", "relro-part", "relro-none"],
+        "fixtures": [
+          "pie-on",
+          "pie-off",
+          "nx-on",
+          "nx-off",
+          "relro-full",
+          "relro-part",
+          "relro-none"
+        ],
         "readings": "pie-on/pie-off gave PRESENT/ABSENT, nx-on/nx-off gave PRESENT/ABSENT, and relro-full/part/none gave full/partial/none. Every negative exited 2 with a finding; every positive exited 0.",
         "generator": "compiler/elf-verifier/artefact-fixtures.sh"
       }
     },
-
     {
       "id": "configured.lto-and-toolchain",
       "kind": "must-be-configured",
@@ -597,8 +865,18 @@
       "status": "unimplemented",
       "statusDetail": "Called out separately because LTO changes what every must-survive property means: it moves effects across translation units, so a property scoped to a unit can become NOT_APPLICABLE for reasons the policy author did not anticipate.",
       "observeAt": [
-        { "checkpoint": "invocation", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "artifact", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "invocation",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "artifact",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "normalised command-line flags and toolchain digests",
@@ -607,10 +885,11 @@
         "requiresControl": false,
         "controlRule": "None."
       },
-      "degradationRisk": ["Not applicable: there is no extractor to degrade."],
+      "degradationRisk": [
+        "Not applicable: there is no extractor to degrade."
+      ],
       "evidence": null
     },
-
     {
       "id": "unobservable.secret-buffer-residue",
       "kind": "must-remain-unobservable",
@@ -618,10 +897,22 @@
       "extractor": null,
       "status": "unimplemented",
       "statusDetail": "This whole kind has no implementation in compiler/. The IR half of the story is covered by survive.secure-wipe, but 'the wipe is still in the IR' and 'the secret is not observable' are different claims, and this file does not let the first stand in for the second.",
-      "relatedTo": ["survive.secure-wipe"],
+      "relatedTo": [
+        "survive.secure-wipe"
+      ],
       "observeAt": [
-        { "checkpoint": "object", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "linked", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "object",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "linked",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "strings, then residency",
@@ -630,10 +921,11 @@
         "requiresControl": true,
         "controlRule": "A byte sequence expected to be present, so an extractor that has stopped finding anything is visible."
       },
-      "degradationRisk": ["Not applicable: there is no extractor to degrade."],
+      "degradationRisk": [
+        "Not applicable: there is no extractor to degrade."
+      ],
       "evidence": null
     },
-
     {
       "id": "unobservable.secret-literal",
       "kind": "must-remain-unobservable",
@@ -641,8 +933,18 @@
       "extractor": null,
       "status": "unimplemented",
       "observeAt": [
-        { "checkpoint": "object", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "linked", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "object",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "linked",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "strings",
@@ -651,10 +953,11 @@
         "requiresControl": true,
         "controlRule": "As unobservable.secret-buffer-residue."
       },
-      "degradationRisk": ["Not applicable: there is no extractor to degrade."],
+      "degradationRisk": [
+        "Not applicable: there is no extractor to degrade."
+      ],
       "evidence": null
     },
-
     {
       "id": "unobservable.stale-credential",
       "kind": "must-remain-unobservable",
@@ -662,8 +965,18 @@
       "extractor": null,
       "status": "unimplemented",
       "observeAt": [
-        { "checkpoint": "object", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "linked", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "object",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "linked",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "strings",
@@ -672,10 +985,11 @@
         "requiresControl": true,
         "controlRule": "As unobservable.secret-buffer-residue."
       },
-      "degradationRisk": ["Not applicable: there is no extractor to degrade."],
+      "degradationRisk": [
+        "Not applicable: there is no extractor to degrade."
+      ],
       "evidence": null
     },
-
     {
       "id": "unobservable.internal-path",
       "kind": "must-remain-unobservable",
@@ -683,8 +997,18 @@
       "extractor": null,
       "status": "unimplemented",
       "observeAt": [
-        { "checkpoint": "object", "extractor": null, "status": "unimplemented", "component": null },
-        { "checkpoint": "linked", "extractor": null, "status": "unimplemented", "component": null }
+        {
+          "checkpoint": "object",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        },
+        {
+          "checkpoint": "linked",
+          "extractor": null,
+          "status": "unimplemented",
+          "component": null
+        }
       ],
       "oracle": {
         "counts": "strings and debug-info fields",
@@ -693,11 +1017,12 @@
         "requiresControl": true,
         "controlRule": "As unobservable.secret-buffer-residue."
       },
-      "degradationRisk": ["Not applicable: there is no extractor to degrade."],
+      "degradationRisk": [
+        "Not applicable: there is no extractor to degrade."
+      ],
       "evidence": null
     }
   ],
-
   "interfaceExtensionsRequested": {
     "note": "compiler/schema/interfaces.md fixes six OBS_* names. IrCheckpoints needed five more and did not add them to that file, because the file says a component that needs a shape not listed there reports it rather than editing it. These are the names in use.",
     "names": {
