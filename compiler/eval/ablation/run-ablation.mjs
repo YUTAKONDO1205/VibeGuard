@@ -13,6 +13,9 @@
 //   --opts -O0,-O2     restrict to these optimisation levels
 //   --compilers c,d    restrict to these compilers
 //   --skip-tamper      do not run the component-F matrix
+//   --verifier <path>  the evidence verifier component F drives. Required
+//                      whenever the workspace's copy is not at the default
+//                      below; without it component F reports UNSUPPORTED
 //
 // Nothing here decides what a component is; that is configs.mjs. Nothing here
 // decides what a loss is; that is oracle.mjs. This file walks cells, calls
@@ -49,6 +52,7 @@ function parseArgs(argv) {
     else if (a === '--observer') o.observer = argv[++i];
     else if (a === '--ast-plugin') o.astPlugin = argv[++i];
     else if (a === '--pubkey') o.pubkey = argv[++i];
+    else if (a === '--verifier') o.verifier = argv[++i];
     else if (a === '--cli') o.cli = argv[++i];
     else throw new Error(`unknown argument: ${a}`);
   }
@@ -70,7 +74,17 @@ const CLI = args.cli || path.join(REPO, 'apps', 'cli', 'dist', 'index.js');
 const LEXSCAN = path.join(REPO, 'compiler', 'clang-plugin', 'tools', 'lexscan.mjs');
 const AST_RULES = path.join(REPO, 'compiler', 'clang-plugin', 'rules', 'default-rules.json');
 const PUBKEY = args.pubkey || path.join(process.env.HOME || '/root', '.evidence-keys', 'evidence-ed25519.pub');
-const VERIFIER = path.join(LAB, 'scripts', 'evidence-verify.mjs');
+// The verifier is the one component this harness cannot name a default for and
+// be right. Every other external artefact above has an override precisely
+// because its filename is a property of the machine rather than of this repo,
+// and the verifier is no different: the workspace's copy is named for a word
+// this tree may not contain, so a default written here is a guess about a name
+// that cannot be checked against the thing it names. When the guess misses,
+// component F degrades to UNSUPPORTED — quietly, because "no verifier at <path>"
+// reads like a missing tool rather than like a wrong path. Pass `--verifier`.
+const VERIFIER = args.verifier
+  ? path.resolve(args.verifier)
+  : path.join(LAB, 'scripts', 'evidence-verify.mjs');
 
 /* ------------------------------------------------- workspace libraries -- */
 //
@@ -404,6 +418,11 @@ const report = {
     astGatePlugin: { path: AST_PLUGIN_SO, present: existsSync(AST_PLUGIN_SO) },
     passObserver: { path: OBSERVER_SO, present: existsSync(OBSERVER_SO) },
     evidenceVerifier: { path: VERIFIER, present: existsSync(VERIFIER) },
+    // The key is recorded on the same footing as the three binaries because it
+    // fails the same way they do: absent, component F reports UNSUPPORTED and
+    // the other eight configurations report normally. Its default is a guess
+    // for the same reason the verifier's was — see `--verifier`.
+    evidencePubkey: { path: PUBKEY, present: existsSync(PUBKEY) },
   },
   components: COMPONENTS,
   configurations: CONFIGURATIONS,

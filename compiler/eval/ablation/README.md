@@ -16,7 +16,21 @@ is written inside `--lab/_results`.
 
 Options: `--fixtures a,b`, `--opts -O0,-O2`, `--compilers clang-18`,
 `--skip-tamper`, `--observer <path.so>`, `--ast-plugin <path.so>`, `--cli <path>`,
-`--pubkey <path>`.
+`--pubkey <path>`, `--verifier <path>`.
+
+`--verifier` and `--pubkey` are the two to get right, because getting them wrong
+is quiet. Component F reports `UNSUPPORTED` — `no verifier at <path>`, or `no
+public key at <path>` — which reads like a tool that is not installed rather than
+like a path that is wrong, and the other eight configurations still produce their
+numbers, so the run looks complete. Neither the workspace's verifier nor its key
+is named for anything this tree may write down, so the defaults here are guesses
+that cannot be checked against the things they name. Both resolved paths, and
+whether each was found, are recorded under `binaries` in the output.
+
+The verifier refuses a key found inside the bundle, which is why the key must be
+supplied from outside it and why its absence stops the matrix rather than
+downgrading it: without an external key every row would come back `UNSIGNED` and
+the matrix would measure nothing.
 
 ---
 
@@ -33,7 +47,7 @@ disagreed with in one place.
 | Pre/Post IR | `compiler/llvm-pass` | the `ir-pre` and `ir-post` checkpoints through the shared predicate |
 | Pass-Level Tracking | `compiler/pass-instrumentation/observer` | `libPropertyObserver.so`, `OBS_*`, standard mode |
 | Object/Link Integrity | `compiler/elf-verifier` + `compiler/link-wrapper` | **not these** — see §5 |
-| Evidence Verifier | `scripts/evidence-verify.mjs` | the tamper matrix in `lib/tamper.mjs` |
+| Evidence Verifier | the workspace verifier given by `--verifier` | the tamper matrix in `lib/tamper.mjs` |
 
 Configurations, verbatim from §24: `A`=Source, `B`=AST, `C`=Pre/Post IR,
 `D`=Pass tracking, `E`=Object/Link, `F`=Evidence Verifier, `G`=A+C, `H`=A+C+D,

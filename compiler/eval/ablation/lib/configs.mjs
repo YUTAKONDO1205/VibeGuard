@@ -44,7 +44,13 @@ export const COMPONENTS = {
   evidenceVerifier: {
     id: 'evidenceVerifier',
     label: 'Evidence Verifier',
-    implementedBy: 'scripts/evidence-verify.mjs in the measurement workspace (an independent reimplementation of evidence-v0)',
+    // Named by path at run time (`--verifier`) rather than here. Writing a
+    // filename into this record would state which file was driven, and this
+    // field is copied into the output whether or not that file was the one
+    // found — which is how a run that drove nothing kept describing what it
+    // drove. The path actually resolved is recorded in
+    // `binaries.evidenceVerifier`, beside whether it was there.
+    implementedBy: 'the evidence verifier in the measurement workspace, given by --verifier (an independent reimplementation of evidence-v0)',
     question: 'is the record of the run the record its signer sealed?',
   },
 };
