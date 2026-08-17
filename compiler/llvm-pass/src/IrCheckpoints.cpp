@@ -39,8 +39,19 @@
 // NOT_APPLICABLE can be shown to read LOST when the discriminator is removed:
 //
 //   OBS_DISABLE_MEMOBJ_DISCRIMINATOR
+//
+// and one more for the second representation §10.4 asks for -- the metadata
+// channel, which reads the `annotate` declarations rather than the code:
+//
+//   OBS_ANNOTATION_PREFIX    annotation strings counted by the metadata
+//                            channel must start with this; default
+//                            "vg:property:". Setting it to a vocabulary
+//                            nothing carries is the metadata channel's own
+//                            wrong-symbol control.
 
+#include "DualChannel.h"
 #include "Extractors.h"
+#include "MetadataChannel.h"
 #include "Record.h"
 
 #include "llvm/IR/Function.h"
@@ -98,10 +109,16 @@ struct Config {
   std::string PropertyId;
   std::string FixtureRel;
   ExtractorConfig Ext;
+  irck::MetadataConfig Meta;
   Extractor Which = Extractor::WipeEffect;
   bool RequireLiveBranch = false;
   bool DisableMemObjDiscriminator = false;
   bool Valid = false;
+  /// Why the configuration was rejected; empty when Valid. Carried so that the
+  /// refusal can name the field, because "the plugin produced no record" and
+  /// "the plugin produced no record because OBS_OUT was unset" are the same
+  /// event to a build log and different events to whoever has to fix it.
+  std::string Rejected;
 };
 
 Config loadConfig() {
@@ -115,17 +132,26 @@ Config loadConfig() {
   C.PropertyId = envOr("OBS_PROPERTY_ID", "unnamed");
   C.FixtureRel = envOr("OBS_FIXTURE_REL", "");
   C.RequireLiveBranch = envOr("OBS_REQUIRE_LIVE_BRANCH", "0") == "1";
+  C.Meta.Prefix = envOr("OBS_ANNOTATION_PREFIX", "vg:property:");
   C.DisableMemObjDiscriminator =
       envOr("OBS_DISABLE_MEMOBJ_DISCRIMINATOR", "0") == "1";
 
   std::string ExtName = envOr("OBS_EXTRACTOR", "ir.wipe-effect");
-  if (!irck::parseExtractor(ExtName, C.Which)) return C;
+  if (!irck::parseExtractor(ExtName, C.Which)) {
+    C.Rejected = "OBS_EXTRACTOR='" + ExtName + "' is not a known extractor";
+    return C;
+  }
 
   const bool NeedsEffect = C.Which != Extractor::ForbiddenCallee;
   const bool HaveSymbols = NeedsEffect ? !C.Ext.EffectSymbols.empty()
                                        : !C.Ext.ForbiddenSymbols.empty();
-  C.Valid = !C.TargetFn.empty() && !C.ControlFn.empty() && HaveSymbols &&
-            !C.OutPath.empty();
+  if (C.TargetFn.empty()) C.Rejected = "OBS_TARGET_FN is not set";
+  else if (C.ControlFn.empty()) C.Rejected = "OBS_CONTROL_FN is not set";
+  else if (!HaveSymbols)
+    C.Rejected = NeedsEffect ? "OBS_EFFECT_SYMBOLS is not set"
+                             : "OBS_FORBIDDEN_SYMBOLS is not set";
+  else if (C.OutPath.empty()) C.Rejected = "OBS_OUT is not set";
+  C.Valid = C.Rejected.empty();
   return C;
 }
 
@@ -368,13 +394,64 @@ public:
 
   const Config &cfg() const { return C; }
 
+  /// The third silent failure, the one neither the config check nor the control
+  /// can see.
+  ///
+  /// `OBS_TARGET_FN` is a string, and a misspelt string is a valid
+  /// configuration of a subject that does not exist. The record it produces is
+  /// well formed: the control holds, the verdict is computed, rc is 0. Nothing
+  /// is wrong with it except that the subject was never there, and a control
+  /// that is fine cannot report that.
+  ///
+  /// It cannot be checked when the plugin loads -- `llvmGetPassPluginInfo`
+  /// registers callbacks and there is no module yet -- so it is checked here,
+  /// at the first module the pipeline hands over.
+  ///
+  /// KNOWN LIMIT, stated rather than left to be discovered: this says so on
+  /// stderr only. The emitted record carries no field for it, because the
+  /// record is validated against compiler/schema/observation.schema.json with
+  /// `additionalProperties: false` and adding one is a schema change. A driver
+  /// that reads only the JSON still cannot tell. The sibling plugin under
+  /// compiler/pass-instrumentation/observer/ does record the fact (SUBJECTRES)
+  /// and has an aggregate checker for it; this one does not yet.
+  void reportResolution(const Module &M) const {
+    struct RoleSpec {
+      const char *Role;
+      const char *EnvVar;
+      const std::string *Name;
+    };
+    const RoleSpec Roles[2] = {{"subject", "OBS_TARGET_FN", &C.TargetFn},
+                               {"control", "OBS_CONTROL_FN", &C.ControlFn}};
+    for (const RoleSpec &R : Roles) {
+      const Function *F = M.getFunction(*R.Name);
+      if (F && !F->isDeclaration()) continue;
+      errs() << "IrCheckpoints: " << R.Role << " name '" << *R.Name << "' ("
+             << R.EnvVar << ") is "
+             << (F ? "only a declaration in" : "not a defined function in")
+             << " module " << M.getModuleIdentifier()
+             << ". A record is still written and nothing in it is an "
+                "observation of the "
+             << R.Role << "; its verdict must not be read as a clean result.\n";
+    }
+  }
+
   /// pre-opt-ir checkpoint.
   void recordPreOpt(Module &M) {
     if (SawPre) return;
     SawPre = true;
+    reportResolution(M);
     ModuleName = sys::path::filename(M.getModuleIdentifier()).str();
     if (const Function *F = M.getFunction(C.TargetFn)) Pre = irck::collectFacts(*F, C.Ext);
     if (const Function *F = M.getFunction(C.ControlFn)) PreCtl = irck::collectFacts(*F, C.Ext);
+    // The metadata channel, read at the same checkpoint from the same module,
+    // so the two channels cannot differ because they looked at different
+    // moments. A unit that is not there leaves its UnitMetadata at the default,
+    // whose UnitPresent is false -- not a zero that reads as "declared nothing".
+    if (const Function *F = M.getFunction(C.TargetFn))
+      PreMeta = irck::collectUnitMetadata(*F, C.Meta);
+    if (const Function *F = M.getFunction(C.ControlFn))
+      PreCtlMeta = irck::collectUnitMetadata(*F, C.Meta);
+    PreModMeta = irck::collectModuleMetadata(M, C.Meta);
     NaivePre = irck::naiveModuleSymbolPresent(M, effectiveSymbols());
     ModuleCallsPre = irck::moduleWideCallSites(M, effectiveSymbols());
     seedHistory();
@@ -465,6 +542,11 @@ public:
     Emitted = true;
     if (const Function *F = M.getFunction(C.TargetFn)) Post = irck::collectFacts(*F, C.Ext);
     if (const Function *F = M.getFunction(C.ControlFn)) PostCtl = irck::collectFacts(*F, C.Ext);
+    if (const Function *F = M.getFunction(C.TargetFn))
+      PostMeta = irck::collectUnitMetadata(*F, C.Meta);
+    if (const Function *F = M.getFunction(C.ControlFn))
+      PostCtlMeta = irck::collectUnitMetadata(*F, C.Meta);
+    PostModMeta = irck::collectModuleMetadata(M, C.Meta);
     NaivePost = irck::naiveModuleSymbolPresent(M, effectiveSymbols());
     ModuleCallsPost = irck::moduleWideCallSites(M, effectiveSymbols());
     ResiduePost = irck::declaredButUncalledSymbols(M, effectiveSymbols());
@@ -763,6 +845,93 @@ private:
     }
     R.set("findings", std::move(Fs));
 
+    // ------------------------------------------------------------------ §10.4
+    // The two representations, side by side, and the pair named without being
+    // collapsed. Nothing above this line changed: `verdict.state` is still the
+    // structural channel's answer alone, and `findings` is still derived from
+    // it alone. The metadata channel is a second reading, not a second vote.
+    Json DC = Json::object();
+
+    Json MD = Json::object();
+    MD.set("carrier",
+           Json::str("__attribute__((annotate(...))) as it reaches IR with no "
+                     "Clang plugin loaded: entries in the appending global "
+                     "@llvm.global.annotations for functions, and "
+                     "llvm.var.annotation / llvm.ptr.annotation call sites for "
+                     "locals"));
+    MD.set("prefix", Json::str(C.Meta.Prefix));
+    MD.set("method",
+           Json::str("reads the declaration only; it never counts a call site "
+                     "or a store, so it can disagree with the structural "
+                     "channel and the disagreement is the measurement"));
+    Json MS = Json::object();
+    MS.set("preOptIr", PreMeta.toJson());
+    MS.set("postOptIr", PostMeta.toJson());
+    MD.set("subject", std::move(MS));
+    Json MC = Json::object();
+    MC.set("preOptIr", PreCtlMeta.toJson());
+    MC.set("postOptIr", PostCtlMeta.toJson());
+    // The control for this channel, on the same footing as control.held for the
+    // structural one: if the control's declaration also went, a subject whose
+    // declaration went says nothing about optimisation and everything about the
+    // reader.
+    MC.set("held", Json::boolean(PreCtlMeta.present() > 0 &&
+                                 PostCtlMeta.present() > 0 &&
+                                 !SubjectIsControlToo));
+    MD.set("control", std::move(MC));
+    Json MM = Json::object();
+    MM.set("preOptIr", PreModMeta.toJson());
+    MM.set("postOptIr", PostModMeta.toJson());
+    MD.set("module", std::move(MM));
+    DC.set("metadata", std::move(MD));
+
+    const int64_t UnitEffPre = Pre.effect(C.Which);
+    const int64_t UnitEffPost = Post.effect(C.Which);
+
+    irck::DualVerdict UnitDual =
+        irck::classifyDual(PreMeta.present(), PostMeta.present(), UnitEffPre,
+                           UnitEffPost, Pre.UnitPresent, Post.UnitPresent,
+                           /*UnitScope=*/true);
+    Json US = Json::object();
+    US.set("state", Json::str(irck::dualStateName(UnitDual.S)));
+    US.set("reason", Json::str(UnitDual.Reason));
+    US.set("metadataPreOpt", Json::integer(PreMeta.present()));
+    US.set("metadataPostOpt", Json::integer(PostMeta.present()));
+    US.set("structuralPreOpt", Json::integer(UnitEffPre));
+    US.set("structuralPostOpt", Json::integer(UnitEffPost));
+    US.set("structuralSource",
+           Json::str("the same per-unit effect count verdict.state is decided "
+                     "from -- not a second, differently-defined number"));
+    DC.set("unitScope", std::move(US));
+
+    irck::DualVerdict ModDual = irck::classifyDual(
+        PreModMeta.present(), PostModMeta.present(), ModuleCallsPre,
+        ModuleCallsPost, true, true, /*UnitScope=*/false);
+    Json MoS = Json::object();
+    MoS.set("state", Json::str(irck::dualStateName(ModDual.S)));
+    MoS.set("reason", Json::str(ModDual.Reason));
+    MoS.set("metadataPreOpt", Json::integer(PreModMeta.present()));
+    MoS.set("metadataPostOpt", Json::integer(PostModMeta.present()));
+    MoS.set("structuralPreOpt", Json::integer(ModuleCallsPre));
+    MoS.set("structuralPostOpt", Json::integer(ModuleCallsPost));
+    MoS.set("structuralSource",
+            Json::str("module-wide effect call sites. This counts call sites "
+                      "only: the inline zero stores the per-unit wipe extractor "
+                      "also counts are not counted module-wide, so this number "
+                      "is not the per-unit one summed"));
+    DC.set("moduleScope", std::move(MoS));
+
+    DC.set("note",
+           Json::str("Two representations of one property, kept apart. The "
+                     "structural channel re-derives the property from the code; "
+                     "the metadata channel reads what the source declared. "
+                     "ANNOTATION_ERASED_EFFECT_SURVIVED is deliberately not "
+                     "LOST: the program still performs the effect and only the "
+                     "declaration was optimised away. The vocabulary here is "
+                     "disjoint from the six states of interfaces.md section 3 "
+                     "and does not feed verdict.state."));
+    R.set("dualChannel", std::move(DC));
+
     R.set("evidenceDigest", Json::str(Json::digestOf(R)));
 
     Json Ctx = Json::object();
@@ -796,6 +965,8 @@ private:
   Config C;
   std::string ModuleName;
   UnitFacts Pre, Post, PreCtl, PostCtl;
+  irck::UnitMetadata PreMeta, PostMeta, PreCtlMeta, PostCtlMeta;
+  irck::ModuleMetadata PreModMeta, PostModMeta;
   std::vector<Transition> History;
   int64_t LastTarget = 0, LastControl = 0, CtlMin = 0;
   bool HaveTarget = false, HaveControl = false, HaveCtlMin = false;
@@ -840,7 +1011,18 @@ llvmGetPassPluginInfo() {
   return {LLVM_PLUGIN_API_VERSION, "IrCheckpoints", LLVM_VERSION_STRING,
           [](PassBuilder &PB) {
             Config Cfg = loadConfig();
-            if (!Cfg.Valid) return;
+            if (!Cfg.Valid) {
+              // Was a bare `return`. A plugin that declines to install without
+              // saying so leaves a build that succeeded, produced no record,
+              // and looks in every other respect like one that ran -- the exact
+              // reading ("no record, so nothing was wrong") this component
+              // exists to make impossible. Loud, and still not an error: the
+              // compilation itself is fine and failing it would only mean the
+              // plugin gets removed from the build.
+              errs() << "IrCheckpoints: refusing to install: " << Cfg.Rejected
+                     << "\n";
+              return;
+            }
             TheSession = std::make_shared<Session>(std::move(Cfg));
 
             PB.registerPipelineStartEPCallback(

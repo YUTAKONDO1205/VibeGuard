@@ -141,6 +141,119 @@ control failing at the same time.
 that no absolute path appears anywhere in any record, and then alters a record
 to confirm the digest check can fail.
 
+## The second channel: what the source declared
+
+Everything above re-derives the property **from the code**. The metadata channel
+does the opposite: it reads **what the source declared**, and never counts a call
+site or a store. Keeping both is a deliberate dual representation, and it exists
+for one sentence — **metadata disappearing is not the same event as processing
+disappearing.** Either can go without the other, and one channel cannot tell you
+which happened.
+
+The carrier was measured before it was used. `__attribute__((annotate("...")))`
+reaches IR with **no Clang plugin loaded** (clang-18 18.1.3, `-O0` through
+`-O3`), in exactly two forms, and both are read:
+
+| carrier | form in IR | measured durability |
+|---|---|---|
+| on a function | an entry in the appending global `@llvm.global.annotations` | survives every `-O` level tried |
+| on a local variable | a `llvm.var.annotation` call in the function | survives unless the code it sits in is deleted |
+
+`!annotation` instruction metadata was looked for in optimised output and was
+**not** found (`opt-18 -passes=annotation2metadata` left the probe module
+unchanged), so no reader for it is written. An unexercised reader would be a
+claim the measurement does not support.
+
+### The four cells, and why they need their own words
+
+The six states of `interfaces.md` §3 are the *structural* channel's answers: they
+describe what the code does. Spelling "the annotation went missing" as `LOST`
+would put a word meaning *the program stopped doing the thing* on an event where
+the program still does it. So the vocabularies are disjoint — checked by `grep`
+before the names were chosen, and re-checked by `check-dual-channel.py` on every
+run, because a `grep` stops being a guarantee once the code can emit strings.
+
+| metadata | structure | state |
+|---|---|---|
+| present | present | `BOTH_CHANNELS_SURVIVED` |
+| **absent** | **present** | **`ANNOTATION_ERASED_EFFECT_SURVIVED`** — §10.4's case. Not a loss: the program still wipes, and only the evidence that it was asked to has gone. |
+| present | absent | `ANNOTATION_SURVIVED_EFFECT_ERASED` — the metadata now asserts something the code no longer does. A metadata-only checker calls this clean. |
+| absent | absent | `BOTH_CHANNELS_ERASED` |
+
+Four more states exist so that table is only entered when it means something:
+`CHANNELS_NOT_OBSERVED`, `ANNOTATION_NOT_DECLARED`, `EFFECT_NOT_ESTABLISHED`,
+`SUBJECT_UNIT_ABSENT_AT_POST`. Without the second of those, a fixture compiled
+with no annotations at all would report the headline state by default — the
+metadata channel's version of reading "we did not look" as "it is not there".
+
+`verdict.state` is **not** touched by any of this. The metadata channel is a
+second reading, not a second vote, and `check-dual-channel.py` fails the run if
+changing only `OBS_ANNOTATION_PREFIX` moves `verdict.state`.
+
+### Running it
+
+```sh
+bash    compiler/llvm-pass/scripts/run-dual-channel.sh    # produces records
+python3 compiler/llvm-pass/scripts/check-dual-channel.py  # grades them; 0 / 2 / 3
+```
+
+Its own lab (`~/vg-lab/llvm-pass-dual`) and its own plugin build
+(`~/vg-build/llvm-pass-dualchannel`), so it cannot overwrite the optimisation
+matrix's records.
+
+### Measured: all four cells, from one fixture file
+
+`red_subject`'s annotation sits inside a block the optimiser proves unreachable
+and deletes; its wipe is on the live path and survives.
+
+```
+cell                     unit scope                         verdict   meta   struct
+dual-red-O0              BOTH_CHANNELS_SURVIVED             PRESENT   1->1   2->2
+dual-red-O2              ANNOTATION_ERASED_EFFECT_SURVIVED  PRESENT   1->0   2->1
+dual-both-survive-O2     BOTH_CHANNELS_SURVIVED             PRESENT   1->1   1->1
+dual-metadata-lies-O2    ANNOTATION_SURVIVED_EFFECT_ERASED  LOST      1->1   1->0
+dual-both-erased-O2      BOTH_CHANNELS_ERASED               LOST      1->0   2->0
+dual-wrong-prefix-O2     ANNOTATION_NOT_DECLARED            PRESENT   0->0   2->1
+dual-no-annotation-O2    ANNOTATION_NOT_DECLARED            PRESENT   0->0   2->1
+```
+
+The `-O0` row is the load-bearing one: without it, `-O2` reading zero would not
+be evidence that anything was *removed*. And `dual-red-O2` is the whole point —
+the annotation is gone, the wipe is still there, and `verdict.state` is
+`PRESENT`. A checker that watched only the declaration would have reported a
+deleted wipe against a program that wipes.
+
+### What the annotation carrier turned out to be, measured
+
+Two results that were not expected and are recorded because they constrain what
+this channel can claim. Both are reproducible — `bash
+compiler/llvm-pass/tools/probe-annotation-carrier.sh` prints the tables below
+and decides nothing:
+
+**Annotations are not inert; they change what the optimiser emits.** One
+attribute apart, same file, `-O2`: with `annotate` on a `static` function that is
+inlined into its only caller, the function is **still there** afterwards (2
+definitions, 2 `memset` sites); without it, the function is inlined and deleted
+(1 definition, 1 `memset` site). The entry in `@llvm.global.annotations` counts
+as a use. So a declaration is also a pin, and "annotate everything" is not a free
+measurement.
+
+**Consequently, `ANNOTATION_ERASED_EFFECT_SURVIVED` was hard to produce, and one
+obvious route to it does not exist.** A function-level annotation was not
+erasable in the middle end in any shape tried — including a `static` function
+inlined away, which the annotation itself keeps alive. `llvm.var.annotation` is
+`memory(inaccessiblemem: readwrite)`, so it is not dead-code-eliminated either:
+an annotated local that is *never touched at all* still has its annotation, and
+its `alloca`, at `-O2`. The one mechanism that did produce the cell is the one in
+the fixture: **the annotation is code, and code the optimiser proves unreachable
+takes its annotations with it, while an effect elsewhere in the unit survives.**
+That is a real mechanism and it is demonstrated, but it is one mechanism, not a
+survey.
+
+At **module** scope in the same records the erasure is only partial —
+`localAnnotations` 2 → 0 while `functionAnnotations` 3 → 3 — which is why unit
+scope and module scope are both recorded and neither is derived from the other.
+
 ## Configuration
 
 Six names are fixed by `interfaces.md` §0:
@@ -154,11 +267,19 @@ Six names are fixed by `interfaces.md` §0:
 | `OBS_SNAPSHOT_DIR` | where IR is dropped at each count change |
 | `OBS_REQUIRE_LIVE_BRANCH` | `1` to demand a live conditional branch |
 
-Five more were needed and are **not** added to `interfaces.md` from here —
+Six more were needed and are **not** added to `interfaces.md` from here —
 that file says a component needing an unlisted shape reports it instead. They
 are `OBS_EXTRACTOR`, `OBS_FORBIDDEN_SYMBOLS`, `OBS_PROPERTY_ID`,
-`OBS_FIXTURE_REL` and `OBS_DISABLE_MEMOBJ_DISCRIMINATOR`, and they are also
-listed under `interfaceExtensionsRequested` in `compiler/schema/properties.json`.
+`OBS_FIXTURE_REL`, `OBS_DISABLE_MEMOBJ_DISCRIMINATOR` and
+`OBS_ANNOTATION_PREFIX`. The first five are listed under
+`interfaceExtensionsRequested` in `compiler/schema/properties.json`;
+`OBS_ANNOTATION_PREFIX` is **not** yet, because `compiler/schema/` is another
+component's tree — it is reported here and the entry is a follow-up.
+
+`OBS_ANNOTATION_PREFIX` (default `vg:property:`) selects which annotation
+strings the metadata channel counts. Pointing it at a vocabulary nothing carries
+is that channel's own wrong-symbol control, and `dual-wrong-prefix-O2` fails the
+run if doing so stops changing what is counted.
 
 ## What this component does not do
 
@@ -174,3 +295,13 @@ listed under `interfaceExtensionsRequested` in `compiler/schema/properties.json`
   wipe or a deny path reached through a function pointer reads as absent — a
   visible false positive rather than silence, which is the direction chosen
   everywhere an unknown had to be resolved.
+- The metadata channel is read at the two endpoints only. There is no
+  pass-by-pass history for it, so `dualChannel` can say *that* an annotation went
+  but never *which pass took it* — `passHistory` and `firstZeroTransition` are
+  the structural channel's alone. The record says so rather than leaving the
+  asymmetry to be noticed.
+- `ANNOTATION_ERASED_EFFECT_SURVIVED` is demonstrated by one mechanism
+  (unreachable-code elimination removing the block an annotation lives in). Two
+  other routes to it were tried and **do not exist** in the middle end — see the
+  measured note above. No claim is made about how often the cell occurs in real
+  code.

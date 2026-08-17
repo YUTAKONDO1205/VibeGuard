@@ -11,6 +11,8 @@ message(STATUS "IrCheckpoints: LLVM ${LLVM_PACKAGE_VERSION} from ${LLVM_DIR}")
 add_library(IrCheckpoints MODULE
   src/Record.cpp
   src/Extractors.cpp
+  src/MetadataChannel.cpp
+  src/DualChannel.cpp
   src/IrCheckpoints.cpp
 )
 
