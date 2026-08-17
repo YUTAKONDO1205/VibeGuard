@@ -359,6 +359,12 @@ jobs:
       # from "the suite was not there" is the failure mode the rest of this
       # repository refuses, so the count is asserted before the suite runs.
       #
+      # `envelope` was added once it had been seen green ON LINUX rather than on
+      # the machine it was written on: 121/121 with 0 skipped under node 18 with
+      # clang-18 present, which is this job. The distinction matters here more
+      # than elsewhere, because 44 cases in the driver suite are skipped on the
+      # author's platform and execute on this one.
+      #
       # `fingerprint` and `link-wrapper` are deliberately NOT here. Their suites
       # need a real compiler and linker reached directly (21 and 15 cases fail
       # outright without one, by design; each has an env var that converts the
@@ -378,6 +384,7 @@ jobs:
             node --test "$@"
           }
           run_suite evidence              compiler/evidence/test/*.test.mjs
+          run_suite envelope              compiler/envelope/test/*.test.mjs
           run_suite provenance            compiler/provenance/test/*.test.mjs
           run_suite schema                compiler/schema/*.test.mjs
           run_suite llvm-pass             compiler/llvm-pass/scripts/*.test.mjs
