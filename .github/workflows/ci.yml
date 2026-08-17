@@ -373,6 +373,16 @@ jobs:
       # unmeasured step here is how main was last left red across five commits.
       # Filed rather than guessed.
       #
+      # `elf-verifier` is the sharpest instance of the distinction this comment
+      # block already draws for `evidence`, and it went unnoticed for the same
+      # reason. The "ELF verifier" step above runs `test-units.mjs`, which is that
+      # component's own self-check over two specific pieces — the mangled-name
+      # scanner and the canonical record rules. Its test SUITE is
+      # `test/*.test.mjs`, 80 cases, and nothing ran it. A named step mentioning
+      # the component is what made it look covered: the list of what reaches no
+      # runner was read as "components with no step", when the property that
+      # matters is "suites with no runner".
+      #
       # `observer`, `calibration` and `metamorphic` were the SAME omission as the
       # original five, found again three components later: they arrived with their
       # directories, nothing named them, and 42 more assertions were running
@@ -405,3 +415,4 @@ jobs:
           run_suite observer              compiler/pass-instrumentation/observer/test/*.test.mjs
           run_suite calibration           compiler/eval/calibration/test/*.test.mjs
           run_suite metamorphic           compiler/eval/metamorphic/test/*.test.mjs
+          run_suite elf-verifier          compiler/elf-verifier/test/*.test.mjs
