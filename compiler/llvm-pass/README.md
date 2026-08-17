@@ -305,3 +305,37 @@ run if doing so stops changing what is counted.
   other routes to it were tried and **do not exist** in the middle end — see the
   measured note above. No claim is made about how often the cell occurs in real
   code.
+
+## The ladder: what exposure a build actually compiles under
+
+The fallback lookup keys a measured envelope by a nominal six-axis config key
+(`cc`, `freestanding`, `lto`, `ndebug`, `opt`, `target`). Run this driver's own
+`normalise` and `driverConfigAxes` over `-O2`, over `-O2 -D_FORTIFY_SOURCE=3`,
+over `-O2 -fno-builtin-memset` and over `-O2 -ffast-math` and the same key comes
+back for all four — so a cell measured under one is quoted for the others.
+
+The ladder is a small graded specimen compiled *separately* under the real
+build's own flags. Which of its rungs survived is a measured index of what that
+invocation's optimiser does to property-shaped code, and two builds whose
+frontiers differ are two exposures whichever key they share.
+
+```sh
+bash    compiler/llvm-pass/tools/make-ladder.sh              # writes the specimen
+bash    compiler/llvm-pass/scripts/run-ladder.sh O2 -O2      # one exposure, twelve observations
+python3 compiler/llvm-pass/scripts/build-ladder-frontier.py  # assembles; grades nothing
+python3 compiler/llvm-pass/scripts/check-ladder.py           # grades health; 0 / 2 / 3
+```
+
+Same split as `run-matrix.sh` / `check-matrix.py`: the runner decides nothing,
+the assembler grades nothing, and comparing two frontiers belongs to neither —
+that is `compiler/envelope/frontier-match.mjs`. Its own lab
+(`~/vg-lab/llvm-pass-ladder`), and no new C++: the twelve rungs are configured
+through the `OBS_*` names the observer already reads.
+
+**It never fills or chooses a cell.** A ladder reading is a measurement of the
+ladder, not of the user's program, so it can refuse a quotation and nothing
+else. Measured limits, clang 18.1.3 on 2026-08-17: `-O2`, `-O3` and `-Os` are
+indistinguishable to these rungs, and so are `_FORTIFY_SOURCE=2` and `=3` — what
+is separated is fortification on from off. A command line carrying an LTO token
+is refused at measurement time rather than measured, because the observer does
+not reach the LTO backend.

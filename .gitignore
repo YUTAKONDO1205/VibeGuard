@@ -119,9 +119,11 @@ compiler/**/*.elf
 # argued about, not swallowed silently by this file.
 compiler/**/_lab/
 compiler/**/_results/
+compiler/**/__pycache__/
 compiler/**/*.log
 compiler/**/*.map
 compiler/**/*.ll
+compiler/**/*.pyc
 compiler/**/*.bc
 
 # Local-only maintenance tooling. Scripts here encode naming rules that this

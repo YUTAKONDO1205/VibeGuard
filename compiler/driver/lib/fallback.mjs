@@ -65,13 +65,30 @@
 // candidate.
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 
+import { SIDECAR_SCHEMA_VERSION, configKey } from '../../envelope/derive-frontier-sidecar.mjs';
+import {
+  FrontierError, compareFrontiers, declaresBroken, declaresUnhealthy, readHealthyDocument,
+} from '../../envelope/frontier-match.mjs';
+import { OPT_LEVELS } from './cmdline.mjs';
+import { driverConfigAxes, shippingOptLevel } from './config-axes.mjs';
 import { CFG, makeFinding } from './findings.mjs';
 import { runObservation } from './invoke.mjs';
-import { toRecordPath } from './paths.mjs';
+import { relativiseToken, toRecordPath } from './paths.mjs';
 import { sha256File } from './toolchain.mjs';
+
+// Re-exported rather than redefined. Both moved to `config-axes.mjs` because
+// `derive-frontier-sidecar.mjs` has to read a command line into the six axes the
+// same way this file does, and this file imports the sidecar's `configKey` — so
+// the sidecar importing them back out of here would close a cycle. They stay
+// exported under this name because this is where every caller in the tree has
+// imported them from since they existed, and moving a file should not move a
+// name out from under its callers.
+export { driverConfigAxes, shippingOptLevel };
 
 /** interfaces.md section 3, the same six the observation schema declares. */
 export const PROPERTY_STATES = Object.freeze([
@@ -264,51 +281,6 @@ export const DRIVER_READABLE_AXES = Object.freeze(['freestanding', 'lto', 'ndebu
  * readable. Reading an axis and being able to change it are different powers.
  */
 export const RECOMPILE_MUTABLE_AXES = Object.freeze(['opt']);
-
-/**
- * The level this invocation actually compiles at. Last `-O` wins, as clang does
- * it, and no `-O` at all is `-O0`, as clang does that too.
- */
-export function shippingOptLevel(normalised) {
-  const levels = Array.isArray(normalised?.optLevels) ? normalised.optLevels : [];
-  return levels.length > 0 ? levels[levels.length - 1] : '-O0';
-}
-
-/**
- * This build's value for each axis this command line actually stated — no key
- * for an axis it did not.
- *
- * Every branch below is guarded on the FIELD's presence and type rather than on
- * its value, so that a normalised object which never reported an axis is not
- * read as having reported the axis's default. "cmdline.mjs did not tell me" and
- * "cmdline.mjs told me false" are different sentences and produce different
- * objects: the first omits the key, the second sets it.
- *
- * Insertion order is deliberate — `opt` first, because it is the axis every
- * refusal message leads with.
- */
-export function driverConfigAxes(normalised) {
-  const axes = { opt: shippingOptLevel(normalised) };
-  const n = normalised ?? {};
-
-  // No `-target` is the envelope's `host`. The one convention here; see the
-  // header. A stated triple is used verbatim, so a triple the sweep never
-  // measured matches no row and is refused rather than rounded to a neighbour.
-  // `-m32`/`-m64` change the triple without a `-target` on the line, so the
-  // build is not the `host` the envelope measured and the axis is not readable.
-  if (Object.prototype.hasOwnProperty.call(n, 'target') && n.targetOpaque !== true) {
-    axes.target = typeof n.target === 'string' && n.target.length > 0 ? n.target : 'host';
-  }
-  if (typeof n.ndebug === 'boolean') axes.ndebug = n.ndebug;
-  if (typeof n.freestanding === 'boolean') axes.freestanding = n.freestanding;
-  // The asymmetry that makes this whole change safe: no LTO token on the line
-  // is `lto: "none"`, which is a reading. Any LTO token at all leaves the axis
-  // out, because `-flto=thin` cannot be resolved to a prelink/backend cell from
-  // the line, and a guess here would pick which measurement gets quoted.
-  if (Array.isArray(n.ltoTokens) && n.ltoTokens.length === 0) axes.lto = 'none';
-
-  return axes;
-}
 
 /**
  * Axes this driver can normally read off a command line. An axis in here that
@@ -656,13 +628,820 @@ export function resolveAutoProfile({ tablePath, requested, normalised, root }) {
   };
 }
 
+// ── the exposure guard: a nominal key is not an exposure ────────────────────
+//
+// Everything above keys the table on a NOMINAL six-axis configuration, and the
+// nominal key is coarser than the optimiser it is standing in for. Run the
+// `normalise` and `driverConfigAxes` in this repository over these five command
+// lines and four of them come back as the same key — measured 2026-08-17:
+//
+//   -O2                                                -> {freestanding:false,
+//   -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3             lto:"none",
+//   -O2 -fno-builtin-memset                               ndebug:false,
+//   -O2 -ffast-math                                       opt:"-O2",
+//   -O2 -fstack-protector-strong -fPIC -march=native      target:"host"}
+//
+// `-ffreestanding` is the one flag of that family that lands somewhere else,
+// and only because freestanding is an axis. The rest are not axes and they are
+// not neutral: `_FORTIFY_SOURCE` changes which wipe symbol the front end emits
+// and `-fno-builtin-memset` changes whether it emits an intrinsic at all, and
+// both of those are exactly what the wipe extractors count. So the lookup can
+// quote a row measured under plain `-O2` at a build that is really FORTIFY=3,
+// and nothing in the six axes notices.
+//
+// ── WHAT THE GUARD DOES, AND THE ONE THING IT MAY NEVER DO ──────────────────
+//
+// A small graded specimen — the ladder — is compiled SEPARATELY, under this
+// build's exact flags, by `run-ladder.sh`; its graded response, rung by rung, is
+// a frontier. `derive-frontier-sidecar.mjs` files those readings under the same
+// six-axis key the table uses, and `policy.fallback.exposureFrontiers` names the
+// result. If the frontier measured for this build differs from the frontier
+// recorded beside the cell being quoted, at least one probed mechanism differs
+// between the two builds and the cell is not quoted for this one.
+//
+// ★ The frontier is never used to FILL or to CHOOSE a cell, and must not be. A
+// ladder cell is a measurement of the ladder under a configuration; it says
+// nothing whatever about the user's subject. Selecting an envelope cell by
+// frontier would be `derive-fallback-table.mjs`'s documented mistake #1 — one
+// property's evidence standing in for another's — repeated one level up. This
+// guard only ever subtracts: it turns a resolution that would have happened
+// into a refusal, and there is no setting of it that produces a level.
+//
+// ── THE THREE WORDS ─────────────────────────────────────────────────────────
+//
+// `compareFrontiers` in compiler/envelope/frontier-match.mjs owns the
+// comparison and its vocabulary, and this file does not re-implement either.
+// `exposure-consistent` is the one that has to be read carefully: it means no
+// probed mechanism separated the two builds, which is necessary and never
+// sufficient. The instrument fails towards it — the ladder is a single
+// translation unit, so cross-TU inlining, profile data, -march code generation
+// and everything below the IR optimiser are invisible to it, and two genuinely
+// different exposures can present identical frontiers. The other direction is
+// clean, which is why refusal is the only thing this guard emits.
+//
+// ── WHY THE MEASURED FRONTIER ARRIVES AS DATA ───────────────────────────────
+//
+// `exposureFrontier` is a path to a reading somebody else took. This driver
+// does not compile the ladder: measuring is the measuring script's job, and a
+// driver that shells out to a compiler to decide a lookup has stopped being a
+// driver. The sidecar is resolved against the fixture root because a policy
+// names it, and the measured reading against the working directory because an
+// invocation carries it — the same split `profileTable` and `--vg-observer`
+// already have.
+//
+// ── WHY A FRONTIER HAS TO BE BOUND TO THE BUILD IT CLEARS ───────────────────
+//
+// Everything above is about two frontiers agreeing. None of it says the
+// frontier in hand is a reading of THIS build, and without that the guard
+// reproduces, one level up, exactly the defect it exists to close. CI runs the
+// ladder once; six weeks later CFLAGS gain `-D_FORTIFY_SOURCE=3`, or the base
+// image moves to a new clang; nobody re-runs the ladder; and every build after
+// that reads `exposure-consistent` off a measurement of a different exposure.
+// A stale measured frontier clearing builds is worse than no guard, because the
+// record then carries a positive reading nobody took.
+//
+// So five things are checked here, on the driver's side, before any comparison
+// is made — and all five are checks this side is the only one able to make. The
+// document is `exposure`-bearing and config-free by design (see
+// `build-ladder-frontier.py`), the sidecar is keyed by the driver's own reader,
+// and the invocation in hand exists nowhere else:
+//
+//   1. the measured document's `evidenceDigest` recomputes from its own bytes,
+//      so an edited or truncated reading is not read at all;
+//   2. the document's `exposure.opt` is this build's shipping level and its
+//      `exposure.extraArgs` are this invocation's exposure-relevant arguments,
+//      so a reading of another command line cannot clear this one;
+//   3. the sidecar's entries agree with their own keys (and its digest
+//      recomputes, when it carries one), so a hand-edited key cannot redirect a
+//      lookup;
+//   4. the measured document declares no health invariant false, asked through
+//      `declaresUnhealthy` rather than re-derived here;
+//   5. the clang that took the reading is the clang that compiled this build —
+//      checked in `evaluateFallback` against the observation the fallback path
+//      already runs, so it costs no extra compilation.
+//
+// What none of them can reach is the HEADER SET: `_FORTIFY_SOURCE` is a header
+// rewrite, so an image that ships different headers under an identical argv and
+// an identical clang binds clean here. That gap is closed operationally and by
+// nothing in this file — THE LADDER IS MEASURED IN THE SAME IMAGE AND THE SAME
+// JOB AS THE BUILD IT GUARDS — and it is stated in the sidecar's own
+// `instrument.failureDirection`, which this reader refuses a sidecar for
+// omitting.
+
+// ── interfaces.md §5, recomputed here rather than imported ──────────────────
+//
+// `compiler/evidence/canon.mjs` implements the same five rules and this file
+// deliberately does not call it, for the reason that file gives in its own first
+// paragraph: it is the GENERATOR side, and `compiler/evidence/verify.mjs`
+// "deliberately does not import this file and re-derives the digest from the
+// written rules instead, because two sides that share an implementation agree by
+// construction and the agreement proves nothing". This is the verifying side of
+// somebody else's document — one written by `build-ladder-frontier.py`, in
+// Python — and `check-ladder.py:112-121` re-derives the same rules a third time
+// for the same reason. `evidence-binding.mjs`'s rule that the driver carries no
+// canonicaliser of its own is about the record this driver WRITES, and it still
+// holds: nothing below seals anything.
+//
+// Verified against the three real measurements on disk (2026-08-17): all three
+// `evidenceDigest` values recompute from these rules exactly.
+
+/** A document could not be canonicalised, so its digest cannot be checked. */
+class NotCanonical extends Error {}
+
+/**
+ * The canonical text of a value: keys sorted at every level, no insignificant
+ * whitespace, integers only.
+ *
+ * The text is built directly rather than by canonicalising an object and handing
+ * it to `JSON.stringify`, which is what lets a key like `"0"` be sorted where §5
+ * rule 2 puts it instead of where a JS engine's property order puts it —
+ * `canon.mjs` refuses such a key for exactly that reason, and the producer here
+ * is Python's `json.dumps(sort_keys=True)`, which also builds text directly. The
+ * one place the two could still part is a key outside the BMP: Python sorts by
+ * code point and `Array.prototype.sort` by UTF-16 code unit. No field of a
+ * ladder frontier is non-ASCII, and this is written down rather than guarded
+ * because a guard would be a rule §5 does not state.
+ */
+function canonicalText(value, where) {
+  if (value === null) return 'null';
+  const t = typeof value;
+  if (t === 'boolean') return value ? 'true' : 'false';
+  if (t === 'number') {
+    // §5 rule 4: the canonicaliser fails rather than rounds. A float in a
+    // document means it was not canonicalised the way §5 says, so its digest is
+    // unverifiable and the document is refused rather than reshaped.
+    if (!Number.isSafeInteger(value)) throw new NotCanonical(`${where || '(root)'} is ${value}, not an exact integer`);
+    return String(value);
+  }
+  if (t === 'string') return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    // Array order is significant and is never sorted.
+    return `[${value.map((v, i) => canonicalText(v, `${where}/${i}`)).join(',')}]`;
+  }
+  if (t === 'object') {
+    return `{${Object.keys(value).sort()
+      .map((k) => `${JSON.stringify(k)}:${canonicalText(value[k], `${where}/${k}`)}`)
+      .join(',')}}`;
+  }
+  throw new NotCanonical(`${where || '(root)'} holds a value of type ${t}, which canonical JSON has no form for`);
+}
+
+/**
+ * §5 rule 1 and rule 5: strip `context` and `evidenceDigest` from the TOP LEVEL
+ * as whole subtrees, then sha-256 the canonical text as UTF-8, lowercase hex.
+ *
+ * Nothing is stripped at any depth below the top: a key called `context` inside
+ * `observations[]` is an ordinary key and is digested like any other.
+ *
+ * @throws {NotCanonical} the document has no canonical form, so it has no
+ *         verifiable digest either
+ */
+export function evidenceDigestOf(doc) {
+  const stripped = { ...doc };
+  delete stripped.context;
+  delete stripped.evidenceDigest;
+  return createHash('sha256').update(canonicalText(stripped, ''), 'utf8').digest('hex');
+}
+
+// ── which arguments are exposure-relevant ───────────────────────────────────
+//
+// ★ ONE DEFINITION, TWO USERS. The CI job that invokes `run-ladder.sh` has to
+// generate the ladder's command line, and this reader has to check the document
+// that came back against the build in hand. If those two rules are written twice
+// they drift on the first flag one of them learns about, and the drift does not
+// present as a disagreement: the frontier is measured under a line missing a
+// flag, binds clean against a build that has it, and the guard reports a
+// clearance for an exposure nobody measured. So `exposureArgs` is exported, and
+// the generating side is expected to call it rather than to reimplement it.
+//
+// The families are the ones that change what the optimiser is handed:
+// `-O`, `-D`, `-U`, `-f`, `-m`, `-std=`, `--sysroot`, `-isystem`, `-I`,
+// `-include`, and the long spellings clang documents for the macro flags. What
+// is left out is left out because it cannot move a rung: `-o`, `-c`, `-MF`, the
+// linker's tokens, and the source files themselves — the ladder compiles its own
+// specimen and none of those reach the specimen's IR.
+
+/**
+ * Exposure-relevant flags whose value is the NEXT token. A subset of
+ * `SEPARATE_VALUE_FLAGS` in cmdline.mjs, kept as its own list because the
+ * question here is not "does this flag take a value" but "does this flag change
+ * the exposure": both tokens travel together or neither does, and emitting
+ * `-D` without its operand would hand `run-ladder.sh` a line clang cannot parse.
+ */
+export const EXPOSURE_VALUE_FLAGS = Object.freeze([
+  '-D', '-I', '-U', '--define-macro', '--sysroot', '--undefine-macro',
+  '-include', '-isystem', '-mllvm', '--param',
+  // The rest of the header-search family. `-imacros fortify.h` installs the
+  // fortifying macro set by hand, which is the very thing the b1 and d1 rungs
+  // separate, and it was reading as plain `-O2`. Listed by name as well as
+  // caught by the `-i` prefix below, because these spellings take their operand
+  // as a separate token and a prefix match alone would leave the operand behind.
+  '-idirafter', '-imacros', '-iprefix', '-iquote', '-isysroot', '-iwithprefix',
+  // The passthroughs, which are here because they can carry anything. Their
+  // payload is a separate token, so `-Xpreprocessor -D_FORTIFY_SOURCE=3` was
+  // already caught -- but only by accident, because `-D…` matches a joined
+  // prefix on its own. `-Xclang -disable-llvm-passes` is the same shape and
+  // matches nothing, so it was dropped and a build carrying it compared equal
+  // to one without. A flag whose meaning is "hand the next token to a stage
+  // this driver does not model" cannot be judged by its payload's spelling.
+  '-Xassembler', '-Xclang', '-Xpreprocessor',
+]);
+
+/**
+ * Driver passthroughs whose payload is comma-joined into the token itself.
+ *
+ * Measured 2026-08-17, and the reason this list exists: `-O2 -Wp,-U_FORTIFY_SOURCE
+ * -Wp,-D_FORTIFY_SOURCE=3` produced `extraArgs: []` and was cleared as
+ * `exposure-consistent` against a frontier measured under plain `-O2`. The
+ * ladder separates those two builds on six rungs; the binding did not separate
+ * them at all, because `-Wp,…` begins `-W` and no joined prefix matches it. That
+ * is this guard's own defect wearing the shape of the defect it exists to close,
+ * and it failed towards quoting.
+ *
+ * The whole token is carried rather than its pieces: what comes out of here is
+ * what a caller hands to `run-ladder.sh`, and clang reads the joined spelling.
+ */
+export const EXPOSURE_COMMA_PASSTHROUGHS = Object.freeze(['-Wa,', '-Wp,']);
+
+/**
+ * Exposure-relevant flags in their joined spelling. Matched as prefixes, so
+ * `-D_FORTIFY_SOURCE=3`, `-ffast-math`, `-march=native`, `-std=c11` and
+ * `--sysroot=~/x` are all caught in the one form clang also accepts them in.
+ */
+export const EXPOSURE_JOINED_PREFIXES = Object.freeze([
+  '--define-macro', '--param', '--sysroot', '--undefine-macro',
+  '-D', '-I', '-O', '-U', '-f', '-m', '-std=',
+  // The whole `-i` family rather than the two spellings that had been named.
+  // Every clang flag beginning `-i` decides where headers are found, and where
+  // headers are found decides what a wipe is spelled as -- fortification lives
+  // in a header. Naming them one at a time is how `-imacros`, `-idirafter` and
+  // `-iquote` all read as plain `-O2`; measured 2026-08-17.
+  '-i',
+]);
+
+/**
+ * Exposure-relevant flags that take no operand. They are here for the same
+ * reason as the `-i` family: each one changes which headers and which built-ins
+ * the compilation sees, so two builds that differ only by one of these are two
+ * different exposures while their command lines differ by a token that carries
+ * no value to match on.
+ */
+export const EXPOSURE_BARE_FLAGS = Object.freeze([
+  '-nobuiltininc', '-nostdinc', '-nostdinc++', '-nostdlibinc', '-undef',
+]);
+
+/**
+ * The invocation's exposure, in the two pieces `run-ladder.sh` takes: the level
+ * as its `<opt>` argument and everything else as its extra clang arguments.
+ *
+ * `-O` tokens are carried in `opt` and NEVER in `extraArgs`. Clang takes the
+ * last `-O` on the line, so a line reading `-O2 -O1` compiles at `-O1`; putting
+ * the level in one field and the rest in another makes that reading explicit,
+ * and it is the same reading `driverConfigAxes` files the row under and the same
+ * one `derive-frontier-sidecar.mjs` derives the sidecar's key from. A level left
+ * in both fields would be applied twice and would still be right, but it would
+ * make two documents of the same build differ in their `extraArgs`.
+ *
+ * The tokens come back UNSANITISED, because this is also what a caller hands to
+ * `run-ladder.sh`, and `run-ladder.sh` hands them to a compiler: a `~` that this
+ * function had already substituted would reach clang, which does not expand it,
+ * and the ladder would be measured under a path that does not exist. Sanitising
+ * happens where the comparison happens; see `sanitiseExposureToken`.
+ *
+ * @param {object} normalised the object `normalise()` returns
+ * @returns {{opt: string, extraArgs: string[]}}
+ */
+export function exposureArgs(normalised) {
+  const argv = Array.isArray(normalised?.argv) ? normalised.argv : [];
+  const extraArgs = [];
+  // Everything after a bare `--` is an input rather than a flag, which is the
+  // rule `normalise` itself follows; reading a source file's name as a flag
+  // family here would put it on the ladder's command line.
+  let sawDashDash = false;
+  for (let i = 0; i < argv.length; i += 1) {
+    const tok = argv[i];
+    if (typeof tok !== 'string' || tok.length < 2 || !tok.startsWith('-')) continue;
+    if (tok === '--') { sawDashDash = true; continue; }
+    if (sawDashDash) continue;
+    if (EXPOSURE_VALUE_FLAGS.includes(tok)) {
+      const value = argv[i + 1];
+      // A flag with nothing after it is passed on alone rather than dropped: the
+      // caller wrote it, `normalise` recorded it, and swallowing it here would
+      // make a malformed line and a clean one produce the same exposure.
+      if (value === undefined) { extraArgs.push(tok); continue; }
+      i += 1;
+      extraArgs.push(tok, value);
+      continue;
+    }
+    // The recognised levels only. `-Ofast` is not one `normalise` reads, so it
+    // is not in `opt` either, and it travels in `extraArgs` where it will be the
+    // last `-O` on the ladder's line exactly as it is on this one.
+    if (OPT_LEVELS.has(tok) || tok === '-O') continue;
+    if (EXPOSURE_BARE_FLAGS.includes(tok)) { extraArgs.push(tok); continue; }
+    // Before the prefix test, because `-Wp,-D…` starts with `-W` and would
+    // otherwise fall past every prefix and be dropped. Carried whenever the
+    // passthrough has a payload at all, without reading what the payload says:
+    // deciding relevance by the spelling inside is how the token got dropped in
+    // the first place, and a token carried needlessly costs a refusal while a
+    // token dropped wrongly costs a pass.
+    if (EXPOSURE_COMMA_PASSTHROUGHS.some((p) => tok.length > p.length && tok.startsWith(p))) {
+      extraArgs.push(tok);
+      continue;
+    }
+    if (EXPOSURE_JOINED_PREFIXES.some((p) => tok.length > p.length && tok.startsWith(p))) {
+      extraArgs.push(tok);
+    }
+  }
+  return { opt: shippingOptLevel(normalised), extraArgs };
+}
+
+/**
+ * `run-ladder.sh:83`'s first rule — `sed -e "s#$HOME#~#g"` — applied to one
+ * token, so that the two sides of the comparison spell a home-relative path the
+ * same way. The runner's second rule, `s#$LAB#<lab>#g`, is not applied: the lab
+ * is the measuring script's own directory and no build's command line names it,
+ * so substituting it here could only rewrite a token that meant something else.
+ */
+function sanitiseExposureToken(token, home) {
+  if (typeof token !== 'string' || typeof home !== 'string' || home.length === 0 || home === '/') return token;
+  return token.split(home).join('~');
+}
+
+/**
+ * Every way the exposure check can refuse, and the reason each one is reported
+ * under. One table, so that a result written into a record and the reason
+ * written next to it cannot drift apart; and nine entries rather than one,
+ * because they call for nine different pieces of work. "The frontiers differ",
+ * "the two readings could not be compared", "nobody measured this build", "the
+ * file the policy names is not readable", "the reading taken for this build is
+ * not the documented shape", "these are not the bytes that were measured", "this
+ * reading is of another command line", "the sidecar's keys do not agree with its
+ * own entries" and "another compiler took the reading" are not the same
+ * sentence, and a single `fallback-exposure-failed` would send every one of them
+ * to the wrong place.
+ *
+ * The four added by the binding check are separate from the five above them for
+ * the same reason those five are separate from each other, and the split matters
+ * most here: a digest that does not recompute sends a reader to whoever edited
+ * the file, a frontier taken at another opt level sends them to the CI job that
+ * measures it, and a clang that moved sends them to the base image. One word for
+ * all three would send all three to the same wrong place.
+ *
+ * `unchecked` is deliberately absent: it is the one result that is not a
+ * refusal, and giving it a reason here would make it look like one.
+ */
+export const EXPOSURE_REFUSALS = Object.freeze({
+  'exposure-incomparable': 'fallback-exposure-incomparable',
+  'exposure-mismatch': 'fallback-exposure-mismatch',
+  'frontier-for-different-invocation': 'fallback-exposure-frontier-for-different-invocation',
+  'measurement-digest-mismatch': 'fallback-exposure-measurement-digest-mismatch',
+  'measurement-unreadable': 'fallback-exposure-measurement-unreadable',
+  'sidecar-digest-mismatch': 'fallback-exposure-sidecar-digest-mismatch',
+  'sidecar-unreadable': 'fallback-exposure-sidecar-unreadable',
+  'toolchain-drift': 'fallback-exposure-toolchain-drift',
+  unmeasured: 'fallback-exposure-unmeasured',
+});
+
+/**
+ * Read one document off disk, or say which of the three ways it was not there.
+ * Split out because the sidecar and the measured reading fail in the same three
+ * ways and are reported under two different names.
+ *
+ * The BYTES come back beside the parsed document, and every digest this file
+ * writes into a record is taken from them. Reading the file a second time to
+ * hash it — which is what `sha256File` here used to do — names a file rather
+ * than a reading: between the two reads the file can change, and the record
+ * would then carry the digest of bytes no decision was made on. The digest in a
+ * record has to name the reading that actually cleared the build.
+ */
+function readJsonDocument(abs, rel, refuse, result, what) {
+  let bytes;
+  try {
+    bytes = readFileSync(abs);
+  } catch (err) {
+    return { bytes: null, doc: null, refusal: refuse(result, `the ${what} at ${rel} could not be read (${clip(err.code ?? err.message, 40)})`) };
+  }
+  let doc;
+  try {
+    doc = JSON.parse(bytes.toString('utf8'));
+  } catch (err) {
+    return { bytes, doc: null, refusal: refuse(result, `the ${what} at ${rel} is not JSON (${clip(err.message, 60)})`) };
+  }
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+    return { bytes, doc: null, refusal: refuse(result, `the ${what} at ${rel} is not a JSON object`) };
+  }
+  return { bytes, doc, refusal: null };
+}
+
+/** interfaces.md §5 rule 5, over bytes already in hand. Lowercase hex. */
+function sha256Bytes(bytes) {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+/**
+ * Which side of a comparison a malformed document was on.
+ *
+ * `compareFrontiers` throws one `FrontierInputError` for two documents, and the
+ * driver has to say which file to go and fix — a sidecar the policy points at
+ * and a reading taken for this build are two different people's problems. So
+ * each side is put through the module's own two validators first, in the order
+ * the comparison itself uses them. This is not a second implementation of the
+ * comparison: nothing here compares anything, and both calls are imported.
+ *
+ * A document that declares itself broken is NOT a shape error — it is a
+ * measurement that reported its own apparatus failure, and `compareFrontiers`
+ * reads it as `exposure-incomparable`, which is the honest answer.
+ */
+function frontierShapeError(doc, where) {
+  try {
+    if (!declaresBroken(doc, where)) readHealthyDocument(doc, where);
+    return null;
+  } catch (err) {
+    if (!(err instanceof FrontierError)) throw err;
+    return clip(err.message, 160);
+  }
+}
+
+/**
+ * Was this build's exposure the one the cell being quoted was measured in?
+ *
+ * @param {{cwd: string, frontiersPath: string, home?: string,
+ *          measuredPath: string|null, normalised: object, root: string,
+ *          rows: object[]}} args `rows` are the quoted rows, each carrying the
+ *        `from` the sidecar is keyed by; `normalised` is the invocation in hand,
+ *        which is what the measured reading is bound to. `home` is a parameter
+ *        only so that a test can pin the runner's tilde rule to a directory it
+ *        controls; nothing passes it in production.
+ * @returns {{ok: true, clang: string|null, record: object}
+ *          | {ok: false, reason: string, detail: string, record: object}}
+ *          `clang` is the compiler the measured reading names, for the drift
+ *          check `evaluateFallback` makes after the observation build. It is not
+ *          compared here: `compareFrontiers` deliberately does not compare
+ *          labels, and knowing which compiler THIS build actually ran is the
+ *          driver's business rather than the comparator's.
+ */
+export function checkExposure({
+  cwd, frontiersPath, home = homedir(), measuredPath, normalised, root, rows,
+}) {
+  const sidecarAbs = resolve(root, frontiersPath);
+  const sidecar = { path: toRecordPath(sidecarAbs, root), sha256: null };
+  const refuse = (result, detail, extra = {}) => ({
+    ok: false,
+    reason: EXPOSURE_REFUSALS[result],
+    detail,
+    record: { detail, result, sidecar, ...extra },
+  });
+
+  const read = readJsonDocument(sidecarAbs, sidecar.path, refuse, 'sidecar-unreadable', 'exposure sidecar');
+  if (read.refusal) return read.refusal;
+  const sidecarDoc = read.doc;
+  sidecar.sha256 = sha256Bytes(read.bytes);
+
+  const badSidecar = (why) => refuse(
+    'sidecar-unreadable',
+    `the exposure sidecar at ${sidecar.path} is not a ${SIDECAR_SCHEMA_VERSION} document: ${why}`,
+  );
+  if (sidecarDoc.schemaVersion !== SIDECAR_SCHEMA_VERSION) {
+    return badSidecar(`schemaVersion is ${clip(JSON.stringify(sidecarDoc.schemaVersion), 40)}`);
+  }
+  if (!Array.isArray(sidecarDoc.entries)) return badSidecar('entries is not an array');
+  // The disclosure is required to travel with the document. This instrument
+  // fails towards `exposure-consistent`, and a sidecar that has had that
+  // sentence stripped out of it reads like a stronger guarantee than it is — so
+  // a document without one is refused rather than read. `derive-frontier-
+  // sidecar.mjs` writes it at `instrument.failureDirection` on every run.
+  const failureDirection = sidecarDoc.instrument?.failureDirection;
+  if (typeof failureDirection !== 'string' || failureDirection.length === 0) {
+    return badSidecar(
+      'it states no instrument.failureDirection. The ladder fails towards exposure-consistent, and a sidecar that '
+      + 'does not carry that sentence gets quoted as a stronger reading than it is',
+    );
+  }
+
+  // ---- the sidecar says what it says about itself --------------------------
+  //
+  // A lookup keyed by `configKey` trusts `entry.configKey` to be the key of
+  // `entry.config`, and nothing downstream ever looks at the two together: an
+  // entry whose stated key was edited to the key of some other configuration is
+  // found by that other configuration's build and compared against a frontier
+  // measured somewhere else, and every step of that reads as an ordinary hit.
+  // Recomputing the key from the config the entry itself carries is the whole
+  // check, and it is cheap enough to run over every entry rather than over the
+  // one that happens to be wanted — the entry that was tampered with is not
+  // necessarily the entry this build looks up.
+  for (const entry of sidecarDoc.entries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      return badSidecar('an entries[] item is not an object');
+    }
+    const recomputed = configKey(entry.config);
+    if (entry.configKey !== recomputed) {
+      return refuse(
+        'sidecar-digest-mismatch',
+        `the exposure sidecar at ${sidecar.path} has an entry filed under ${clip(JSON.stringify(entry.configKey), 90)} whose own `
+        + `config keys to ${clip(recomputed, 90)}. The lookup is by the stated key, so an entry that disagrees with itself is `
+        + 'found by a configuration it was not measured in, and the comparison that follows would be a real comparison against '
+        + 'the wrong reading',
+      );
+    }
+  }
+  // The deriver does not yet seal the sidecar, so this is checked only when a
+  // digest is there to check — and it is written now rather than later because
+  // an unverified digest that a reader assumes was verified is worse than an
+  // absent one. When `derive-frontier-sidecar.mjs` starts sealing its output
+  // this fires without another edit here.
+  if (sidecarDoc.evidenceDigest !== undefined) {
+    let recomputed;
+    try {
+      recomputed = evidenceDigestOf(sidecarDoc);
+    } catch (err) {
+      if (!(err instanceof NotCanonical)) throw err;
+      return refuse(
+        'sidecar-digest-mismatch',
+        `the exposure sidecar at ${sidecar.path} carries an evidenceDigest and cannot be canonicalised, so the digest cannot be `
+        + `checked and nothing in the document can be relied on (${clip(err.message, 80)})`,
+      );
+    }
+    if (recomputed !== sidecarDoc.evidenceDigest) {
+      return refuse(
+        'sidecar-digest-mismatch',
+        `the exposure sidecar at ${sidecar.path} carries evidenceDigest ${clip(JSON.stringify(sidecarDoc.evidenceDigest), 24)} and `
+        + `recomputes to ${recomputed.slice(0, 12)}…. The bytes on disk are not the bytes that were sealed, so the entries in it `
+        + 'are not the entries the deriver wrote',
+      );
+    }
+  }
+
+  if (typeof measuredPath !== 'string' || measuredPath.length === 0) {
+    return refuse(
+      'unmeasured',
+      `the policy names an exposure sidecar at ${sidecar.path} and no frontier was measured for this build, so there is `
+      + 'nothing to compare against it. The guard was asked for and not answered, and an unanswered guard is not a passed one',
+    );
+  }
+  const measuredAbs = resolve(cwd, measuredPath);
+  // `relativiseToken`, not `toRecordPath`. The ladder lab lives outside the
+  // fixture root by design — `run-ladder.sh` writes under `$IRCK_LADDER_LAB`,
+  // which defaults to a directory in `$HOME` — and relativising an out-of-root
+  // path against the root yields a `../../..` chain, or on Windows a bare
+  // absolute path when the two are on different drives. Either one goes into a
+  // sealed record, and §5 forbids the second outright. `relativiseToken` is the
+  // helper written for exactly this case: inside the root it gives the relative
+  // path, outside it gives `<outside:sha>`, which is stable on this machine and
+  // meaningless off it.
+  const measuredRel = relativiseToken(measuredAbs, root);
+  const measuredRead = readJsonDocument(
+    measuredAbs, measuredRel, refuse, 'measurement-unreadable', 'frontier measured for this build',
+  );
+  if (measuredRead.refusal) return measuredRead.refusal;
+  const measured = measuredRead.doc;
+  // The reading is named in the record by the digest of the bytes that were
+  // read — the bytes this decision was actually made on, not a second read of
+  // the same path. That is the same identity the table gets, and it is what
+  // makes a record say WHICH reading cleared this build. It is deliberately not
+  // `evidenceDigest`: that one names the measurement, this one names the file,
+  // and a record that quoted only the first could not be checked against a file.
+  const frontierDigest = sha256Bytes(measuredRead.bytes);
+
+  // ---- are these the bytes somebody measured? ------------------------------
+  //
+  // First, because everything after it reads fields out of these bytes. §5 puts
+  // the digest over the document with `context` and `evidenceDigest` stripped,
+  // so a document whose measurement was edited — a rung flipped, an `exposure`
+  // rewritten to match a build it was not taken under — no longer recomputes,
+  // while a re-assembly on another day with another clock still does.
+  //
+  // A document that states no digest at all is refused here too, under the same
+  // name. `build-ladder-frontier.py` seals every document it writes, so an
+  // unsealed one either came from something else or had the field removed, and
+  // the two are the same problem: there is nothing to check the bytes against.
+  // Splitting them would give an attacker the shorter path of deleting a field.
+  let recomputedDigest = null;
+  try {
+    recomputedDigest = evidenceDigestOf(measured);
+  } catch (err) {
+    if (!(err instanceof NotCanonical)) throw err;
+    return refuse(
+      'measurement-digest-mismatch',
+      `the frontier measured for this build at ${measuredRel} cannot be canonicalised, so its digest cannot be recomputed and `
+      + `nothing in it can be checked (${clip(err.message, 80)})`,
+      { frontierDigest },
+    );
+  }
+  if (recomputedDigest !== measured.evidenceDigest) {
+    return refuse(
+      'measurement-digest-mismatch',
+      `the frontier measured for this build at ${measuredRel} carries evidenceDigest `
+      + `${clip(JSON.stringify(measured.evidenceDigest ?? null), 24)} and recomputes to ${recomputedDigest.slice(0, 12)}…. `
+      + 'Its bytes are not the bytes that were sealed when the ladder was read, so what it says was measured is not what it says '
+      + 'it is',
+      { frontierDigest },
+    );
+  }
+
+  const measuredShape = frontierShapeError(measured, 'the frontier measured for this build');
+  if (measuredShape !== null) {
+    return refuse('measurement-unreadable', `${measuredRel}: ${measuredShape}`, { frontierDigest });
+  }
+  // The three invariants, asked of the document that is about to clear a build.
+  // `compareFrontiers` asks the same question of both sides, and would catch
+  // this one too — but it is asked here as well because the answer names the
+  // instrument rather than the pair, and because a reader sent to "the two
+  // readings could not be compared" goes looking for a version skew that is not
+  // there. The names are `frontier-match.mjs`'s, not re-derived: a second list
+  // of the three would go stale the day a fourth invariant is measured.
+  const failing = declaresUnhealthy(measured);
+  if (failing !== null) {
+    return refuse(
+      'exposure-incomparable',
+      `the frontier measured for this build at ${measuredRel} declares ${failing.join(' and ')} false. The specimen stopped `
+      + 'behaving like a graded ladder during the run that produced it, so its rungs are not readings and nothing is compared '
+      + 'against them',
+      { frontierDigest },
+    );
+  }
+
+  // ---- is this a reading of THIS invocation? -------------------------------
+  //
+  // The comparison below establishes that two frontiers agree. It says nothing
+  // at all about whether the frontier in hand was measured under the command
+  // line being compiled now, and without this check the answer is routinely no:
+  // a frontier measured once and left on disk clears every later build,
+  // including the one whose CFLAGS grew `-D_FORTIFY_SOURCE=3` — which is
+  // precisely the exposure the whole ladder exists to notice.
+  const wanted = exposureArgs(normalised);
+  const stated = measured.exposure;
+  if (!stated || typeof stated !== 'object' || Array.isArray(stated)
+      || typeof stated.opt !== 'string'
+      || !Array.isArray(stated.extraArgs) || stated.extraArgs.some((a) => typeof a !== 'string')) {
+    return refuse(
+      'measurement-unreadable',
+      `${measuredRel}: the document states no readable exposure.opt and exposure.extraArgs, so it cannot say which invocation `
+      + 'it is a reading of, and a reading that names no command line cannot be bound to one',
+      { frontierDigest },
+    );
+  }
+  // Sanitised for the comparison, relativised for the message, and the two are
+  // different transforms on purpose. `run-ladder.sh` tilde-shortens before it
+  // writes the manifest, so the document's side is already sanitised and the
+  // build's side has to be to match; but a tilde is not what §5 asks of a record,
+  // so what gets printed goes through `relativiseToken` as well.
+  const ours = wanted.extraArgs.map((a) => sanitiseExposureToken(a, home));
+  const sameOpt = sanitiseExposureToken(wanted.opt, home) === stated.opt;
+  const sameArgs = ours.length === stated.extraArgs.length && ours.every((a, i) => a === stated.extraArgs[i]);
+  const forRecord = (opt, args) => clip([opt, ...args].map((a) => relativiseToken(a, root)).join(' '), 200);
+  const exposureCompared = {
+    build: { extraArgs: ours.map((a) => relativiseToken(a, root)), opt: wanted.opt },
+    frontier: { extraArgs: stated.extraArgs.map((a) => relativiseToken(a, root)), opt: stated.opt },
+  };
+  if (!sameOpt || !sameArgs) {
+    return refuse(
+      'frontier-for-different-invocation',
+      `the frontier at ${measuredRel} was measured under \`${forRecord(stated.opt, stated.extraArgs)}\` and this build compiles `
+      + `\`${forRecord(wanted.opt, ours)}\`. A frontier is a reading of one command line, so a reading of another one says `
+      + 'nothing about this build — and a measurement left on disk while the flags moved underneath it is the exact failure this '
+      + 'guard exists to catch, one level up',
+      { exposure: exposureCompared, frontierDigest },
+    );
+  }
+
+  // One comparison per distinct configuration among the quoted rows. Usually
+  // one; more when an axis this command line could not state left several rows
+  // matching, and then every one of them has to survive, because any of them
+  // could be the cell whose level was adopted.
+  //
+  // The key is `derive-frontier-sidecar.mjs`'s own `configKey`, imported rather
+  // than rebuilt. Two spellings of "the same configuration" would drift on the
+  // first axis whose value is written differently on the two sides, and the
+  // drift would show up as a sidecar that silently has nothing to say about any
+  // build. That does not read as a clean run from here — the missing entry is
+  // refused just below, as `exposure-incomparable` — but it does read as a build
+  // nobody has measured, on every build, and a guard that refuses everything for
+  // a reason that is not about the build is a guard someone switches off.
+  const byConfig = new Map();
+  for (const row of rows) {
+    const from = row?.from;
+    if (!from || typeof from !== 'object' || Array.isArray(from)) {
+      return refuse(
+        'exposure-incomparable',
+        'a row quoted for this build carries no configuration to key the sidecar by, so the cell it came from '
+        + 'could not be found and no comparison was made',
+      );
+    }
+    const key = configKey(from);
+    if (byConfig.has(key)) continue;
+    const entry = sidecarDoc.entries.find((e) => e && e.configKey === key);
+    if (entry === undefined) {
+      byConfig.set(key, {
+        config: from,
+        differingRungs: [],
+        reason: `the sidecar at ${sidecar.path} records no frontier for ${describeAxes(from)}.`,
+        result: 'exposure-incomparable',
+      });
+      continue;
+    }
+    const entryShape = frontierShapeError(entry, 'the frontier the sidecar records');
+    if (entryShape !== null) return badSidecar(`the entry for ${describeAxes(from)} is malformed: ${entryShape}`);
+    // An entry the deriver wrote out unusable — two builds collided on its key,
+    // or the only measurement of it was broken — carries `health.broken`, so it
+    // arrives here as a document that declares its own measurement broken and
+    // comes back `exposure-incomparable`. That is not special-cased: the
+    // deriver shaped its entries so that a consumer would not have to know its
+    // vocabulary, and knowing it anyway would be a second place deciding what
+    // an unusable key means.
+    byConfig.set(key, {
+      config: from,
+      ...compareFrontiers(measured, entry, { whereA: 'this build', whereB: 'the recorded cell' }),
+    });
+  }
+
+  const results = [...byConfig.values()];
+  // Mismatch is reported over incomparable when both happened, and the ordering
+  // is the same one `no-safe-target` has over `not-observed` above: the
+  // stronger claim goes first. A measured difference is evidence; a comparison
+  // that could not be made is a gap, and reporting the gap over the top of the
+  // evidence would send someone to fix the wrong thing.
+  const mismatched = results.filter((r) => r.result === 'exposure-mismatch');
+  if (mismatched.length > 0) {
+    const differingRungs = [...new Set(mismatched.flatMap((r) => r.differingRungs))].sort();
+    return refuse(
+      'exposure-mismatch',
+      `the ladder frontier measured for this build differs on ${differingRungs.join(', ')} from the frontier the sidecar at `
+      + `${sidecar.path} records for ${describeAxes(mismatched[0].config)}. At least one probed mechanism differs between `
+      + 'this build and the build that cell was measured in, so the cell is not quoted for this one',
+      { config: mismatched[0].config, differingRungs, frontierDigest },
+    );
+  }
+  const incomparable = results.filter((r) => r.result === 'exposure-incomparable');
+  if (incomparable.length > 0) {
+    return refuse(
+      'exposure-incomparable',
+      `${clip(incomparable[0].reason, 200)} No comparison was made between the frontier measured for this build and the one `
+      + `the sidecar at ${sidecar.path} records for ${describeAxes(incomparable[0].config)}, and that is not the same as a `
+      + 'comparison that found nothing',
+      { config: incomparable[0].config, frontierDigest },
+    );
+  }
+  // Nothing was compared. `evaluateFallback` only calls this with rows in hand,
+  // so reaching here means a caller passed an empty set — and answering
+  // `exposure-consistent` for a comparison that never happened is the single
+  // worst thing this function could do. It is checked rather than assumed
+  // because the assumption lives in another file.
+  if (results.length === 0) {
+    return refuse(
+      'exposure-incomparable',
+      'no quoted row named a configuration, so the sidecar was never looked in and no frontier was compared. A guard that '
+      + 'compared nothing has not found nothing',
+      { frontierDigest },
+    );
+  }
+  // The word is `exposure-consistent`: no probed mechanism separated the two
+  // builds. Not "matched", not "verified".
+  //
+  // ★ And the pass carries its evidence, which it used to drop. Every refusal
+  // above names what it found — the rungs, the configuration, the reason — and
+  // the one outcome that went out with three bare fields was the one a reader
+  // over-reads. `reason` is the comparator's own sentence, which says HOW MANY
+  // rungs answered identically and then says in as many words that this is
+  // necessary and never sufficient; `rungs` is that number on its own, so a
+  // twelve-rung ladder and a one-rung ladder do not clear a build looking alike;
+  // and `configKeys` names the cells the comparison was actually made against,
+  // because "consistent" is a statement about a lookup and the lookup has a key.
+  //
+  // Every entry compared clean against the SAME measured document, so they all
+  // cover the same rung set and the comparator returns the same sentence for
+  // each; `results[0]` is that sentence rather than a choice among several.
+  return {
+    ok: true,
+    clang: typeof measured.toolchain?.clang === 'string' ? measured.toolchain.clang : null,
+    record: {
+      configKeys: [...byConfig.keys()].sort(),
+      exposure: exposureCompared,
+      frontierDigest,
+      reason: clip(results[0].reason, 400),
+      result: 'exposure-consistent',
+      rungs: Object.keys(measured.frontier).length,
+      sidecar,
+    },
+  };
+}
+
 /**
  * The subset of `compiler/schema/observation.schema.json` the driver reads,
  * checked rather than trusted — the same discipline `isWellFormedFinding`
  * applies to a peer's findings. A record that does not parse is not an empty
  * record; it is an answer the driver refuses to interpret.
  *
- * @returns {{ok: true, byId: Map<string, object>} | {ok: false, reason: string, detail: string}}
+ * `clang` is read alongside the property states and is deliberately NOT
+ * required. The observation schema requires `toolchain`, but this reader has
+ * always taken a documented subset rather than validating the whole record, and
+ * the day it starts refusing a record for a field it never used is the day every
+ * observer in the tree stops working for a reason unrelated to what it observed.
+ * A record that names no compiler yields `null`, and `null` is read downstream
+ * as "this observation made no claim about the toolchain" rather than as
+ * agreement — see the drift check in `evaluateFallback`.
+ *
+ * @returns {{ok: true, byId: Map<string, object>, clang: string|null}
+ *          | {ok: false, reason: string, detail: string}}
  */
 export function parseObservation(text) {
   let raw;
@@ -718,7 +1497,8 @@ export function parseObservation(text) {
       controlState: control.state,
     });
   }
-  return { ok: true, byId };
+  const clang = raw.toolchain?.clang;
+  return { ok: true, byId, clang: typeof clang === 'string' && clang.length > 0 ? clang : null };
 }
 
 /**
@@ -737,6 +1517,14 @@ function emptyRecord(fb, requested, extra) {
     configured: true,
     counts: { lost: 0, preserved: 0, requested: requested.length, restored: 0, stillLost: 0, unusable: 0 },
     enabled: fb.enabled,
+    // Spread, not an `exposureCheck: null`. run.mjs makes exactly this argument
+    // one level up about `checks.fallback` itself — "a key holding null is
+    // still a key: it changes the canonical text and therefore the digest of
+    // every build in the world that never asked for this" — and it holds again
+    // here. A policy that names no exposure sidecar gets the record it got
+    // before this guard existed, byte for byte, and the key appears only once
+    // something was actually looked at.
+    ...(fb.exposureCheck ? { exposureCheck: fb.exposureCheck } : {}),
     granularity: GRANULARITY,
     observer: { sha256: null, supplied: false },
     profile: fb.profile,
@@ -792,7 +1580,7 @@ function observe({ compiler, compilerArgv, cwd, env, workDir, label, extraFlags,
   if (!parsed.ok) {
     return { ok: false, reason: `observer-record-${parsed.reason}`, detail: parsed.detail, durationMs: obs.durationMs };
   }
-  return { ok: true, byId: parsed.byId, durationMs: obs.durationMs };
+  return { ok: true, byId: parsed.byId, clang: parsed.clang, durationMs: obs.durationMs };
 }
 
 /**
@@ -813,10 +1601,16 @@ function observerCommand(path) {
  * that has never heard of fallback produces the same record, byte for byte, as
  * it did before this file existed.
  *
+ * `exposureFrontier` is a path to the frontier somebody else measured for this
+ * exact invocation, and it is read only when the policy also names a sidecar to
+ * compare it against. Absent, with a sidecar named, is a refusal rather than a
+ * pass: see `checkExposure`.
+ *
  * @returns {{record: object, findings: object[], complete: boolean, timings: object}}
  */
 export function evaluateFallback({
   policy, normalised, compilerArgv, compiler, cwd, root, workDir, observer, env = process.env, blocked = null,
+  exposureFrontier = null,
 }) {
   const declared = readFallbackPolicy(policy);
   // `fb` is rebound once, when `profile: "auto"` is resolved to a level. Every
@@ -831,7 +1625,11 @@ export function evaluateFallback({
   const findings = [];
   const timings = {};
 
-  const unsupported = (reason, detail) => {
+  // `extra` is merged last so that a refusal taken AFTER the observer has been
+  // resolved can still name it. Without it the drift refusal below would emit a
+  // record saying no observer was supplied, on a run whose observer had just
+  // answered.
+  const unsupported = (reason, detail, extra = {}) => {
     findings.push(makeFinding({
       id: CFG.FALLBACK_UNSUPPORTED,
       severity: 'high',
@@ -846,6 +1644,7 @@ export function evaluateFallback({
         reason,
         status: 'unsupported',
         verdict: 'unsupported',
+        ...extra,
       }),
       findings,
       complete: false,
@@ -906,6 +1705,44 @@ export function evaluateFallback({
     });
     fb = { ...fb, profile: auto.ok ? auto.profile : AUTO_PROFILE, profileResolution: auto.record };
     if (!auto.ok) return unsupported(auto.reason, auto.detail);
+  }
+
+  // ---- was this build the exposure that cell was measured in? --------------
+  //
+  // Only when the policy named a sidecar, and only after a level has otherwise
+  // resolved: the guard's whole subject is the cell that is about to be quoted,
+  // so it has nothing to say about a run that never reached one. It sits before
+  // every remaining precondition because a level read out of a cell measured
+  // somewhere else should not be reported as this build's level even in a
+  // refusal about something else.
+  const frontiersPath = policy?.fallback?.exposureFrontiers;
+  // The compiler the measured frontier says took the reading, carried down to
+  // the observation build below. Null when no guard ran, or when the reading
+  // names no compiler.
+  let frontierClang = null;
+  if (typeof frontiersPath === 'string' && frontiersPath.length > 0) {
+    const quoted = fb.profileResolution?.rows ?? [];
+    if (quoted.length === 0) {
+      // A hand-written `profile` quotes no measurement, so there is no cell
+      // whose exposure could be compared. Recorded rather than skipped
+      // silently, so that a policy naming a sidecar next to a hand-written
+      // level can see that its guard never ran.
+      fb = {
+        ...fb,
+        exposureCheck: {
+          detail: 'the level came from policy.fallback.profile rather than from a measured row, so no cell was quoted '
+            + 'and there was nothing whose exposure could be compared',
+          result: 'unchecked',
+        },
+      };
+    } else {
+      const exposure = checkExposure({
+        cwd, frontiersPath, measuredPath: exposureFrontier, normalised, root, rows: quoted,
+      });
+      fb = { ...fb, exposureCheck: exposure.record };
+      if (!exposure.ok) return unsupported(exposure.reason, exposure.detail);
+      frontierClang = exposure.clang;
+    }
   }
 
   if (fb.profile === null) {
@@ -991,6 +1828,54 @@ export function evaluateFallback({
       findings,
       complete: false,
       timings,
+    };
+  }
+
+  // ---- did the same compiler take the reading and compile this build? ------
+  //
+  // The cheapest of the five binding checks and the last one that can be made,
+  // because it is the only one that needs a fact no file on disk carries: which
+  // clang actually ran just now. It costs no compilation — the observation above
+  // has already been built and read, and its record names its own toolchain.
+  //
+  // ★ NOT in `compareFrontiers`, and this is the reason. That module compares
+  // two readings and deliberately refuses to compare their labels: two clang
+  // builds with different package digests that produce an identical frontier
+  // have behaved identically on every mechanism the ladder probes, and a guard
+  // that cried mismatch on every toolchain refresh would be switched off. What
+  // is being asked here is a different question — not "did the two readings
+  // agree" but "was the reading taken by the compiler that is compiling now" —
+  // and only the driver is in a position to ask it, because only the driver ran
+  // the compiler.
+  //
+  // An observation that names no compiler is not agreement; it is a check that
+  // could not be made, and it is recorded as one rather than passed off as a
+  // comparison that succeeded.
+  if (frontierClang !== null) {
+    const observedClang = before.clang;
+    const drift = { frontier: frontierClang, observed: observedClang };
+    if (observedClang !== null && observedClang !== frontierClang) {
+      const detail = `the frontier is a reading of clang ${clip(frontierClang, 60)} and this build was compiled by clang `
+        + `${clip(observedClang, 60)}. A frontier binds the flag sequence and the compiler, so a reading taken by another `
+        + 'compiler says nothing about what this one does to property-shaped code, however cleanly the two frontiers compare';
+      // `detail` is written over the pass's, not added beside it. The record
+      // still carries `reason` — the comparator's "all N rungs responded
+      // identically" — and without a detail of its own beside it, a record whose
+      // result reads `toolchain-drift` would explain itself with the sentence
+      // for the outcome it did not have.
+      fb = { ...fb, exposureCheck: { ...fb.exposureCheck, detail, result: 'toolchain-drift', toolchain: drift } };
+      return unsupported(
+        EXPOSURE_REFUSALS['toolchain-drift'],
+        detail,
+        { observer: { sha256: observerSha, supplied: true }, unit: unitPath },
+      );
+    }
+    fb = {
+      ...fb,
+      exposureCheck: {
+        ...fb.exposureCheck,
+        toolchain: { ...drift, compared: observedClang !== null },
+      },
     };
   }
 
