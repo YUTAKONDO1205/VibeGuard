@@ -713,10 +713,44 @@ test('the deriver CLI writes a sidecar and reports the collision on stderr', () 
   assert.equal(written.entries[0].usable, false);
   assert.equal(written.entries[0].frontier, null);
 
-  // Deterministic: the same inputs produce the same bytes.
+  // Deterministic: the same inputs produce the same DOCUMENT and the same seal.
+  //
+  // This assertion compared whole file bytes until the deriver started sealing
+  // its output (2026-08-18). A sealed record carries `context`, and `context`
+  // carries `generatedAt`, so two runs a few milliseconds apart no longer
+  // produce equal bytes — the first version of this change failed here with the
+  // two files differing in exactly one field, six milliseconds apart.
+  //
+  // The property is asserted where it actually lives rather than relaxed. §5
+  // strips `context` from the top level BEFORE digesting, precisely because when
+  // a document was collated is not part of what it claims. So:
+  //
+  //   * the two documents are equal everywhere except `context` — the readings,
+  //     the entries, the counts and the anomalies are reproduced exactly; and
+  //   * the two `evidenceDigest` values are equal, which is the statement the
+  //     rest of the chain relies on. `fallback.mjs` recomputes this digest to
+  //     decide whether the frontier it is about to compare against is the one
+  //     the deriver wrote.
+  //
+  // Digest equality is the stronger of the two claims: byte equality could be
+  // satisfied by two runs that both produced the same wrong thing, whereas a
+  // digest that reproduces is a statement about the canonical content under the
+  // same rules the verifier applies. Byte-for-byte equality of the whole file
+  // still holds under a pinned clock, which is how the pipeline asserts it — but
+  // `SOURCE_DATE_EPOCH` is read once at import in `clock.mjs`, so it cannot be
+  // set from inside this test, and asserting it here would need a child process.
   const again = join(dir, 'out', 'again.json');
   assert.equal(deriveMain(['--out', again, '--dir', dir], streams().io), EXIT_OK);
-  assert.equal(readFileSync(again, 'utf8'), readFileSync(out, 'utf8'));
+
+  const a = JSON.parse(readFileSync(out, 'utf8'));
+  const b = JSON.parse(readFileSync(again, 'utf8'));
+
+  assert.ok(a.evidenceDigest, 'the sidecar is sealed');
+  assert.equal(b.evidenceDigest, a.evidenceDigest);
+
+  delete a.context;
+  delete b.context;
+  assert.deepStrictEqual(b, a);
 });
 
 test('the deriver refuses a command line with no output path', () => {

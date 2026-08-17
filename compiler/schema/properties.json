@@ -3,7 +3,7 @@
   "title": "The security properties this directory knows how to ask about, and which of them anything actually implements",
   "readMeFirst": [
     "This file is a catalogue, not a claim of coverage. Most entries have extractor: null and status: unimplemented, and that is the point: a policy that names a property with no reachable checkpoint has to be exit 3, and a caller can only know that if this file says which properties those are.",
-    "status has three values. 'implemented' means an extractor exists and a fixture in this repository measures this property in this configuration. 'candidate' means the extractor exists and would take this configuration, but nothing here has measured it, so nobody should quote it as evidence. 'unimplemented' means there is no extractor at all.",
+    "status has FOUR values, and this sentence said three until 2026-08-18 while the file below already used the fourth. 'implemented' means an extractor exists and a fixture in this repository measures this property in this configuration. 'candidate' means the extractor exists and would take this configuration, but nothing here has measured it, so nobody should quote it as evidence. 'unimplemented' means there is no extractor at all. 'partial' means an extractor measures part of what the title claims and the entry's statusDetail says which part -- it is used by exactly one entry (notappear.forbidden-external-call), which is how a fourth value stayed unlisted: a reader checking the vocabulary against the catalogue would have to count all 24 entries to notice. Current distribution, recomputed rather than remembered: implemented 7, unimplemented 14, candidate 2, partial 1.",
     "observeAt is per checkpoint, not per property, because a property is very often observable at one checkpoint and not at another, and flattening that into a single list is how a partial check comes to look like a whole one."
   ],
   "extractors": {
@@ -747,9 +747,11 @@
         "controlRule": "None."
       },
       "degradationRisk": [
-        "Not applicable: there is no extractor to degrade."
+        "Corrected 2026-08-18. This array said 'Not applicable: there is no extractor to degrade.', which was left behind by the 2026-08-10 promotion recorded in statusDetail above: the entry became 'implemented' with invocation.flag-set named as its extractor, and the sentence saying no extractor exists was not removed. Inside one entry, three fields disagreed -- status said implemented, extractor named one, and this array said there was none to degrade. It is outside the calibration battery's fence (claims/degradation-claims.json fences only ir.wipe-effect, ir.guarded-call and ir.forbidden-callee, and names invocation.flag-set among the entries it does not cover), so correcting it moves no calibrated reading.",
+        "The real degradation is that the reading is of the COMMAND LINE and not of the artefact, so it degrades towards saying nothing rather than towards saying something false: a spelling the normaliser cannot resolve -- NDEBUG mentioned inside a -Wp, or -Xpreprocessor passthrough, or reached through a response file -- sets the axis to null (cmdline.mjs:400, 'ndebug: ndebugOpaque ? null : ndebug'), and a null axis is not matched on rather than defaulted to false. A build that defines NDEBUG through a form this reader cannot see is therefore UNREADABLE, never 'NDEBUG absent'.",
+        "What remains genuinely absent is the other half, and it is the half that would make this a property of the shipped binary: nothing confirms the define survived preprocessing into what was built. An assert compiled out under NDEBUG leaves no artefact-side trace for the flag-set extractor to find, which is why statusDetail calls the artefact-side confirmation still missing."
       ],
-      "evidence": null
+      "evidence": "compiler/driver/test/cmdline.test.mjs -- 'NDEBUG is tracked through -D and -U in argv order, in both spellings' (both -DNDEBUG and -D NDEBUG; -DNDEBUG=0 still counts as defined because assert.h asks only whether it is defined; -UNDEBUG later in argv order wins). Filled in 2026-08-18: this field read null while status read 'implemented', which the vocabulary at the top of this file defines as requiring a fixture in this repository that measures the property. The fixture existed; the field naming it did not, so the entry could not be checked against its own definition without going to look for one."
     },
     {
       "id": "configured.sanitizer",

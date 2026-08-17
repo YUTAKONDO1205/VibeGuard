@@ -168,8 +168,20 @@ the honesty mechanism.** An untested sentence still has to be entered with a
 reason, and editing the catalogue forces the ledger to move in the same commit.
 
 Fenced scope: the `degradationRisk` arrays of the three implemented extractor
-entries — 14 sentences. The per-*property* arrays elsewhere in the catalogue are
-**not** fenced by this revision.
+entries — **15 sentences** (`ir.wipe-effect` 8, `ir.guarded-call` 4,
+`ir.forbidden-callee` 3), of which 6 are `measured`, 6 `deferred` and 3
+`untestable-here`. The per-*property* arrays elsewhere in the catalogue are
+**not** fenced by this revision, and neither are the other three extractor
+entries — `invocation.flag-set`, `artifact.hardening-fields` and
+`artifact.section-flags`, for none of which this battery has a specimen.
+
+> This line read "14 sentences" until 2026-08-18, when the ledger held 15. The
+> undercount was harmless in the only way that matters — `check-claims.py`
+> recomputes the list from the catalogue rather than trusting this number, so the
+> fence itself was never 14-wide — but it is worth naming, because the sentence a
+> reader would have used to decide whether the fence covers a claim was off by
+> one, and the drift is exactly the kind the fence exists to catch in the
+> catalogue while nothing was watching for it in this file.
 
 ### Result, standard revision 7, clang 18.1.3, 2026-08-17
 
