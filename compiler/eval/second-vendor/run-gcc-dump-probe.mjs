@@ -232,6 +232,11 @@ function probeConfig(driver, flags, fixtureDir, workDir, prop) {
   };
 }
 
+// VG-SMELL-003: a long CLI entry point that sequences a probe run — parses
+// arguments, drives the second vendor's compiler, and records the dumps. The
+// rule's premise is an authorization gap hidden in a long handler body; nothing
+// here authorizes anything.
+// vibeguard:disable-next-line VG-SMELL-003
 function main() {
   const args = parseArgs(process.argv);
   const fixturesRoot = args.fixtures || '$LAB/fixtures';

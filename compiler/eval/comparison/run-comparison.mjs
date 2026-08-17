@@ -542,6 +542,15 @@ function armUnsupported(armDef) {
 // ---------------------------------------------------------------------------
 // controls that are about the harness, not about a cell
 
+// VG-SMELL-003 fires here on length and branch count. Its premise does not hold:
+// the rule is about "a monolithic handler that validates, authorizes, mutates,
+// and responds", and the risk it names is an authorization gap hidden in a long
+// body. This is a measurement harness — it writes fixture sources, compiles
+// them, and records what came back. There is no principal, no request and no
+// authorization decision anywhere in it, so there is no gap of that kind to
+// hide. Splitting it would move build steps away from the readings they produce,
+// which is the property the lane is reviewed on.
+// vibeguard:disable-next-line VG-SMELL-003
 function harnessControls(fixtures) {
   const out = { positive: [], negative: [], red: [] };
   const dir = join(WORK, '_controls');
@@ -733,6 +742,9 @@ function harnessControls(fixtures) {
 // ---------------------------------------------------------------------------
 // main
 
+// VG-SMELL-003, same reading as `harnessControls` above: a long CLI entry point
+// that sequences a measurement run. No authorization decision is made here.
+// vibeguard:disable-next-line VG-SMELL-003
 function main() {
   const fixtures = loadFixtures();
   rmSync(WORK, { recursive: true, force: true });
