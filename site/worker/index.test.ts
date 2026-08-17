@@ -9,16 +9,19 @@
 //
 // WHAT THIS SUITE IS FOR
 //
-// The Worker's three responsibilities are all invisible in a browser until they
+// The Worker's four responsibilities are all invisible in a browser until they
 // are wrong: a redirect that lost its counter still looks fine, a 404 without
-// security headers still renders, and an allowlist that stopped being one still
-// serves every link on the site correctly. Each test below pins one property
-// that has no other observable symptom.
+// security headers still renders, an allowlist that stopped being one still
+// serves every link on the site correctly, and a verification file with one
+// byte out of place fails inside Google's console rather than anywhere a person
+// would look. Each test below pins one property that has no other observable
+// symptom.
 import { describe, expect, it, vi } from 'vitest';
 
 import worker, { type Env } from './index';
 import { BASE_HEADERS } from '../src/headers';
 import { CHANNELS, GO_TARGETS, type Channel } from '../src/shared/links';
+import { VERIFICATION_FILES, isVerificationPath } from '../src/shared/verification';
 
 /** Every channel, including `github`, which is absent from CHANNELS by design. */
 const ALL_CHANNELS = Object.keys(GO_TARGETS) as Channel[];
@@ -178,6 +181,90 @@ describe('the 404 page', () => {
       BASE_HEADERS['Content-Security-Policy'],
     );
     expect(await response.text()).toContain('Not found');
+  });
+});
+
+describe('the search-console verification files', () => {
+  // Table-driven rather than literal, so that adding a second console (Bing,
+  // say) is one entry in verification.ts and not a test edit somebody forgets.
+  const entries = Object.entries(VERIFICATION_FILES);
+
+  it('has at least one entry, or every test below loops over nothing', () => {
+    expect(entries.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('answers 200 with the file byte for byte', async () => {
+    for (const [path, body] of entries) {
+      const response = await get(path);
+      expect(response.status, path).toBe(200);
+      expect(await response.text(), path).toBe(body);
+      expect(response.headers.get('Content-Type'), path).toBe('text/html; charset=utf-8');
+    }
+  });
+
+  it('keeps each body in the shape Google issued it', () => {
+    // The content of the file Search Console hands you is exactly
+    // `google-site-verification: <filename>`. verification.ts derives both
+    // halves from one token so they cannot disagree; this is what stops a
+    // hand-edited body from shipping a proof that will never verify.
+    for (const [path, body] of entries) {
+      expect(path.startsWith('/'), path).toBe(true);
+      expect(path.endsWith('.html'), path).toBe(true);
+      expect(body).toBe(`google-site-verification: ${path.slice(1)}`);
+      expect(body.endsWith('\n'), path).toBe(false);
+    }
+  });
+
+  it('carries the site headers and nothing extra', async () => {
+    // The response has to look like the static page it would have been. The
+    // /go/* pair in particular must not leak onto it: `no-store` would make the
+    // console re-fetch a file that never changes, and `noindex` is a directive
+    // aimed at a crawler whose behaviour on the verifier is undocumented.
+    const response = await get(entries[0][0]);
+    for (const [name, value] of Object.entries(BASE_HEADERS)) {
+      expect(response.headers.get(name), name).toBe(value);
+    }
+    expect(response.headers.get('X-Robots-Tag')).toBeNull();
+    expect(response.headers.get('Cache-Control')).toBeNull();
+  });
+
+  it('follows the same HSTS rule as every other Worker response', async () => {
+    const [path] = entries[0];
+    expect((await getFrom('vibeguard.example', path)).headers.get('Strict-Transport-Security')).toBe(
+      'max-age=31536000; includeSubDomains',
+    );
+    expect(
+      (await getFrom('vibeguard-site.workers.dev', path)).headers.get('Strict-Transport-Security'),
+    ).toBeNull();
+  });
+
+  it('matches the exact path only', async () => {
+    // An exact lookup, never a prefix: the body IS the token, so a looser match
+    // would hand it to anyone who guessed the first few characters. The
+    // extensionless form is a 404 on purpose too — the asset layer's
+    // drop-trailing-slash is what makes `/x.html` unusable in public/, and this
+    // Worker deliberately does not re-implement it for a file that must answer
+    // at the URL the console was given and at no other.
+    const [path] = entries[0];
+    const stem = path.replace(/\.html$/, '');
+    for (const near of [stem, `${path}/`, `${path}/extra`, path.toUpperCase(), `/x${path}`]) {
+      const response = await get(near);
+      expect(response.status, near).toBe(404);
+    }
+  });
+
+  it('cannot be answered by an Object.prototype member', () => {
+    // Keys are absolute paths, so no request can reach one of these. The guard
+    // is `hasOwnProperty` anyway, and this is the test that keeps it.
+    for (const key of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+      expect(isVerificationPath(key), key).toBe(false);
+    }
+  });
+
+  it('counts nothing', async () => {
+    const counter = { writeDataPoint: vi.fn() };
+    await get(entries[0][0], env({ GO_CLICKS: counter }));
+    expect(counter.writeDataPoint).not.toHaveBeenCalled();
   });
 });
 
