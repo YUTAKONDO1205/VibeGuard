@@ -1,0 +1,1027 @@
+{
+  "schemaVersion": "vibeguard.calibration-expected/1",
+  "title": "The battery's known true values, and the argument that establishes each one",
+  "readMeFirst": [
+    "This file holds the ANSWERS and is opened by exactly one program: scripts/check-battery.py. scripts/run-battery.sh never reads it. The separation is the reason a reading here can be held against a true value at all -- a producer with access to the answers is a producer that can be made to agree with them.",
+    "`trueState` is what the property DID, established by `truthArgument` and argued in `whyTrue`. It is NOT a prediction about what the extractor will read. For a `reference` cell the two coincide, which is what makes it a reference cell; for an `instrument-limit-probe` they are expected to differ, and the predicted READING lives in claims/degradation-claims.json, not here. Keeping the true value and the predicted reading in different files is what stops a probe's expected misreading from being quietly promoted into a truth.",
+    "`truthArgument` lists the channels the true value stands on. A cell standing on `construction` alone is a SINGLE-LEGGED truth: nothing outside the C language semantics corroborates it. check-battery.py counts and reports those separately, because a battery that presented a one-legged truth as a two-legged one would be overstating its own authority. There are three such cells and they are named in `singleLeggedTruths` below.",
+    "`expectedMeasurement` is interfaces.md section 3.1's apparatus column, and its pairing rule is what the known-BROKEN cells exist to exercise: a cell whose measurement is not OK must carry state NOT_OBSERVED. The RAW records the observer writes do NOT obey that rule -- measured 2026-08-17, cal-wipe-broken at -O2 carries verdict.state = LOST with control.held = false and completesTheCheck = false -- so the reconciliation happens in scripts/build-battery-report.py, which is the only place allowed to make it, and the known-BROKEN cells are how anyone finds out whether it still does.",
+    "Nothing in this file may be edited to make a run green. That is the failure compiler/eval/negative-controls/README.md names: it makes the fixture pass while leaving the instrument exactly as it was, behind a tick. When a measurement contradicts a value here, the two legitimate outcomes are a defect found in the extractor or a defect found in the FIXTURE'S construction; in the second case the generator changes and this file does not. Two fixtures were changed that way on 2026-08-17 and both carry the reason at the specimen in tools/make-battery.sh.",
+    "expectFrameRulesOutObject exists because an adversarial pass found that the frame witness was COMPUTED and held against nothing: expectDefinedInAsm was the only machine-checkable witness declaration in this file, so the leg carrying cal-wipe-napp's NOT_APPLICABLE was a prose assertion dated 2026-08-17. It is now declared per configuration and graded in BOTH directions -- ruled-out at -O2 and present-in-frame at -O0 -- because a witness that only ever returned one answer would not have been shown to distinguish anything. A disagreement is exit 3 rather than exit 2: it means the specimen or the reader stopped behaving as the expectation describes, and in neither case is that cell's state evidence of anything."
+  ],
+  "standardRevision": 7,
+  "measuredOn": "2026-08-17",
+  "toolchain": "clang 18.1.3, x86-64 ELF, Ubuntu-24.04 under WSL2",
+  "truthChannels": {
+    "construction": "The C language forbids the other readings. A wipe whose zeros are subsequently read by an opaque consumer cannot be removed by a conforming compiler; a branch on a value from outside the translation unit cannot be folded. This channel does not consult any instrument.",
+    "asm-witness": "compiler/eval/second-vendor/lib/asm-oracle.mjs at the `asm` checkpoint, via scripts/witness-asm.mjs, on a listing taken from the SAME invocation and WITHOUT the pass plugin. A different instrument at a different point. It is COARSER: no pass attribution, and it cannot tell LOST from NOT_APPLICABLE, so it is never the channel that decides that discrimination.",
+    "asm-witness-structural": "Three structural readings of the same listing that are not effect counts: the stack frame the body reserves (which can rule an object above the 128-byte red zone out of memory), whether the subject's own label is in the listing at all, and whether a call is indirect. These decide what the effect count cannot.",
+    "defined-fns": "The function names tools/make-battery.sh reads back out of the bytes it just emitted. `this name is not in the emitted file` is a fact about the file and is independent of every extractor. run-battery.sh refuses to compile when the cell table names something the specimen does not define, which is the fence against the observer's third silent failure mode."
+  },
+  "singleLeggedTruths": {
+    "cells": [
+      "cal-dom-lost",
+      "cal-dom-present",
+      "cal-guard-perunit",
+      "cal-wipe-inlinesize",
+      "cal-wipe-samesize"
+    ],
+    "why": "cal-wipe-samesize: both objects in the unit are 192 bytes, so the frame witness cannot say which of them survived, and the asm oracle cannot tell a promoted object from a deleted wipe at all. cal-guard-perunit: the true value is that no runtime decision remains, which is a statement about what the branch DECIDES rather than about which instructions are present, and no reading of a listing settles it. Both stand on construction alone and are reported as such. cal-dom-present and cal-dom-lost: dominance is a statement about reachability between two program points; no effect count and no reading of a listing settles it, so these two stand on construction alone by the nature of the shape rather than by omission."
+  },
+  "expectations": [
+    {
+      "fixtureId": "cal-dom-lost",
+      "configId": "O0",
+      "trueState": "ABSENT",
+      "expectedMeasurement": "NOT_MEASURED_NO_PROBE",
+      "truthArgument": [
+        "construction"
+      ],
+      "whyTrue": "The use precedes the validator, so the validator's call site does not dominate it on any path -- the property was never established in this unit, which is section 3's ABSENT and not its LOST. SINGLE-LEGGED for the same reason as cal-dom-present.",
+      "whyNoMeasurement": "The dominance shape has no extractor (compiler/schema/properties.json, survive.input-validation, extractor: null), so this cell is never compiled and never graded against a reading. The answer is recorded ANYWAY, and that is the whole point of the lane: a standard that pre-dates its probe only counts if the answers pre-date it too. Written 2026-08-17, before any dominance extractor exists, so whoever writes one has to make it read a set AND an answer key it did not choose. Without these rows the probe's author would supply the answers, which is the self-marking this lane exists to avoid."
+    },
+    {
+      "fixtureId": "cal-dom-lost",
+      "configId": "O1",
+      "trueState": "ABSENT",
+      "expectedMeasurement": "NOT_MEASURED_NO_PROBE",
+      "truthArgument": [
+        "construction"
+      ],
+      "whyTrue": "The use precedes the validator, so the validator's call site does not dominate it on any path -- the property was never established in this unit, which is section 3's ABSENT and not its LOST. SINGLE-LEGGED for the same reason as cal-dom-present.",
+      "whyNoMeasurement": "The dominance shape has no extractor (compiler/schema/properties.json, survive.input-validation, extractor: null), so this cell is never compiled and never graded against a reading. The answer is recorded ANYWAY, and that is the whole point of the lane: a standard that pre-dates its probe only counts if the answers pre-date it too. Written 2026-08-17, before any dominance extractor exists, so whoever writes one has to make it read a set AND an answer key it did not choose. Without these rows the probe's author would supply the answers, which is the self-marking this lane exists to avoid."
+    },
+    {
+      "fixtureId": "cal-dom-lost",
+      "configId": "O2",
+      "trueState": "ABSENT",
+      "expectedMeasurement": "NOT_MEASURED_NO_PROBE",
+      "truthArgument": [
+        "construction"
+      ],
+      "whyTrue": "The use precedes the validator, so the validator's call site does not dominate it on any path -- the property was never established in this unit, which is section 3's ABSENT and not its LOST. SINGLE-LEGGED for the same reason as cal-dom-present.",
+      "whyNoMeasurement": "The dominance shape has no extractor (compiler/schema/properties.json, survive.input-validation, extractor: null), so this cell is never compiled and never graded against a reading. The answer is recorded ANYWAY, and that is the whole point of the lane: a standard that pre-dates its probe only counts if the answers pre-date it too. Written 2026-08-17, before any dominance extractor exists, so whoever writes one has to make it read a set AND an answer key it did not choose. Without these rows the probe's author would supply the answers, which is the self-marking this lane exists to avoid."
+    },
+    {
+      "fixtureId": "cal-dom-lost",
+      "configId": "O3",
+      "trueState": "ABSENT",
+      "expectedMeasurement": "NOT_MEASURED_NO_PROBE",
+      "truthArgument": [
+        "construction"
+      ],
+      "whyTrue": "The use precedes the validator, so the validator's call site does not dominate it on any path -- the property was never established in this unit, which is section 3's ABSENT and not its LOST. SINGLE-LEGGED for the same reason as cal-dom-present.",
+      "whyNoMeasurement": "The dominance shape has no extractor (compiler/schema/properties.json, survive.input-validation, extractor: null), so this cell is never compiled and never graded against a reading. The answer is recorded ANYWAY, and that is the whole point of the lane: a standard that pre-dates its probe only counts if the answers pre-date it too. Written 2026-08-17, before any dominance extractor exists, so whoever writes one has to make it read a set AND an answer key it did not choose. Without these rows the probe's author would supply the answers, which is the self-marking this lane exists to avoid."
+    },
+    {
+      "fixtureId": "cal-dom-lost",
+      "configId": "Os",
+      "trueState": "ABSENT",
+      "expectedMeasurement": "NOT_MEASURED_NO_PROBE",
+      "truthArgument": [
+        "construction"
+      ],
+      "whyTrue": "The use precedes the validator, so the validator's call site does not dominate it on any path -- the property was never established in this unit, which is section 3's ABSENT and not its LOST. SINGLE-LEGGED for the same reason as cal-dom-present.",
+      "whyNoMeasurement": "The dominance shape has no extractor (compiler/schema/properties.json, survive.input-validation, extractor: null), so this cell is never compiled and never graded against a reading. The answer is recorded ANYWAY, and that is the whole point of the lane: a standard that pre-dates its probe only counts if the answers pre-date it too. Written 2026-08-17, before any dominance extractor exists, so whoever writes one has to make it read a set AND an answer key it did not choose. Without these rows the probe's author would supply the answers, which is the self-marking this lane exists to avoid."
+    },
+    {
+      "fixtureId": "cal-dom-present",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "NOT_MEASURED_NO_PROBE",
+      "truthArgument": [
+        "construction"
+      ],
+      "whyTrue": "The validator's call site dominates the use: cb_validate is called and its result gates the return before cb_use is reached, on every path. No optimisation may reorder an opaque call past the branch that decides whether the use happens, so the dominance relation holds at both levels. SINGLE-LEGGED and unavoidably so: dominance is a statement about reachability between two points, and neither an effect count nor a reading of a listing settles it.",
+      "whyNoMeasurement": "The dominance shape has no extractor (compiler/schema/properties.json, survive.input-validation, extractor: null), so this cell is never compiled and never graded against a reading. The answer is recorded ANYWAY, and that is the whole point of the lane: a standard that pre-dates its probe only counts if the answers pre-date it too. Written 2026-08-17, before any dominance extractor exists, so whoever writes one has to make it read a set AND an answer key it did not choose. Without these rows the probe's author would supply the answers, which is the self-marking this lane exists to avoid."
+    },
+    {
+      "fixtureId": "cal-dom-present",
+      "configId": "O1",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "NOT_MEASURED_NO_PROBE",
+      "truthArgument": [
+        "construction"
+      ],
+      "whyTrue": "The validator's call site dominates the use: cb_validate is called and its result gates the return before cb_use is reached, on every path. No optimisation may reorder an opaque call past the branch that decides whether the use happens, so the dominance relation holds at both levels. SINGLE-LEGGED and unavoidably so: dominance is a statement about reachability between two points, and neither an effect count nor a reading of a listing settles it.",
+      "whyNoMeasurement": "The dominance shape has no extractor (compiler/schema/properties.json, survive.input-validation, extractor: null), so this cell is never compiled and never graded against a reading. The answer is recorded ANYWAY, and that is the whole point of the lane: a standard that pre-dates its probe only counts if the answers pre-date it too. Written 2026-08-17, before any dominance extractor exists, so whoever writes one has to make it read a set AND an answer key it did not choose. Without these rows the probe's author would supply the answers, which is the self-marking this lane exists to avoid."
+    },
+    {
+      "fixtureId": "cal-dom-present",
+      "configId": "O2",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "NOT_MEASURED_NO_PROBE",
+      "truthArgument": [
+        "construction"
+      ],
+      "whyTrue": "The validator's call site dominates the use: cb_validate is called and its result gates the return before cb_use is reached, on every path. No optimisation may reorder an opaque call past the branch that decides whether the use happens, so the dominance relation holds at both levels. SINGLE-LEGGED and unavoidably so: dominance is a statement about reachability between two points, and neither an effect count nor a reading of a listing settles it.",
+      "whyNoMeasurement": "The dominance shape has no extractor (compiler/schema/properties.json, survive.input-validation, extractor: null), so this cell is never compiled and never graded against a reading. The answer is recorded ANYWAY, and that is the whole point of the lane: a standard that pre-dates its probe only counts if the answers pre-date it too. Written 2026-08-17, before any dominance extractor exists, so whoever writes one has to make it read a set AND an answer key it did not choose. Without these rows the probe's author would supply the answers, which is the self-marking this lane exists to avoid."
+    },
+    {
+      "fixtureId": "cal-dom-present",
+      "configId": "O3",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "NOT_MEASURED_NO_PROBE",
+      "truthArgument": [
+        "construction"
+      ],
+      "whyTrue": "The validator's call site dominates the use: cb_validate is called and its result gates the return before cb_use is reached, on every path. No optimisation may reorder an opaque call past the branch that decides whether the use happens, so the dominance relation holds at both levels. SINGLE-LEGGED and unavoidably so: dominance is a statement about reachability between two points, and neither an effect count nor a reading of a listing settles it.",
+      "whyNoMeasurement": "The dominance shape has no extractor (compiler/schema/properties.json, survive.input-validation, extractor: null), so this cell is never compiled and never graded against a reading. The answer is recorded ANYWAY, and that is the whole point of the lane: a standard that pre-dates its probe only counts if the answers pre-date it too. Written 2026-08-17, before any dominance extractor exists, so whoever writes one has to make it read a set AND an answer key it did not choose. Without these rows the probe's author would supply the answers, which is the self-marking this lane exists to avoid."
+    },
+    {
+      "fixtureId": "cal-dom-present",
+      "configId": "Os",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "NOT_MEASURED_NO_PROBE",
+      "truthArgument": [
+        "construction"
+      ],
+      "whyTrue": "The validator's call site dominates the use: cb_validate is called and its result gates the return before cb_use is reached, on every path. No optimisation may reorder an opaque call past the branch that decides whether the use happens, so the dominance relation holds at both levels. SINGLE-LEGGED and unavoidably so: dominance is a statement about reachability between two points, and neither an effect count nor a reading of a listing settles it.",
+      "whyNoMeasurement": "The dominance shape has no extractor (compiler/schema/properties.json, survive.input-validation, extractor: null), so this cell is never compiled and never graded against a reading. The answer is recorded ANYWAY, and that is the whole point of the lane: a standard that pre-dates its probe only counts if the answers pre-date it too. Written 2026-08-17, before any dominance extractor exists, so whoever writes one has to make it read a set AND an answer key it did not choose. Without these rows the probe's author would supply the answers, which is the self-marking this lane exists to avoid."
+    },
+    {
+      "fixtureId": "cal-forbid-broken",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "At -O0 clang does not rewrite the control's constant-string printf, so the control holds. The both-directions half."
+    },
+    {
+      "fixtureId": "cal-forbid-broken",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The control's constant-string printf is rewritten at every optimising level while the subject's runtime-argument printf is not. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-forbid-broken",
+      "configId": "O2",
+      "trueState": "NOT_OBSERVED",
+      "expectedMeasurement": "BROKEN_MEASUREMENT",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "The control is a constant-string printf, which clang rewrites into puts, so a control read through the `printf` list falls to zero while the subject's printf survives. That is not a finding about the subject: section 4 makes it a broken measurement. The ladder measured this same rewrite on its d1 rungs, which is where the construction comes from. The asm oracle reads the subject PRESENT and the control ABSENT and therefore returns VERIFICATION_INCOMPLETE -- the one cell in this battery where the subject's effect is plainly there and the cell is still not data."
+    },
+    {
+      "fixtureId": "cal-forbid-broken",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The control's constant-string printf is rewritten at every optimising level while the subject's runtime-argument printf is not. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-forbid-broken",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The control's constant-string printf is rewritten at every optimising level while the subject's runtime-argument printf is not. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-forbid-clean",
+      "configId": "O0",
+      "trueState": "ABSENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "The subject names no forbidden symbol and getenv is not a symbol any optimisation introduces, so a clean reading here is not luck. This is the cell that shows a must-not-appear extractor reporting CLEAN while its control is LIVE -- properties.json records that exact combination as never having been observed for the artefact byte scanner, and it is what separates a detector that is quiet from one that has stopped working. Note that the asm oracle's word for this cell is `LOST`: that is its vocabulary for `subject absent, control present`, it is not interfaces.md section 3's LOST, and it is why the oracle's words are kept out of the state column."
+    },
+    {
+      "fixtureId": "cal-forbid-clean",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The subject names no forbidden symbol and no optimisation introduces getenv, at any level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-forbid-clean",
+      "configId": "O2",
+      "trueState": "ABSENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "As at -O0. The control consumes getenv's result, so it cannot be removed and the extractor is demonstrably still able to see a forbidden call at this level."
+    },
+    {
+      "fixtureId": "cal-forbid-clean",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The subject names no forbidden symbol and no optimisation introduces getenv, at any level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-forbid-clean",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The subject names no forbidden symbol and no optimisation introduces getenv, at any level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-forbid-hit",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "PRESENT for this polarity means the forbidden call is there and the finding is real. The format string consumes a value the compiler cannot know, so the call cannot be rewritten into puts."
+    },
+    {
+      "fixtureId": "cal-forbid-hit",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The format string consumes a value the compiler cannot know at any level, so the call cannot be rewritten away. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-forbid-hit",
+      "configId": "O2",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "As at -O0, and the runtime argument is what keeps it true at an optimising level."
+    },
+    {
+      "fixtureId": "cal-forbid-hit",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The format string consumes a value the compiler cannot know at any level, so the call cannot be rewritten away. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-forbid-hit",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The format string consumes a value the compiler cannot know at any level, so the call cannot be rewritten away. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-forbid-indirect",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness-structural"
+      ],
+      "whyTrue": "The table pointer is volatile and its only writer is the initialiser, so cf_forbidden_entry IS reached and the true value is a hit. Structural leg: one indirect call-like form in the subject's body, measured 2026-08-17. The asm oracle's effect reading is again not a leg -- it resolves callees by name and misses this call too."
+    },
+    {
+      "fixtureId": "cal-forbid-indirect",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "As cal-wipe-indirect: a volatile table pointer is not devirtualisable at any level, and the entry point carries noinline. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-forbid-indirect",
+      "configId": "O2",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness-structural"
+      ],
+      "whyTrue": "As at -O0. The entry point carries `noinline` because without it the control's DIRECT call was inlined away at -O2 and the cell became a broken measurement instead of the instrument-limit reading it exists to take. A control has to be countable at every checkpoint; the fixture was changed and this expectation was not."
+    },
+    {
+      "fixtureId": "cal-forbid-indirect",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "As cal-wipe-indirect: a volatile table pointer is not devirtualisable at any level, and the entry point carries noinline. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-forbid-indirect",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "As cal-wipe-indirect: a volatile table pointer is not devirtualisable at any level, and the entry point carries noinline. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-forbid-inlined",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness",
+        "defined-fns"
+      ],
+      "whyTrue": "At -O0 the static subject is emitted out of line and carries its forbidden call. Its label is in the -O0 listing, which is the other half of the -O2 reading.",
+      "expectDefinedInAsm": true
+    },
+    {
+      "fixtureId": "cal-forbid-inlined",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "A static function with one call site is inlined away at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once.",
+      "expectDefinedInAsm": false
+    },
+    {
+      "fixtureId": "cal-forbid-inlined",
+      "configId": "O2",
+      "trueState": "NOT_APPLICABLE",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness-structural",
+        "defined-fns"
+      ],
+      "whyTrue": "A static function with a single call site is inlined and its out-of-line copy deleted. With the unit gone there is no function in which to ask whether the forbidden call appears, so the question has lost its referent -- NOT_APPLICABLE, not a clean reading. The independent leg is the label: absent from the -O2 listing and present in the -O0 one, which is what separates a unit that is genuinely gone from an observer that could not resolve the name. PRE-REGISTERED on 2026-08-17 from the construction alone, before this cell was measured: it is the first cell in the battery whose true value was written down for a polarity the catalogue does not document a NOT_APPLICABLE cause for, so if the extractor reads something else that is a finding about the extractor and this expectation is not what moves.",
+      "expectDefinedInAsm": false
+    },
+    {
+      "fixtureId": "cal-forbid-inlined",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "A static function with one call site is inlined away at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once.",
+      "expectDefinedInAsm": false
+    },
+    {
+      "fixtureId": "cal-forbid-inlined",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "A static function with one call site is inlined away at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once.",
+      "expectDefinedInAsm": false
+    },
+    {
+      "fixtureId": "cal-forbid-rewritten",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "At -O0 clang does not rewrite a constant-string printf, so the forbidden call is in the unit under the spelling the cell is configured for. PRESENT for this polarity means the forbidden call is there and the finding is real."
+    },
+    {
+      "fixtureId": "cal-forbid-rewritten",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "clang rewrites a constant-string printf into puts at every optimising level; the construction is about the rewrite firing, not about which level fired it. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-forbid-rewritten",
+      "configId": "O2",
+      "trueState": "LOST",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "The subject's format string is constant, so clang rewrites the call into puts and the `printf` list sees one call at the pre-optimisation checkpoint and none after: previously established, then observed missing, which is section 3's LOST rather than its ABSENT. The control consumes a runtime value and cannot be rewritten, so it HOLDS -- that is the whole difference from cal-forbid-broken, where the same rewrite is applied to the CONTROL and the cell is a broken measurement instead of a reading. What LOST does NOT mean here: that the policy is satisfied. The call the printf was rewritten into is still in the artefact. This cell measures the spelling leaving the unit, which is exactly how a must-not-appear check reading one checkpoint through one spelling gets walked past."
+    },
+    {
+      "fixtureId": "cal-forbid-rewritten",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "clang rewrites a constant-string printf into puts at every optimising level; the construction is about the rewrite firing, not about which level fired it. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-forbid-rewritten",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "clang rewrites a constant-string printf into puts at every optimising level; the construction is about the rewrite firing, not about which level fired it. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-guard-absent",
+      "configId": "O0",
+      "trueState": "ABSENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "The subject has a live conditional branch and no deny call, so the per-unit live-branch gate is satisfied and the count is still zero at the first checkpoint. That combination is the point: it separates 'the guard is gone' from 'there was never a guarded call here', which are the same reading to anything that only checks whether the branch survived. The control is a real guarded deny, so a zero here is a quiet detector and not a blind one."
+    },
+    {
+      "fixtureId": "cal-guard-absent",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The subject calls no deny symbol in the source, which no level can change. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-guard-absent",
+      "configId": "O2",
+      "trueState": "ABSENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "The subject has a live conditional branch and no deny call, so the per-unit live-branch gate is satisfied and the count is still zero at the first checkpoint. That combination is the point: it separates 'the guard is gone' from 'there was never a guarded call here', which are the same reading to anything that only checks whether the branch survived. The control is a real guarded deny, so a zero here is a quiet detector and not a blind one."
+    },
+    {
+      "fixtureId": "cal-guard-absent",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The subject calls no deny symbol in the source, which no level can change. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-guard-absent",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The subject calls no deny symbol in the source, which no level can change. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-guard-broken",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "Both conditions are runtime tests at -O0, so the control holds and this cell must not report a broken apparatus here. The both-directions half, as in cal-wipe-broken."
+    },
+    {
+      "fixtureId": "cal-guard-broken",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "Both conditions are foldable at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-guard-broken",
+      "configId": "O2",
+      "trueState": "NOT_OBSERVED",
+      "expectedMeasurement": "BROKEN_MEASUREMENT",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "The control's condition is foldable too, so the control goes with the subject: section 4 makes this a broken measurement and section 3.1's pairing rule makes the state NOT_OBSERVED. The asm oracle independently reads VERIFICATION_INCOMPLETE, its own word for a blind oracle."
+    },
+    {
+      "fixtureId": "cal-guard-broken",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "Both conditions are foldable at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-guard-broken",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "Both conditions are foldable at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-guard-lost",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "cg_lost_zero is a static, not a const, so the front end does not fold it and at -O0 the branch is a real load-and-test. The deny path is reachable at run time here, which is what makes the -O2 reading a loss."
+    },
+    {
+      "fixtureId": "cal-guard-lost",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "A static the optimiser can prove is zero is folded at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-guard-lost",
+      "configId": "O2",
+      "trueState": "LOST",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "The optimiser can prove the static is zero, so the branch is decided at compile time and the deny path is unreachable: no authorisation decision is taken at run time any more. For this extractor NOT_APPLICABLE has only one cause -- the unit being inlined away -- and this unit is still there, so the reading is a loss. The listing corroborates: no transfer of control to cb_deny in the subject, one in the control, same listing."
+    },
+    {
+      "fixtureId": "cal-guard-lost",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "A static the optimiser can prove is zero is folded at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-guard-lost",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "A static the optimiser can prove is zero is folded at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-guard-napp",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness",
+        "defined-fns"
+      ],
+      "whyTrue": "At -O0 the static function is emitted out of line and its guard is a real runtime test. Measured 2026-08-17: the subject's label IS in the -O0 listing, which is the other half of the -O2 reading below.",
+      "expectDefinedInAsm": true
+    },
+    {
+      "fixtureId": "cal-guard-napp",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "A static function with one call site is inlined away at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once.",
+      "expectDefinedInAsm": false
+    },
+    {
+      "fixtureId": "cal-guard-napp",
+      "configId": "O2",
+      "trueState": "NOT_APPLICABLE",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness-structural",
+        "defined-fns"
+      ],
+      "whyTrue": "A static function with one call site is inlined and its out-of-line copy deleted, and the unit being inlined away is the single documented cause of NOT_APPLICABLE for this extractor. The independent leg is the label: measured 2026-08-17 the subject has no delimited body in the -O2 listing and does have one at -O0. That pair is what separates `the unit is genuinely gone` from `the observer failed to resolve a name` -- the second is the observer's third silent failure mode and would look identical in the record. run-battery.sh's defined-function fence closes the remaining half by refusing to compile at all when the specimen does not define the name.",
+      "expectDefinedInAsm": false
+    },
+    {
+      "fixtureId": "cal-guard-napp",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "A static function with one call site is inlined away at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once.",
+      "expectDefinedInAsm": false
+    },
+    {
+      "fixtureId": "cal-guard-napp",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "A static function with one call site is inlined away at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once.",
+      "expectDefinedInAsm": false
+    },
+    {
+      "fixtureId": "cal-guard-perunit",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction"
+      ],
+      "whyTrue": "cg_perunit_on is a static rather than a const, so at -O0 the guard is a real load-and-test: a decision IS taken at run time and the property is enforced. The degradation is not expressed at this level."
+    },
+    {
+      "fixtureId": "cal-guard-perunit",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The static folds to true at every optimising level, and the unrelated branch stays live at all of them. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-guard-perunit",
+      "configId": "O2",
+      "trueState": "LOST",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction"
+      ],
+      "whyTrue": "The static folds to true, so the deny call becomes UNCONDITIONAL and the guard no longer decides anything at run time: the property `an authorisation decision is still taken at run time` is not enforced, which is a loss. SINGLE-LEGGED, and unavoidably so: the true value is a statement about what a branch DECIDES, not about which instructions are present, and no reading of a listing settles it. The second, unrelated `if` in the same unit is there to keep a live conditional branch in the function, which is the condition the extractor's per-unit gate actually tests."
+    },
+    {
+      "fixtureId": "cal-guard-perunit",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The static folds to true at every optimising level, and the unrelated branch stays live at all of them. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-guard-perunit",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The static folds to true at every optimising level, and the unrelated branch stays live at all of them. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-guard-present",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "The condition comes from an opaque extern, so neither the branch nor the call it leads to can be folded."
+    },
+    {
+      "fixtureId": "cal-guard-present",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The condition comes from an opaque extern, which no optimisation level can fold. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-guard-present",
+      "configId": "O2",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "As at -O0. The listing corroborates a transfer of control to cb_deny in the subject's body -- counting the tail-call form too, which matters because a call-only reading of an optimised guard reports a defence that is plainly present as removed."
+    },
+    {
+      "fixtureId": "cal-guard-present",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The condition comes from an opaque extern, which no optimisation level can fold. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-guard-present",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The condition comes from an opaque extern, which no optimisation level can fold. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-absent",
+      "configId": "O0",
+      "trueState": "ABSENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "The subject has no wipe at all, so nothing was removed and there is nothing to call LOST: the count is zero at the FIRST checkpoint, which is interfaces.md section 3's ABSENT. The control wipes and its zeros are read, so it cannot go -- which makes this the must-survive analogue of cal-forbid-clean: the extractor reporting 'not there' with a demonstrably LIVE control. A detector that has only ever fired has not been shown to stop firing, and until this cell that had been shown for the forbidden polarity only."
+    },
+    {
+      "fixtureId": "cal-wipe-absent",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The subject contains no wipe in the source, which no optimisation level can change. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-absent",
+      "configId": "O2",
+      "trueState": "ABSENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "The subject has no wipe at all, so nothing was removed and there is nothing to call LOST: the count is zero at the FIRST checkpoint, which is interfaces.md section 3's ABSENT. The control wipes and its zeros are read, so it cannot go -- which makes this the must-survive analogue of cal-forbid-clean: the extractor reporting 'not there' with a demonstrably LIVE control. A detector that has only ever fired has not been shown to stop firing, and until this cell that had been shown for the forbidden polarity only."
+    },
+    {
+      "fixtureId": "cal-wipe-absent",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The subject contains no wipe in the source, which no optimisation level can change. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-absent",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The subject contains no wipe in the source, which no optimisation level can change. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-broken",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "The both-directions half of a known-BROKEN cell, and it is not decoration. At -O0 neither wipe is removed, so the control holds and this cell must NOT report a broken apparatus. A fixture that reported one at every level would be indistinguishable from a harness that always says so, which is the negative-controls doctrine applied to the apparatus column."
+    },
+    {
+      "fixtureId": "cal-wipe-broken",
+      "configId": "O1",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction"
+      ],
+      "whyTrue": "A known-BROKEN cell that is NOT broken here, and the reason sharpens what its apparatus failure actually depends on. Its control falls only where the pipeline contains the pass that removes a dead wipe. Established against the COMPILER rather than the instrument: `clang-18 -mllvm -print-pipeline-passes` lists zero dead-store-elimination passes at -O1 and one at -O2 and -Os (measured 2026-08-17). The pass that removes this wipe is not in the -O1 pipeline, so the wipe is still in the post-optimisation IR and the extractor reading PRESENT is reading its checkpoint correctly. The observer's own pass history agrees and is not what establishes it: empty at -O1, one DSEPass 1->0 transition at -O2. At -O1 neither wipe is removed, so the control holds 1->1, the measurement is OK and the subject reads PRESENT. The cell is therefore expected to be broken at -O2, -O3 and -Os and sound at -O0 and -O1 -- which is a stronger both-directions property than the original -O0-versus-optimising one: it localises the apparatus failure to a named pass rather than to 'optimisation'.",
+      "artefactDisagreesAtThisConfig": {
+        "expectAsmSubject": "ABSENT",
+        "expectAsmControl": "ABSENT",
+        "why": "Both wipes are gone from the -O1 listing, so the assembly oracle reads VERIFICATION_INCOMPLETE -- its own word for a blind oracle. The two checkpoints therefore disagree about whether this cell is even usable at -O1: the IR channel says the apparatus is sound and the artefact channel says it is blind. Recorded because a battery that reported only the IR view would be claiming a sound measurement at a configuration where the thing being measured is absent from what ships."
+      }
+    },
+    {
+      "fixtureId": "cal-wipe-broken",
+      "configId": "O2",
+      "trueState": "NOT_OBSERVED",
+      "expectedMeasurement": "BROKEN_MEASUREMENT",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "Both units carry a dead wipe, so the CONTROL goes with the subject and interfaces.md section 4 makes this a broken measurement rather than a finding. The state is NOT_OBSERVED because section 3.1's pairing rule says a cell whose measurement is not OK has no property state to report. The listing corroborates independently: the asm oracle reads VERIFICATION_INCOMPLETE here, its own word for the control not showing its effect, so the oracle is blind in this configuration and the subject reading carries no information. Note what this cell tests in the harness rather than in the extractor: the raw record carries verdict.state = LOST, and build-battery-report.py is what must not quote it."
+    },
+    {
+      "fixtureId": "cal-wipe-broken",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "Both units carry a dead wipe, so the control goes with the subject at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-broken",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "Both units carry a dead wipe, so the control goes with the subject at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-indirect",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness-structural"
+      ],
+      "whyTrue": "The wipe pointer is `volatile`, so the compiler must re-read it at each call and cannot devirtualise; its only writer is the initialiser, so the call provably goes to memset and the buffer IS cleared. The structural leg is that the call stayed indirect: measured 2026-08-17, one indirect call-like form in the subject's body. The asm oracle's own effect reading is NOT a leg here -- it reads the subject ABSENT too, because it also resolves callees by name, so the two instruments share this blind spot and cross-checking them would confirm nothing."
+    },
+    {
+      "fixtureId": "cal-wipe-indirect",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The pointer is volatile, so no level may devirtualise the call; the construction is about the qualifier, not the level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-indirect",
+      "configId": "O2",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness-structural"
+      ],
+      "whyTrue": "As at -O0, and the volatile qualification is what keeps it true at an optimising level: measured 2026-08-17 the call is still indirect at -O2 (one indirect call-like form), so the specimen is still probing what it says it probes rather than having been devirtualised into a direct call."
+    },
+    {
+      "fixtureId": "cal-wipe-indirect",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The pointer is volatile, so no level may devirtualise the call; the construction is about the qualifier, not the level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-indirect",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The pointer is volatile, so no level may devirtualise the call; the construction is about the qualifier, not the level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-inlinesize",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "Nothing is optimised at -O0: the wipe is emitted, the helper is not inlined, and the object is in memory. The degradation this cell exists for cannot arise at a level where no pass creates anything."
+    },
+    {
+      "fixtureId": "cal-wipe-inlinesize",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The helper is static with one call site, which every optimising level inlines; what matters is that inlining happened, not the level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-inlinesize",
+      "configId": "O2",
+      "trueState": "NOT_APPLICABLE",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction"
+      ],
+      "whyTrue": "`dead` never escapes and nothing reads it, so it is dead and may be promoted out of memory; once it is, `was the buffer cleared` has lost its referent, which is NOT_APPLICABLE and not a loss. SINGLE-LEGGED, and the reason is the point of the cell: after inlining there IS a 192-byte object in the unit -- the helper's -- so the frame witness reads present-in-frame and cannot say which 192-byte object it is, and the asm oracle cannot tell a promoted object from a deleted wipe at all. Exactly the blindness that let the catalogue name the wrong trigger for two revisions."
+    },
+    {
+      "fixtureId": "cal-wipe-inlinesize",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The helper is static with one call site, which every optimising level inlines; what matters is that inlining happened, not the level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-inlinesize",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The helper is static with one call site, which every optimising level inlines; what matters is that inlining happened, not the level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-lost",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "At -O0 the dead wipe is still emitted. The true value of `is the wipe there` is PRESENT, and saying so is what makes the -O2 reading below a LOSS rather than an absence: interfaces.md section 3 separates LOST from ABSENT by whether the property was previously established."
+    },
+    {
+      "fixtureId": "cal-wipe-lost",
+      "configId": "O1",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction"
+      ],
+      "whyTrue": "The -O2 expectation for this cell says the dead wipe is removable and reads LOST. At -O1 it is NOT removed, and the sameAsConfig reference that used to stand here claimed the opposite: 'a dead store whose object escaped is removable at every optimising level'. That claim was falsified by measurement on 2026-08-17 and is corrected here rather than in the reading. Established against the COMPILER rather than the instrument: `clang-18 -mllvm -print-pipeline-passes` lists zero dead-store-elimination passes at -O1 and one at -O2 and -Os (measured 2026-08-17). The pass that removes this wipe is not in the -O1 pipeline, so the wipe is still in the post-optimisation IR and the extractor reading PRESENT is reading its checkpoint correctly. The observer's own pass history agrees and is not what establishes it: empty at -O1, one DSEPass 1->0 transition at -O2. SINGLE-LEGGED as a statement about the IR checkpoint: the assembly channel cannot corroborate what is in the post-optimisation IR, and at this configuration it actively disagrees about the artefact -- see artefactDisagreesAtThisConfig, which is graded rather than asserted.",
+      "artefactDisagreesAtThisConfig": {
+        "expectAsmSubject": "ABSENT",
+        "expectAsmControl": "PRESENT",
+        "why": "AND THE ARTEFACT DOES NOT CLEAR THE BUFFER. The assembly listing taken in the SAME invocation, without the pass plugin, has no wipe in the subject at -O1 while the control still has one -- so the effect survives the whole IR optimiser and is dropped after it, by the backend. This is not an extractor defect and it is not repaired by widening the symbol list: it is the scope limit compiler/schema/properties.json already states at survive.secure-wipe.degradationRisk[0] -- 'a wipe that survives to post-opt IR and is then dropped by instruction selection is reported PRESENT here' -- reproduced in-tree for the first time, with both channels from one compilation instead of from a prototype workspace. A caller that reads the IR checkpoint alone at -O1 is told a must-survive property holds in an artefact that does not enforce it, which is the dangerous direction."
+      }
+    },
+    {
+      "fixtureId": "cal-wipe-lost",
+      "configId": "O2",
+      "trueState": "LOST",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "The wipe is the last statement and nobody reads the zeros, so it is dead and removable. The buffer escaped to an opaque consumer BEFORE the wipe, so the object cannot be promoted out of memory and the referent is still there -- which is what makes this LOST and not NOT_APPLICABLE. The listing corroborates the effect's absence (subject ABSENT, control PRESENT in the same listing) but CANNOT corroborate the referent half, because that discrimination is exactly what the asm oracle does not make. The referent half is construction."
+    },
+    {
+      "fixtureId": "cal-wipe-lost",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "A dead store whose object escaped is removable at every optimising level; the argument is that the optimiser RAN, not which level it was. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-lost",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "A dead store whose object escaped is removable at every optimising level; the argument is that the optimiser RAN, not which level it was. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-napp",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "Nothing is removed at -O0, so the wipe is there and the object is in memory. Measured frame: 232 bytes, which is consistent with a 199-byte object being present.",
+      "expectFrameRulesOutObject": "present-in-frame"
+    },
+    {
+      "fixtureId": "cal-wipe-napp",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "A wholly dead object may be promoted out of memory at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once.",
+      "expectFrameRulesOutObject": "ruled-out"
+    },
+    {
+      "fixtureId": "cal-wipe-napp",
+      "configId": "O2",
+      "trueState": "NOT_APPLICABLE",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness-structural"
+      ],
+      "whyTrue": "Nothing escapes and nothing is read, so the whole object is dead and the compiler may remove it -- at which point `was the buffer cleared` has lost its referent, which is section 3's definition of NOT_APPLICABLE rather than of a loss. The independent leg is the frame: measured 2026-08-17 the subject's body reserves 0 bytes, and 199 is above the 128-byte x86-64 red zone, so no unadjusted slot could hold it either. The object is not in memory in this listing, and that reading never consults the alloca-size census this cell exists to calibrate.",
+      "expectFrameRulesOutObject": "ruled-out"
+    },
+    {
+      "fixtureId": "cal-wipe-napp",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "A wholly dead object may be promoted out of memory at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once.",
+      "expectFrameRulesOutObject": "ruled-out"
+    },
+    {
+      "fixtureId": "cal-wipe-napp",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "A wholly dead object may be promoted out of memory at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once.",
+      "expectFrameRulesOutObject": "ruled-out"
+    },
+    {
+      "fixtureId": "cal-wipe-present",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "cb_use reads the zeros after the wipe, so removing it would change what an opaque consumer observes. Nothing is optimised at -O0 in any case; this cell's job here is to show the extractor reads a wipe that is plainly there."
+    },
+    {
+      "fixtureId": "cal-wipe-present",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The as-if rule forbids removing a wipe whose zeros are read at ANY level; the argument names no optimisation and no level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-present",
+      "configId": "O2",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "The as-if rule still forbids removing a wipe whose zeros are read. The listing corroborates it in the form the level chose: measured 2026-08-17, the 107-byte wipe arrives as seven inline zero stores and zero direct calls to memset, which is why an extractor counting only the call form would report this surviving wipe as lost."
+    },
+    {
+      "fixtureId": "cal-wipe-present",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The as-if rule forbids removing a wipe whose zeros are read at ANY level; the argument names no optimisation and no level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-present",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The as-if rule forbids removing a wipe whose zeros are read at ANY level; the argument names no optimisation and no level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-samesize",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction"
+      ],
+      "whyTrue": "Nothing is removed at -O0, so both objects and the wipe are present."
+    },
+    {
+      "fixtureId": "cal-wipe-samesize",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "As cal-wipe-napp for the promoted object, and the surviving object escapes at every level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-samesize",
+      "configId": "O2",
+      "trueState": "NOT_APPLICABLE",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction"
+      ],
+      "whyTrue": "`dead` never escapes and nothing reads it, so it is dead and may be promoted out of memory; `pinned` escapes and stays. The wiped object therefore lost its referent, which is NOT_APPLICABLE. SINGLE-LEGGED: both objects are 192 bytes, so the frame witness cannot say which one survived (measured frame at -O2: 200 bytes, enough for either), and the asm oracle cannot tell a promoted object from a deleted wipe at all. Nothing outside the language semantics corroborates this cell."
+    },
+    {
+      "fixtureId": "cal-wipe-samesize",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "As cal-wipe-napp for the promoted object, and the surviving object escapes at every level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-samesize",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "As cal-wipe-napp for the promoted object, and the surviving object escapes at every level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-zeroinit",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "Nothing is removed at -O0, so the wipe is there. This cell's degradation is not expressed at this level, and saying so is the point: a probe that fired at every configuration would not be showing that a particular transformation caused it."
+    },
+    {
+      "fixtureId": "cal-wipe-zeroinit",
+      "configId": "O1",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The wipe is dead and the unrelated zero-initialised local is read, at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-zeroinit",
+      "configId": "O2",
+      "trueState": "LOST",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness-structural"
+      ],
+      "whyTrue": "The wipe is the last statement, its zeros are read by nobody, and the buffer escaped before it -- the cal-wipe-lost construction exactly, so the wipe is removed while the 181-byte object stays in memory, which is LOST. The independent leg is quantitative: measured 2026-08-17 the subject's listing has ZERO direct calls to a wipe symbol and exactly ONE inline zero store, and one store cannot zero 181 bytes (cal-wipe-present's 107-byte wipe needs seven). The single remaining store is the unrelated `int flag = 0;`, and the frame still reserves 216 bytes, so the referent is present while the effect is gone."
+    },
+    {
+      "fixtureId": "cal-wipe-zeroinit",
+      "configId": "O3",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The wipe is dead and the unrelated zero-initialised local is read, at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    },
+    {
+      "fixtureId": "cal-wipe-zeroinit",
+      "configId": "Os",
+      "sameAsConfig": "O2",
+      "whySameAsThatConfig": "The wipe is dead and the unrelated zero-initialised local is read, at every optimising level. Recorded as a reference to the -O2 expectation rather than a third copy of its prose: this directory has already had a hand-written label go stale in six places at once."
+    }
+  ],
+  "whatThisFileDoesNotClaim": [
+    "That an extractor passing this battery is correct on any real subject. Every cell is a (synthetic-specimen, configuration) measurement. A battery pass is a SHAPE qualification and is necessary for promotion, never sufficient -- properties.json's `implemented` requires a fixture in this repository to have measured a named PROPERTY in a named configuration, and no cell here does that for any property in that catalogue.",
+    "Anything about -O1, -O3, -Os, LTO, cross-translation-unit inlining, the object or linked checkpoints, or a second compiler vendor. None of those is measured by this file's expectations.",
+    "That the three channels in `truthChannels` are independent of each OTHER in every respect. Two of them read the same listing, and the asm oracle shares the IR extractor's blindness to indirect callees and its habit of counting an unrelated zero store -- both of which are stated at the cells where they matter, because a channel whose correlation with the instrument under test is undisclosed is worse than no channel."
+  ],
+  "expectedMeasurementWords": {
+    "OK": "interfaces.md section 3.1: the instrument ran and produced a reading.",
+    "BROKEN_MEASUREMENT": "section 3.1: the invocation was accepted and no usable reading came back.",
+    "NOT_MEASURED_NO_PROBE": "NOT one of section 3.1's three words, and deliberately outside them. Section 3.1 is a vocabulary for cells an instrument was pointed at; these cells have no instrument to point. Reusing UNSUPPORTED would blame the compiler for a gap in this directory, and BROKEN_MEASUREMENT would blame an observer that never ran. check-battery.py skips the state comparison for such a cell and refuses if one ever arrives carrying a reading."
+  },
+  "configCoverage": "Every measured cell has an expectation at all five configurations. The three optimising columns added on 2026-08-17 refer to the -O2 expectation through sameAsConfig, each with the argument for why that cell's true value does not depend on WHICH optimising level ran -- either because the construction rests on the as-if rule or on the source (so no level can change it), or because it rests on the optimiser having run at all. check-battery.py refuses a reference that dangles, that chains, or that carries no argument.",
+  "artefactDisagreementNote": "`artefactDisagreesAtThisConfig` is a GRADED declaration, not a remark. Where a cell's IR reading and the assembly taken in the same invocation disagree, the expectation states what the assembly must show and check-battery.py holds the witness to it -- in both directions, so a listing that stopped disagreeing would be a finding rather than a quiet improvement. It exists because the -O1 column produced the first in-tree case of a must-survive property read PRESENT at the IR checkpoint while the artefact does not enforce it."
+}

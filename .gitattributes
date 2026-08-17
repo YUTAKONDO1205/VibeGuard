@@ -16,3 +16,32 @@
 # every tracked file on the next checkout, which moves the bytes of the shipped
 # bundles — the one thing the release-time invariants exist to keep still.
 compiler/** text eol=lf
+
+# ── AND THE SECOND DIRECTORY, FOR A DIFFERENT REASON ─────────────────────────
+#
+# `scripts/**/*.mjs` is here because a CRLF checkout does not merely look
+# different to the Linux side — it stops a test suite from running at all, and
+# does so SILENTLY.
+#
+# The mechanism, reduced to its minimum: a module whose first line is a shebang
+# terminated by CRLF, and which also contains an `import`, cannot be loaded by
+# vitest. It fails with `SyntaxError: Invalid or unexpected token` attributed to
+# a line in the IMPORTING file — a comment line, in the case that produced this
+# entry — so the report points at the wrong file and at a line that cannot be
+# the cause. A shebang with LF is fine; CRLF with no shebang is fine; CRLF with
+# no import is fine. It takes all three.
+#
+# The consequence was that `scripts/check-doc-drift.test.mjs` contributed 42
+# passing tests on every Linux runner and ZERO on the author's machine, where
+# the suite was recorded as a collection error and read as "a pre-existing
+# vitest quirk". Two separate sessions diagnosed it as an encoding or extension
+# problem, because converting the TEST file changes nothing: the CRLF that
+# matters is in the module under test.
+#
+# The blobs are already LF (verified: 0 CR bytes in every tracked file under
+# `scripts/`), so this line moves no committed byte. It changes only what a
+# Windows checkout materialises, which is precisely the divergence that hid the
+# failure. Scoped to `*.mjs` rather than `scripts/**` on purpose: the egress
+# fixtures under `scripts/fixtures/` are compared as bytes by the A2 test, and
+# they are not part of the defect class.
+scripts/**/*.mjs text eol=lf

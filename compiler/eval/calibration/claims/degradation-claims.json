@@ -1,0 +1,275 @@
+{
+  "schemaVersion": "vibeguard.degradation-claims/1",
+  "title": "Experiment 1: every sentence the catalogue writes about how these three extractors degrade, held against what the battery measures",
+  "readMeFirst": [
+    "compiler/schema/properties.json describes, in English, how each extractor degrades and in which direction it errs. Nothing has ever held those sentences against a measurement. This file is the ledger that makes that possible: one entry per sentence, the sentence copied verbatim, and -- where the sentence predicts a reading -- a battery fixture plus the reading it predicts.",
+    "THE COVERAGE FENCE IS THE HONESTY MECHANISM. scripts/check-claims.py recomputes the sentence list from properties.json and holds it verbatim against this file. A sentence with no entry here is exit 3 under the word claims-coverage-broken. So a sentence that is NOT tested still has to be entered, with a reason, and a maintainer who edits properties.json has to move this file in the same commit. Quiet selection of the convenient sentences is what the fence exists to prevent.",
+    "SCOPE OF THE FENCE, stated so it cannot be mistaken for more: it covers the degradationRisk arrays of the three IMPLEMENTED extractor entries -- extractors.ir.wipe-effect, extractors.ir.guarded-call, extractors.ir.forbidden-callee. The per-PROPERTY degradationRisk arrays elsewhere in properties.json are NOT covered by this revision, and most of them read 'Not applicable: there is no extractor to degrade.' Extending the fence to those is deferred, and saying so here is cheaper than letting a reader assume the whole file is fenced.",
+    "claimKind separates three things a single word would merge. A `degradation` claim predicts that the extractor MISREADS a known true value, so it can agree or disagree with a measurement. A `doctrine` claim asserts how the apparatus must be ARRANGED -- a control of a particular polarity, for instance -- and is graded by whether a battery cell demonstrates that arrangement holding. A `scope` claim says the reading is CORRECT and the limit lies elsewhere; it defines no divergence, so nothing could agree or disagree with it, and pretending otherwise would manufacture a test.",
+    "testability likewise has three values and they are not interchangeable. `measured` means a fixture exists and was read. `deferred` means the sentence is testable in principle and no specimen exists yet -- the gap is in this battery. `untestable-here` means this apparatus cannot produce the predicted reading at all: an LTO token is refused at measurement time, and the object and linked checkpoints have no extractor to qualify. A deferred claim is a note to whoever extends the standard; an untestable-here claim is a scope limit of the instrument.",
+    "A claim that DISAGREES with the measurement is exit 2, and it is a harvest either way: the prose is wrong about the code, or the code is wrong and the prose described the intent. Which one it is has to be worked out and is not decided here. Standard revision 3 has one disagreement and one omission, both named in knownFindings."
+  ],
+  "standardRevision": 7,
+  "measuredOn": "2026-08-17",
+  "fencedScope": {
+    "coversDegradationRiskOf": [
+      "ir.wipe-effect",
+      "ir.guarded-call",
+      "ir.forbidden-callee"
+    ],
+    "doesNotCover": "the per-property degradationRisk arrays in compiler/schema/properties.json, and every extractor entry other than the three named above -- invocation.flag-set, artifact.hardening-fields, artifact.section-flags -- for none of which this battery has a specimen"
+  },
+  "verdictWords": {
+    "claim-agrees": "the measured reading equals the predicted reading and differs from the known true value: the degradation is real and the sentence describes it correctly",
+    "claim-disagrees": "the measured reading differs from the predicted reading. Exit 2. Either the sentence is wrong about the code, or the code is wrong and the sentence described the intent; this ledger does not decide which",
+    "claim-deferred": "no specimen exists yet; the gap is in the battery, not in the catalogue",
+    "claim-untestable-here": "this apparatus cannot produce the predicted reading at all",
+    "claim-not-a-prediction": "a scope claim: the sentence says the reading is correct, so there is no divergence to measure",
+    "doctrine-held": "a battery cell demonstrates the arrangement the sentence prescribes",
+    "doctrine-broken": "a battery cell shows the prescribed arrangement failing. Exit 2",
+    "omission-open": "the battery measured a divergence between a known true value and a reading that NO sentence in the fenced scope describes. Exit 2: a catalogue that omits a measured degradation is not a complete description of the instrument, and the resolution is an amendment to properties.json",
+    "claim-contradicted": "at a configuration the claim DECLARES, the extractor read the known TRUE value, so the degradation the sentence describes does not occur under the arrangement it names. Exit 2. This is the BENIGN direction -- the instrument is more careful than its catalogue says -- and it is still a false statement in a tracked file that other documents quote, because a reader who trusts it will discount a correct reading as a known weakness"
+  },
+  "claims": [
+    {
+      "claimId": "wipe.indirect-call",
+      "extractor": "ir.wipe-effect",
+      "sourceRef": {
+        "file": "compiler/schema/properties.json",
+        "jsonPath": "extractors.ir.wipe-effect.degradationRisk[0]"
+      },
+      "sentence": "Indirect calls are not counted: getCalledFunction returns null for them, so a wipe reached through a function pointer reads as absent. This biases towards a visible false positive rather than silence.",
+      "claimKind": "degradation",
+      "testability": "measured",
+      "fixtureId": "cal-wipe-indirect",
+      "configs": [
+        "O0",
+        "O2"
+      ],
+      "groundTruth": "PRESENT",
+      "predictedReading": "ABSENT",
+      "declaredDirection": "visible-false-positive",
+      "whyThisFixtureTestsIt": "The wipe pointer is volatile, so the call stays indirect and getCalledFunction returns null for it, while the buffer is provably cleared. The co-resident control wipes directly, so the extractor is demonstrably still able to see a memset at the same level: a reading of ABSENT here is a false negative and not a blind oracle."
+    },
+    {
+      "claimId": "wipe.size-census-defeated-by-created-object",
+      "extractor": "ir.wipe-effect",
+      "sourceRef": {
+        "file": "compiler/schema/properties.json",
+        "jsonPath": "extractors.ir.wipe-effect.degradationRisk[1]"
+      },
+      "sentence": "The promoted-object test matches by allocation size, and it is a CENSUS rather than an existence test: it compares how many objects of the size the effect acted on are allocated before and after. Two allocas of the same size in one unit therefore do not defeat it -- the count falls with the promoted one and the verdict is correctly NOT_APPLICABLE. What defeats it is a pass that CREATES an object of that size while the subject's is promoted, holding the count steady so that a buffer which left memory is reported LOST. Inlining does exactly that, which is why no source-level size discipline prevents it: measured 2026-08-17, a unit with one 192-byte buffer promoted away and a static helper's own 192-byte local inlined in reads LOST with its control still holding. Again a visible error rather than a silent one.",
+      "claimKind": "degradation",
+      "testability": "measured",
+      "fixtureId": "cal-wipe-inlinesize",
+      "configs": [
+        "O2"
+      ],
+      "groundTruth": "NOT_APPLICABLE",
+      "predictedReading": "LOST",
+      "declaredDirection": "visible-false-positive",
+      "whyThisFixtureTestsIt": "The amended sentence names the arrangement that actually defeats the census: a pass CREATES an object of the effect's size while the subject's is promoted, holding the count steady. cal-wipe-inlinesize is that arrangement -- one 192-byte buffer promoted away, a static helper's own 192-byte local inlined in -- and cal-wipe-samesize is the arrangement the sentence USED to name, kept as a reference cell because the census handles it correctly.",
+      "measuredOutcome": "claim-contradicted at -O2",
+      "history": "This entry read claim-contradicted against the sentence's previous wording, which said two same-size allocas in one unit make the verdict fall back to LOST. Measurement refuted that; an adversarial pass then refuted the first reading OF the refutation -- the degradation is real and its trigger was mis-stated, not overstated -- and the catalogue was amended on 2026-08-17. Kept as history because a ledger that erases the wording it falsified cannot be audited against the commit that changed it."
+    },
+    {
+      "claimId": "wipe.unknown-alloca-size",
+      "extractor": "ir.wipe-effect",
+      "sourceRef": {
+        "file": "compiler/schema/properties.json",
+        "jsonPath": "extractors.ir.wipe-effect.degradationRisk[2]"
+      },
+      "sentence": "An alloca whose size is not statically known contributes no size, and the test degrades to 'no stack object survives in the unit at all'.",
+      "claimKind": "degradation",
+      "testability": "deferred",
+      "whyNotTested": "Needs a specimen with a runtime-sized alloca (a variable-length array). Standard revision 3 has none, so the degradation is testable in principle and untested in fact. Deferred under no-specimen rather than marked untestable, because nothing about the checkpoint prevents it."
+    },
+    {
+      "claimId": "wipe.escape-walk-conservative",
+      "extractor": "ir.wipe-effect",
+      "sourceRef": {
+        "file": "compiler/schema/properties.json",
+        "jsonPath": "extractors.ir.wipe-effect.degradationRisk[3]"
+      },
+      "sentence": "Anything unrecognised in the escape walk is treated as an escape, which pins the object and pushes the verdict towards LOST.",
+      "claimKind": "degradation",
+      "testability": "deferred",
+      "whyNotTested": "Needs an IR construct the escape walk does not recognise, and the walk recognises every form reachable from ordinary C in this specimen set (getelementptr, bitcast, phi, select, load, store-through). Forcing an unrecognised user from C is not something standard revision 3 attempts. Deferred under no-specimen."
+    },
+    {
+      "claimId": "wipe.symbol-list-is-configuration",
+      "extractor": "ir.wipe-effect",
+      "sourceRef": {
+        "file": "compiler/schema/properties.json",
+        "jsonPath": "extractors.ir.wipe-effect.degradationRisk[4]"
+      },
+      "sentence": "The symbol list is configuration. A project that wipes through its own helper, or builds with -fno-builtin-memset, changes what the effect is spelled as; a list that does not name it reads as ABSENT. The co-resident control is what catches this -- see the pc4 cell.",
+      "claimKind": "doctrine",
+      "testability": "deferred",
+      "doctrineAssertion": "a co-resident control is what catches an effect the symbol list does not name",
+      "whyNotTested": "Two halves, and neither is measured by standard revision 3. The SPELLING half (-fno-builtin-memset, a project wiping through its own helper) would need a symbol-list axis the cell table does not carry: run-battery.sh takes the list from battery.json and does not vary it per configuration. The DOCTRINE half -- that the co-resident control is what catches a spelling the list does not name -- needs a cell in which the SUBJECT AND THE CONTROL SHARE the unnamed spelling, so that the control falls and the cell is reported as a broken measurement instead of as a false ABSENT. The battery's three known-BROKEN cells do show a fallen control being reported as broken rather than as a finding, but they get there by making the EFFECT removable rather than by changing its spelling, so they are not evidence for this sentence and are not offered as such. cal-wipe-indirect is not evidence either, and the reason is worth stating because it is the tempting mistake here: its control wipes DIRECTLY, so the control does not fall, and the subject's miss is therefore silent -- which is the opposite of what this sentence asserts the control does. Deferred under no-specimen."
+    },
+    {
+      "claimId": "wipe.zero-store-half-misses",
+      "extractor": "ir.wipe-effect",
+      "sourceRef": {
+        "file": "compiler/schema/properties.json",
+        "jsonPath": "extractors.ir.wipe-effect.degradationRisk[5]"
+      },
+      "sentence": "The zero-store half recognises stores of a zero constant. A wipe with a non-zero fill byte, or one lowered to a vectorised loop rather than to a store of a zero constant, is not counted by that half.",
+      "claimKind": "degradation",
+      "testability": "deferred",
+      "whyNotTested": "Needs a specimen wiping with a non-zero fill byte -- memset(b, 0xAA, n) -- at a level that lowers it inline, so that neither the call form nor the zero-store form is counted. Standard revision 3 has no such specimen. Deferred under no-specimen. Note that the COMPLEMENT of this sentence WAS measured and is a separate entry: see wipe.zero-store-half-overcounts under omissionClaims, which is an omission rather than a disagreement."
+    },
+    {
+      "claimId": "wipe.lto-cross-tu",
+      "extractor": "ir.wipe-effect",
+      "sourceRef": {
+        "file": "compiler/schema/properties.json",
+        "jsonPath": "extractors.ir.wipe-effect.degradationRisk[6]"
+      },
+      "sentence": "Cross-translation-unit inlining under LTO moves the effect into a different unit. The verdict becomes NOT_APPLICABLE and the property has to be re-scoped; it does not silently pass.",
+      "claimKind": "scope",
+      "testability": "untestable-here",
+      "whyNotTested": "run-battery.sh refuses any command line carrying an -flto token at measurement time, under the word lto-stage-unobserved, for the reason run-ladder.sh gives at length: the plugin registers on the pipeline-start and optimizer-last extension points, which the LTO backend pipeline never invokes, so what a -flto compile can be observed doing is its prelink stage only. The predicted reading cannot be PRODUCED here, which makes this untestable with this apparatus rather than untested."
+    },
+    {
+      "claimId": "guarded.per-unit-live-branch",
+      "extractor": "ir.guarded-call",
+      "sourceRef": {
+        "file": "compiler/schema/properties.json",
+        "jsonPath": "extractors.ir.guarded-call.degradationRisk[0]"
+      },
+      "sentence": "The live-branch test is per unit, not per call. Another live conditional branch elsewhere in the same function keeps an already-folded guard counted, which biases towards PRESENT. That is the dangerous direction, and it is why this extractor is marked implemented only for the single-guard shape its fixture has.",
+      "claimKind": "degradation",
+      "testability": "measured",
+      "fixtureId": "cal-guard-perunit",
+      "configs": [
+        "O2"
+      ],
+      "groundTruth": "LOST",
+      "predictedReading": "PRESENT",
+      "declaredDirection": "dangerous-false-negative",
+      "whyThisFixtureTestsIt": "A static that folds to true makes the deny call unconditional, so no runtime decision remains and the property is LOST; a second, unrelated live conditional in the same function satisfies the per-unit gate. This is the extractor's own stated dangerous direction, and it is the reason properties.json marks the extractor implemented only for the single-guard shape its own fixture has."
+    },
+    {
+      "claimId": "guarded.select-and-arithmetic",
+      "extractor": "ir.guarded-call",
+      "sourceRef": {
+        "file": "compiler/schema/properties.json",
+        "jsonPath": "extractors.ir.guarded-call.degradationRisk[1]"
+      },
+      "sentence": "A guard expressed as a select, as arithmetic, or as a table lookup is not a branch and is not seen.",
+      "claimKind": "degradation",
+      "testability": "deferred",
+      "whyNotTested": "Needs a specimen whose guard is a select, an arithmetic expression or a table lookup rather than a branch. Standard revision 3 has none. Deferred under no-specimen, and it is the one worth building next: the reading would be a guard that IS enforced and is read as absent, which is the same silent direction as the two indirect probes."
+    },
+    {
+      "claimId": "guarded.indirect-deny",
+      "extractor": "ir.guarded-call",
+      "sourceRef": {
+        "file": "compiler/schema/properties.json",
+        "jsonPath": "extractors.ir.guarded-call.degradationRisk[2]"
+      },
+      "sentence": "The guarded call must be to a resolvable named symbol; an indirect deny path is not counted.",
+      "claimKind": "degradation",
+      "testability": "deferred",
+      "whyNotTested": "Needs a specimen reaching the deny path through a function pointer. Standard revision 3 has the FORBIDDEN-polarity analogue (cal-forbid-indirect) and not this one, and the two are different extractors: a measurement of one is not evidence about the other. Deferred under no-specimen rather than treated as covered by the analogue."
+    },
+    {
+      "claimId": "guarded.guard-moved-into-caller",
+      "extractor": "ir.guarded-call",
+      "sourceRef": {
+        "file": "compiler/schema/properties.json",
+        "jsonPath": "extractors.ir.guarded-call.degradationRisk[3]"
+      },
+      "sentence": "A guard whose condition is folded by profile or by a build-time constant is reported as LOST, which is correct, but a guard the compiler merely moved into a caller is reported the same way unless the property is scoped to the caller.",
+      "claimKind": "scope",
+      "testability": "untestable-here",
+      "whyNotTested": "The sentence states that the reading is CORRECT and that what is wrong is the property's scope. A claim with no divergence between the true value and the predicted reading defines nothing to measure, so no fixture could agree or disagree with it. Recorded rather than omitted, because the coverage fence requires every sentence to be accounted for, and 'this sentence is not a testable prediction' is the honest account."
+    },
+    {
+      "claimId": "forbidden.ir-is-not-the-artefact",
+      "extractor": "ir.forbidden-callee",
+      "sourceRef": {
+        "file": "compiler/schema/properties.json",
+        "jsonPath": "extractors.ir.forbidden-callee.degradationRisk[0]"
+      },
+      "sentence": "IR is not the artefact. A forbidden call can arrive at link time, from a static library, from a relocation, or through inline asm, and none of that is visible at an IR checkpoint. Every must-not-appear property is therefore at most 'partial' here, and its authoritative checkpoint is object or linked.",
+      "claimKind": "scope",
+      "testability": "untestable-here",
+      "whyNotTested": "The sentence's subject is what arrives AFTER the IR checkpoints -- link time, a static library, a relocation, inline asm. Deciding it needs extractors at the object and linked checkpoints, and properties.json records both as unimplemented for this kind. There is no instrument to qualify, so this is untestable with this apparatus rather than untested."
+    },
+    {
+      "claimId": "forbidden.indirect-entry-point",
+      "extractor": "ir.forbidden-callee",
+      "sourceRef": {
+        "file": "compiler/schema/properties.json",
+        "jsonPath": "extractors.ir.forbidden-callee.degradationRisk[1]"
+      },
+      "sentence": "Indirect calls are not counted, so a forbidden entry point reached through a table reads as absent.",
+      "claimKind": "degradation",
+      "testability": "measured",
+      "fixtureId": "cal-forbid-indirect",
+      "configs": [
+        "O0",
+        "O2"
+      ],
+      "groundTruth": "PRESENT",
+      "predictedReading": "ABSENT",
+      "declaredDirection": "dangerous-silence",
+      "whyThisFixtureTestsIt": "A volatile function-pointer table reaches a forbidden entry point that is provably called, and the extractor reads the unit as clean. This is the worst direction any extractor in this tree fails in -- silence about a must-not-appear property -- so the co-resident control matters more here than anywhere: it calls the same entry point directly and reads PRESENT, which is what makes the subject's ABSENT a false negative rather than a blind oracle."
+    },
+    {
+      "claimId": "forbidden.control-polarity",
+      "extractor": "ir.forbidden-callee",
+      "sourceRef": {
+        "file": "compiler/schema/properties.json",
+        "jsonPath": "extractors.ir.forbidden-callee.degradationRisk[2]"
+      },
+      "sentence": "The control for this polarity is a unit where the forbidden call is certainly still present -- that is what shows the extractor can still see one at this optimisation level. A control chosen the other way round proves nothing.",
+      "claimKind": "doctrine",
+      "testability": "measured",
+      "fixtureId": "cal-forbid-clean",
+      "configs": [
+        "O0",
+        "O2"
+      ],
+      "doctrineAssertion": "the control for this polarity is a unit where the forbidden call is certainly still present, and that is what shows the extractor can still see one at this optimisation level",
+      "whyThisFixtureTestsIt": "cal-forbid-clean is the arrangement the sentence prescribes: the subject names no forbidden symbol, and the control calls getenv and consumes its result so it cannot be removed. Measured at both configurations, the subject reads ABSENT while the control reads PRESENT in the same run, so a clean reading here is a detector that is quiet rather than one that has stopped working. properties.json records that this exact combination -- clean under a live control -- had never once been observed for the artefact byte scanner; this cell is it for this extractor."
+    },
+    {
+      "claimId": "wipe.zero-store-half-overcounts",
+      "extractor": "ir.wipe-effect",
+      "sourceRef": {
+        "file": "compiler/schema/properties.json",
+        "jsonPath": "extractors.ir.wipe-effect.degradationRisk[7]"
+      },
+      "sentence": "The zero-store half counts ANY store of a zero constant whose underlying object is an alloca in the unit or a pointer parameter of it. There is no requirement that the object be the one the property is about, no size floor, and no relation to the configured symbol list, so an ordinary zero-initialised local -- an `int flag = 0;`, or a loop counter -- is counted as the effect. This is the one risk in this list that errs towards PRESENT: measured 2026-08-17, a unit whose 181-byte wipe had been removed still read PRESENT with a held control because an unrelated zero-initialised local survived, and the same over-count lifts a one-wipe unit to a count of 2 at -O0 through a `for` loop's induction variable. Every other entry here errs towards a visible ABSENT or LOST; this one reports a defence that is not there.",
+      "claimKind": "degradation",
+      "testability": "measured",
+      "fixtureId": "cal-wipe-zeroinit",
+      "configs": [
+        "O2"
+      ],
+      "groundTruth": "LOST",
+      "predictedReading": "PRESENT",
+      "declaredDirection": "dangerous-false-negative",
+      "whyThisFixtureTestsIt": "The 181-byte wipe is dead and removed while an unrelated `int flag = 0;` survives because its address is read, so the subject's effect count stays at one and the cell reads PRESENT with its control HELD. This entry was an OMISSION until 2026-08-17: the battery measured the divergence and no sentence in the fenced scope described it, which is why the sentence now exists. It is the only risk in this extractor's list that errs towards PRESENT.",
+      "history": "Entered as an omissionClaim with catalogueStatus omission-open, which held check-claims.py at exit 2 by design: a catalogue that omits a measured degradation is not a complete description of the instrument. The amendment closed it, and the claim moved into the fenced list where the coverage fence now holds its wording to the catalogue's."
+    }
+  ],
+  "omissionClaims": [],
+  "knownFindings": {
+    "measuredOn": "2026-08-17",
+    "status": "BOTH RESOLVED IN THE CATALOGUE on 2026-08-17, in the same change as this ledger.",
+    "whatWasFound": [
+      "extractors.ir.wipe-effect.degradationRisk[1] named the wrong trigger. It said two same-size allocas in a unit make the verdict fall back to LOST; the census at compiler/llvm-pass/src/IrCheckpoints.cpp:195-201 compares COUNTS (`return After >= Before;`), so that arrangement reads NOT_APPLICABLE correctly. The arrangement that DOES defeat it is a pass creating an object of that size while the subject's is promoted -- measured on cal-wipe-inlinesize, which now pins it. The sentence was rewritten to name that, and the battery's own size-discipline rationale was demoted with it: inlining reintroduces same-size objects regardless of source-level prime hygiene.",
+      "The zero-store half's over-count was in no sentence at all. It counts any null-constant store to an alloca or pointer parameter with no relation to the property's object, so an `int flag = 0;` reads as the wipe -- measured on cal-wipe-zeroinit as PRESENT with a held control while the property was LOST, the only PRESENT-ward risk in this extractor's list. A sentence was appended as degradationRisk[7]."
+    ],
+    "whyTheCatalogueWasNotAmendedSooner": "The battery deliberately did not edit the catalogue it was calibrating in the same change that MEASURED it -- a battery that repairs its own subject in the act of measuring it has stopped being an independent measurement, and check-claims.py exiting 2 was the finding rather than a broken grader. The amendment is a separate, later change, made once the readings had been re-run and one of the two characterisations had itself been falsified by adversarial review.",
+    "howToReadTheExitCode": "check-claims.py should now exit 0 on this revision, and that path had never run before: it was unreachable while the two findings were open, and it carried a KeyError and a TypeError that only a closed-findings run would reach. Both were repaired in the same change. If it exits 2 again, a sentence and a measurement have diverged and the ledger says which."
+  },
+  "configsSemantics": "`configs` lists the configurations at which the sentence's mechanism is CLAIMED to apply. That is why reading the true value at a declared configuration is `claim-contradicted` and not a shrug: a configuration where the mechanism is NOT expected is expressed by leaving it out of this list, never by declaring it and then excusing the result. cal-guard-perunit and cal-wipe-zeroinit therefore declare -O2 only, because at -O0 nothing is folded and neither degradation can arise.",
+  "omissionClaimsNote": "Empty, and that is a result rather than a default. It held one entry -- wipe.zero-store-half-overcounts -- from the day the battery measured a divergence no fenced sentence described, until compiler/schema/properties.json was amended on 2026-08-17. It is now an ordinary fenced claim. An empty list here means every divergence this battery has reproduced is described somewhere in the catalogue; it does not mean there are none left to find."
+}

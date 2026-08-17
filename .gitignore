@@ -139,10 +139,18 @@ scripts/viz-*.mjs
 
 # The design notes under docs/ are local-only, and the rule above matches them
 # by extension — which means renaming one puts it back in reach of `git add .`.
-# That is not hypothetical: the compiler plan document was renamed to
-# `.md.hidden`, and `docs/*.md` stopped matching it. 438 KB of submission
-# deadlines, venue names and working paths sat untracked-but-committable until
+# That is not hypothetical: one was renamed to an extension `docs/*.md` does not
+# match, and it sat untracked-but-committable until
 # scripts/check-disclosure-shape.mjs went red over it.
+#
+# ★ This paragraph used to state that file's size and list the kinds of thing it
+# contained. That broke the first of the TWO RULES at the top of this block — an
+# ignore file is public, and an annotation explaining what is withheld tells a
+# reader it is worth having. Describing the contents to justify the rule is the
+# same mistake as naming the document, and a size plus a list of subject matter
+# is a stronger advertisement than a filename. The lesson survives without it:
+# what matters is that RENAMING defeated an extension rule, not what the renamed
+# file held.
 #
 # So the directory is ignored by shape rather than by extension, and the files
 # that ARE meant to be published are re-admitted by name below. Adding a

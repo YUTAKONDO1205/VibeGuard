@@ -14,6 +14,86 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-08-18
+
+**Two version axes move and no rule is added to either.** `ENGINE_VERSION` `0.3.2` →
+`0.3.3` and `engineVersions['analysis-graph']` `0.3.0-beta.3` → `0.3.0-beta.4`. Both
+bumps are about a check REACHING a decision it was already able to make: in one case
+on a surface that never applied it, in the other on a project layout it could not
+recognise. The rule catalogue is unchanged at **74 single-file rules and 11 cross-file
+rules (85 shipped)**, with 7 fixers of which 1 is labelled safe.
+
+> **In a default CLI scan, nothing moves.** Measured against the pinned corpora at
+> this release: `samples/vulnerable` 51 findings with the confidence distribution
+> {high 6, medium 27, low 18}, `samples/safe` 0, `samples/embedded/vulnerable` 26,
+> `samples/embedded/safe` 0 — identical to `0.3.5`. If you run the CLI without
+> `--include-design-smells` and without a lockfile in the picture, this release is a
+> packaging fix and nothing else.
+
+### Changed
+
+- **The VS Code extension now applies the declared-package lockfile veto, so the
+  editor stops reporting what the CLI already refutes.** `VG-AISC-001` flags a
+  dependency that looks hallucinated; the veto reads the project's lockfile and drops
+  the finding when the lockfile declares that package. That reader lived inside
+  `apps/cli`, so **only** the CLI applied it. The extension built its `Analyzer` with
+  no declared set and passed none on the request, which means every hallucinated-
+  dependency false positive the lockfile refutes was still shown in the editor, on the
+  same project where the command line reported it clean. Two surfaces disagreed, and
+  the reason they disagreed is that one of them shared an implementation that lived
+  inside the other.
+
+  The reader now lives in `@vibeguard/analyzer-core`, reachable **only** through the
+  `@vibeguard/analyzer-core/node` subpath. The constraint that kept it out before —
+  nothing on the browser path may import `node:fs` — is kept and is now structural
+  rather than argued: a module is bundled only if it is imported, and the browser
+  entry cannot reach this one.
+
+  **What this changes per surface.** VS Code: fewer findings — a `VG-AISC-001` the
+  lockfile refutes is no longer reported. CLI and GitHub Action: nothing, they already
+  did this. Chrome: nothing, and this is permanent by design — a browser has no
+  lockfile, and fetching one would break the zero-egress posture.
+
+  **The VS Code half is narrower than "the editor", and the difference is worth stating
+  because the default is the narrow case.** `VG-AISC-001` is **medium** severity, and
+  `fast` mode runs only critical- and high-severity rules. Scan-on-save defaults to
+  `fast`, so an on-save scan never reported these findings and does not start now. What
+  moves is `Scan File` and `Scan Selection`, which run `standard` — and on-save too, for
+  anyone who has set `vibeguard.scanOnSaveMode` to `standard`. "The editor showed false
+  positives the CLI refuted" was true of the commands, not of the default on-save path.
+
+- **`ScanResponse.declaredPackageVetoes` gains an observable empty state**, and this
+  is the half of the change that moves `ENGINE_VERSION`. The field was present only
+  when non-empty, which collapsed two different facts into one absence: "no declared
+  set reached this scan, so nothing COULD have been removed" and "the veto ran against
+  a real lockfile and removed nothing". They are now `absent` and `[]` respectively.
+  A consumer that tells those apart gets different bytes for the same project than it
+  did at engine `0.3.2` — which is why this is a bump and not a bug fix. The precedent
+  is `D4` in the pin test's own list (`confidenceAudit`: values unchanged, schema not).
+
+- **`VG-SMELL-013` can now see file-route conventions such as a Next.js `pages/api`
+  tree** (`--include-design-smells` only; `engineVersions['analysis-graph']`
+  `0.3.0-beta.3` → `0.3.0-beta.4`). The rule decides whether authorization is made
+  inside a request handler instead of at a boundary, so it first has to know which
+  files ARE handlers. It recognised only the shapes that name their own routes —
+  `app.get('/x', …)` and friends — so in a framework where **the route is the file
+  path** it never reached its decision point at all. It was not returning "no smell";
+  it was returning nothing, and a rule that reports zero because it never ran cannot
+  be told apart from a clean project.
+
+  Measured on the fixture added with the change
+  (`samples/crossfile-fixtures/smell-013-next-pages-api` — four `pages/api` handlers,
+  a shared `lib/authz.ts`, and one handler that decides inline):
+  `--include-design-smells` reports **1** finding, `VG-SMELL-013`, where the same tree
+  reported 0 before.
+
+  **This can only add findings, never remove one**: a file that was already an entry
+  point still is, and the rule's predicate is untouched. A project with no file-route
+  convention sees no difference. ⚠ It has **not** been measured on the 1,000-repository
+  corpus, and the gap has a sharp edge here because the direction is "more findings" on
+  a convention that is very common in JavaScript — the pre-release marker on this axis
+  is doing real work.
+
 ### Fixed
 
 - **CLI: the release tarball is installable again.** `apps/cli` is now bundled with

@@ -1,0 +1,744 @@
+{
+  "schemaVersion": "vibeguard.metamorphic-catalogue/1",
+  "title": "Metamorphic relations over property-shaped specimens, and the direction each one declares before it is run",
+  "readMeFirst": [
+    "A metamorphic relation is a statement about two programs and one instrument: apply this source transformation and the reading must stay put (R1), or apply that one and the reading must move along this named edge (R2). The declared direction is written here, from what the relation IS, BEFORE any run. It is never transcribed from a measurement, and a run that disagrees with it is printed as a disagreement rather than absorbed into the catalogue.",
+    "THE DIVISION OF LABOUR THAT KEEPS THIS LANE FROM DRIFTING INTO THE OTHER ONE. Lane H breaks the PROPERTY: after the mutation the program genuinely no longer does what the property says, or genuinely no longer offers the same referent to ask about. The calibration battery measures the INSTRUMENT'S LIMITS: the program still has the property and the extractor stops recognising it. Those are different findings and they must not share a table. A mutation that defeats recognition without breaking the property -- memset(b, 0, n) rewritten as memset(b, 0, 0xAA), a guard rewritten as a select, a guard rewritten as arithmetic, a wipe reached through a function pointer -- is an instrument-limit probe and belongs to the calibration lane, NOT to R2 here. Putting one here would produce an operator that 'passes' by having the extractor go blind, which is the most flattering possible way to manufacture a result.",
+    "R1 operators are the ones that can catch this lane lying to itself. An R2 operator that moves proves that SOMETHING moved; an R1 operator that also moves proves it was not the property.",
+    "Every cell is (base specimen, mutant specimen, subject, co-resident control, extractor, symbol list) at one configuration, and the reading is a TRANSITION between two cells rather than a state. interfaces.md section 4 is why the control is in the same translation unit as the subject: a mutant whose control count also fell to zero is a broken measurement and its transition carries no information."
+  ],
+  "survivalAxis": {
+    "axis": [
+      "PRESENT",
+      "LOST"
+    ],
+    "offAxis": [
+      "ABSENT",
+      "NOT_APPLICABLE",
+      "NOT_OBSERVED",
+      "REINTRODUCED"
+    ],
+    "why": "There is deliberately NO total order on interfaces.md section 3's six states, and none is invented here. Only two of the six are comparable as more-or-less of the property surviving: PRESENT and LOST. ABSENT means the property was never established at the first checkpoint, NOT_APPLICABLE means the question stopped having the same referent, and NOT_OBSERVED means nothing was read -- none of the three is a smaller amount of survival, and ranking them would let a lost referent be reported as a lost property. Consequently the only monotonicity claim this lane makes is PRESENT > LOST, and it makes it for R2b alone.",
+    "polarityNote": "For the must-not-appear shape (ir.forbidden-callee) the direction is a COUNT direction and not a survival direction: R2 there is INTRODUCTION, clean to hit, spelled ABSENT->PRESENT. The same six words carry the opposite valence for this extractor, which is why one operator below is declared ungraded rather than graded on an axis that would read the disappearance of a forbidden call as a lost property."
+  },
+  "declaredDirections": {
+    "INVARIANT": "The verdict must be the same word on the base and on the mutant. Any change is a finding (exit 2). Used by R1, by R1-spelling, and by nothing else.",
+    "PRESENT->ABSENT": "R2a, source-removing. The effect is deleted from the source, so it is not in the pre-optimisation IR either and the pair reads ABSENT -- interfaces.md section 3's word for 'observed to be missing at a point where the property had not yet been established'. Legible at pre-opt-ir.",
+    "PRESENT->LOST": "R2b, survivability-breaking. The effect is still in the source and still in the pre-optimisation IR; what the mutation removes is the reason the optimiser had to keep it. This is the class the lane exists for, and the only class graded on the survival axis. Legible at after-pass.",
+    "PRESENT->NOT_APPLICABLE": "R2c, referent-removing. The object the effect acted on leaves memory, or the unit carrying the effect is inlined away, so the question no longer has the same referent. OFF the survival axis by construction -- see notMonotonicWhen on each R2c operator.",
+    "ABSENT->PRESENT": "R2 introduction, must-not-appear polarity. A forbidden call site that was not there is there. Legible at whichever checkpoint the call is spelled the way the symbol list names; see the two R2-spelling operators."
+  },
+  "gradingWords": {
+    "pass": "The cell moved along its declared edge.",
+    "not-expressed": "The cell did not move. The compiler did not take the bait at this configuration. This is NOT an instrument failure and NOT a grader failure: R2b and R2c ask the optimiser to do something, and at -O0 it declines. It is counted and reported by name, never silently dropped, because a denominator whose removals are not described is not a denominator anyone can check.",
+    "off-axis-landing": "The cell moved somewhere other than its declared edge. Exit 2. Either this catalogue's classification of the operator is wrong or the extractor's discriminator is wrong, and either way it is a finding about the instrument rather than a number to average.",
+    "origin-mismatch": "The base did not read the state the declared direction starts from, so the mutant's landing cannot be attributed to the mutation. No grade is produced (exit 3). Reported loudly rather than repaired by moving the declared origin.",
+    "vacuous-invariance": "An INVARIANT cell whose base never established the property. The mutant agreeing with it says nothing (exit 3). The repair is the fixture, never the expectation."
+  },
+  "notInThisLane": [
+    "memset(b, 0, n) -> memset(b, 0, 0xAA): the buffer is still overwritten, so the property holds and only ir.wipe-effect's zero-store half stops recognising it. Instrument limit.",
+    "a guard rewritten as a select, as arithmetic, or as a table lookup: the decision is still taken at run time, and ir.guarded-call's live-branch gate simply cannot see it. Instrument limit, and already written down as a degradationRisk in compiler/schema/properties.json.",
+    "a wipe reached through a function pointer: getCalledFunction returns null for an indirect call. Instrument limit.",
+    "adding a symbol to a list so that a fixture goes green: compiler/eval/negative-controls/README.md forbids this by name. It makes the fixture green while leaving the instrument exactly as broken, behind a tick."
+  ],
+  "lanes": [
+    {
+      "laneId": "wipe",
+      "shape": "wipe",
+      "extractor": "ir.wipe-effect",
+      "propertyId": "survive.secure-wipe",
+      "status": "MEASURED",
+      "statusReason": "Nine operators, measured through the IR observer on clang at the configurations the run manifest names, and through the assembly oracle on both vendors for the cross-vendor channel.",
+      "crossVendor": true
+    },
+    {
+      "laneId": "guarded",
+      "shape": "guarded",
+      "extractor": "ir.guarded-call",
+      "propertyId": "survive.fail-closed-branch",
+      "status": "MEASURED",
+      "statusReason": "Six operators, measured through the IR observer on clang. Two of the six are also in the cross-vendor channel -- G-R2C-INLINE because it is where the assembly oracle must go blind, and G-R1-INVERT as the witness in the same run that the oracle can read this shape at all. The other four are not in that channel; see deferred.crossVendorGuardedAndForbidden.",
+      "crossVendor": "partial"
+    },
+    {
+      "laneId": "forbidden",
+      "shape": "forbidden",
+      "extractor": "ir.forbidden-callee",
+      "propertyId": "notappear.forbidden-external-call",
+      "status": "MEASURED",
+      "statusReason": "Five operators, measured through the IR observer on clang. One of the five is declared ungraded and is reported as data; see F-R2S-PRINTF.",
+      "crossVendor": false
+    },
+    {
+      "laneId": "dominance",
+      "shape": "dominance",
+      "extractor": null,
+      "propertyId": "survive.input-validation",
+      "status": "DEFERRED_NO_EXTRACTOR",
+      "statusReason": "compiler/schema/properties.json declares property survive.input-validation with extractor null and status unimplemented at every checkpoint it lists, because the question is dominance -- does the validator's call site dominate the use of the validated value -- and neither the wipe shape nor the guarded-branch shape answers it. Two operators are declared below so that the relation exists in the catalogue and can be measured the day an extractor does; NO CELL IS EMITTED FOR THEM. This is a lane-level declared absence on purpose. It is not dressed as a cell-level UNSUPPORTED, because UNSUPPORTED is a claim that a toolchain refused an invocation and no invocation was attempted here; and it is not emitted as N cells of NOT_OBSERVED, because that reads as a measurement somebody skipped, which is a different fact from a measurement nothing can take.",
+      "crossVendor": false,
+      "emitsCells": false
+    }
+  ],
+  "crossVendorChannel": {
+    "instrument": "compiler/eval/second-vendor/lib/asm-oracle.mjs, imported and not copied",
+    "checkpoint": "asm",
+    "vendors": [
+      "clang-18",
+      "gcc-13"
+    ],
+    "comparedObject": "the TRANSITION (base -> mutant) per vendor, never the raw states",
+    "whyTransitionsAndNotStates": "Two compilers may legitimately render the same surviving effect differently -- a call on one and inlined zeroing on the other -- so equal states are not the claim being made. What a metamorphic relation asserts is about the DIFFERENCE the mutation makes, and that is the object the two vendors can be asked about symmetrically.",
+    "words": {
+      "vendors-agree": "Both sides readable and the transitions match.",
+      "vendors-split": "Both sides readable and the transitions differ. This is the discovery channel. It is NOT an invariant violation and does not exit 2: two compilers may legitimately differ, and the split is enumerated as data.",
+      "vendor-unreadable": "Either side was VERIFICATION_INCOMPLETE, UNSUPPORTED or NOT_OBSERVED, or failed its own positive-witness control. Never folded into vendors-split, for the reason frontier-match.mjs never folds incomparable into mismatch: 'the two differ' and 'I could not look' send a reader to two different places and only one of them is a finding. The side is recorded in unreadableSide."
+    },
+    "vocabularyIsNotReused": "These three words are deliberately NOT compiler/envelope/frontier-match.mjs's exposure-consistent / exposure-mismatch / exposure-incomparable. That triple answers whether one build's optimiser treats the ladder the way another build's did, from IR readings of one vendor. This triple answers whether two vendors made the same difference to one specimen, from assembly readings. Same shape, different question, different evidence base.",
+    "whatASplitMayClaim": "These two compilers, at these versions and these flags, transformed this specimen under this mutation differently at the asm checkpoint.",
+    "whatASplitMayNotClaim": [
+      "that either vendor is wrong",
+      "anything about a user's real subject -- every specimen here is synthetic and generated",
+      "any IR-level cause on the gcc side: gcc cannot load an LLVM -fpass-plugin, so pass attribution under gcc is UNSUPPORTED by construction and not merely not-observed",
+      "support for any status value in compiler/schema/properties.json",
+      "anything derived from gcc's -fdump-tree-all self-report. compiler/eval/second-vendor/README.md records firstAbsentDump as having no independent confirmation, so it must not enter an agreement evidence base and this lane never reads it."
+    ],
+    "instrumentIsCoarser": [
+      "no pass attribution on either side, so there is no firstLossPass in this channel at all",
+      "cannot distinguish LOST from NOT_APPLICABLE: it reads one listing rather than a checkpoint pair, so 'absent from the subject while the control was seen' is the whole of what it can say, and interfaces.md section 3's ABSENT, LOST and NOT_APPLICABLE all present as the single word LOST here",
+      "the clang-defined reference configuration is NOT automatically a witness configuration under gcc (second-vendor records referenceConfigIsWitness: false), so a gcc cell that has not shown its own positive control must never be counted as agreeing"
+    ]
+  },
+  "deferred": [
+    {
+      "word": "dominance-no-extractor",
+      "what": "the dominance lane's two operators",
+      "why": "no extractor exists for survive.input-validation; see lanes.dominance.statusReason"
+    },
+    {
+      "word": "optimisation-columns-unmeasured",
+      "what": "-O1, -O3 and -Os columns",
+      "why": "the producer takes any command line, so these are one invocation each; they are simply not in this landing's measured set and no reading is claimed for them"
+    },
+    {
+      "word": "lto-stage-unobserved",
+      "what": "anything carrying an -flto token",
+      "why": "the observer registers on the pipeline-start and optimizer-last extension points, which the LTO backend pipeline never invokes, so what an -flto compile can be observed doing is the prelink stage only. Offering that as the build's exposure would answer for a pipeline nothing looked at. Refused at measurement time, exit 3, never exit 0."
+    },
+    {
+      "word": "gcc-dump-channel-excluded",
+      "what": "gcc's -fdump-tree-all self-report",
+      "why": "no independent confirmation; see crossVendorChannel.whatASplitMayNotClaim"
+    },
+    {
+      "word": "crossVendorGuardedAndForbidden",
+      "what": "the cross-vendor channel for four of the six guarded operators (G-R1-OPAQUE, G-R1-ADDCODE, G-R2A-DELETE, G-R2B-STATICZERO) and for all five forbidden operators",
+      "why": "not run in this landing. The asm oracle would take them -- detectCallLike already counts the tail-call form gcc emits for a deny path -- so this is an absence of measurement and not an absence of capability. G-R1-INVERT and G-R2C-INLINE ARE in that channel; see their entries."
+    }
+  ],
+  "operators": [
+    {
+      "operatorId": "W-R1-RENAME",
+      "shape": "wipe",
+      "class": "R1",
+      "extractor": "ir.wipe-effect",
+      "specimenId": "wipe.W-R1-RENAME",
+      "baseSubject": "meta_w_rename",
+      "mutantSubject": "meta_w_renamed_subject",
+      "control": "meta_w_ctl",
+      "symbols": [
+        "llvm.memset",
+        "memset",
+        "explicit_bzero",
+        "bzero",
+        "__memset_chk",
+        "memset_s"
+      ],
+      "declaredDirection": "INVARIANT",
+      "checkpointRead": "pre-opt-ir+after-pass",
+      "graded": true,
+      "transformation": "Alpha-rename the subject function and its local buffer. Nothing about what the code does changes.",
+      "whyInvariant": "The oracle counts call sites within one IR unit and resolves the callee from the call instruction. A name it does not resolve against is not part of the reading, so a renamed subject and a renamed local cannot move the verdict. If they do, the reading is coming from somewhere other than the call sites -- which is exactly the naive symbol-table oracle interfaces.md section 4 forbids.",
+      "notMonotonicWhen": null,
+      "crossVendor": true,
+      "asmEffect": {
+        "symbols": [
+          "memset",
+          "__memset_chk",
+          "explicit_bzero",
+          "__explicit_bzero_chk",
+          "bzero",
+          "memset_s"
+        ],
+        "allowInlineZeroStore": true
+      }
+    },
+    {
+      "operatorId": "W-R1-SIZE",
+      "shape": "wipe",
+      "class": "R1",
+      "extractor": "ir.wipe-effect",
+      "specimenId": "wipe.W-R1-SIZE",
+      "baseSubject": "meta_w_size",
+      "mutantSubject": "meta_w_size",
+      "control": "meta_w_ctl",
+      "symbols": [
+        "llvm.memset",
+        "memset",
+        "explicit_bzero",
+        "bzero",
+        "__memset_chk",
+        "memset_s"
+      ],
+      "declaredDirection": "INVARIANT",
+      "checkpointRead": "pre-opt-ir+after-pass",
+      "graded": true,
+      "transformation": "Change the buffer size from one prime to a different prime, keeping it distinct from every other size in the unit.",
+      "whyInvariant": "The property is 'the buffer is cleared', not 'the buffer is 61 bytes'. The size does reach the instrument -- the LOST/NOT_APPLICABLE discriminator decides by an alloca-size census -- so this operator is the one that says whether the discriminator is keyed on the SHAPE of the census or on a particular number in it. A different prime that is still unique in the unit must not move the verdict; if it does, the discriminator is size-sensitive in a way nothing declared.",
+      "notMonotonicWhen": null,
+      "crossVendor": true,
+      "asmEffect": {
+        "symbols": [
+          "memset",
+          "__memset_chk",
+          "explicit_bzero",
+          "__explicit_bzero_chk",
+          "bzero",
+          "memset_s"
+        ],
+        "allowInlineZeroStore": true
+      }
+    },
+    {
+      "operatorId": "W-R1-REORDER",
+      "shape": "wipe",
+      "class": "R1",
+      "extractor": "ir.wipe-effect",
+      "specimenId": "wipe.W-R1-REORDER",
+      "baseSubject": "meta_w_reorder",
+      "mutantSubject": "meta_w_reorder",
+      "control": "meta_w_ctl",
+      "symbols": [
+        "llvm.memset",
+        "memset",
+        "explicit_bzero",
+        "bzero",
+        "__memset_chk",
+        "memset_s"
+      ],
+      "declaredDirection": "INVARIANT",
+      "checkpointRead": "pre-opt-ir+after-pass",
+      "graded": true,
+      "transformation": "Swap two statements that touch different objects and neither of which reads or writes the wiped buffer's zeros. The wipe, and the read that pins it, stay where they are.",
+      "whyInvariant": "The two swapped statements are independent of the property in the dataflow sense: no order between them changes whether the wiped buffer is cleared before the unit ends. A verdict that moves under this swap is reading position rather than effect.",
+      "notMonotonicWhen": null,
+      "crossVendor": true,
+      "asmEffect": {
+        "symbols": [
+          "memset",
+          "__memset_chk",
+          "explicit_bzero",
+          "__explicit_bzero_chk",
+          "bzero",
+          "memset_s"
+        ],
+        "allowInlineZeroStore": true
+      }
+    },
+    {
+      "operatorId": "W-R1-ADDFN",
+      "shape": "wipe",
+      "class": "R1",
+      "extractor": "ir.wipe-effect",
+      "specimenId": "wipe.W-R1-ADDFN",
+      "baseSubject": "meta_w_addfn",
+      "mutantSubject": "meta_w_addfn",
+      "control": "meta_w_ctl",
+      "symbols": [
+        "llvm.memset",
+        "memset",
+        "explicit_bzero",
+        "bzero",
+        "__memset_chk",
+        "memset_s"
+      ],
+      "declaredDirection": "INVARIANT",
+      "checkpointRead": "pre-opt-ir+after-pass",
+      "graded": true,
+      "transformation": "Add an unrelated pure function to the translation unit. The subject is not touched.",
+      "whyInvariant": "interfaces.md section 4 says the count is taken WITHIN ONE IR UNIT, not across the module. A function added elsewhere in the module is outside the unit of count, so it cannot move the reading. This is the operator that would catch a count that had quietly become module-wide -- the exact defect section 4 describes, where the out-of-line original survives inlining and a module-wide count keeps reporting an effect from a function nobody calls.",
+      "notMonotonicWhen": null,
+      "crossVendor": true,
+      "asmEffect": {
+        "symbols": [
+          "memset",
+          "__memset_chk",
+          "explicit_bzero",
+          "__explicit_bzero_chk",
+          "bzero",
+          "memset_s"
+        ],
+        "allowInlineZeroStore": true
+      }
+    },
+    {
+      "operatorId": "W-R1S-LOOP",
+      "shape": "wipe",
+      "class": "R1-spelling",
+      "extractor": "ir.wipe-effect",
+      "specimenId": "wipe.W-R1S-LOOP",
+      "baseSubject": "meta_w_spell",
+      "mutantSubject": "meta_w_spell",
+      "control": "meta_w_ctl",
+      "symbols": [
+        "llvm.memset",
+        "memset",
+        "explicit_bzero",
+        "bzero",
+        "__memset_chk",
+        "memset_s"
+      ],
+      "declaredDirection": "INVARIANT",
+      "checkpointRead": "pre-opt-ir+after-pass",
+      "graded": true,
+      "transformation": "Write the wipe as an explicit zeroing loop instead of as a memset call.",
+      "whyInvariant": "The property is that the bytes end up zero, and both spellings do that, so the verdict must not move. It is filed as its own class rather than as plain R1 because the ladder's b1 rungs measured that what moves across exposures is not whether the effect is there but WHICH SPELLING carries it: a loop reaches the instrument through the inline-zero-store half of ir.wipe-effect and a call reaches it through the call-site half. An invariance that holds here is an invariance across two halves of the extractor, which is a stronger and more fragile statement than invariance within one, and a reader should be able to see which of the two was measured.",
+      "notMonotonicWhen": null,
+      "crossVendor": true,
+      "asmEffect": {
+        "symbols": [
+          "memset",
+          "__memset_chk",
+          "explicit_bzero",
+          "__explicit_bzero_chk",
+          "bzero",
+          "memset_s"
+        ],
+        "allowInlineZeroStore": true
+      }
+    },
+    {
+      "operatorId": "W-R2A-DELETE",
+      "shape": "wipe",
+      "class": "R2a",
+      "extractor": "ir.wipe-effect",
+      "specimenId": "wipe.W-R2A-DELETE",
+      "baseSubject": "meta_w_del",
+      "mutantSubject": "meta_w_del",
+      "control": "meta_w_ctl",
+      "symbols": [
+        "llvm.memset",
+        "memset",
+        "explicit_bzero",
+        "bzero",
+        "__memset_chk",
+        "memset_s"
+      ],
+      "declaredDirection": "PRESENT->ABSENT",
+      "checkpointRead": "pre-opt-ir",
+      "graded": true,
+      "transformation": "Delete the wipe statement from the source.",
+      "whyThisDirection": "The effect is gone before the optimiser starts, so the pre-optimisation checkpoint reads zero and interfaces.md section 3's word for a count that was never established is ABSENT. It is emphatically not LOST: LOST means 'observed to be missing at a point where it was previously PRESENT', and a wipe that was never written was never previously present. This is the operator that says whether the ABSENT/LOST distinction is real in this instrument or decorative, because it is the only class in this lane in which nothing an optimiser does is under test -- it must read ABSENT at every optimisation level, and a level where it reads LOST would mean the two words are being decided by something other than the first checkpoint.",
+      "notMonotonicWhen": "Always. ABSENT is off the survival axis, so this operator's movement is not a loss of anything and must not be counted with R2b's.",
+      "crossVendor": true,
+      "asmEffect": {
+        "symbols": [
+          "memset",
+          "__memset_chk",
+          "explicit_bzero",
+          "__explicit_bzero_chk",
+          "bzero",
+          "memset_s"
+        ],
+        "allowInlineZeroStore": true
+      }
+    },
+    {
+      "operatorId": "W-R2B-DEADZERO",
+      "shape": "wipe",
+      "class": "R2b",
+      "extractor": "ir.wipe-effect",
+      "specimenId": "wipe.W-R2B-DEADZERO",
+      "baseSubject": "meta_w_dead",
+      "mutantSubject": "meta_w_dead",
+      "control": "meta_w_ctl",
+      "symbols": [
+        "llvm.memset",
+        "memset",
+        "explicit_bzero",
+        "bzero",
+        "__memset_chk",
+        "memset_s"
+      ],
+      "declaredDirection": "PRESENT->LOST",
+      "checkpointRead": "after-pass",
+      "graded": true,
+      "transformation": "Delete the later read of the zeros, so that the wipe becomes a dead store. The escape that pins the object in memory is left in place.",
+      "whyThisDirection": "This is the class the lane exists for. The wipe is still written, still a call, and still in the pre-optimisation IR -- the mutation removes only the REASON the optimiser had to keep it. So the transition is invisible at pre-opt-ir and legible only at after-pass, and it is the one transition in this catalogue that is a movement DOWN the survival axis: PRESENT > LOST, and nothing else in the six-word vocabulary sits between them. Keeping the escape is load-bearing: without it the object would also be promoted out of memory and the discriminator would answer NOT_APPLICABLE, which is R2c's edge and a different finding.",
+      "notMonotonicWhen": null,
+      "crossVendor": true,
+      "asmEffect": {
+        "symbols": [
+          "memset",
+          "__memset_chk",
+          "explicit_bzero",
+          "__explicit_bzero_chk",
+          "bzero",
+          "memset_s"
+        ],
+        "allowInlineZeroStore": true
+      }
+    },
+    {
+      "operatorId": "W-R2B-ZEROLEN",
+      "shape": "wipe",
+      "class": "R2b",
+      "extractor": "ir.wipe-effect",
+      "specimenId": "wipe.W-R2B-ZEROLEN",
+      "baseSubject": "meta_w_zerolen",
+      "mutantSubject": "meta_w_zerolen",
+      "control": "meta_w_ctl",
+      "symbols": [
+        "llvm.memset",
+        "memset",
+        "explicit_bzero",
+        "bzero",
+        "__memset_chk",
+        "memset_s"
+      ],
+      "declaredDirection": "PRESENT->LOST",
+      "checkpointRead": "after-pass",
+      "graded": true,
+      "transformation": "Fold the wipe's length to a constant 0, leaving the call and both escapes in place.",
+      "whyThisDirection": "A memset of zero bytes clears nothing, so the property is genuinely broken -- this is a property mutation and not an instrument-limit probe. It is classed R2b rather than R2a on a measured ground and not on taste: clang 18.1.3 emits `call void @llvm.memset.p0.i64(ptr, i8 0, i64 0, i1 false)` for it at -O0, so the effect IS in the pre-optimisation IR and the count that falls is the count at after-pass. Had the front end folded the call away, the same source edit would be a source removal wearing R2b's clothes, and it would belong under PRESENT->ABSENT instead. Which of the two it is, is a fact about a front end rather than about the edit, and this entry records that it was checked.",
+      "notMonotonicWhen": null,
+      "crossVendor": true,
+      "asmEffect": {
+        "symbols": [
+          "memset",
+          "__memset_chk",
+          "explicit_bzero",
+          "__explicit_bzero_chk",
+          "bzero",
+          "memset_s"
+        ],
+        "allowInlineZeroStore": true
+      }
+    },
+    {
+      "operatorId": "W-R2C-UNPIN",
+      "shape": "wipe",
+      "class": "R2c",
+      "extractor": "ir.wipe-effect",
+      "specimenId": "wipe.W-R2C-UNPIN",
+      "baseSubject": "meta_w_unpin",
+      "mutantSubject": "meta_w_unpin",
+      "control": "meta_w_ctl",
+      "symbols": [
+        "llvm.memset",
+        "memset",
+        "explicit_bzero",
+        "bzero",
+        "__memset_chk",
+        "memset_s"
+      ],
+      "declaredDirection": "PRESENT->NOT_APPLICABLE",
+      "checkpointRead": "after-pass",
+      "graded": true,
+      "transformation": "Remove the escapes that pin the object -- the opaque producer and the opaque consumer -- and fill the buffer locally instead. The wipe statement is untouched.",
+      "whyThisDirection": "With nothing opaque holding the address, the optimiser is entitled to promote the buffer out of memory entirely. The wipe then has no object to have acted on, and ir.wipe-effect's alloca-size census answers NOT_APPLICABLE: one fewer object of the effect target's size is allocated in the unit than before. The property has not been lost, the QUESTION has lost its referent, and interfaces.md section 3 says in as many words that this is not a loss.",
+      "notMonotonicWhen": "ALWAYS, and this is the named class that must not be read as monotonicity. NOT_APPLICABLE is off the two-point survival axis, so this cell contributes to no monotonicity claim, appears in no PRESENT-to-LOST tally, and carries survivalAxisGraded false in the report. Grading it as a loss would report a lost referent as a lost property -- the precise confusion interfaces.md section 3's last two rows exist to prevent -- and it would do so in the direction that looks like a result.",
+      "crossVendor": true,
+      "asmEffect": {
+        "symbols": [
+          "memset",
+          "__memset_chk",
+          "explicit_bzero",
+          "__explicit_bzero_chk",
+          "bzero",
+          "memset_s"
+        ],
+        "allowInlineZeroStore": true
+      },
+      "asmChannelCaveat": "The assembly oracle cannot reach this verdict at all. It reads one listing rather than a checkpoint pair and has no alloca census, so a promoted object presents to it as the effect simply not being in the subject's body -- the single word LOST. A vendors-agree on this operator therefore means the two vendors made the same DIFFERENCE at the asm checkpoint and says nothing about whether either of them promoted the object."
+    },
+    {
+      "operatorId": "G-R1-INVERT",
+      "shape": "guarded",
+      "class": "R1",
+      "extractor": "ir.guarded-call",
+      "specimenId": "guarded.G-R1-INVERT",
+      "baseSubject": "meta_g_invert",
+      "mutantSubject": "meta_g_invert",
+      "control": "meta_g_ctl",
+      "symbols": [
+        "meta_deny"
+      ],
+      "declaredDirection": "INVARIANT",
+      "checkpointRead": "pre-opt-ir+after-pass",
+      "graded": true,
+      "transformation": "Invert the condition and swap the two arms, so that the same input still reaches the same arm.",
+      "whyInvariant": "The mutant computes the same function of the same opaque input; only the polarity of the test and the order of the arms changed. ir.guarded-call counts deny call sites while SOME conditional branch in the unit still tests a value, and both spellings leave exactly one such branch, so the reading must not move.",
+      "notMonotonicWhen": null,
+      "crossVendor": true,
+      "asmEffect": {
+        "symbols": [
+          "meta_deny"
+        ],
+        "allowInlineZeroStore": false
+      },
+      "whyThisOneIsInTheCrossVendorLane": "It is the POSITIVE WITNESS for the guarded shape in that channel, and it is there because of G-R2C-INLINE. Without a guarded cell the assembly oracle can demonstrably read, a NOT_OBSERVED on G-R2C-INLINE would be indistinguishable from an oracle that cannot read guarded specimens at all -- which is the shape of failure compiler/eval/negative-controls/README.md refuses to accept as a result: seven clean negatives are exactly what a switched-off detector reports, so the paired positive runs in the same run with the same compiler and the same flags."
+    },
+    {
+      "operatorId": "G-R1-OPAQUE",
+      "shape": "guarded",
+      "class": "R1",
+      "extractor": "ir.guarded-call",
+      "specimenId": "guarded.G-R1-OPAQUE",
+      "baseSubject": "meta_g_opaque",
+      "mutantSubject": "meta_g_opaque",
+      "control": "meta_g_ctl",
+      "symbols": [
+        "meta_deny"
+      ],
+      "declaredDirection": "INVARIANT",
+      "checkpointRead": "pre-opt-ir+after-pass",
+      "graded": true,
+      "transformation": "Rotate the source of the undecidable condition: a call to an extern function becomes a read of an extern volatile int.",
+      "whyInvariant": "Both are values the compiler cannot know, so the branch stays live in both and the deny call stays counted. The two are undecidable for DIFFERENT reasons -- one because the callee is outside the translation unit, one because volatile forbids the load being folded -- and an invariance that holds across both says the live-branch gate is keyed on the branch still testing a value rather than on the particular shape that produced the value.",
+      "notMonotonicWhen": null,
+      "crossVendor": false
+    },
+    {
+      "operatorId": "G-R1-ADDCODE",
+      "shape": "guarded",
+      "class": "R1",
+      "extractor": "ir.guarded-call",
+      "specimenId": "guarded.G-R1-ADDCODE",
+      "baseSubject": "meta_g_addcode",
+      "mutantSubject": "meta_g_addcode",
+      "control": "meta_g_ctl",
+      "symbols": [
+        "meta_deny"
+      ],
+      "declaredDirection": "INVARIANT",
+      "checkpointRead": "pre-opt-ir+after-pass",
+      "graded": true,
+      "transformation": "Add unrelated code to the translation unit, outside the subject.",
+      "whyInvariant": "Same reason as W-R1-ADDFN: the count is within one unit. Repeated for this shape rather than assumed from the other, because ir.guarded-call's live-branch test is PER UNIT and not per call -- properties.json names that as the extractor's weak point and says it fails towards PRESENT -- so 'code added elsewhere does not matter' is a claim that has to be measured separately here.",
+      "notMonotonicWhen": null,
+      "crossVendor": false
+    },
+    {
+      "operatorId": "G-R2A-DELETE",
+      "shape": "guarded",
+      "class": "R2a",
+      "extractor": "ir.guarded-call",
+      "specimenId": "guarded.G-R2A-DELETE",
+      "baseSubject": "meta_g_del",
+      "mutantSubject": "meta_g_del",
+      "control": "meta_g_ctl",
+      "symbols": [
+        "meta_deny"
+      ],
+      "declaredDirection": "PRESENT->ABSENT",
+      "checkpointRead": "pre-opt-ir",
+      "graded": true,
+      "transformation": "Delete the guard and the call it protects.",
+      "whyThisDirection": "Nothing is left to count at the first checkpoint, so the pair reads ABSENT at every level. As with W-R2A-DELETE, no optimiser behaviour is under test here; what is under test is that the instrument spells 'never there' differently from 'was there and went'.",
+      "notMonotonicWhen": "Always. ABSENT is off the survival axis.",
+      "crossVendor": false
+    },
+    {
+      "operatorId": "G-R2B-STATICZERO",
+      "shape": "guarded",
+      "class": "R2b",
+      "extractor": "ir.guarded-call",
+      "specimenId": "guarded.G-R2B-STATICZERO",
+      "baseSubject": "meta_g_static",
+      "mutantSubject": "meta_g_static",
+      "control": "meta_g_ctl",
+      "symbols": [
+        "meta_deny"
+      ],
+      "declaredDirection": "PRESENT->LOST",
+      "checkpointRead": "after-pass",
+      "graded": true,
+      "transformation": "Replace the undecidable condition with a read of a non-const `static int` initialised to 0 and written nowhere.",
+      "whyThisDirection": "The branch is still a branch on a loaded value when the optimiser starts, so the guard is PRESENT at pre-opt-ir; the optimiser then proves the internal global is always zero, folds the branch, and the deny call goes with it. That is survivability-breaking rather than source-removing, which is why it is R2b. NON-CONST IS LOAD-BEARING AND WAS MEASURED: a `const` initialiser is folded by the FRONT END, so with `const` the branch never reaches the IR at all, the rung reads ABSENT at every level and discriminates nothing. The ladder's c1 rung was measured in exactly that state on 2026-08-17 and fixed the same way.",
+      "notMonotonicWhen": null,
+      "crossVendor": false
+    },
+    {
+      "operatorId": "G-R2C-INLINE",
+      "shape": "guarded",
+      "class": "R2c",
+      "extractor": "ir.guarded-call",
+      "specimenId": "guarded.G-R2C-INLINE",
+      "baseSubject": "meta_g_inline",
+      "mutantSubject": "meta_g_inline",
+      "control": "meta_g_ctl",
+      "symbols": [
+        "meta_deny"
+      ],
+      "declaredDirection": "PRESENT->NOT_APPLICABLE",
+      "checkpointRead": "after-pass",
+      "graded": true,
+      "transformation": "Give the unit internal linkage and add one external caller, so that the optimiser may inline it and delete the out-of-line body.",
+      "whyThisDirection": "properties.json says NOT_APPLICABLE has exactly one cause for ir.guarded-call -- the unit was inlined away -- because a branch has no memory object to be promoted out of. The caller is not decoration: a static function with no caller is simply deleted, and the observer then reads unit-absent-effect-gone, which is LOST and a different finding. With a caller, the deny site survives in the caller, the module-wide count outside the control accounts for what the subject contributed, and the verdict is NOT_APPLICABLE. The guard is still enforced at run time; the UNIT it was scoped to no longer exists.",
+      "notMonotonicWhen": "ALWAYS, same as W-R2C-UNPIN and for the same reason. The deny path is still taken at run time -- it moved into the caller -- so reading this as a loss would report a rescoped property as a removed one. survivalAxisGraded is false and the cell enters no monotonicity tally.",
+      "crossVendor": true,
+      "asmEffect": {
+        "symbols": [
+          "meta_deny"
+        ],
+        "allowInlineZeroStore": false
+      },
+      "asmChannelCaveat": "This is the cell where the assembly oracle is EXPECTED to go blind, and it is in the lane for that reason rather than in spite of it. Once the unit has internal linkage and has been inlined away there is no `meta_g_inline:` label and no closing `.size meta_g_inline,` directive in the listing, so extractFunctionBody returns null rather than guessing a boundary -- a wrong boundary would silently import the caller's calls -- and the reading is NOT_OBSERVED. The comparison must then be vendor-unreadable and must NOT be folded into vendors-split: 'the two differ' and 'I could not look' send a reader to two different places. G-R1-INVERT is the witness that the oracle can read this shape at all in the same run."
+    },
+    {
+      "operatorId": "F-R1-POSITION",
+      "shape": "forbidden",
+      "class": "R1",
+      "extractor": "ir.forbidden-callee",
+      "specimenId": "forbidden.F-R1-POSITION",
+      "baseSubject": "meta_f_position",
+      "mutantSubject": "meta_f_position",
+      "control": "meta_f_ctl_printf",
+      "symbols": [
+        "printf"
+      ],
+      "declaredDirection": "INVARIANT",
+      "checkpointRead": "pre-opt-ir+after-pass",
+      "graded": true,
+      "transformation": "Move the forbidden call site from after the permitted work to before it.",
+      "whyInvariant": "A non-zero count IS the finding for this polarity, and where in the body the call sits is not part of the count. A reading that moves under this rotation is position-sensitive, which for a must-not-appear question means a forbidden call can be hidden by moving it.",
+      "notMonotonicWhen": "Not applicable: this polarity has no survival axis at all. See survivalAxis.polarityNote.",
+      "crossVendor": false
+    },
+    {
+      "operatorId": "F-R1-PERMITTED",
+      "shape": "forbidden",
+      "class": "R1",
+      "extractor": "ir.forbidden-callee",
+      "specimenId": "forbidden.F-R1-PERMITTED",
+      "baseSubject": "meta_f_permitted",
+      "mutantSubject": "meta_f_permitted",
+      "control": "meta_f_ctl_printf",
+      "symbols": [
+        "printf"
+      ],
+      "declaredDirection": "INVARIANT",
+      "checkpointRead": "pre-opt-ir+after-pass",
+      "graded": true,
+      "transformation": "Add a call to a symbol the policy permits, beside the forbidden one.",
+      "whyInvariant": "The forbidden count is over the configured symbol list. Adding a call outside that list must not change it in either direction -- not up, which would be a false positive manufactured by ordinary code, and not down, which would be a forbidden call masked by a permitted one.",
+      "notMonotonicWhen": "Not applicable: no survival axis for this polarity.",
+      "crossVendor": false
+    },
+    {
+      "operatorId": "F-R2-INTRODUCE",
+      "shape": "forbidden",
+      "class": "R2a",
+      "extractor": "ir.forbidden-callee",
+      "specimenId": "forbidden.F-R2-INTRODUCE",
+      "baseSubject": "meta_f_introduce",
+      "mutantSubject": "meta_f_introduce",
+      "control": "meta_f_ctl_printf",
+      "symbols": [
+        "printf"
+      ],
+      "declaredDirection": "ABSENT->PRESENT",
+      "checkpointRead": "pre-opt-ir",
+      "graded": true,
+      "transformation": "Add a printf that consumes a RUNTIME value.",
+      "whyThisDirection": "Introduction is R2 for this polarity: the base is clean, the mutant is a hit. The class field says R2a because the change is made AT SOURCE and is already legible at the first checkpoint, which is what R2a names; the direction field, not the class name, is what is graded. A runtime argument is required rather than incidental: clang rewrites a constant-string printf to puts, which would move a different symbol list than the one this operator declares. That rewrite is real measured behaviour and it gets its own operator below rather than being allowed to contaminate this one.",
+      "notMonotonicWhen": "Not applicable: no survival axis for this polarity. An introduction is a count going up, not a property surviving less.",
+      "crossVendor": false
+    },
+    {
+      "operatorId": "F-R2S-PUTS",
+      "shape": "forbidden",
+      "class": "R2-spelling",
+      "extractor": "ir.forbidden-callee",
+      "specimenId": "forbidden.F-R2S-REWRITE",
+      "baseSubject": "meta_f_spell",
+      "mutantSubject": "meta_f_spell",
+      "control": "meta_f_ctl_puts",
+      "symbols": [
+        "puts"
+      ],
+      "declaredDirection": "ABSENT->PRESENT",
+      "checkpointRead": "after-pass",
+      "graded": true,
+      "transformation": "Add a printf whose argument is a constant string. Read through the `puts` symbol list.",
+      "whyThisDirection": "clang rewrites a constant-string printf into puts, so the introduced call arrives on the PUTS lane and it arrives after the pre-optimisation checkpoint. The verdict is then PRESENT with the observer's own reason 'effect first appears after the pre-optimisation checkpoint'. The expectation for this operator is precisely that ONLY the corresponding symbol-list lane moves, and at a level where the rewrite does not fire this lane reads not-expressed -- which is the correct answer and not a miss.",
+      "notMonotonicWhen": "Not applicable: no survival axis for this polarity.",
+      "crossVendor": false
+    },
+    {
+      "operatorId": "F-R2S-PRINTF",
+      "shape": "forbidden",
+      "class": "R2-spelling",
+      "extractor": "ir.forbidden-callee",
+      "specimenId": "forbidden.F-R2S-REWRITE",
+      "baseSubject": "meta_f_spell",
+      "mutantSubject": "meta_f_spell",
+      "control": "meta_f_ctl_printf",
+      "symbols": [
+        "printf"
+      ],
+      "declaredDirection": "ABSENT->PRESENT",
+      "checkpointRead": "pre-opt-ir",
+      "graded": true,
+      "transformation": "Same mutant specimen as F-R2S-PUTS. Only the symbol list and the control differ.",
+      "notMonotonicWhen": "Not applicable: this polarity has no survival axis. Note additionally that this operator must not be graded on the VERDICT pair -- see whyThisDirection -- and that check-meta.py refuses a single declared checkpoint for any R2b or R2c operator, because one checkpoint can say only PRESENT or ABSENT and those classes' edges are claims about a change between two.",
+      "crossVendor": false,
+      "whyThisDirection": "Read at pre-opt-ir, and the checkpoint is the whole point of this entry. The mutant introduces a constant-string printf; at pre-opt-ir the base holds no forbidden call and the mutant holds one, so the declared ABSENT->PRESENT edge holds at -O0 and at -O2. Read as a VERDICT instead -- across both checkpoints -- the -O2 mutant reads 1 then 0, because clang rewrote the call to puts, and interfaces.md section 3 spells that pair LOST: a must-survive word answering a must-not-appear question. Grading THAT would report a forbidden call disappearing as a finding against the instrument. This operator was therefore declared ungraded when the lane was first built, and that was the wrong repair: an operator with graded:false is an off switch with no condition on it, and nothing about the cell could ever be falsified again. The fix is to grade the checkpoint this entry already names. build-meta-report.py derives transitionAtDeclaredCheckpoint for it and check-meta.py recomputes that field from the counts before grading against it.",
+      "pairedWith": "F-R2S-PUTS",
+      "whatThePairShows": "The same introduction is spelled printf at pre-opt-ir and puts at after-pass. A must-not-appear check that reads ONE checkpoint through ONE symbol list can therefore be walked past, and it is the pair rather than either lane that shows it.",
+      "gradeOn": "count-at-pre-opt-ir",
+      "whyGradeOn": "The only operator in this catalogue that sets gradeOn, and it is an explicit opt-in rather than anything inferred from checkpointRead -- R2b and R2c operators also name a single checkpoint there, and reading that as a grading instruction collapsed their PRESENT->LOST and PRESENT->NOT_APPLICABLE edges into PRESENT/ABSENT and sent five correct cells off-axis. gradeOn says: grade the forbidden-call COUNT at pre-opt-ir. check-meta.py refuses gradeOn on any R2b or R2c operator, because one checkpoint can say only PRESENT or ABSENT while those classes' edges are claims about a change between two."
+    },
+    {
+      "operatorId": "D-R1-MOTION",
+      "shape": "dominance",
+      "class": "R1",
+      "extractor": null,
+      "specimenId": null,
+      "baseSubject": null,
+      "mutantSubject": null,
+      "control": null,
+      "symbols": [],
+      "declaredDirection": "INVARIANT",
+      "checkpointRead": null,
+      "graded": false,
+      "measured": false,
+      "transformation": "Dominance-preserving code motion: move the validated use further from the validator without leaving the region the validator dominates.",
+      "whyInvariant": "The validator's call site still dominates every use of the validated value, so the property is unchanged and any reading of it must be unchanged.",
+      "whyUngraded": "No extractor. See lanes.dominance.",
+      "notMonotonicWhen": null,
+      "crossVendor": false
+    },
+    {
+      "operatorId": "D-R2-HOIST",
+      "shape": "dominance",
+      "class": "R2b",
+      "extractor": null,
+      "specimenId": null,
+      "baseSubject": null,
+      "mutantSubject": null,
+      "control": null,
+      "symbols": [],
+      "declaredDirection": "PRESENT->LOST",
+      "checkpointRead": null,
+      "graded": false,
+      "measured": false,
+      "transformation": "Hoist the use of the value above the validator, so the validator no longer dominates it.",
+      "whyThisDirection": "The call site is still in the unit and a count-based oracle would still find it; what is gone is the dominance. That is exactly why this lane needs its own extractor and why configuring ir.wipe-effect or ir.guarded-call for it would produce a confident wrong answer rather than a missing one -- properties.json makes the same point about survive.audit-record.",
+      "whyUngraded": "No extractor. See lanes.dominance.",
+      "notMonotonicWhen": null,
+      "crossVendor": false
+    }
+  ]
+}

@@ -548,10 +548,34 @@ test('a sidecar entry filed under a key that is not its own config is refused', 
 });
 
 test('a sidecar that carries a digest has it checked, and one that does not is still read', (t) => {
-  // `derive-frontier-sidecar.mjs` does not seal its output yet. The check fires
-  // on the field's presence, so the day it starts sealing this holds without
-  // another edit — and until then an absent digest is not read as a passed one,
-  // it is read as a document with no digest to check.
+  // ★ `derive-frontier-sidecar.mjs` now seals its output (2026-08-18), and this
+  // check fired without an edit here, exactly as the comment that used to sit in
+  // this place predicted. The prediction is worth keeping as a record: the
+  // verifying side was written and tested while the producing side still emitted
+  // nothing to verify, and the reason it was written first is stated in
+  // `fallback.mjs` — "an unverified digest that a reader assumes was verified is
+  // worse than an absent one".
+  //
+  // What this test now covers is therefore TWO different things, and the second
+  // one is no longer about the deriver:
+  //
+  //   * a sealed sidecar has its digest checked, and a tampered one is refused;
+  //   * a sidecar with NO digest is still READ rather than refused — which from
+  //     today is a statement about BACKWARDS COMPATIBILITY with sidecars derived
+  //     before the seal existed, not a statement about what this project writes.
+  //     Those documents exist on disk in the lab and are not being reissued, so
+  //     refusing them outright would delete readings rather than check them.
+  //
+  // The assertion below pins the first half against the real producer, so that
+  // "the deriver seals" cannot silently stop being true.
+  const built = deriveSidecar([{ id: 'O2', doc: frontierDoc() }]);
+  assert.equal(built.exitCode, 0, `the deriver refused the fixture: ${built.problems.join('; ')}`);
+  assert.match(
+    String(built.sidecar.evidenceDigest),
+    /^[0-9a-f]{64}$/,
+    'the deriver seals its output, so the digest branch above is reachable in production and not only from fixtures',
+  );
+
   const sealed = seal(sidecarDoc([entryFor(HOST_O2)]));
   const good = withRoot(t, { frontiers: sealed });
   assert.equal(evaluateFallback(ctx(good, GUARDED)).record.reason, 'no-observer');

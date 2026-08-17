@@ -140,8 +140,15 @@ describe('analyzeProject — plumbing', () => {
     // assertion, when #35 changed what VG-SMELL-021 counts — a verdict change on
     // the axis this constant describes, made while nobody was thinking about the
     // constant. That is the exact omission the paragraph above was written after.
+    // ★ It worked a second time, in the other direction. During the 0.3.6
+    // close-out the constant was moved to `0.3.0-beta.4` for VG-SMELL-013's
+    // file-route conventions, every document the two pin tests assert was
+    // updated, both pin tests went green — and this line was still on beta.3.
+    // The guard that version.test.ts's header calls the real one is this
+    // assertion, not those tests: they check that the DOCUMENTS agree with the
+    // constant, and this checks that a scan actually reports it.
     const result = await analyzeProject(sample('crossfile-vulnerable'));
-    expect(result.engineVersion).toBe('0.3.0-beta.3');
+    expect(result.engineVersion).toBe('0.3.0-beta.4');
   });
 
   it('reports no degradations for a corpus well inside every budget', async () => {

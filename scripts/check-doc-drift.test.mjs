@@ -29,7 +29,10 @@ import {
 } from './check-doc-drift.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const REAL_DOC_ABS = join(REPO_ROOT, DEFAULT_DOC);
+// `DEFAULT_DOC` が空（＝ VG_DOC_DRIFT_DOC 未設定）のとき `join` は REPO_ROOT
+// そのものを返し、それは必ず存在する。空の場合を先に落とさないと
+// 「ディレクトリを計画文書として読む」アームが走ってしまう。
+const REAL_DOC_ABS = DEFAULT_DOC ? join(REPO_ROOT, DEFAULT_DOC) : '';
 
 // ── 本物の計画文書を要求するアームだけを、名前を付けて落とす ────────────────
 //
@@ -48,9 +51,16 @@ const REAL_DOC_ABS = join(REPO_ROOT, DEFAULT_DOC);
 // 理由文にはリポジトリ相対のパスだけを書く。`REAL_DOC_ABS` を印字すると
 // `/home/<誰か>/…` がそのまま実行ログに載る ── このリポジトリが他所で禁じている
 // ホームディレクトリ開示の形そのもの（実際に前回の run はそれを印字している）。
-const skipRealDoc = existsSync(REAL_DOC_ABS)
+// ★ 理由文に**文書名を入れない**（2026-08-18）。以前はここで `DEFAULT_DOC` を
+// 補間していた。CI では文書は必ず不在なので下の `console.warn` は毎ラン発火し、
+// 公開 Actions ログに計画文書のパスが逐語で載っていた（main のラン
+// 32021453933 で確認）。上の 48-50 行は「絶対パスを印字すると
+// `/home/<誰か>/…` が載る」ことは警戒していたが、**リポジトリ相対パスにも
+// 文書名が入っている**ことは見落としていた。開示の形は「ホームディレクトリ」
+// ではなく「伏せた文書の名前」の側だった。
+const skipRealDoc = DEFAULT_DOC && existsSync(REAL_DOC_ABS)
   ? false
-  : `計画文書がこのツリーに無い（${DEFAULT_DOC} はローカル限定）。` +
+  : '計画文書がこのツリーに無い（ローカル限定・パスは VG_DOC_DRIFT_DOC で渡す）。' +
     'ここでのスキップは PASS ではない ── 落ちているのは「本物の文書の本文」を読む' +
     'アームだけで、検出器そのものを検査するアームは走っている。';
 

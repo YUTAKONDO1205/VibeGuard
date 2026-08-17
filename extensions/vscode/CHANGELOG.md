@@ -5,6 +5,56 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-08-18
+
+**This extension is the surface this release is about.** Engine `0.3.2` → `0.3.3`.
+
+**Fewer false positives on hallucinated dependencies.** `VG-AISC-001` reports an import
+whose package looks like something an AI invented. The command-line tool has always
+checked that guess against the project's **lockfile** and dropped the finding when the
+lockfile declares the package — but that check lived inside the CLI, and this extension
+never ran it. The result was the worst possible split: the same project reported clean by
+`vibeguard` on the terminal and flagged in the editor, on a dependency that is genuinely
+installed and genuinely declared.
+
+The editor now reads the lockfile too. A `VG-AISC-001` your lockfile vouches for no longer
+appears in the Problems panel.
+
+**Where you will notice it — and where you will not.** This matters more than it sounds,
+because on the extension's DEFAULT settings the answer is "nowhere".
+
+`VG-AISC-001` is a **medium**-severity rule, and scan-on-save defaults to `fast`, which
+runs only critical- and high-severity rules. So an on-save scan never reported these
+findings in the first place, and does not start now.
+
+| How you scan | Mode | Changed by this release? |
+|---|---|---|
+| `VibeGuard: Scan File` | `standard` | **Yes** — refuted findings are gone |
+| `VibeGuard: Scan Selection` | `standard` | **Yes** |
+| On save, default settings | `fast` | No — the rule does not run in `fast` |
+| On save, `vibeguard.scanOnSaveMode: standard` | `standard` | **Yes** |
+
+Nothing else moves: no other rule changed, no severity changed, and a file in any language
+that was clean on save before is clean on save now. If you were relying on these findings
+to notice a lockfile you had not updated, that is what the CLI's `--fail-on` gate is for —
+the editor now agrees with it instead of contradicting it.
+
+**Which lockfile, and what happens without one.** The lockfile is looked up in the
+**workspace folder** you opened — that is the editor's analogue of the path a CLI user
+names, and it is where `npm install` writes. A file open outside every workspace folder
+falls back to its own directory, which is what `vibeguard path/to/that/file` would do. The
+reader does not walk up the tree hunting for a lockfile, deliberately: the CLI does not
+either, and the two channels agreeing on which file counts as evidence is the whole point
+of this change. With **no** lockfile there is no evidence either way, so nothing is vetoed
+and behaviour is exactly as it was in `0.3.5` — the veto declines rather than guesses.
+
+**What a vetoed finding does not mean.** The lockfile proves the name RESOLVED — a package
+manager asked a registry and the registry answered. It does not prove the package is
+trustworthy. Slopsquatting works by registering the hallucinated name, and once someone has
+installed it the name is in the registry and in the lockfile, and it is vetoed here. The
+veto removes a finding about *whether the package exists*, which was the only thing
+`VG-AISC-001` ever claimed.
+
 ## [0.3.5] - 2026-08-06
 
 No change to this extension's own code. The analyzer engine moves `0.3.1` → `0.3.2`, so a

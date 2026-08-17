@@ -134,6 +134,7 @@ import { readdirSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { sealRecord } from '../evidence/canon.mjs';
 import { normalise } from '../driver/lib/cmdline.mjs';
 import { driverConfigAxes } from '../driver/lib/config-axes.mjs';
 import {
@@ -638,12 +639,63 @@ export function deriveSidecar(documents) {
     };
   }
 
+  // ── seal it ────────────────────────────────────────────────────────────────
+  //
+  // Until 2026-08-18 this document was written unsealed, and it was the ONE
+  // direction in which a refusal could be turned into a pass. Everything else in
+  // the chain is checked: the measured frontier's own `evidenceDigest` recomputes
+  // from its bytes, the fallback table names the envelope digest it was derived
+  // from, and every entry's stated `configKey` is recomputed from the config the
+  // entry carries. But the REFERENCE side of the comparison — `entry.frontier`,
+  // the reading the build in hand is compared against — was trusted on nothing
+  // but the bytes on disk. Editing one rung of it turns `exposure-mismatch` into
+  // `exposure-consistent`, which is the failure direction this instrument already
+  // fails towards, so the edit would not even look like a disagreement.
+  //
+  // The verifying side was written first and has been waiting: `fallback.mjs`
+  // checks `evidenceDigest` "only when a digest is there to check", and says in
+  // as many words that it fires "without another edit here" once this deriver
+  // starts sealing. This is that edit. Nothing in the reader changes.
+  //
+  // `sealRecord` is the generator-side chokepoint, and calling it here is
+  // deliberate rather than incidental: `fallback.mjs` re-derives §5 from the
+  // written rules instead of importing `canon.mjs`, because "two sides that share
+  // an implementation agree by construction and the agreement proves nothing".
+  // The generator is the side that is allowed to use the shared implementation.
+  //
+  // `context` is attached by the same call. It is stripped from the top level
+  // before the digest by §5 rule 1, so the sidecar's digest stays byte-stable
+  // across runs even though its `generatedAt` does not — the determinism the
+  // pipeline is measured on is preserved, and the digest is a statement about the
+  // readings rather than about when they were collated.
+  //
+  // The absolute-path gate above is left where it is. `sealRecord` runs its own,
+  // and would THROW; this one returns EXIT_INVARIANT with the offenders named,
+  // which is the more useful failure for a deriver whose whole job is to collate
+  // other people's documents. Reaching `sealRecord` therefore means the check has
+  // already passed, and its gate is a backstop rather than the primary.
+  let sealed;
+  try {
+    sealed = sealRecord(sidecar, { label: 'ladder-frontier sidecar' });
+  } catch (err) {
+    return {
+      sidecar: null,
+      exitCode: EXIT_INVARIANT,
+      summary: 'sealFailed=1',
+      problems: [
+        `the sidecar could not be sealed, so it would have been written without the digest that `
+        + `makes its frontiers checkable: ${err && err.message ? err.message : String(err)}`,
+      ],
+    };
+  }
+
   return {
-    sidecar,
+    sidecar: sealed,
     exitCode: EXIT_OK,
     summary:
       `documents=${counts.documents} keys=${counts.keys} usable=${counts.usableKeys} `
-      + `unusable=${counts.unusableKeys} collisions=${counts.collisions} anomalies=${anomalies.length}`,
+      + `unusable=${counts.unusableKeys} collisions=${counts.collisions} anomalies=${anomalies.length} `
+      + `sealed=${String(sealed.evidenceDigest).slice(0, 12)}…`,
     problems,
   };
 }

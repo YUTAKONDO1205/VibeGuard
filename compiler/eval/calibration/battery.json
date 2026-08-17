@@ -1,0 +1,291 @@
+{
+  "schemaVersion": "vibeguard.calibration-battery/1",
+  "title": "The calibration battery's cell table: which specimen is read by which extractor, through which symbol list, against which co-resident control",
+  "readMeFirst": [
+    "This file is the STANDARD's table. It says what is measured. It deliberately does NOT say what the answer should be -- that is claims/expected.json, and the two are separate files so that the thing which PRODUCES a reading never opens the file holding the answers. scripts/run-battery.sh reads this one and never that one; scripts/check-battery.py reads both.",
+    "standardRevision is an integer and generatorSha256 is the sha-256 of tools/make-battery.sh. A generator that changed is a different standard: run-battery.sh recomputes the digest at measurement time and refuses to measure when it has moved without this file moving with it. Without that pin the battery would silently become a different battery between two runs whose reports look comparable.",
+    "The `role` column separates the two kinds of cell, and mixing them is how a battery stops meaning anything. A `reference` cell has a known true value and the extractor is expected to read it: a disagreement is a defect in the extractor. An `instrument-limit-probe` cell has a known true value the extractor is expected to MISREAD, and the misreading is documented prose in compiler/schema/properties.json: a disagreement there is a defect in the prose or in the extractor, and which one it is has to be worked out rather than assumed."
+  ],
+  "standardRevision": 7,
+  "generatorSha256": "675a17b3b66f2897139a4b74bda28d9811b813e62c513a0621e53a8c3999dec8",
+  "generator": "compiler/eval/calibration/tools/make-battery.sh",
+  "shapes": {
+    "wipe": {
+      "extractor": "ir.wipe-effect",
+      "kind": "must-survive",
+      "polarity": "a non-zero count is the property being enforced",
+      "symbols": "llvm.memset,memset,explicit_bzero,bzero,__memset_chk,memset_s",
+      "symbolsNote": "The list run-envelope.sh and run-ladder.sh count a wipe with, unchanged. A spelling the envelope treats as the effect and a spelling the battery treats as the effect have to be the same spelling, or the instruments are answering different questions about one build."
+    },
+    "guarded": {
+      "extractor": "ir.guarded-call",
+      "kind": "must-survive",
+      "polarity": "a non-zero count, gated on a live conditional branch, is the property being enforced",
+      "symbols": "cb_deny"
+    },
+    "forbidden": {
+      "extractor": "ir.forbidden-callee",
+      "kind": "must-not-appear",
+      "polarity": "a non-zero count IS the finding; the control is inverted and is a unit where the forbidden call is certainly still present",
+      "symbols": "per cell"
+    },
+    "dominance": {
+      "extractor": null,
+      "kind": "must-survive",
+      "polarity": "would be: the validator's call site must DOMINATE the use of the validated value -- reachability, not presence",
+      "symbols": null,
+      "laneStatus": "no-probe",
+      "laneReason": "compiler/schema/properties.json, property survive.input-validation, extractor: null. Its controlRule says a control for a dominance property is not the same shape as a control for a count, so no existing extractor can be configured for it and none is written. The specimens exist and are never measured.",
+      "whyNotUnsupported": "interfaces.md section 3.1 fixes UNSUPPORTED as a claim about the COMPILER -- the invocation was refused, so there was nothing to read. Nothing was refused here; there is no probe to point. Reporting these cells as UNSUPPORTED would blame the toolchain for a gap in this directory, and reporting them as NOT_OBSERVED cells would read as a measurement somebody skipped. The lane therefore carries a lane-level word and emits no cells at all."
+    }
+  },
+  "configs": [
+    {
+      "configId": "O0",
+      "opt": "-O0",
+      "extraArgs": []
+    },
+    {
+      "configId": "O2",
+      "opt": "-O2",
+      "extraArgs": []
+    },
+    {
+      "configId": "O1",
+      "opt": "-O1",
+      "extraArgs": []
+    },
+    {
+      "configId": "O3",
+      "opt": "-O3",
+      "extraArgs": []
+    },
+    {
+      "configId": "Os",
+      "opt": "-Os",
+      "extraArgs": []
+    }
+  ],
+  "configsNote": "Five, and every one of them is swept: check-battery.py refuses when a declared configuration has no graded document, so this list is the definition of what a whole battery is. -O1, -O3 and -Os were `not-measured` until 2026-08-17 on the grounds that the ladder had found -O2, -O3 and -Os indistinguishable to ITS rung set -- which was never a statement about THIS specimen set and was quoted as if it were. Anything carrying an LTO token is still refused at measurement time under lto-stage-unobserved rather than measured, because the plugin's extension points are never invoked by the LTO backend pipeline.",
+  "cells": [
+    {
+      "fixtureId": "cal-wipe-present",
+      "shape": "wipe",
+      "role": "reference",
+      "class": "known-PRESENT",
+      "subjectFn": "cw_present_subject",
+      "controlFn": "cw_present_control",
+      "sourceRel": "cal-wipe-present/cal-wipe-present.c"
+    },
+    {
+      "fixtureId": "cal-wipe-absent",
+      "shape": "wipe",
+      "role": "reference",
+      "class": "known-ABSENT",
+      "subjectFn": "cw_absent_subject",
+      "controlFn": "cw_absent_control",
+      "sourceRel": "cal-wipe-absent/cal-wipe-absent.c"
+    },
+    {
+      "fixtureId": "cal-wipe-lost",
+      "shape": "wipe",
+      "role": "reference",
+      "class": "known-LOST",
+      "subjectFn": "cw_lost_subject",
+      "controlFn": "cw_lost_control",
+      "sourceRel": "cal-wipe-lost/cal-wipe-lost.c"
+    },
+    {
+      "fixtureId": "cal-wipe-napp",
+      "shape": "wipe",
+      "role": "reference",
+      "class": "known-NOT_APPLICABLE",
+      "subjectFn": "cw_napp_subject",
+      "controlFn": "cw_napp_control",
+      "witnessObjectSizeBytes": 199,
+      "witnessObjectSizeNote": "199 is above the 128-byte x86-64 red zone, so an object of this size that is still in memory REQUIRES a visible stack adjustment. That is what lets scripts/witness-asm.mjs rule it out of memory from the listing alone, without consulting the alloca-size census this cell exists to calibrate.",
+      "sourceRel": "cal-wipe-napp/cal-wipe-napp.c"
+    },
+    {
+      "fixtureId": "cal-wipe-broken",
+      "shape": "wipe",
+      "role": "reference",
+      "class": "known-BROKEN",
+      "subjectFn": "cw_broken_subject",
+      "controlFn": "cw_broken_control",
+      "sourceRel": "cal-wipe-broken/cal-wipe-broken.c"
+    },
+    {
+      "fixtureId": "cal-wipe-indirect",
+      "shape": "wipe",
+      "role": "instrument-limit-probe",
+      "class": "known-PRESENT",
+      "subjectFn": "cw_indirect_subject",
+      "controlFn": "cw_indirect_control",
+      "sourceRel": "cal-wipe-indirect/cal-wipe-indirect.c"
+    },
+    {
+      "fixtureId": "cal-wipe-samesize",
+      "shape": "wipe",
+      "role": "reference",
+      "class": "known-NOT_APPLICABLE",
+      "subjectFn": "cw_samesize_subject",
+      "controlFn": "cw_samesize_control",
+      "witnessObjectSizeBytes": 192,
+      "witnessObjectSizeNote": "Recorded so the frame reading appears in the report, NOT because it decides this cell. Both objects in this unit are 192 bytes, so a frame large enough for one is large enough for the other and the witness cannot say which survived. That is why this cell's truth is single-legged, and stating the limit here is cheaper than leaving a reader to discover it.",
+      "sourceRel": "cal-wipe-samesize/cal-wipe-samesize.c",
+      "roleChangeNote": "Was an instrument-limit-probe while ir.wipe-effect.degradationRisk[1] claimed this arrangement produced a false LOST. It does not -- the census counts multiplicity, so the count falls with the promoted object and NOT_APPLICABLE is correct. With the sentence corrected on 2026-08-17 this cell became what it always measured: a REFERENCE cell showing the census handling two same-size objects. The arrangement that does defeat the census is cal-wipe-inlinesize."
+    },
+    {
+      "fixtureId": "cal-wipe-inlinesize",
+      "shape": "wipe",
+      "role": "instrument-limit-probe",
+      "class": "known-NOT_APPLICABLE",
+      "subjectFn": "cw_inlinesize_subject",
+      "controlFn": "cw_inlinesize_control",
+      "sourceRel": "cal-wipe-inlinesize/cal-wipe-inlinesize.c"
+    },
+    {
+      "fixtureId": "cal-wipe-zeroinit",
+      "shape": "wipe",
+      "role": "instrument-limit-probe",
+      "class": "known-LOST",
+      "subjectFn": "cw_zeroinit_subject",
+      "controlFn": "cw_zeroinit_control",
+      "witnessObjectSizeBytes": 181,
+      "sourceRel": "cal-wipe-zeroinit/cal-wipe-zeroinit.c"
+    },
+    {
+      "fixtureId": "cal-guard-present",
+      "shape": "guarded",
+      "role": "reference",
+      "class": "known-PRESENT",
+      "subjectFn": "cg_present_subject",
+      "controlFn": "cg_present_control",
+      "sourceRel": "cal-guard-present/cal-guard-present.c"
+    },
+    {
+      "fixtureId": "cal-guard-absent",
+      "shape": "guarded",
+      "role": "reference",
+      "class": "known-ABSENT",
+      "subjectFn": "cg_absent_subject",
+      "controlFn": "cg_absent_control",
+      "sourceRel": "cal-guard-absent/cal-guard-absent.c"
+    },
+    {
+      "fixtureId": "cal-guard-lost",
+      "shape": "guarded",
+      "role": "reference",
+      "class": "known-LOST",
+      "subjectFn": "cg_lost_subject",
+      "controlFn": "cg_lost_control",
+      "sourceRel": "cal-guard-lost/cal-guard-lost.c"
+    },
+    {
+      "fixtureId": "cal-guard-napp",
+      "shape": "guarded",
+      "role": "reference",
+      "class": "known-NOT_APPLICABLE",
+      "subjectFn": "cg_napp_subject",
+      "controlFn": "cg_napp_control",
+      "sourceRel": "cal-guard-napp/cal-guard-napp.c"
+    },
+    {
+      "fixtureId": "cal-guard-broken",
+      "shape": "guarded",
+      "role": "reference",
+      "class": "known-BROKEN",
+      "subjectFn": "cg_broken_subject",
+      "controlFn": "cg_broken_control",
+      "sourceRel": "cal-guard-broken/cal-guard-broken.c"
+    },
+    {
+      "fixtureId": "cal-guard-perunit",
+      "shape": "guarded",
+      "role": "instrument-limit-probe",
+      "class": "known-LOST",
+      "subjectFn": "cg_perunit_subject",
+      "controlFn": "cg_perunit_control",
+      "sourceRel": "cal-guard-perunit/cal-guard-perunit.c"
+    },
+    {
+      "fixtureId": "cal-forbid-hit",
+      "shape": "forbidden",
+      "role": "reference",
+      "class": "known-PRESENT",
+      "subjectFn": "cf_hit_subject",
+      "controlFn": "cf_hit_control",
+      "symbols": "printf",
+      "sourceRel": "cal-forbid-hit/cal-forbid-hit.c"
+    },
+    {
+      "fixtureId": "cal-forbid-clean",
+      "shape": "forbidden",
+      "role": "reference",
+      "class": "known-ABSENT",
+      "subjectFn": "cf_clean_subject",
+      "controlFn": "cf_clean_control",
+      "symbols": "getenv",
+      "sourceRel": "cal-forbid-clean/cal-forbid-clean.c"
+    },
+    {
+      "fixtureId": "cal-forbid-broken",
+      "shape": "forbidden",
+      "role": "reference",
+      "class": "known-BROKEN",
+      "subjectFn": "cf_broken_subject",
+      "controlFn": "cf_broken_control",
+      "symbols": "printf",
+      "sourceRel": "cal-forbid-broken/cal-forbid-broken.c"
+    },
+    {
+      "fixtureId": "cal-forbid-rewritten",
+      "shape": "forbidden",
+      "role": "reference",
+      "class": "known-LOST",
+      "subjectFn": "cf_rewritten_subject",
+      "controlFn": "cf_rewritten_control",
+      "symbols": "printf",
+      "sourceRel": "cal-forbid-rewritten/cal-forbid-rewritten.c"
+    },
+    {
+      "fixtureId": "cal-forbid-inlined",
+      "shape": "forbidden",
+      "role": "reference",
+      "class": "known-NOT_APPLICABLE",
+      "subjectFn": "cf_inlined_subject",
+      "controlFn": "cf_inlined_control",
+      "symbols": "printf",
+      "sourceRel": "cal-forbid-inlined/cal-forbid-inlined.c"
+    },
+    {
+      "fixtureId": "cal-forbid-indirect",
+      "shape": "forbidden",
+      "role": "instrument-limit-probe",
+      "class": "known-PRESENT",
+      "subjectFn": "cf_indirect_subject",
+      "controlFn": "cf_indirect_control",
+      "symbols": "cf_forbidden_entry",
+      "sourceRel": "cal-forbid-indirect/cal-forbid-indirect.c"
+    }
+  ],
+  "unmeasuredSpecimens": [
+    {
+      "fixtureId": "cal-dom-present",
+      "shape": "dominance",
+      "subjectFn": "cd_present_subject",
+      "controlFn": "cd_present_control",
+      "sourceRel": "cal-dom-present/cal-dom-present.c",
+      "whyListedAtAll": "So that the specimen's existence is a tracked fact rather than a directory listing. It is emitted by the generator and never compiled by run-battery.sh."
+    },
+    {
+      "fixtureId": "cal-dom-lost",
+      "shape": "dominance",
+      "subjectFn": "cd_lost_subject",
+      "controlFn": "cd_lost_control",
+      "sourceRel": "cal-dom-lost/cal-dom-lost.c",
+      "whyListedAtAll": "As cal-dom-present."
+    }
+  ]
+}

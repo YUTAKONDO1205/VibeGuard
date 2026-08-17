@@ -58,7 +58,31 @@ import { dirname, join, resolve, sep } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_ROOT = resolve(HERE, '..');
-export const DEFAULT_DOC = 'docs/実装順（VibeGuardCompiler）.md';
+
+// 検査対象の計画文書は**この追跡ファイルに名前を書かない**。呼び出し側が
+// `--doc <path>` か環境変数 `VG_DOC_DRIFT_DOC` で渡す。空文字は「どの文書も
+// 指定されていない」であって既定値ではない。
+//
+// ★ なぜ既定値を消したか（2026-08-18・0.3.6 クローズ時の実測）。
+//
+// ここには文書のリポジトリ相対パスが literal で書かれていた。その1行が原因で、
+// 公開 Actions ログにその文書名が毎ラン印字されていた ── このテストの姉妹
+// ファイルが「文書がツリーに無い」というスキップ理由を組み立てるときにこの
+// 定数を補間し、module スコープの `console.warn` で出していたため。CI では
+// 文書は必ず不在（ローカル限定なので）＝**毎回必ず印字される**経路だった。
+// 実際に main のラン 32021453933 の公開ログに逐語で載っていることを確認した。
+// リポジトリは public なので、未認証でも読める。
+//
+// 3つの開示検査はどれもこれを捕まえていない（当時 hits=0）。追跡ツリーに
+// 平文で在ったのだから射程の問題ではなく、針の問題である。`compiler/` 側で
+// 2026-08-17 に確定した規則 ──「語彙ガードに掛かる外部成果物の実ファイル名は
+// 追跡コードに既定値として書けない、必ず CLI オプションで渡す」── は
+// `scripts/` にも同じだけ適用される。適用していなかったのがこの1行。
+//
+// 既定値が無くなった結果、引数なしの実行は「文書が無い」＝ exit 3（検査が
+// 走らなかった）になる。exit 0 にはしない: 何も検査しなかった実行が成功を
+// 名乗るのは、この検査自身が他所で禁じている形である。
+export const DEFAULT_DOC = process.env.VG_DOC_DRIFT_DOC ?? '';
 
 // リポジトリ相対とみなす先頭セグメント。`~/<作業領域>/…` や `/tmp/…` や
 // `Ubuntu-24.04` のような「リポジトリ外の実装先」をここで落とす。一部のブロックは
@@ -845,7 +869,9 @@ function main(argv) {
     else if (a === '--doc') docPath = argv[++i] ?? '';
     else if (a === '--help' || a === '-h') {
       process.stdout.write(
-        'usage: node scripts/check-doc-drift.mjs [--json] [--root <dir>] [--doc <md>]\n' +
+        'usage: node scripts/check-doc-drift.mjs --doc <md> [--json] [--root <dir>]\n' +
+          '  --doc は必須（環境変数 VG_DOC_DRIFT_DOC でも渡せる）。この追跡ファイルは\n' +
+          '  対象文書の名前を持たない ── 既定値にすると公開ログに載るため。\n' +
           '  exit 0 = 検査が全部走って DRIFT なし / 1 = DRIFT あり / 2 = 使い方の誤り / 3 = 検査が走らなかった\n',
       );
       return 0;
@@ -853,6 +879,15 @@ function main(argv) {
       process.stderr.write(`unknown argument: ${a}\n`);
       return 2;
     }
+  }
+  // 対象文書が渡されていないのは使い方の誤り。ここで文書名を印字しては
+  // ならない（それが既定値を消した理由そのもの）。
+  if (!docPath) {
+    process.stderr.write(
+      'no document given: pass --doc <md> or set VG_DOC_DRIFT_DOC.\n' +
+        'this file deliberately carries no default; see the comment on DEFAULT_DOC.\n',
+    );
+    return 2;
   }
   let report;
   try {

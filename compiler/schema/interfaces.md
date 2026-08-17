@@ -170,6 +170,40 @@ For the same reason such a cell's `controlHeld` is `null` — not `false`, which
 would claim a control was run and failed — and its `completesTheCheck` is
 `false`.
 
+#### `controlHeld` on such a cell: `false` and `null` are different answers
+
+The sentence above is about a control that was **never run**, and it has been read
+as `null`-always. It is not. Two components read it that way, emitted `null` for a
+control that demonstrably **fell**, and thereby described a control that was
+measured and failed as one nobody measured.
+
+| value | meaning | how a consumer excludes the cell |
+|---|---|---|
+| `false` | the control **was measured and failed** | `CONTROL_DID_NOT_HOLD` |
+| `null` | **no control was measured at all** — legal only on a `NOT_OBSERVED` cell | `NOT_OBSERVED` |
+
+`compiler/envelope/fragility.mjs` is the component that scores, and it has
+separated these since before this subsection existed
+(`:306-316` for what it accepts, `:366-386` for how it classifies). Its own comment
+records the cost of merging them: doing so *"left `NOT_OBSERVED` unreachable for
+exactly the cells it was written for … that list was misstating 16 of the 20
+removals in the first real envelope this ran on."*
+
+**The score is unaffected either way** — both values exclude the cell. What is
+affected is the **list of removals**, and a denominator whose removals are
+misdescribed is not one anyone can check. That is section 3's *"we did not see
+it"* versus *"it is not there"*, one layer out from where section 3 guards it.
+
+So: a fallen control is `false`, with the reason and the control's own counts
+recorded beside it. `null` is reserved for the case the paragraph above was
+written about, and demanding `null` there does not protect anything — it forces
+the producer to invent a control verdict for a measurement that never happened,
+which moves the fabrication one component upstream.
+
+This subsection adds no vocabulary. It states a distinction the scorer already
+implements, because the paragraph above it does not, and the two components that
+misread it were reading in good faith.
+
 **The converse does not hold. `state = NOT_OBSERVED` with `measurement = OK` is
 legal**, and it is not a loophole; it is a third situation that a symmetric rule
 would erase. The instrument ran, the record hashes, the control was measured —
