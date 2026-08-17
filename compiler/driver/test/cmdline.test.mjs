@@ -114,3 +114,125 @@ test('splitDriverArgs preserves the caller spelling of everything else', () => {
   const { compilerArgv } = splitDriverArgs(argv);
   assert.deepEqual(compilerArgv, argv);
 });
+
+// ── the configuration axes fallback.mjs matches a measured row against ──────
+//
+// Each of these is recovered from a token that is on the line. None of them is
+// a convention about what an absent flag probably meant — the one convention
+// in this area ("no -target is the envelope's host") lives in fallback.mjs,
+// where it can be stated, and this file leaves `target` null instead.
+
+test('-target is read in both spellings, and the last one wins', () => {
+  assert.equal(normalise(['a.c', '-target', 'arm-none-eabi']).target, 'arm-none-eabi');
+  assert.equal(normalise(['a.c', '--target=arm-none-eabi']).target, 'arm-none-eabi');
+
+  // clang reads this option with getLastArgValue and both spellings are the
+  // same option to it, so the last occurrence wins whichever way it is written.
+  // Mixed spellings included, because a build system that appends a triple to
+  // CFLAGS rarely appends it in the spelling the base flags used.
+  assert.equal(normalise(['a.c', '-target', 'x', '--target=y']).target, 'y');
+  assert.equal(normalise(['a.c', '--target=y', '-target', 'x']).target, 'x');
+  assert.equal(normalise(['a.c', '-target', 'x', '-target', 'y']).target, 'y');
+  assert.equal(normalise(['a.c', '--target=x', '--target=y']).target, 'y');
+  assert.equal(normalise(['a.c', '-target', 'x', '--target=y']).targetForm, 'joined');
+
+  // Not stated is null, not a triple this file invented.
+  assert.equal(normalise(['a.c', '-O2']).target, null);
+  assert.equal(normalise(['a.c', '-O2']).targetForm, null);
+
+  // The value of -target is still not a source file.
+  assert.deepEqual(normalise(['-target', 'arm-none-eabi', 'a.c']).sources, ['a.c']);
+});
+
+test('NDEBUG is tracked through -D and -U in argv order, in both spellings', () => {
+  assert.equal(normalise(['a.c']).ndebug, false);
+  assert.equal(normalise(['a.c', '-DNDEBUG']).ndebug, true);
+  assert.equal(normalise(['a.c', '-D', 'NDEBUG']).ndebug, true);
+  // `-DNDEBUG=0` still DEFINES NDEBUG; assert.h asks whether it is defined.
+  assert.equal(normalise(['a.c', '-DNDEBUG=0']).ndebug, true);
+
+  // Last wins, both ways round, both spellings.
+  assert.equal(normalise(['a.c', '-DNDEBUG', '-UNDEBUG']).ndebug, false);
+  assert.equal(normalise(['a.c', '-UNDEBUG', '-DNDEBUG']).ndebug, true);
+  assert.equal(normalise(['a.c', '-D', 'NDEBUG', '-U', 'NDEBUG']).ndebug, false);
+  assert.equal(normalise(['a.c', '-DNDEBUG', '-U', 'NDEBUG']).ndebug, false);
+
+  // Another macro that merely starts with the letters is not this one.
+  assert.equal(normalise(['a.c', '-DNDEBUGGING']).ndebug, false);
+  assert.equal(normalise(['a.c', '-DNDEBUG', '-UNDEBUGGING']).ndebug, true);
+
+  // and none of this turned a macro name into a source file.
+  assert.deepEqual(normalise(['-D', 'NDEBUG', 'a.c']).sources, ['a.c']);
+});
+
+test('-ffreestanding and -fhosted are read, last one winning', () => {
+  assert.equal(normalise(['a.c']).freestanding, false);
+  assert.equal(normalise(['a.c', '-ffreestanding']).freestanding, true);
+  assert.equal(normalise(['a.c', '-fhosted']).freestanding, false);
+  // A line ending -fhosted compiles hosted however it began.
+  assert.equal(normalise(['a.c', '-ffreestanding', '-fhosted']).freestanding, false);
+  assert.equal(normalise(['a.c', '-fhosted', '-ffreestanding']).freestanding, true);
+});
+
+test('LTO tokens are collected rather than resolved to a mode', () => {
+  // `-flto=thin` does not say whether the envelope's thin-prelink or
+  // thin-backend cell is the one to compare against — the two differ by when
+  // the observation was taken, which is nowhere on this line. So the tokens are
+  // reported and fallback.mjs drops the axis; only an EMPTY list is a reading.
+  assert.deepEqual(normalise(['a.c', '-O2']).ltoTokens, []);
+  assert.deepEqual(normalise(['a.c', '-flto']).ltoTokens, ['-flto']);
+  assert.deepEqual(normalise(['a.c', '-flto=thin']).ltoTokens, ['-flto=thin']);
+  assert.deepEqual(normalise(['a.c', '-fno-lto']).ltoTokens, ['-fno-lto']);
+  assert.deepEqual(normalise(['a.c', '-flto=full', '-flto-jobs=4']).ltoTokens, ['-flto=full', '-flto-jobs=4']);
+  // Deliberately wider than the three documented spellings: an unrecognised
+  // -flto* token makes the axis unreadable, which is the safe direction.
+  assert.deepEqual(normalise(['a.c', '-flto-partition=none']).ltoTokens, ['-flto-partition=none']);
+  // and they are still in the space the flag policy is matched against.
+  assert.ok(normalise(['a.c', '-flto=thin']).matchSpace.includes('-flto=thin'));
+});
+
+test('the new axis fields did not disturb the tokens that were already read', () => {
+  const n = normalise(['-c', 'a.c', '-O2', '-DNDEBUG', '-target', 'arm-none-eabi', '-ffreestanding', '-flto=thin', '-o', 'a.o']);
+  assert.deepEqual(n.sources, ['a.c']);
+  assert.deepEqual(n.linkInputs, []);
+  assert.equal(n.output, 'a.o');
+  assert.equal(n.action, 'compile');
+  assert.deepEqual(n.optLevels, ['-O2']);
+  assert.deepEqual(n.expectedArtifacts, ['a.o']);
+});
+
+test('the long aliases of -D and -U are read, because clang honours them', () => {
+  // Measured on clang-18 with an `#ifdef NDEBUG` probe rather than assumed:
+  // `--define-macro` really does define. Reading only `-D` reported
+  // `ndebug: false` for a line that compiles with NDEBUG defined.
+  assert.equal(normalise(['a.c', '--define-macro=NDEBUG']).ndebug, true);
+  assert.equal(normalise(['a.c', '--define-macro', 'NDEBUG']).ndebug, true);
+  // The dangerous direction: this build has NDEBUG UNDEFINED, and before the
+  // alias was read it was reported as defined.
+  assert.equal(normalise(['a.c', '-DNDEBUG', '--undefine-macro=NDEBUG']).ndebug, false);
+  assert.equal(normalise(['a.c', '-DNDEBUG', '--undefine-macro', 'NDEBUG']).ndebug, false);
+  // Order still decides, both spellings sharing one variable.
+  assert.equal(normalise(['a.c', '--undefine-macro=NDEBUG', '-DNDEBUG']).ndebug, true);
+});
+
+test('a macro that arrives through an opaque channel makes the axis unreadable, not false', () => {
+  // `-Wp,` and `-Xpreprocessor` hand tokens to the preprocessor, and `-Xclang`
+  // to cc1. This file can see the text but cannot order it against the plain
+  // -D/-U around it, so the honest answer is "not read" — the same answer -flto
+  // already gets. `false` would be a statement about the build nobody made.
+  assert.equal(normalise(['a.c', '-Wp,-DNDEBUG']).ndebug, null);
+  assert.equal(normalise(['a.c', '-Xpreprocessor', '-DNDEBUG']).ndebug, null);
+  assert.equal(normalise(['a.c', '-Xclang', '-DNDEBUG']).ndebug, null);
+  assert.equal(normalise(['a.c', '-Xclang', '-ffreestanding']).freestanding, null);
+  // A line with none of them still reads as a plain boolean.
+  assert.equal(normalise(['a.c', '-O2']).ndebug, false);
+  assert.equal(normalise(['a.c', '-O2']).freestanding, false);
+});
+
+test('-m32 changes the triple, so target stops being readable', () => {
+  // No `-target` on the line normally means the envelope's `host`. With `-m32`
+  // it does not: the build is a different architecture from the one measured.
+  assert.equal(normalise(['a.c', '-m32']).targetOpaque, true);
+  assert.equal(normalise(['a.c', '-m64']).targetOpaque, true);
+  assert.equal(normalise(['a.c', '-O2']).targetOpaque, false);
+});

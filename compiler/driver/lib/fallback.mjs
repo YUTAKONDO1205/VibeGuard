@@ -170,31 +170,58 @@ export function mustSurviveIds(policy) {
 // put a word that is not a flag on a command line and into a record. So the
 // word is spent here and never travels.
 //
-// ── WHAT THE DRIVER MAY MATCH ON, WHICH IS LESS THAN THE TABLE RECORDS ──────
+// ── WHAT THE DRIVER MAY MATCH ON, WHICH IS DECIDED PER INVOCATION ───────────
 //
 // The table's rows are keyed by a six-axis configuration: cc, freestanding,
-// lto, ndebug, opt, target. `cmdline.mjs` normalises exactly one of those six
-// into a field: `optLevels`. The other five exist on a command line only as
-// untyped tokens, and recovering them would mean inventing rules this driver
-// does not have — that a missing `-target` means the envelope's `"host"`, that
-// `-flto=thin` is the envelope's `"thin-prelink"` rather than its
-// `"thin-backend"` (the two differ by when the observation was taken, which is
-// not on the command line at all), that a `-DNDEBUG` was not later undone by a
-// `-UNDEBUG`. Each of those is a guess, and a guess here selects which measured
-// row is quoted as the reason for a decision.
+// lto, ndebug, opt, target. This used to match on `opt` alone, on the argument
+// that recovering the other five would mean inventing rules the driver does not
+// have. That argument was right about the axes it was really about and wrong as
+// a blanket rule, and the difference is measurable: against the sweep's own
+// table, every `-O2` build — the level almost everything ships at — matched
+// eleven rows at once, four of them `not-observed`, and was refused. Nine
+// usable `fallback` rows sat in the file and not one of them was reachable.
 //
-// So the match is on `opt` alone, and the looseness is paid for in the other
-// direction: every row that matches must name the same level, or the run is
-// refused. A build on `host` cannot silently adopt the level measured for
-// `arm-none-eabi` unless the `arm-none-eabi` row and every other matching row
-// agree on it, in which case the level does not depend on the axis we could not
-// read.
+// What the old note got right is that some of these axes cannot be read off a
+// command line:
 //
-// That argument is not the only thing holding this up. A resolved level is a
-// level to TRY. `evaluateFallback` recompiles at it and asks the observer
-// again, and a property that does not come back is `still-lost` and rejected,
-// exactly as it is for a hand-written profile. A wrong row cannot turn a lost
-// property into a passing build; it can only waste a recompile.
+//   - `lto`: `-flto=thin` does not say whether the envelope's `"thin-prelink"`
+//     or `"thin-backend"` cell is the one to compare against. The two differ by
+//     WHEN the observation was taken, not by any flag, so no reading of the
+//     line can choose between them. ★ But that argument only bites when an LTO
+//     token is present. A command line with no `-flto*` and no `-fno-lto` on it
+//     is `lto: "none"` — that is not a convention, it is what the line says.
+//   - `cc`: which clang this is, is a toolchain fact rather than a command-line
+//     one. `toolchain.mjs` knows it; this reader does not ask.
+//
+// And what it got wrong is that the remaining axes ARE on the line:
+// `-target`/`--target=` (both spellings, last one winning as clang's own
+// `getLastArgValue` makes it win), `-DNDEBUG`/`-UNDEBUG` in argv order,
+// `-ffreestanding`/`-fhosted`. `cmdline.mjs` now recovers each of them, and no
+// axis is read from a token that is not there — except one, named below.
+//
+// So the set of axes matched on is not a fixed list any more. It is whatever
+// THIS command line turned out to say, and it is written into the record as
+// `knownAxes` so that a reader can see how tight the match that produced a
+// level actually was. An axis that could not be read stays in `unmatchedAxes`
+// and is paid for exactly as before: every row that matches must name the same
+// level, or the run is refused.
+//
+// ── THE ONE CONVENTION, STATED RATHER THAN HIDDEN ───────────────────────────
+//
+// No `-target` at all is matched against the envelope's `"host"`. That is a
+// convention: clang with no `-target` compiles for the machine's default
+// triple, and the envelope's `host` cells were swept on SOME machine's default
+// triple, and nothing here checks those are the same machine. It is written
+// down here rather than buried because it is the one place this reader assumes
+// instead of reads.
+//
+// ── WHY A WRONG ROW IS BOUNDED ──────────────────────────────────────────────
+//
+// A resolved level is a level to TRY. `evaluateFallback` recompiles at it and
+// asks the observer again, and a property that does not come back is
+// `still-lost` and rejected, exactly as it is for a hand-written profile. A
+// wrong row cannot turn a lost property into a passing build; it can only waste
+// a recompile.
 
 /** The one `fallback.profile` value that is not a compiler flag. */
 export const AUTO_PROFILE = 'auto';
@@ -214,11 +241,29 @@ export const AUTO_PROFILES = Object.freeze(['-O0', '-O1']);
 const TABLE_RESOLUTIONS = Object.freeze(['fallback', 'no-safe-target', 'not-observed']);
 
 /**
- * Axes of the table's configuration key that `cmdline.mjs` normalises, and so
- * the only ones a row may be matched on. See the note above for why the list is
- * this short.
+ * Every axis of the table's key that a command line CAN carry. Which of them a
+ * given invocation actually carries is decided per invocation by
+ * `driverConfigAxes`; this list is the ceiling, and it exists so that a future
+ * axis has to be added deliberately in two places rather than appear because a
+ * normalised object grew a field with an axis-shaped name.
+ *
+ * `cc` is not here: which clang this is, is not on the command line.
  */
-export const DRIVER_KNOWN_AXES = Object.freeze(['opt']);
+export const DRIVER_READABLE_AXES = Object.freeze(['freestanding', 'lto', 'ndebug', 'opt', 'target']);
+
+/**
+ * The axes a fallback RECOMPILE can move. This is `-O` and nothing else: the
+ * recompile re-runs one translation unit with an extra `-O` flag appended, so a
+ * row whose `to` differs from its `from` on any other axis is describing a build
+ * that will not happen.
+ *
+ * Kept apart from `DRIVER_READABLE_AXES` on purpose, and the two must not be
+ * merged. The `fallback-row-moves-inapplicable-axis` check below is keyed on
+ * THIS list; keying it on the readable set instead would let a row that moves
+ * `target` from `host` to `arm-none-eabi` through, because `target` became
+ * readable. Reading an axis and being able to change it are different powers.
+ */
+export const RECOMPILE_MUTABLE_AXES = Object.freeze(['opt']);
 
 /**
  * The level this invocation actually compiles at. Last `-O` wins, as clang does
@@ -229,16 +274,68 @@ export function shippingOptLevel(normalised) {
   return levels.length > 0 ? levels[levels.length - 1] : '-O0';
 }
 
-/** This build's value for each axis the driver can read. */
+/**
+ * This build's value for each axis this command line actually stated — no key
+ * for an axis it did not.
+ *
+ * Every branch below is guarded on the FIELD's presence and type rather than on
+ * its value, so that a normalised object which never reported an axis is not
+ * read as having reported the axis's default. "cmdline.mjs did not tell me" and
+ * "cmdline.mjs told me false" are different sentences and produce different
+ * objects: the first omits the key, the second sets it.
+ *
+ * Insertion order is deliberate — `opt` first, because it is the axis every
+ * refusal message leads with.
+ */
 export function driverConfigAxes(normalised) {
-  return { opt: shippingOptLevel(normalised) };
+  const axes = { opt: shippingOptLevel(normalised) };
+  const n = normalised ?? {};
+
+  // No `-target` is the envelope's `host`. The one convention here; see the
+  // header. A stated triple is used verbatim, so a triple the sweep never
+  // measured matches no row and is refused rather than rounded to a neighbour.
+  // `-m32`/`-m64` change the triple without a `-target` on the line, so the
+  // build is not the `host` the envelope measured and the axis is not readable.
+  if (Object.prototype.hasOwnProperty.call(n, 'target') && n.targetOpaque !== true) {
+    axes.target = typeof n.target === 'string' && n.target.length > 0 ? n.target : 'host';
+  }
+  if (typeof n.ndebug === 'boolean') axes.ndebug = n.ndebug;
+  if (typeof n.freestanding === 'boolean') axes.freestanding = n.freestanding;
+  // The asymmetry that makes this whole change safe: no LTO token on the line
+  // is `lto: "none"`, which is a reading. Any LTO token at all leaves the axis
+  // out, because `-flto=thin` cannot be resolved to a prelink/backend cell from
+  // the line, and a guess here would pick which measurement gets quoted.
+  if (Array.isArray(n.ltoTokens) && n.ltoTokens.length === 0) axes.lto = 'none';
+
+  return axes;
+}
+
+/**
+ * Axes this driver can normally read off a command line. An axis in here that
+ * is MISSING from `driverConfigAxes` was suppressed by something on this
+ * particular line — `-flto`, `-m32`, `-Wp,-DNDEBUG` — as opposed to `cc`, which
+ * no command line ever states and which this driver has never claimed to read.
+ *
+ * The distinction matters for the spanning check below: not being able to read
+ * an axis this time is a fact about THIS build that the table may not cover,
+ * while never modelling `cc` at all is a standing limitation of the whole table.
+ */
+export const READABLE_IN_PRINCIPLE_AXES = Object.freeze(['target', 'ndebug', 'freestanding', 'lto']);
+
+/** `opt=-O2, target=host, …` for the refusal messages, in insertion order. */
+function describeAxes(ours) {
+  return Object.keys(ours).map((a) => `${a}=${ours[a]}`).join(', ');
 }
 
 function resolutionRecord(extra = {}) {
   return {
     envelopeCheck: null,
     error: null,
-    knownAxes: [...DRIVER_KNOWN_AXES],
+    // Always overwritten by `resolveAutoProfile`, which computes it from the
+    // invocation before it opens anything. It is not a fixed list: two records
+    // written by the same driver can name different axes, and an older record
+    // saying `["opt"]` is a true statement about the run that wrote it.
+    knownAxes: [],
     matchedOn: null,
     profile: null,
     rows: [],
@@ -249,7 +346,7 @@ function resolutionRecord(extra = {}) {
   };
 }
 
-function autoReject(reason, detail, extra = {}) {
+function baseReject(reason, detail, extra = {}) {
   return { ok: false, reason, detail, record: resolutionRecord({ ...extra, error: { detail, reason } }) };
 }
 
@@ -278,6 +375,15 @@ function rowIdentity(row) {
  *          | {ok: false, reason: string, detail: string, record: object}}
  */
 export function resolveAutoProfile({ tablePath, requested, normalised, root }) {
+  // Read the invocation first, before any file is opened. Which axes this line
+  // states is a property of the line alone, and every refusal below — including
+  // the ones that never reach a row — records it, so that "no table" and "no
+  // matching row" are both readable as answers to the same question.
+  const ours = driverConfigAxes(normalised);
+  const axisNames = Object.keys(ours);
+  const knownAxes = [...axisNames].sort();
+  const autoReject = (reason, detail, extra = {}) => baseReject(reason, detail, { knownAxes, ...extra });
+
   if (typeof tablePath !== 'string' || tablePath.length === 0) {
     return autoReject(
       'no-profile-table',
@@ -354,7 +460,6 @@ export function resolveAutoProfile({ tablePath, requested, normalised, root }) {
   }
 
   // ---- which rows speak about this build? ----------------------------------
-  const ours = driverConfigAxes(normalised);
   const wanted = new Set(requested);
   const axisKeys = new Set();
   for (const row of table.rows) {
@@ -362,15 +467,18 @@ export function resolveAutoProfile({ tablePath, requested, normalised, root }) {
       for (const k of Object.keys(row.from)) axisKeys.add(k);
     }
   }
-  const unmatchedAxes = [...axisKeys].filter((k) => !DRIVER_KNOWN_AXES.includes(k)).sort();
-  const common = { envelopeCheck, matchedOn: ours, table: tableInfo, unmatchedAxes };
+  const unmatchedAxes = [...axisKeys].filter((k) => !axisNames.includes(k)).sort();
+  const common = { envelopeCheck, knownAxes, matchedOn: ours, table: tableInfo, unmatchedAxes };
 
   const matched = table.rows.filter((row) => {
     if (!row || typeof row !== 'object' || Array.isArray(row)) return false;
     if (!wanted.has(row.propertyId)) return false;
     const from = row.from;
     if (!from || typeof from !== 'object' || Array.isArray(from)) return false;
-    return DRIVER_KNOWN_AXES.every((axis) => from[axis] === ours[axis]);
+    // Strict equality on every axis this line stated, including the ones a row
+    // may simply not carry: a row whose `from` has no `target` has not said it
+    // was measured on this target, and a missing field is not agreement.
+    return axisNames.every((axis) => from[axis] === ours[axis]);
   });
 
   // A property with no row of its own must not ride along on another
@@ -384,7 +492,7 @@ export function resolveAutoProfile({ tablePath, requested, normalised, root }) {
     return autoReject(
       'fallback-property-not-in-table',
       `the fallback table at ${tableRel} has no row for ${uncovered.join(', ')} at `
-      + `${DRIVER_KNOWN_AXES.map((a) => `${a}=${ours[a]}`).join(', ')}, and the rows it does have are about other `
+      + `${describeAxes(ours)}, and the rows it does have are about other `
       + 'must-survive propert'
       + `${uncovered.length === 1 ? 'ies' : 'ies'}. A level chosen for one property is not a level observed to keep `
       + 'another, and this policy declares both',
@@ -396,12 +504,47 @@ export function resolveAutoProfile({ tablePath, requested, normalised, root }) {
     return autoReject(
       'fallback-no-matching-row',
       `the fallback table at ${tableRel} has ${tableInfo.rows} row(s) and none of them is about a must-survive property this `
-      + `policy declares at ${DRIVER_KNOWN_AXES.map((a) => `${a}=${ours[a]}`).join(', ')}. A table with nothing to say about this `
+      + `policy declares at ${describeAxes(ours)}. A table with nothing to say about this `
       + 'configuration has not said that nothing was lost in it',
       common,
     );
   }
   const rows = matched.map(rowIdentity);
+
+  // ---- an axis we could not read has to be one the table actually spans -----
+  //
+  // The looseness of matching on fewer axes is paid for by the agreement rule:
+  // every matching row must name the same level, so the level does not depend
+  // on the axis that could not be read. That argument has a hole, and it is a
+  // hole of vacuity: if every matching row carries the SAME value for the
+  // unreadable axis, they agree trivially, and what they agree on is a
+  // measurement of one side of an axis this build might be on the other side of.
+  //
+  // Concretely (measured against the real 17-row table, 2026-08-17):
+  // `-Xclang -ffreestanding` makes `freestanding` unreadable, and the table has
+  // no `freestanding: true` row at all, so the freestanding build would be
+  // handed a level measured on a hosted one and nothing would disagree.
+  //
+  // So an unreadable axis is only survivable when the matched rows show more
+  // than one value for it — that is when "they agree anyway" carries weight.
+  // `cc` is excluded because it is not an axis this driver ever reads; that is a
+  // standing limitation of the table, disclosed in `unmatchedAxes`, not a fact
+  // about this command line.
+  const unreadableHere = READABLE_IN_PRINCIPLE_AXES
+    .filter((axis) => axisKeys.has(axis) && !(axis in ours));
+  for (const axis of unreadableHere) {
+    const values = [...new Set(matched.map((r) => JSON.stringify(r.from?.[axis])))];
+    if (values.length < 2) {
+      return autoReject(
+        'fallback-unreadable-axis-not-spanned',
+        `this command line does not state ${axis}, and every row the table has for these properties at `
+        + `${describeAxes(ours)} was measured at the same ${axis}. Those rows agree about the level only because `
+        + `they are all one side of ${axis}, so their agreement says nothing about the side this build may be on. `
+        + `A level is not adopted from a configuration the sweep never varied`,
+        { ...common, rows, unreadableAxis: axis },
+      );
+    }
+  }
 
   for (const row of matched) {
     if (!TABLE_RESOLUTIONS.includes(row.resolution)) {
@@ -424,7 +567,7 @@ export function resolveAutoProfile({ tablePath, requested, normalised, root }) {
     return autoReject(
       'fallback-resolution-no-safe-target',
       `the fallback table at ${tableRel} records no-safe-target for ${noSafe.map((r) => r.propertyId).join(', ')} at `
-      + `${DRIVER_KNOWN_AXES.map((a) => `${a}=${ours[a]}`).join(', ')}: every weaker configuration it measured lost the property `
+      + `${describeAxes(ours)}: every weaker configuration it measured lost the property `
       + 'as well, so there is no level to recompile at and none is invented here',
       { ...common, rows },
     );
@@ -434,7 +577,7 @@ export function resolveAutoProfile({ tablePath, requested, normalised, root }) {
     return autoReject(
       'fallback-resolution-not-observed',
       `the fallback table at ${tableRel} records not-observed for ${notObserved.map((r) => r.propertyId).join(', ')} at `
-      + `${DRIVER_KNOWN_AXES.map((a) => `${a}=${ours[a]}`).join(', ')}: the weaker configurations were not all measured, so no `
+      + `${describeAxes(ours)}: the weaker configurations were not all measured, so no `
       + 'level has been observed to keep the property. That is a gap in the sweep, not a level',
       { ...common, rows },
     );
@@ -467,14 +610,24 @@ export function resolveAutoProfile({ tablePath, requested, normalised, root }) {
   }
   // A row may only ask for something this recompile can actually do: change
   // the `-O` level of one translation unit. If `to` differs from `from` on any
-  // other axis — target, lto, ndebug, freestanding — then applying the row
+  // other axis — target, lto, ndebug, freestanding, cc — then applying the row
   // means building something else, and the row's evidence was gathered for
   // that something else rather than for the recompile the driver would run.
-  // The driver cannot read those axes from the command line, so it compares
-  // the row against itself instead of against the build.
+  //
+  // ★ Keyed on RECOMPILE_MUTABLE_AXES, not on the axes this invocation could
+  // read. Those two lists were the same object when the driver read `opt` and
+  // nothing else, and letting them stay the same as reading widened would have
+  // opened the hole this check exists to close: a row moving `target` from
+  // `host` to `arm-none-eabi` would have been waved through the moment `target`
+  // became readable, and the driver would have recompiled for the host while
+  // quoting a measurement taken on a cross target. Being able to see an axis is
+  // not being able to move it.
+  //
+  // The comparison is still row-against-itself rather than row-against-build,
+  // which is what makes it independent of how much of the line was readable.
   for (const row of matched) {
     const moved = Object.keys(row.from)
-      .filter((axis) => !DRIVER_KNOWN_AXES.includes(axis) && row.to[axis] !== row.from[axis])
+      .filter((axis) => !RECOMPILE_MUTABLE_AXES.includes(axis) && row.to[axis] !== row.from[axis])
       .sort();
     if (moved.length > 0) {
       return autoReject(

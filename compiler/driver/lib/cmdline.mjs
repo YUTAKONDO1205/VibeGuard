@@ -29,6 +29,9 @@ export const SEPARATE_VALUE_FLAGS = new Set([
   '-bundle_loader', '-allowable_client', '-current_version',
   '-compatibility_version', '-filelist', '-weak_library', '-dylib_file',
   '--output', '-fmodule-file', '-fmodule-map-file',
+  // Long aliases of -D/-U. clang honours them; omitting them made the `ndebug`
+  // axis misread a real command line in both directions (2026-08-17).
+  '--define-macro', '--undefine-macro',
 ]);
 
 // Inputs that are compiled, versus inputs that are only linked. Both are
@@ -41,6 +44,38 @@ const SOURCE_EXTENSIONS = new Set([
 const LINK_INPUT_EXTENSIONS = new Set(['.o', '.obj', '.a', '.so', '.lo', '.dylib', '.dll']);
 
 export const OPT_LEVELS = new Set(['-O0', '-O1', '-O2', '-O3', '-Os', '-Oz']);
+
+// Tokens that put link-time optimisation in play. Deliberately wider than the
+// three spellings clang documents (`-flto`, `-flto=<mode>`, `-fno-lto`): any
+// `-flto*` token — `-flto-jobs=`, `-flto-partition=` — is a command line whose
+// LTO mode this file will not claim to know. The width is the safe direction,
+// because a token in this set makes the `lto` axis UNREADABLE rather than
+// setting it (see `ltoTokens` below), and refusing to read an axis costs a
+// missed match, while reading it wrongly quotes the wrong measurement.
+const LTO_TOKEN = (tok) => tok === '-fno-lto' || tok.startsWith('-flto');
+
+/** Does this `-D`/`-U` operand name NDEBUG? `-DNDEBUG=0` still defines it. */
+const IS_NDEBUG_MACRO = (operand) => /^NDEBUG($|=)/.test(operand);
+
+// Tokens that reach the preprocessor or cc1 without this file being able to
+// order them against the `-D`/`-U` it can see. `-Wp,-DNDEBUG`,
+// `-Xpreprocessor -DNDEBUG` and `-Xclang -ffreestanding` all change what clang
+// compiles, and all of them arrive as opaque payloads whose position relative
+// to a plain `-UNDEBUG` this file does not model.
+//
+// Measured on clang-18 (2026-08-17): every spelling below really does take
+// effect — checked by compiling `#ifdef NDEBUG` / `__STDC_HOSTED__` probes, not
+// by reading the manual. The response is NOT to parse them into the axis but to
+// mark the axis UNREADABLE, the same answer `-flto` already gets. An axis that
+// is dropped costs a missed match; an axis that is read wrongly selects which
+// measured row is quoted as the reason for a decision, which is the failure this
+// whole file exists to prevent.
+const MENTIONS_NDEBUG = (tok) => /(^|[^A-Za-z0-9_])[-]?[DU]?NDEBUG($|[^A-Za-z0-9_])/.test(tok) || tok.includes('NDEBUG');
+const MENTIONS_HOSTEDNESS = (tok) => tok === '-ffreestanding' || tok === '-fhosted';
+
+// `-m32`/`-m64` change the target triple's architecture without a `-target` on
+// the line, so a build carrying one is not the `host` the envelope measured.
+const CHANGES_TRIPLE_SILENTLY = (tok) => tok === '-m32' || tok === '-m64' || tok === '-mx32';
 
 /**
  * Tokenise a response file the way llvm::cl::TokenizeGNUCommandLine does:
@@ -180,8 +215,27 @@ export function normalise(argv, { mode = 'c' } = {}) {
   const legacyLoads = [];
   const unpairedXclang = [];
 
+  const ltoTokens = [];
+
   let output = null;
   let outputForm = null;
+  // The configuration axes below exist so that `fallback.mjs` can match a row of
+  // the measured envelope against THIS command line instead of against `opt`
+  // alone. Each is recovered from a token that is actually here; none of them is
+  // a convention about what an absent flag probably meant. `target` is null
+  // until `-target`/`--target=` says otherwise, and `fallback.mjs` — not this
+  // file — is where "no -target" is turned into the envelope's `host`.
+  let target = null;
+  let targetForm = null;
+  let ndebug = false;
+  let freestanding = false;
+  // Set when a token that could change one of these axes arrived in a form this
+  // file cannot order or decode. The axis is then reported as unreadable
+  // (`null`, or `targetOpaque`) instead of keeping the default, because
+  // defaulting would state something about the build that was never read.
+  let ndebugOpaque = false;
+  let freestandingOpaque = false;
+  let targetOpaque = false;
   let compileOnly = false;
   let assembleOnly = false;
   let preprocessOnly = false;
@@ -214,12 +268,31 @@ export function normalise(argv, { mode = 'c' } = {}) {
     if (tok === '-E') { preprocessOnly = true; continue; }
     if (tok === '-fsyntax-only') { syntaxOnly = true; continue; }
 
+    // `-ffreestanding` and its documented opposite `-fhosted`, last one wins.
+    // Reading only the first would report `freestanding: true` for a line that
+    // ends `-ffreestanding -fhosted`, which compiles hosted.
+    if (tok === '-ffreestanding') { freestanding = true; continue; }
+    if (tok === '-fhosted') { freestanding = false; continue; }
+    if (LTO_TOKEN(tok)) { ltoTokens.push(tok); continue; }
+    if (CHANGES_TRIPLE_SILENTLY(tok)) { targetOpaque = true; continue; }
+
     if (tok.startsWith('-fpass-plugin=')) { passPlugins.push(tok.slice('-fpass-plugin='.length)); continue; }
     if (tok.startsWith('-fplugin=')) { frontendPlugins.push(tok.slice('-fplugin='.length)); continue; }
 
     if (tok.startsWith('-Wl,')) {
       const parts = splitCommaList(tok.slice(4));
       linkerTokens.push(...parts);
+      continue;
+    }
+
+    // `-Wp,` hands its comma list straight to the preprocessor, so a `-DNDEBUG`
+    // hidden in one is a definition this file can see the text of but cannot
+    // place in order against the plain `-D`/`-U` tokens around it.
+    if (tok.startsWith('-Wp,')) {
+      for (const part of splitCommaList(tok.slice(4))) {
+        if (MENTIONS_NDEBUG(part)) ndebugOpaque = true;
+        if (MENTIONS_HOSTEDNESS(part)) freestandingOpaque = true;
+      }
       continue;
     }
 
@@ -238,7 +311,33 @@ export function normalise(argv, { mode = 'c' } = {}) {
           output = value; outputForm = 'separate'; break;
         case '-x':
           xLang = value; break;
+        case '-target':
+          // clang reads this with `getLastArgValue`, so the last `-target` or
+          // `--target=` on the line wins whichever way it was spelled. Both
+          // spellings assign to the same variable here, in argv order, so the
+          // same one wins.
+          target = value; targetForm = 'separate'; break;
+        case '-D':
+        case '--define-macro':
+          // `--define-macro` is clang's documented long alias for `-D`, and it
+          // really does define the macro — verified on clang-18 rather than
+          // assumed. Reading only `-D` reported `ndebug: false` for a line that
+          // compiles with NDEBUG defined.
+          if (IS_NDEBUG_MACRO(value)) ndebug = true; break;
+        case '-U':
+        case '--undefine-macro':
+          // `-D NDEBUG -U NDEBUG` leaves NDEBUG undefined; the preprocessor
+          // applies these in order and so does this. Missing the long alias
+          // here was the dangerous direction: `-DNDEBUG --undefine-macro=NDEBUG`
+          // was reported as `ndebug: true` for a build that has it undefined.
+          if (value === 'NDEBUG') ndebug = false; break;
+        case '-Xpreprocessor':
+          if (MENTIONS_NDEBUG(value)) ndebugOpaque = true;
+          if (MENTIONS_HOSTEDNESS(value)) freestandingOpaque = true;
+          break;
         case '-Xclang':
+          if (MENTIONS_NDEBUG(value)) ndebugOpaque = true;
+          if (MENTIONS_HOSTEDNESS(value)) freestandingOpaque = true;
           cc1Tokens.push(value);
           if (value === '-load') {
             // `-Xclang -load -Xclang <path>` — the legacy plugin mechanism.
@@ -256,6 +355,11 @@ export function normalise(argv, { mode = 'c' } = {}) {
     }
 
     // Joined forms.
+    if (tok.startsWith('--target=')) { target = tok.slice('--target='.length); targetForm = 'joined'; continue; }
+    if (tok.startsWith('--define-macro=')) { if (IS_NDEBUG_MACRO(tok.slice('--define-macro='.length))) ndebug = true; continue; }
+    if (tok.startsWith('--undefine-macro=')) { if (tok.slice('--undefine-macro='.length) === 'NDEBUG') ndebug = false; continue; }
+    if (tok.startsWith('-D') && tok.length > 2) { if (IS_NDEBUG_MACRO(tok.slice(2))) ndebug = true; continue; }
+    if (tok.startsWith('-U') && tok.length > 2) { if (tok.slice(2) === 'NDEBUG') ndebug = false; continue; }
     if (tok.startsWith('--output=')) { output = tok.slice('--output='.length); outputForm = 'joined'; continue; }
     if (tok.startsWith('-o') && tok.length > 2 && !tok.startsWith('-o=')) { output = tok.slice(2); outputForm = 'joined'; continue; }
     if (tok.startsWith('-x') && tok.length > 2) { xLang = tok.slice(2); continue; }
@@ -280,6 +384,22 @@ export function normalise(argv, { mode = 'c' } = {}) {
     sources,
     linkInputs,
     optLevels,
+    // Configuration axes recovered from this line. `ltoTokens` is the tokens
+    // themselves rather than a mode, because `-flto=thin` does not say whether
+    // the envelope's `thin-prelink` or `thin-backend` is the cell to compare
+    // against — that difference is when the observation was taken, and it is
+    // not on the command line. An empty array is the one case a mode CAN be
+    // read off, and the reader in fallback.mjs is where that is said.
+    ltoTokens,
+    target,
+    targetForm,
+    // `null` means "a token on this line could have set this and it could not be
+    // read", which is a different answer from `false`. `driverConfigAxes` drops
+    // a null axis rather than matching on it, exactly as it drops `lto` when an
+    // LTO token is present.
+    ndebug: ndebugOpaque ? null : ndebug,
+    freestanding: freestandingOpaque ? null : freestanding,
+    targetOpaque,
     output,
     outputForm,
     xLang,

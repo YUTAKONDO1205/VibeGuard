@@ -22,8 +22,8 @@ import { join } from 'node:path';
 
 import { normalise } from '../lib/cmdline.mjs';
 import {
-  AUTO_PROFILE, DRIVER_KNOWN_AXES, FALLBACK_TABLE_SCHEMA_VERSION, driverConfigAxes, evaluateFallback,
-  readFallbackPolicy, resolveAutoProfile, shippingOptLevel,
+  AUTO_PROFILE, DRIVER_READABLE_AXES, FALLBACK_TABLE_SCHEMA_VERSION, RECOMPILE_MUTABLE_AXES,
+  driverConfigAxes, evaluateFallback, readFallbackPolicy, resolveAutoProfile, shippingOptLevel,
 } from '../lib/fallback.mjs';
 import { findAbsolutePaths } from '../lib/paths.mjs';
 
@@ -103,16 +103,59 @@ const AUTO = { enabled: true, profile: AUTO_PROFILE, profileTable: 'table.json' 
 // What the driver is allowed to match on
 // ---------------------------------------------------------------------------
 
-test('the axes matched on are the ones cmdline.mjs normalises, and that is opt alone', () => {
-  // If this list ever grows, the growth has to come with a rule in cmdline.mjs
-  // that recovers the axis from a command line — not with a convention about
-  // what an absent flag probably meant.
-  assert.deepEqual([...DRIVER_KNOWN_AXES], ['opt']);
-  assert.deepEqual(driverConfigAxes(normalise(['-c', 'a.c', '-O2'])), { opt: '-O2' });
+test('the axes matched on are the ones this command line stated, and no others', () => {
+  // The ceiling. `cc` is not on it and must not get onto it: which clang this
+  // is, is not on the command line. If this list ever grows, the growth has to
+  // come with a rule in cmdline.mjs that recovers the axis from a real token —
+  // not with a convention about what an absent flag probably meant.
+  assert.deepEqual([...DRIVER_READABLE_AXES], ['freestanding', 'lto', 'ndebug', 'opt', 'target']);
+  assert.ok(!DRIVER_READABLE_AXES.includes('cc'));
+
+  const plain = driverConfigAxes(normalise(['-c', 'a.c', '-O2']));
+  assert.deepEqual(plain, { opt: '-O2', target: 'host', ndebug: false, freestanding: false, lto: 'none' });
+  for (const axis of Object.keys(plain)) {
+    assert.ok(DRIVER_READABLE_AXES.includes(axis), `${axis} is read but not declared readable`);
+  }
+  // `opt` leads, because every refusal message leads with it.
+  assert.equal(Object.keys(plain)[0], 'opt');
+
+  // Reading an axis and being able to move it are different powers, and the
+  // two lists must not converge: `fallback-row-moves-inapplicable-axis` is
+  // keyed on the second one.
+  assert.deepEqual([...RECOMPILE_MUTABLE_AXES], ['opt']);
+  for (const axis of DRIVER_READABLE_AXES) {
+    if (axis === 'opt') continue;
+    assert.ok(!RECOMPILE_MUTABLE_AXES.includes(axis), `${axis} became readable and silently became mutable`);
+  }
+
   // Last -O wins, and no -O is -O0 — clang's own rule, and the same one the
   // record's `shippingProfile` uses.
   assert.equal(shippingOptLevel(normalise(['-c', 'a.c', '-O3', '-O1'])), '-O1');
   assert.equal(shippingOptLevel(normalise(['-c', 'a.c'])), '-O0');
+});
+
+test('an axis cmdline.mjs never reported is absent, not defaulted', () => {
+  // "the normaliser did not tell me" and "the normaliser told me false" are
+  // different sentences. A normalised object from before these fields existed
+  // must not be read as having stated `ndebug: false` on every one of them.
+  const legacy = { optLevels: ['-O2'] };
+  assert.deepEqual(driverConfigAxes(legacy), { opt: '-O2' });
+  assert.deepEqual(driverConfigAxes({ optLevels: ['-O2'], ndebug: false }), { opt: '-O2', ndebug: false });
+});
+
+test('an LTO token takes the lto axis away rather than guessing which cell it means', () => {
+  // `-flto=thin` cannot be resolved to `thin-prelink` or `thin-backend` from
+  // the line — the two differ by when the observation was taken. So the axis is
+  // dropped, and the agreement rule pays for it. A line with no LTO token at
+  // all says `none`, which is a reading and not a convention.
+  for (const tok of ['-flto', '-flto=thin', '-flto=full', '-fno-lto', '-flto-jobs=4']) {
+    const axes = driverConfigAxes(normalise(['-c', 'a.c', '-O2', tok]));
+    assert.ok(!('lto' in axes), `${tok} left the lto axis readable`);
+    // Everything else is still read: losing one axis is not losing the match.
+    assert.equal(axes.opt, '-O2');
+    assert.equal(axes.target, 'host');
+  }
+  assert.equal(driverConfigAxes(normalise(['-c', 'a.c', '-O2'])).lto, 'none');
 });
 
 // ---------------------------------------------------------------------------
@@ -132,10 +175,11 @@ test('a table with a matching row resolves auto to the level it measured', (t) =
   assert.equal(r.record.table.path, 'table.json');
   assert.equal(r.record.table.schemaVersion, FALLBACK_TABLE_SCHEMA_VERSION);
   assert.match(r.record.table.sha256, /^[0-9a-f]{64}$/);
-  assert.deepEqual(r.record.matchedOn, { opt: '-O2' });
-  // The five axes of the table's key the driver could not read are named, so
-  // that the looseness of the match is in the record rather than implied by it.
-  assert.deepEqual(r.record.unmatchedAxes, ['cc', 'freestanding', 'lto', 'ndebug', 'target']);
+  assert.deepEqual(r.record.matchedOn, { opt: '-O2', target: 'host', ndebug: false, freestanding: false, lto: 'none' });
+  assert.deepEqual(r.record.knownAxes, ['freestanding', 'lto', 'ndebug', 'opt', 'target']);
+  // The one axis of the table's key this line could not state is named, so that
+  // the looseness of the match is in the record rather than implied by it.
+  assert.deepEqual(r.record.unmatchedAxes, ['cc']);
   assert.deepEqual(r.record.rows, [{
     from: { cc: 'clang-18', freestanding: false, lto: 'none', ndebug: false, opt: '-O2', target: 'host' },
     profile: '-O0',
@@ -478,4 +522,191 @@ test('a row whose target moves an axis the driver cannot apply is refused', (t) 
   // Distinct from the row-disagrees-with-itself case, which is about `to.opt`
   // and `profile` contradicting each other rather than about the axis moved.
   assert.notEqual(r.reason, 'fallback-table-unreadable');
+});
+
+// ── #V10: matching on what the line actually says ───────────────────────────
+//
+// Before this, `DRIVER_KNOWN_AXES` was the frozen list `['opt']` and every -O2
+// build matched every -O2 row in the table at once. Measured against the
+// sweep's own table (17 rows), a plain `-O2` host build matched 11 rows, 4 of
+// them `not-observed`, and was refused — with 9 usable `fallback` rows in the
+// file. The tables below are hand-written for the same reason the ones above
+// are: a fixture generated by the deriver would go green whenever the deriver
+// and this reader drifted together.
+
+/** `row()` with one axis of both `from` and `to` moved off its default. */
+function rowAt(axis, value, opts = {}) {
+  const r = row(opts);
+  r.from = { ...r.from, [axis]: value };
+  if (r.to) r.to = { ...r.to, [axis]: value };
+  return r;
+}
+
+test('a -O2 build is no longer matched against every -O2 row in the table', (t) => {
+  // Four rows, one per configuration, all at -O2 and all naming a different
+  // level. Under opt-only matching every one of them matched and the run died
+  // of `fallback-profile-disagreement`. Each build below now picks its own.
+  const table = tableDoc([
+    row({ to: '-O0' }),                                  // host, lto=none, ndebug=false
+    rowAt('ndebug', true, { to: '-O1' }),
+    rowAt('target', 'arm-none-eabi', { to: '-O1' }),
+    rowAt('freestanding', true, { to: '-O1' }),
+  ]);
+  const root = withRoot(t, { table });
+  const at = (argv) => resolveAutoProfile({
+    normalised: normalise(argv, { mode: 'c' }), requested: [PROP], root, tablePath: 'table.json',
+  });
+
+  const plain = at(['-c', 'guard.c', '-O2']);
+  assert.equal(plain.ok, true);
+  assert.equal(plain.profile, '-O0');
+  assert.equal(plain.record.rows.length, 1, 'exactly the row for this configuration, not all four');
+
+  assert.equal(at(['-c', 'guard.c', '-O2', '-DNDEBUG']).profile, '-O1');
+  assert.equal(at(['-c', 'guard.c', '-O2', '--target=arm-none-eabi']).profile, '-O1');
+  assert.equal(at(['-c', 'guard.c', '-O2', '-ffreestanding']).profile, '-O1');
+
+  // And a configuration the sweep never measured is refused, not rounded to the
+  // nearest row it happens to share an -O level with.
+  const unmeasured = at(['-c', 'guard.c', '-O2', '--target=riscv32-none-elf']);
+  assert.equal(unmeasured.ok, false);
+  assert.equal(unmeasured.reason, 'fallback-no-matching-row');
+  assert.match(unmeasured.detail, /target=riscv32-none-elf/);
+});
+
+test('★ a row that moves target is still refused now that target is readable', (t) => {
+  // The regression this guards. `fallback-row-moves-inapplicable-axis` used to
+  // be keyed on the same list the match was keyed on, so widening the match
+  // would have waved this row straight through: the driver would recompile for
+  // the host while quoting evidence measured on a cross target. It is keyed on
+  // RECOMPILE_MUTABLE_AXES instead, which is `opt` and stays `opt`.
+  const bad = row();
+  bad.to = { ...bad.to, target: 'arm-none-eabi' };
+  const root = withRoot(t, { table: tableDoc([bad]) });
+  const r = resolveAutoProfile({
+    normalised: normalise(['-c', 'guard.c', '-O2'], { mode: 'c' }), requested: [PROP], root, tablePath: 'table.json',
+  });
+
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'fallback-row-moves-inapplicable-axis');
+  assert.match(r.detail, /target/);
+  // The row DID match — it is refused for moving an axis, not for being about
+  // some other build. Without this the test would pass for the wrong reason.
+  assert.equal(r.record.rows.length, 1);
+  assert.equal(r.record.rows[0].to.target, 'arm-none-eabi');
+});
+
+test('every axis this driver can read is refused as a thing a recompile may move', (t) => {
+  // One case per readable axis plus `cc`, so that adding an axis to
+  // DRIVER_READABLE_AXES without adding it here fails rather than passes.
+  const moves = { cc: 'clang-17', freestanding: true, lto: 'thin-prelink', ndebug: true, target: 'arm-none-eabi' };
+  for (const [axis, value] of Object.entries(moves)) {
+    const bad = row();
+    bad.to = { ...bad.to, [axis]: value };
+    const root = withRoot(t, { table: tableDoc([bad]) });
+    const r = resolveAutoProfile({
+      normalised: normalise(['-c', 'guard.c', '-O2'], { mode: 'c' }), requested: [PROP], root, tablePath: 'table.json',
+    });
+    assert.equal(r.reason, 'fallback-row-moves-inapplicable-axis', `a row moving ${axis} was not refused`);
+    assert.match(r.detail, new RegExp(axis));
+  }
+});
+
+test('an LTO build falls back to the looser match instead of picking a cell', (t) => {
+  // Two rows differing only in `lto`. With no LTO token the line says
+  // `lto: "none"` and one row is selected. With `-flto=thin` the axis is gone,
+  // both rows match, and the disagreement between them is what refuses the run
+  // — which is the old safety valve doing exactly its old job.
+  const table = tableDoc([row({ to: '-O0' }), rowAt('lto', 'thin-prelink', { to: '-O1' })]);
+  const root = withRoot(t, { table });
+  const at = (argv) => resolveAutoProfile({
+    normalised: normalise(argv, { mode: 'c' }), requested: [PROP], root, tablePath: 'table.json',
+  });
+
+  const none = at(['-c', 'guard.c', '-O2']);
+  assert.equal(none.ok, true);
+  assert.equal(none.profile, '-O0');
+  assert.equal(none.record.rows.length, 1);
+  assert.ok(!none.record.unmatchedAxes.includes('lto'));
+
+  const thin = at(['-c', 'guard.c', '-O2', '-flto=thin']);
+  assert.equal(thin.ok, false);
+  assert.equal(thin.reason, 'fallback-profile-disagreement');
+  assert.equal(thin.record.rows.length, 2);
+  assert.deepEqual(thin.record.unmatchedAxes, ['cc', 'lto']);
+  assert.ok(!thin.record.knownAxes.includes('lto'));
+
+  // Two rows that AGREE still resolve under `-flto`, so the axis being unread
+  // costs a level only when the level depended on it.
+  const agree = withRoot(t, { table: tableDoc([row({ to: '-O0' }), rowAt('lto', 'thin-prelink', { to: '-O0' })]) });
+  const r = resolveAutoProfile({
+    normalised: normalise(['-c', 'guard.c', '-O2', '-flto'], { mode: 'c' }),
+    requested: [PROP], root: agree, tablePath: 'table.json',
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.profile, '-O0');
+});
+
+test('knownAxes is a property of the invocation, and older records saying ["opt"] stay true', (t) => {
+  // The record's `knownAxes` is not a constant any more: two runs of the same
+  // driver write different lists. Nothing re-reads or rewrites a record already
+  // on disk, and a record from before this change saying `["opt"]` is a correct
+  // statement about the run that wrote it.
+  const root = withRoot(t, { table: tableDoc([row()]) });
+  const at = (argv) => resolveAutoProfile({
+    normalised: normalise(argv, { mode: 'c' }), requested: [PROP], root, tablePath: 'table.json',
+  }).record.knownAxes;
+
+  assert.deepEqual(at(['-c', 'guard.c', '-O2']), ['freestanding', 'lto', 'ndebug', 'opt', 'target']);
+  assert.deepEqual(at(['-c', 'guard.c', '-O2', '-flto=thin']), ['freestanding', 'ndebug', 'opt', 'target']);
+
+  // Including on the refusals that never open a row, so that "no table" and
+  // "no matching row" are answers to the same question.
+  const empty = withRoot(t, {});
+  const noTable = resolveAutoProfile({
+    normalised: normalise(['-c', 'guard.c', '-O2'], { mode: 'c' }), requested: [PROP], root: empty, tablePath: '',
+  });
+  assert.equal(noTable.reason, 'no-profile-table');
+  assert.deepEqual(noTable.record.knownAxes, ['freestanding', 'lto', 'ndebug', 'opt', 'target']);
+});
+
+// ---------------------------------------------------------------------------
+// An axis this line could not state has to be one the table actually varied
+// ---------------------------------------------------------------------------
+
+test('an unreadable axis the table never varied refuses, instead of agreeing vacuously', (t) => {
+  // The agreement rule pays for matching on fewer axes: every matching row must
+  // name the same level, so the level cannot depend on the axis that went
+  // unread. That argument is empty when every row sits on ONE side of the axis
+  // — they agree because nothing else was ever measured, and what they agree on
+  // is a hosted measurement being handed to a freestanding build.
+  const root = withRoot(t, { table: tableDoc([row({ opt: '-O2', to: '-O0' })]), envelope: ENVELOPE_TEXT });
+  const argv = ['-c', 'guard.c', '-O2', '-Xclang', '-ffreestanding'];
+  const r = resolveAutoProfile({
+    normalised: normalise(argv, { mode: 'c' }), requested: [PROP], root, tablePath: 'table.json',
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'fallback-unreadable-axis-not-spanned');
+  assert.equal(r.record.unreadableAxis, 'freestanding');
+  // and it names the axis, so the reader is not sent looking for a missing file
+  assert.match(r.detail, /freestanding/);
+});
+
+test('the same unreadable axis is survivable once the table has both sides of it', (t) => {
+  // ndebug unread via -Wp,, but here the table measured both true and false and
+  // they name the same level. Now the agreement is doing real work, so the
+  // resolution stands. This is the pair that shows the check above is not just
+  // "refuse whenever an axis is missing".
+  const spanning = tableDoc([
+    row({ opt: '-O2', to: '-O0' }),
+    { ...row({ opt: '-O2', to: '-O0' }), from: { ...row({ opt: '-O2' }).from, ndebug: true }, to: { ...row({ opt: '-O2' }).from, ndebug: true, opt: '-O0' } },
+  ]);
+  const root = withRoot(t, { table: spanning, envelope: ENVELOPE_TEXT });
+  const argv = ['-c', 'guard.c', '-O2', '-Wp,-DNDEBUG'];
+  const r = resolveAutoProfile({
+    normalised: normalise(argv, { mode: 'c' }), requested: [PROP], root, tablePath: 'table.json',
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.profile, '-O0');
+  assert.ok(!('ndebug' in r.record.matchedOn), 'ndebug should not be matched on when it could not be read');
 });
