@@ -54,6 +54,14 @@ rules (85 shipped)**, with 7 fixers of which 1 is labelled safe.
   did this. Chrome: nothing, and this is permanent by design — a browser has no
   lockfile, and fetching one would break the zero-egress posture.
 
+  **The VS Code half is narrower than "the editor", and the difference is worth stating
+  because the default is the narrow case.** `VG-AISC-001` is **medium** severity, and
+  `fast` mode runs only critical- and high-severity rules. Scan-on-save defaults to
+  `fast`, so an on-save scan never reported these findings and does not start now. What
+  moves is `Scan File` and `Scan Selection`, which run `standard` — and on-save too, for
+  anyone who has set `vibeguard.scanOnSaveMode` to `standard`. "The editor showed false
+  positives the CLI refuted" was true of the commands, not of the default on-save path.
+
 - **`ScanResponse.declaredPackageVetoes` gains an observable empty state**, and this
   is the half of the change that moves `ENGINE_VERSION`. The field was present only
   when non-empty, which collapsed two different facts into one absence: "no declared

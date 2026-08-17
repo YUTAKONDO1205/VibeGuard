@@ -20,11 +20,24 @@ installed and genuinely declared.
 The editor now reads the lockfile too. A `VG-AISC-001` your lockfile vouches for no longer
 appears in the Problems panel.
 
-**What you will notice.** Existing `VG-AISC-001` squiggles on real, declared dependencies
-disappear. Nothing else moves: no other rule changed, no severity changed, and a file in
-any language that was clean on save before is clean on save now. If you were relying on
-those findings to notice a lockfile you had not updated, that is what the CLI's own
-`--fail-on` gate is for — the editor now agrees with it instead of contradicting it.
+**Where you will notice it — and where you will not.** This matters more than it sounds,
+because on the extension's DEFAULT settings the answer is "nowhere".
+
+`VG-AISC-001` is a **medium**-severity rule, and scan-on-save defaults to `fast`, which
+runs only critical- and high-severity rules. So an on-save scan never reported these
+findings in the first place, and does not start now.
+
+| How you scan | Mode | Changed by this release? |
+|---|---|---|
+| `VibeGuard: Scan File` | `standard` | **Yes** — refuted findings are gone |
+| `VibeGuard: Scan Selection` | `standard` | **Yes** |
+| On save, default settings | `fast` | No — the rule does not run in `fast` |
+| On save, `vibeguard.scanOnSaveMode: standard` | `standard` | **Yes** |
+
+Nothing else moves: no other rule changed, no severity changed, and a file in any language
+that was clean on save before is clean on save now. If you were relying on these findings
+to notice a lockfile you had not updated, that is what the CLI's `--fail-on` gate is for —
+the editor now agrees with it instead of contradicting it.
 
 **Which lockfile, and what happens without one.** The lockfile is looked up in the
 **workspace folder** you opened — that is the editor's analogue of the path a CLI user

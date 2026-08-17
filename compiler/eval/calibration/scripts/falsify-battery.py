@@ -153,6 +153,12 @@ def c_cell_dropped(doc):
     if cell is None:
         return None, "no reference cell to drop"
     doc["cells"] = [c for c in doc["cells"] if c["fixtureId"] != cell["fixtureId"]]
+    # Prose, not SQL. VG-INJ-001 matches a %-interpolated string containing
+    # `from`, which is the shape of `"SELECT ... FROM ..." % param`; here the
+    # word is English and the interpolated value is a fixture id going into a
+    # human-readable reason. Same false positive, same remedy, as
+    # compiler/llvm-pass/scripts/check-envelope.py:168.
+    # vibeguard:disable-next-line VG-INJ-001
     return redigest(doc), "%s removed from the document" % cell["fixtureId"]
 
 
