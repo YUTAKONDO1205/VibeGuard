@@ -118,10 +118,11 @@ import {
  * is opt-in, the core path never imports it, and it reports its own axis as
  * `engineVersions['analysis-graph']`.
  *
- * ★ That axis reads `0.3.0-beta.3` as of 0.3.0-β (it moved for #35, which changed
- * what `VG-SMELL-021` counts, and again for #41, which stopped the type-erasure
- * filter depending on a defect in how the indexer records exports), and the
- * correction matters
+ * ★ That axis reads `0.3.0-beta.4` as of tool 0.3.6 (it moved for #35, which
+ * changed what `VG-SMELL-021` counts; again for #41, which stopped the
+ * type-erasure filter depending on a defect in how the indexer records exports;
+ * and again for the file-route conventions that let `VG-SMELL-013` reach its
+ * decision point on a Next.js `pages/api` tree), and the correction matters
  * more than the number does. It was left at `0.3.0-alpha.1` — described here as
  * "held at", as though standing still were the decision — through a wave that
  * added `VG-SMELL-020/021/041/052`. A scan running those four therefore
@@ -165,8 +166,53 @@ import {
  * no longer reaches `snippet`/`evidence` — and therefore no longer reaches an
  * uploaded SARIF report. `declaredPackageVetoes` records what the lockfile veto
  * removed, on the response instead of only on stderr.
+ *
+ * 0.3.2 (2026-08-06, shipped in tool 0.3.5) names two C/C++ rules for defences a
+ * compiler is entitled to delete: `VG-MEM-006` (a secret buffer cleared with a
+ * `memset` that is a dead store by the time the buffer leaves scope) and
+ * `VG-AUTH-008` (an authorization decision made by `assert`, which `NDEBUG`
+ * removes from exactly the builds that ship). Both are scoped to `c` and `cpp`.
+ * ADDITIVE: no rule that existed at 0.3.1 changed what it matches or at what
+ * severity, and neither new rule fires anywhere in the pinned corpora, so a scan
+ * of any other language is unchanged.
+ *
+ * ★ This paragraph was written on 2026-08-18, during the 0.3.6 close-out, and not
+ * when 0.3.2 shipped. The bump was correct and the release notes were complete;
+ * the narrative here — which the pin test's own instruction #2 requires be
+ * rewritten with every bump — was simply not updated, and the omission survived
+ * because nothing asserts that this comment mentions the current value. It is
+ * recorded rather than quietly backfilled, because "the checklist was followed"
+ * and "the checklist was followed except for the unasserted step" are different
+ * facts about how much this file can be trusted.
+ *
+ * 0.3.3 (2026-08-18) names a change that is visible on ONE surface and in the
+ * response schema, and in neither case as a new rule.
+ *
+ * The declared-package veto reads a lockfile and uses it as evidence that a
+ * dependency `VG-AISC-001` calls hallucinated is in fact declared. Its reader
+ * lived inside `apps/cli`, so only the CLI applied it: the VS Code extension
+ * built its Analyzer without a declared set and reported every false positive the
+ * lockfile refutes. The reader now lives here, reachable through
+ * `@vibeguard/analyzer-core/node` only, so the browser entry cannot import
+ * `node:fs` even by mistake. What moves:
+ *
+ *   - Fewer findings IN THE EDITOR. A `VG-AISC-001` finding the lockfile refutes
+ *     is no longer reported in VS Code. The CLI's verdicts do not change — it
+ *     already did this — and Chrome's do not either, and cannot: a browser has no
+ *     lockfile, and fetching one would break the zero-egress posture.
+ *   - `ScanResponse.declaredPackageVetoes` gains an observable EMPTY state. It
+ *     was present only when non-empty, which collapsed "no declared set reached
+ *     this scan, so nothing could have been removed" together with "the veto ran
+ *     against a real lockfile and removed nothing". Those are now `absent` and
+ *     `[]` respectively, and a consumer that distinguishes them gets different
+ *     bytes for the same project than it did at 0.3.2.
+ *
+ * The second item is why this is a bump rather than a bug fix: the field's
+ * meaning changed, and `D4` in the list above ("`confidenceAudit` on findings —
+ * values unchanged, schema not") is the precedent that a schema change alone
+ * justifies moving this constant.
  */
-export const ENGINE_VERSION = '0.3.2';
+export const ENGINE_VERSION = '0.3.3';
 
 let counter = 0;
 function findingId(): string {

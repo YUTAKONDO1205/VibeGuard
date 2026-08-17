@@ -4,10 +4,18 @@ The cross-file pass. Runs only when the CLI is given `--include-design-smells`
 (or the Action's `include-design-smells: true`), over the whole target tree
 rather than one file at a time.
 
-Status is `0.3.0-alpha.1`, reported separately from the core engine as
-`engineVersions['analysis-graph']`. The `-alpha` is not decoration: the analysis
-indexes **lexically**, not by parsing, and the confidence caps below follow from
-that.
+Status is `0.3.0-beta.4`, reported separately from the core engine as
+`engineVersions['analysis-graph']`. The pre-release marker is not decoration: the
+analysis indexes **lexically**, not by parsing, and the confidence caps below
+follow from that.
+
+> This line read `0.3.0-alpha.1` until the 0.3.6 close-out — four bumps stale,
+> describing an alpha while the package shipped a beta running eleven rules
+> instead of four. Neither pin test reaches this file: `version.test.ts` asserts
+> `README.md` and `docs/DESIGN.ja.md` at the repository root, and a package's own
+> README was not in that list. It is named here rather than silently corrected,
+> because the interesting fact is not the number — it is that the guard built to
+> stop this exact drift has a boundary, and this file was outside it.
 
 ## The constraint this package exists to satisfy
 

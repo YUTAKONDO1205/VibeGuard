@@ -77,5 +77,33 @@
  * them, and no equivalent A/B has been run. How often `type`/`interface` merges
  * with `namespace` in real code is unmeasured. Recorded here rather than in a
  * commit message because the gap belongs beside the number it qualifies.
+ *
+ * ★ 0.3.0-beta.3 → 0.3.0-beta.4 (file-route conventions).
+ *
+ * `VG-SMELL-013` decides whether authorization is made inside a request handler
+ * rather than at a boundary. To decide that, it has to know which files ARE
+ * request handlers. It knew only the shapes that name their own routes —
+ * `app.get('/x', …)` and friends — so in a framework where the ROUTE IS THE PATH,
+ * it never reached its decision point at all. On a Next.js `pages/api` tree the
+ * rule was not returning "no smell"; it was returning nothing, and a rule that
+ * reports zero because it never ran is indistinguishable from a clean project.
+ *
+ * The structure indexer now recognises file-route conventions, so those files are
+ * entry points and the rule reaches its decision. Measured on the fixture added
+ * with the change (`samples/crossfile-fixtures/smell-013-next-pages-api`, a tree
+ * with four `pages/api` handlers, a shared `lib/authz.ts` and one handler that
+ * decides inline): `--include-design-smells` reports 1 finding, `VG-SMELL-013`,
+ * where the same tree reported 0 before.
+ *
+ * ONE DIRECTION ONLY. This can add findings and cannot remove any: a file that
+ * was already an entry point still is, and the rule's own predicate is unchanged.
+ * Projects with no file-route convention see no difference whatsoever.
+ *
+ * ⚠ ALSO NOT MEASURED ON corpus1k, for the same reason beta.3 was not — and here
+ * the gap has a sharper edge, because this change moves findings in the direction
+ * that can only GROW them, on a convention that is extremely common in the
+ * JavaScript corpus. How many additional `VG-SMELL-013` findings a real Next.js
+ * repository yields is unknown, and the pre-release marker on this axis is doing
+ * real work for exactly this reason.
  */
-export const ANALYSIS_GRAPH_VERSION = '0.3.0-beta.3';
+export const ANALYSIS_GRAPH_VERSION = '0.3.0-beta.4';

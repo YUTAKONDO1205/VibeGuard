@@ -1,6 +1,6 @@
 {
   "name": "@vibeguard/evidence-verifier",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "private": true,
   "type": "module",
   "description": "Verifies evidence-carrying artefact bundles: the binding between an artefact, the record that describes it, and the manifest that seals them.",

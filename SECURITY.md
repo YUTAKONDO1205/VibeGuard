@@ -1,8 +1,8 @@
 # Security
 
 This document describes what VibeGuard defends, what it does not, and where the
-limits are. It is written against **engine `0.3.1`** (`engineVersions.core` in
-every scan result), as shipped in tool `0.3.5`. See
+limits are. It is written against **engine `0.3.3`** (`engineVersions.core` in
+every scan result), as shipped in tool `0.3.6`. See
 [README.md](README.md#versioning) for how the engine version relates to the
 released tool version.
 

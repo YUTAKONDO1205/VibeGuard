@@ -374,7 +374,7 @@ export function toSarif(scan: ScanResponse, options: ToSarifOptions = {}): Sarif
     tool: {
       driver: {
         name: options.toolName ?? 'VibeGuard',
-        version: options.toolVersion ?? scan.engineVersions.core ?? '0.3.1',
+        version: options.toolVersion ?? scan.engineVersions.core ?? '0.3.3',
         informationUri: options.informationUri ?? DEFAULT_INFORMATION_URI,
         rules,
       },
