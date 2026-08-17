@@ -367,8 +367,13 @@ function scan(file, text, patterns, ruleName) {
     failures.push(
       `${rel(file)}:${line}:${column} [${ruleName}] ${JSON.stringify(hit.text)}\n` +
         `  ${hit.why}.\n` +
-        `  Rewrite the sentence around it; do not add an exception here. Chapter 0.7 of\n` +
-        `  docs/公式サイト公開設計.md has a same-meaning replacement for every one of these.`,
+        // 助言に**伏せた文書の名前を書かない**。この文字列は検査が落ちたとき
+        // 公開 Actions ログに出る。同じ形の開示を scripts/check-doc-drift.mjs が
+        // 既定値経由で毎ラン漏らしていたのを 0.3.6 クローズで直したので、
+        // 条件付きで漏れるこちらも同時に閉じる。言い換え表は非公開文書の
+        // 0.7 章に在るが、その所在を公開面で名指す必要はない。
+        `  Rewrite the sentence around it; do not add an exception here. The site's\n` +
+        `  copy guide has a same-meaning replacement for every one of these.`,
     );
   }
 }
