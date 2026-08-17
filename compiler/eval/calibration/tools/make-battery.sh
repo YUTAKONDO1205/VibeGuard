@@ -493,6 +493,51 @@ void cf_broken_subject(void) { printf("cal %d\n", cb_cond()); }
 void cf_broken_control(void) { printf("cal\n"); }
 '
 
+# known-LOST for the must-not-appear polarity, and the shape x class matrix had no
+# such cell until 2026-08-17. Without one, this extractor was only ever calibrated
+# on "the call is there" and "the call was never there"; it had never been shown to
+# report a forbidden call that WAS present at the first checkpoint and is gone at the
+# second, which is the reading that turns a real finding into a clean report.
+#
+# The subject's format string is a constant, so clang rewrites the call into puts
+# above -O0 and the `printf` list sees 1 then 0. The control consumes a runtime value
+# and cannot be rewritten, so it HOLDS -- which is the whole difference between this
+# cell and cal-forbid-broken, where the same rewrite is applied to the CONTROL and
+# the cell is a broken measurement instead of a reading.
+#
+# What LOST means here needs saying, because the polarity inverts the usual reading:
+# the forbidden `printf` left the unit, and the call it was rewritten into did not.
+# The state is a fact about the spelling the extractor was configured to look for at
+# the checkpoint it looked at -- NOT a conclusion that the policy is now satisfied.
+# A must-not-appear check reading one checkpoint through one spelling can be walked
+# past, and this cell is where that is measured rather than argued.
+emit cal-forbid-rewritten '
+void cf_rewritten_subject(void) { printf("cal\n"); }
+
+void cf_rewritten_control(void) { printf("cal %d\n", cb_cond()); }
+'
+
+# known-NOT_APPLICABLE for the must-not-appear polarity -- the other cell the matrix
+# was missing. For this shape, as for the guarded one, the question loses its
+# referent when the unit is inlined away: there is no longer a function in which to
+# ask whether the forbidden call appears.
+#
+# The subject is static with a single call site, so it is inlined and its out-of-line
+# copy deleted. The independent leg is the same one cal-guard-napp stands on: the
+# subject's label is in the -O0 listing and not in the -O2 one, which separates "the
+# unit is genuinely gone" from "the observer could not resolve the name" -- and those
+# are indistinguishable in a record, which is the observer's third silent failure.
+#
+# The control keeps a forbidden call that cannot be rewritten or inlined away, so a
+# reading here is not a blind oracle.
+emit cal-forbid-inlined '
+static void cf_inlined_subject(void) { printf("cal %d\n", cb_cond()); }
+
+void cf_inlined_caller(void) { cf_inlined_subject(); }
+
+void cf_inlined_control(void) { printf("cal %d\n", cb_cond()); }
+'
+
 # Instrument-limit probe for ir.forbidden-callee degradationRisk[1] -- indirect
 # calls are not counted, so a forbidden entry point reached through a table reads
 # as absent.

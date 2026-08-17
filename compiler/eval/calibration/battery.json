@@ -6,8 +6,8 @@
     "standardRevision is an integer and generatorSha256 is the sha-256 of tools/make-battery.sh. A generator that changed is a different standard: run-battery.sh recomputes the digest at measurement time and refuses to measure when it has moved without this file moving with it. Without that pin the battery would silently become a different battery between two runs whose reports look comparable.",
     "The `role` column separates the two kinds of cell, and mixing them is how a battery stops meaning anything. A `reference` cell has a known true value and the extractor is expected to read it: a disagreement is a defect in the extractor. An `instrument-limit-probe` cell has a known true value the extractor is expected to MISREAD, and the misreading is documented prose in compiler/schema/properties.json: a disagreement there is a defect in the prose or in the extractor, and which one it is has to be worked out rather than assumed."
   ],
-  "standardRevision": 5,
-  "generatorSha256": "168223acf1e14efe746850e7f44c0859b31e1a356d0879f210e6e410a1153f50",
+  "standardRevision": 6,
+  "generatorSha256": "09221f776267edf5e73be2e443f0e0704ee792d4d660614436f9aa353e7065d0",
   "generator": "compiler/eval/calibration/tools/make-battery.sh",
   "shapes": {
     "wipe": {
@@ -205,6 +205,26 @@
       "controlFn": "cf_broken_control",
       "symbols": "printf",
       "sourceRel": "cal-forbid-broken/cal-forbid-broken.c"
+    },
+    {
+      "fixtureId": "cal-forbid-rewritten",
+      "shape": "forbidden",
+      "role": "reference",
+      "class": "known-LOST",
+      "subjectFn": "cf_rewritten_subject",
+      "controlFn": "cf_rewritten_control",
+      "symbols": "printf",
+      "sourceRel": "cal-forbid-rewritten/cal-forbid-rewritten.c"
+    },
+    {
+      "fixtureId": "cal-forbid-inlined",
+      "shape": "forbidden",
+      "role": "reference",
+      "class": "known-NOT_APPLICABLE",
+      "subjectFn": "cf_inlined_subject",
+      "controlFn": "cf_inlined_control",
+      "symbols": "printf",
+      "sourceRel": "cal-forbid-inlined/cal-forbid-inlined.c"
     },
     {
       "fixtureId": "cal-forbid-indirect",

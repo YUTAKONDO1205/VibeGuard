@@ -175,6 +175,38 @@ def grade(name, doc, expectations, table, expected_measured_on=None):
     exp_here = {e["fixtureId"]: e for e in expectations
                 if e.get("configId") == config_id}
 
+    # The document's description of each cell, held against the TABLE's.
+    #
+    # Without this the grader trusts the document for `role`, and `role` is what
+    # decides whether a cell's state is graded at all: a reference cell relabelled
+    # `instrument-limit-probe` stops being held to its true value and is merely
+    # reported. That is a one-word edit to a re-digested document, and every other
+    # check here would still pass. Same argument as everywhere else in this
+    # directory -- the assembler assembles and this file decides, which only holds
+    # while this file derives what it grades from the standard rather than from the
+    # thing it is grading.
+    spec_by_id = {c["fixtureId"]: c for c in table["cells"]}
+    for fid in sorted(by_id):
+        spec = spec_by_id.get(fid)
+        cell = by_id[fid]
+        if spec is None:
+            problems.append(
+                "%s %s: the document carries a cell that battery.json does not declare. The report "
+                "is drawn over the table, so a cell the table does not name was measured under a "
+                "configuration nobody declared." % (name, fid))
+            continue
+        for field, want in (("role", spec["role"]), ("class", spec["class"]),
+                            ("shape", spec["shape"]),
+                            ("subjectUnit", spec["subjectFn"]),
+                            ("controlUnit", spec["controlFn"])):
+            if cell.get(field) != want:
+                problems.append(
+                    "%s %s: the document says %s=%r and battery.json says %r.%s"
+                    % (name, fid, field, cell.get(field), want,
+                       " `role` decides whether this cell's state is graded against its true value "
+                       "at all, so a document that has drifted on it can silence the check by "
+                       "relabelling a reference cell as a probe." if field == "role" else ""))
+
     # --- coverage, both directions ------------------------------------------
     for fid in sorted(by_id):
         if fid not in exp_here:

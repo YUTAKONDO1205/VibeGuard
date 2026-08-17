@@ -9,7 +9,7 @@
     "testability likewise has three values and they are not interchangeable. `measured` means a fixture exists and was read. `deferred` means the sentence is testable in principle and no specimen exists yet -- the gap is in this battery. `untestable-here` means this apparatus cannot produce the predicted reading at all: an LTO token is refused at measurement time, and the object and linked checkpoints have no extractor to qualify. A deferred claim is a note to whoever extends the standard; an untestable-here claim is a scope limit of the instrument.",
     "A claim that DISAGREES with the measurement is exit 2, and it is a harvest either way: the prose is wrong about the code, or the code is wrong and the prose described the intent. Which one it is has to be worked out and is not decided here. Standard revision 3 has one disagreement and one omission, both named in knownFindings."
   ],
-  "standardRevision": 5,
+  "standardRevision": 6,
   "measuredOn": "2026-08-17",
   "fencedScope": {
     "coversDegradationRiskOf": [

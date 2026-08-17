@@ -73,6 +73,7 @@ EXIT CODES (interfaces.md section 7)
 import hashlib
 import json
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -83,6 +84,17 @@ LAB = os.environ.get("VG_CAL_LAB", os.path.join(os.path.expanduser("~"), "vg-lab
 RESULTS = os.path.join(LAB, "_results", "calibration")
 
 SCHEMA = "vibeguard.calibration-report/1"
+
+
+def walk_strings(obj, path=""):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            yield from walk_strings(v, path + "/" + str(k))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            yield from walk_strings(v, path + "/%d" % i)
+    elif isinstance(obj, str):
+        yield path, obj
 
 
 def integers_only(obj, path="/"):
@@ -201,6 +213,110 @@ def fence(ledger):
                 "no such sentence. An orphaned claim is a test of something nobody states." % path)
 
     return breaks
+
+
+CLAIMS_REPORT_SCHEMA = "vibeguard.degradation-claims-report/1"
+
+
+def write_claims_report(ledger, reports, rows, tally, breaks, findings):
+    """Leave a digested record of this grading. Returns (relative-path, error).
+
+    A record of a GRADING and not of a measurement: nothing reads it, and it does not
+    go through an assembler for that reason. What it obeys anyway is interfaces.md
+    section 5 -- every number an integer, a ratio as {num, den}, `context` outside the
+    digest, and no host path anywhere in it.
+
+    The toolchain block is COPIED from the reports this run graded rather than
+    recomputed, and is a list rather than one block: this file grades across every
+    configuration at once, so there is no single compiler that produced the readings.
+    A record that flattened them would name one invocation for verdicts drawn from
+    several.
+
+    The exit code is recorded IN the document. A grading whose result is 2 is as much
+    a result as one whose result is 0, and a reader who finds only the green ones has
+    been shown a filtered history.
+    """
+    lab = os.environ.get(
+        "VG_CAL_LAB", os.path.join(os.path.expanduser("~"), "vg-lab", "calibration"))
+    # A DIFFERENT directory from the calibration reports, and the first version of
+    # this got it wrong. Writing here into `_results/calibration` put a
+    # degradation-claims-report where both graders sweep for calibration reports, and
+    # on the very next run each of them refused it by schemaVersion and exited 3 --
+    # this file poisoning its own input, and check-battery.py's too.
+    #
+    # The repair is the directory, not a skip. Teaching either grader to ignore a
+    # document whose schema it does not recognise is exactly how a stale or
+    # wrong-shaped document gets passed over in silence, which is the failure both of
+    # them are built against. So the record goes somewhere nothing sweeps.
+    out_dir = os.path.join(lab, "_results", "calibration-claims")
+    revision = ledger.get("standardRevision")
+    target = os.path.join(out_dir, "claims-r%s.json" % revision)
+
+    graded_rows = [
+        {"claimId": cid, "configId": cfg, "verdict": word, "why": why}
+        for cid, cfg, word, why in rows
+    ]
+    total = sum(tally.values())
+    doc = {
+        "component": "DegradationClaims",
+        "schemaVersion": CLAIMS_REPORT_SCHEMA,
+        "standardRevision": revision if isinstance(revision, int) else 0,
+        "fencedScope": (ledger.get("fencedScope") or {}).get("coversDegradationRiskOf") or [],
+        "configurationsGraded": sorted(k for k in reports if k),
+        "toolchains": [
+            {"configId": cfg,
+             "clang": ((reports[cfg].get("toolchain") or {}).get("clang") or "absent"),
+             "digest": ((reports[cfg].get("toolchain") or {}).get("digest") or "absent")}
+            for cfg in sorted(k for k in reports if k)
+        ],
+        "reportDigests": [
+            {"configId": cfg, "evidenceDigest": reports[cfg].get("evidenceDigest") or "absent"}
+            for cfg in sorted(k for k in reports if k)
+        ],
+        "verdicts": graded_rows,
+        "tally": {word: {"num": n, "den": total} for word, n in sorted(tally.items()) if n},
+        "fenceHeld": not breaks,
+        "fenceBreakages": list(breaks),
+        "findings": list(findings),
+        "exitCode": 2 if findings else (3 if (breaks or tally.get("claim-unreadable")) else 0),
+        "whatThisDocumentIsNot": [
+            "Not a measurement. Every reading in it was taken from an assembled "
+            "calibration report, whose digest is recorded above; this document adds "
+            "verdicts and no numbers of its own.",
+            "Not an input to anything. Nothing in this directory reads it, and a "
+            "future consumer would need the same digest check any other document "
+            "gets before it could be quoted.",
+            "Not a claim about any real subject. Every cell behind these verdicts is "
+            "a (synthetic-specimen, configuration) measurement.",
+        ],
+        "context": {
+            "generatedAt": int(os.environ.get("SOURCE_DATE_EPOCH") or 0),
+            "timeSource": "SOURCE_DATE_EPOCH" if os.environ.get("SOURCE_DATE_EPOCH") else "unset",
+            "host": "unrecorded",
+        },
+    }
+
+    for path, text in walk_strings(doc):
+        if path.startswith("/context/"):
+            continue
+        if (text.startswith("/") or "/root/" in text or "/home/" in text
+                or re.search(r"[A-Za-z]:\\", text)):
+            return None, ("refusing to write: an absolute host path would enter the record at "
+                          "%s. interfaces.md section 5 keeps host paths out of a digested "
+                          "document, and this refuses rather than redacting." % path)
+    try:
+        doc["evidenceDigest"] = digest_of(doc)
+    except (ValueError, TypeError) as exc:
+        return None, "refusing to write: %s (interfaces.md section 5 rule 4)" % exc
+
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+        with open(target, "w", encoding="utf-8", newline="\n") as fh:
+            json.dump(doc, fh, indent=2, sort_keys=True, ensure_ascii=False)
+            fh.write("\n")
+    except OSError as exc:
+        return None, "could not write %s: %s" % (os.path.basename(target), exc)
+    return os.path.join("_results", "calibration-claims", os.path.basename(target)), None
 
 
 def cell_state(reports, config_id, fixture_id):
@@ -409,6 +525,7 @@ def main(argv):
              "claim-deferred": 0, "claim-untestable-here": 0, "claim-not-a-prediction": 0,
              "omission-open": 0}
 
+    verdict_rows = []
     fmt = "%-38s %-14s %-24s %s"
     print(fmt % ("claimId", "config", "verdict", "why"))
     print("-" * 130)
@@ -420,11 +537,13 @@ def main(argv):
 
         if testability == "deferred":
             tally["claim-deferred"] += 1
+            verdict_rows.append((cid, "-", "claim-deferred", claim.get("whyNotTested") or ""))
             print(fmt % (cid, "-", "claim-deferred", (claim.get("whyNotTested") or "")[:70]))
             continue
         if testability == "untestable-here":
             word = "claim-not-a-prediction" if kind == "scope" else "claim-untestable-here"
             tally[word] += 1
+            verdict_rows.append((cid, "-", word, claim.get("whyNotTested") or ""))
             print(fmt % (cid, "-", word, (claim.get("whyNotTested") or "")[:70]))
             continue
 
@@ -438,6 +557,7 @@ def main(argv):
         findings.extend(f)
         for config_id, word, why in verdicts:
             tally[word] = tally.get(word, 0) + 1
+            verdict_rows.append((cid, config_id, word, why))
             print(fmt % (cid, config_id, word, why[:70]))
 
     for claim in ledger.get("omissionClaims") or []:
@@ -447,6 +567,7 @@ def main(argv):
         verdicts, _f = grade_degradation(claim, reports)
         expressed = [v for v in verdicts if v[1] == "claim-agrees"]
         for config_id, word, why in verdicts:
+            verdict_rows.append((cid, config_id, "omission-evidence:" + word, why))
             print(fmt % (cid, config_id, "omission-evidence:" + word, why[:60]))
         if expressed and claim.get("catalogueStatus") == "omission-open":
             tally["omission-open"] += 1
@@ -470,6 +591,24 @@ def main(argv):
     for word in sorted(tally):
         if tally[word]:
             print("  %-24s {num: %d, den: %d}" % (word, tally[word], total))
+
+    # --- and the same thing as a document ------------------------------------
+    #
+    # Written because Experiment 1's headline numbers existed only on stdout. Every
+    # other stage in this directory leaves a digested artefact and this one left a
+    # scrollback, in a tree whose entire argument is that a reading nobody can
+    # recompute is not evidence. The README transcribes six numbers by hand; this is
+    # what they are a transcription OF.
+    #
+    # It is a record of a GRADING, not a measurement, and nothing reads it -- that is
+    # why it does not go through an assembler. What it must still obey is section 5:
+    # integers only, `context` outside the digest, and no host path anywhere.
+    written, write_error = write_claims_report(ledger, reports, verdict_rows, tally,
+                                              breaks, findings)
+    if written:
+        print("\nrecord of this grading: %s" % written)
+    elif write_error:
+        print("\nthis grading left no record: %s" % write_error, file=sys.stderr)
 
     if breaks:
         print("\n%d coverage fence breakage(s):" % len(breaks), file=sys.stderr)

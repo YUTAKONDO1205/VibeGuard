@@ -30,7 +30,7 @@ assembles, `check-ladder.py` grades), with one addition: **the thing that produc
 a reading does not hold the answers.**
 
 ```
-tools/make-battery.sh          the STANDARD. Emits 19 specimens into the lab. Pinned by sha-256.
+tools/make-battery.sh          the STANDARD. Emits 21 specimens into the lab. Pinned by sha-256.
 battery.json                   the cell table: what is measured. No answers in it.
 claims/expected.json           the answers. Opened by check-battery.py and by nothing else.
 claims/degradation-claims.json Experiment 1's ledger: every degradationRisk sentence, verbatim.
@@ -39,7 +39,16 @@ scripts/witness-asm.mjs        the independent leg, at the `asm` checkpoint. Dec
 scripts/build-battery-report.py ASSEMBLER. Applies interfaces.md §3.1's pairing rule. Grades nothing.
 scripts/check-battery.py       GRADER: readings against known true values.
 scripts/check-claims.py        GRADER: the catalogue's prose against the measurement. Runs no compiler.
+scripts/falsify-battery.py     corrupts real reports and asserts check-battery.py refuses each.
+test/witness-asm.test.mjs      unit tests for the structural witness. No compiler needed.
 ```
+
+Two of those exist because of what was missing rather than what was planned.
+`falsify-battery.py` is the repeatable half of "the graders are shown to fail": the
+refusals were demonstrated once, by hand, in a session whose output scrolled away,
+while the metamorphic lane next door shipped `falsify-meta.py` from the start. And
+`test/witness-asm.test.mjs` exists because the frame witness was **unsound** and the
+only exercise it had ever had was whichever listings happened to be in the lab.
 
 ## How a "known true value" avoids being circular
 
@@ -161,7 +170,7 @@ Fenced scope: the `degradationRisk` arrays of the three implemented extractor
 entries — 14 sentences. The per-*property* arrays elsewhere in the catalogue are
 **not** fenced by this revision.
 
-### Result, standard revision 5, clang 18.1.3, 2026-08-17
+### Result, standard revision 6, clang 18.1.3, 2026-08-17
 
 ```
 claim-agrees            7     the documented degradation is real and correctly described
@@ -214,10 +223,73 @@ construction argument did.
 
 **Why the amendment is a separate change from the measurement.** A battery that
 repairs its own subject in the act of measuring it has stopped being an independent
-measurement. Revisions 3 and 4 measured and exited 2; revision 5 amends the
+measurement. Revisions 3 and 4 measured and exited 2; revision 6 amends the
 catalogue, moves this ledger in the same commit because the coverage fence forces
 it, and only then reaches exit 0. Closing the loop also ran the exit-0 path for the
 first time and found a `KeyError` and a `TypeError` sitting on it — both repaired.
+
+## The shape x class matrix, and what is still empty
+
+19 measured cells over three shapes. `-` is a cell with no specimen:
+
+| | known-PRESENT | known-ABSENT | known-LOST | known-NOT_APPLICABLE | known-BROKEN |
+|---|---|---|---|---|---|
+| **wipe** | 2 | **-** | 2 | 3 | 1 |
+| **guarded** | 1 | **-** | 2 | 1 | 1 |
+| **forbidden** | 2 | 1 | 1 | 1 | 1 |
+
+`forbidden x known-LOST` and `forbidden x known-NOT_APPLICABLE` were empty until
+2026-08-17, which meant this extractor had only ever been calibrated on *"the call is
+there"* and *"the call was never there"*. It had never been shown to report a
+forbidden call that **was** present at the first checkpoint and is gone at the
+second — and for this polarity, a disappearing hit is the reading that turns a real
+finding into a clean report. Both were pre-registered from construction and then
+measured:
+
+- **`cal-forbid-rewritten`** (`LOST`). The subject's format string is constant, so
+  clang rewrites the call into `puts` and the `printf` list sees 1 then 0, while the
+  control consumes a runtime value and **holds** — which is the whole difference from
+  `cal-forbid-broken`, where the same rewrite is applied to the *control* and the cell
+  is a broken measurement instead of a reading. What `LOST` does **not** mean here is
+  that the policy is satisfied: the call it was rewritten into is still in the
+  artefact. A must-not-appear check reading one checkpoint through one spelling can be
+  walked past, and this is where that is measured rather than argued.
+- **`cal-forbid-inlined`** (`NOT_APPLICABLE`). A static subject with one call site is
+  inlined away, so there is no longer a function in which to ask whether the forbidden
+  call appears. Independent leg: the label is in the `-O0` listing and not the `-O2`
+  one. This was the first cell whose true value was written down for a polarity the
+  catalogue documents no `NOT_APPLICABLE` cause for, so the expectation said in advance
+  that a different reading would be a finding about the extractor. It read
+  `NOT_APPLICABLE`.
+
+**`wipe x known-ABSENT` and `guarded x known-ABSENT` are still empty**, and that is a
+real gap rather than an oversight: `expected.json` makes the `LOST`/`ABSENT`
+separation load-bearing — §3 separates them by whether the property was previously
+established — and then never builds a must-survive cell whose true value is `ABSENT`.
+The only two `ABSENT` expectations in the battery are the inverted polarity.
+`REINTRODUCED` is absent everywhere and is structurally unreachable with two
+checkpoints.
+
+## The effect-symbol list is registered, not centralised
+
+`battery.json` asserted in prose that its wipe symbol list was *"the list
+run-envelope.sh and run-ladder.sh count a wipe with, unchanged"*. Building the fence
+for that claim found **ten** copies of such a list in `compiler/`, in **two groups
+that are not equal**: five carry `memset_s` and five, under
+`compiler/pass-instrumentation/observer/`, do not.
+
+`compiler/schema/effect-symbol-lists.json` now declares both groups and
+`effect-symbol-lists.test.mjs` fails on any literal it does not declare, on a
+component moving between groups, and on the recorded difference changing in either
+direction. It deliberately does **not** centralise the literals: a shared constant
+would let a measurement change — the set of spellings an extractor counts — land as a
+one-line edit to a file nobody re-runs. The divergence is registered rather than
+repaired because both directions of a fix move something that should not move
+quietly; the registry says whose decision it is.
+
+No current reading differs because of it (no specimen in `compiler/` wipes through
+`memset_s`), which bounds it as latent rather than live. That bound is stated in the
+registry instead of being left for a reader to work out.
 
 ## What a battery pass licenses
 
@@ -238,14 +310,15 @@ Everything below runs on the Linux side. Builds and measurements never go under
 `compiler/` — interfaces.md §1.
 
 ```sh
+# order is load-bearing: a report assembled before its witness exists is exit 3
 bash compiler/eval/calibration/scripts/run-battery.sh O0 -O0
 bash compiler/eval/calibration/scripts/run-battery.sh O2 -O2
 node   compiler/eval/calibration/scripts/witness-asm.mjs O0
 node   compiler/eval/calibration/scripts/witness-asm.mjs O2
 python3 compiler/eval/calibration/scripts/build-battery-report.py O0
 python3 compiler/eval/calibration/scripts/build-battery-report.py O2
-python3 compiler/eval/calibration/scripts/check-battery.py     # 0 on revision 5
-python3 compiler/eval/calibration/scripts/check-claims.py      # 2 on revision 5, by design
+python3 compiler/eval/calibration/scripts/check-battery.py     # 0 on revision 6
+python3 compiler/eval/calibration/scripts/check-claims.py      # 2 on revision 6, by design
 ```
 
 Lab: `$VG_CAL_LAB`, default `~/vg-lab/calibration`. Plugin: `$IRCK_PLUGIN`.

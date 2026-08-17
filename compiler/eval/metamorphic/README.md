@@ -208,6 +208,7 @@ that produces a reading is never the thing that reads it.**
 | `scripts/build-meta-report.py` | ASSEMBLER. `vibeguard.metamorphic-report/1`: canonical, integer-only, digested, refuses rather than redacting an absolute path |
 | `scripts/check-meta.py` | GRADER. R1 invariance and R2 declared direction, and nothing else |
 | `scripts/falsify-meta.py` | corrupts a report in eight named ways and checks that the grader refuses each one |
+test/catalogue.test.mjs   static fence over catalogue.json. No compiler, no lab, no document.
 
 ## The observer's three silent failure modes, and where each is fenced
 
@@ -368,3 +369,24 @@ breakage is how the two lanes stop being two lanes.
 
 Apache-2.0 WITH LLVM-exception, like the rest of `compiler/`. See
 `compiler/LICENSE`.
+
+## The catalogue has a static fence
+
+`check-meta.py` enforces most of the catalogue's internal rules, but only against a
+**document** — it needs a run to have happened. A catalogue edited into an
+inconsistent state therefore stays green until somebody measures, and the person who
+measures is usually not the person who edited.
+
+`test/catalogue.test.mjs` needs no compiler, no lab and no document. It holds:
+every operator's `declaredDirection` is `INVARIANT` or an `X->Y` over §3's six
+states, and only an R1 class may be invariant; **R2c ends on `NOT_APPLICABLE` and
+carries `notMonotonicWhen`**, which is the whole reason there is no total order on
+the six states; `gradeOn` is spelled from a fixed set, never appears on R2b or R2c,
+and carries its argument; `graded: false` is either substantially argued or a
+cross-reference that **resolves** to a lane declaring a non-measured status; every
+measured shape carries both an R1 falsifier and an R2 mover; and the dominance lane
+names the property whose extractor is null.
+
+The first run of it found a real gap — two operators deferring to a lane by
+cross-reference — and the fence was made to demand that the pointer resolve rather
+than to demand a longer sentence. A dangling *"see X"* is a flag with a footnote.

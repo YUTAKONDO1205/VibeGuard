@@ -9,7 +9,7 @@
     "Nothing in this file may be edited to make a run green. That is the failure compiler/eval/negative-controls/README.md names: it makes the fixture pass while leaving the instrument exactly as it was, behind a tick. When a measurement contradicts a value here, the two legitimate outcomes are a defect found in the extractor or a defect found in the FIXTURE'S construction; in the second case the generator changes and this file does not. Two fixtures were changed that way on 2026-08-17 and both carry the reason at the specimen in tools/make-battery.sh.",
     "expectFrameRulesOutObject exists because an adversarial pass found that the frame witness was COMPUTED and held against nothing: expectDefinedInAsm was the only machine-checkable witness declaration in this file, so the leg carrying cal-wipe-napp's NOT_APPLICABLE was a prose assertion dated 2026-08-17. It is now declared per configuration and graded in BOTH directions -- ruled-out at -O2 and present-in-frame at -O0 -- because a witness that only ever returned one answer would not have been shown to distinguish anything. A disagreement is exit 3 rather than exit 2: it means the specimen or the reader stopped behaving as the expectation describes, and in neither case is that cell's state evidence of anything."
   ],
-  "standardRevision": 5,
+  "standardRevision": 6,
   "measuredOn": "2026-08-17",
   "toolchain": "clang 18.1.3, x86-64 ELF, Ubuntu-24.04 under WSL2",
   "truthChannels": {
@@ -381,6 +381,54 @@
         "asm-witness"
       ],
       "whyTrue": "The control is a constant-string printf, which clang rewrites into puts, so a control read through the `printf` list falls to zero while the subject's printf survives. That is not a finding about the subject: section 4 makes it a broken measurement. The ladder measured this same rewrite on its d1 rungs, which is where the construction comes from. The asm oracle reads the subject PRESENT and the control ABSENT and therefore returns VERIFICATION_INCOMPLETE -- the one cell in this battery where the subject's effect is plainly there and the cell is still not data."
+    },
+    {
+      "fixtureId": "cal-forbid-rewritten",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "At -O0 clang does not rewrite a constant-string printf, so the forbidden call is in the unit under the spelling the cell is configured for. PRESENT for this polarity means the forbidden call is there and the finding is real."
+    },
+    {
+      "fixtureId": "cal-forbid-rewritten",
+      "configId": "O2",
+      "trueState": "LOST",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness"
+      ],
+      "whyTrue": "The subject's format string is constant, so clang rewrites the call into puts and the `printf` list sees one call at the pre-optimisation checkpoint and none after: previously established, then observed missing, which is section 3's LOST rather than its ABSENT. The control consumes a runtime value and cannot be rewritten, so it HOLDS -- that is the whole difference from cal-forbid-broken, where the same rewrite is applied to the CONTROL and the cell is a broken measurement instead of a reading. What LOST does NOT mean here: that the policy is satisfied. The call the printf was rewritten into is still in the artefact. This cell measures the spelling leaving the unit, which is exactly how a must-not-appear check reading one checkpoint through one spelling gets walked past."
+    },
+    {
+      "fixtureId": "cal-forbid-inlined",
+      "configId": "O0",
+      "trueState": "PRESENT",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness",
+        "defined-fns"
+      ],
+      "whyTrue": "At -O0 the static subject is emitted out of line and carries its forbidden call. Its label is in the -O0 listing, which is the other half of the -O2 reading.",
+      "expectDefinedInAsm": true
+    },
+    {
+      "fixtureId": "cal-forbid-inlined",
+      "configId": "O2",
+      "trueState": "NOT_APPLICABLE",
+      "expectedMeasurement": "OK",
+      "truthArgument": [
+        "construction",
+        "asm-witness-structural",
+        "defined-fns"
+      ],
+      "whyTrue": "A static function with a single call site is inlined and its out-of-line copy deleted. With the unit gone there is no function in which to ask whether the forbidden call appears, so the question has lost its referent -- NOT_APPLICABLE, not a clean reading. The independent leg is the label: absent from the -O2 listing and present in the -O0 one, which is what separates a unit that is genuinely gone from an observer that could not resolve the name. PRE-REGISTERED on 2026-08-17 from the construction alone, before this cell was measured: it is the first cell in the battery whose true value was written down for a polarity the catalogue does not document a NOT_APPLICABLE cause for, so if the extractor reads something else that is a finding about the extractor and this expectation is not what moves.",
+      "expectDefinedInAsm": false
     },
     {
       "fixtureId": "cal-forbid-indirect",

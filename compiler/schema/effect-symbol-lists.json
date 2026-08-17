@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "vibeguard.effect-symbol-lists/1",
+  "title": "Every effect-symbol list any component in this directory configures an extractor with, and which components use which",
+
+  "readMeFirst": [
+    "An effect-symbol list is what turns 'was the wipe there' into a countable question: interfaces.md section 4 forbids deciding presence by searching for a symbol NAME, so an extractor is handed a list of spellings and counts CALL SITES whose resolved callee matches one. The list is therefore configuration, and two components that hand the extractor different lists are asking different questions about the same build while reporting in the same vocabulary.",
+    "Before this file existed the list was a bare string literal in ten places and nothing compared any two of them. compiler/eval/calibration/battery.json asserted in prose that its list was 'the list run-envelope.sh and run-ladder.sh count a wipe with, unchanged' -- true of the four it named, and silent about five more that differ. This file is not a refactor: it does not centralise the literals, because moving a symbol list is a measurement change and a shared constant would let one land as a one-line edit. It is a REGISTRY, and effect-symbol-lists.test.mjs fails when a literal appears that is not declared here, or when a declared file stops carrying the list this file says it carries.",
+    "The two lists below are DIFFERENT and the difference is deliberate on one side and unaudited on the other. That is stated rather than resolved: see divergence."
+  ],
+
+  "lists": {
+    "wipe-6": {
+      "symbols": ["llvm.memset", "memset", "explicit_bzero", "bzero", "__memset_chk", "memset_s"],
+      "literal": "llvm.memset,memset,explicit_bzero,bzero,__memset_chk,memset_s",
+      "whatEachSpellingIs": {
+        "llvm.memset": "the IR intrinsic a front end lowers a wipe to. Present at an IR checkpoint and never in an assembly listing, which is why the asm witness is given a different list -- see compiler/eval/calibration/scripts/witness-asm.mjs.",
+        "memset": "the libc call, and what the intrinsic is lowered back to when it is not expanded inline.",
+        "explicit_bzero": "the BSD/glibc wipe the optimiser is not permitted to remove.",
+        "bzero": "the older spelling, still emitted by some headers.",
+        "__memset_chk": "what a fortifying header rewrites memset into when the object size is known. The ladder's b1 rungs exist because this rewrite is what moves under _FORTIFY_SOURCE.",
+        "memset_s": "the C11 Annex K wipe. Optional in the standard and absent from glibc, so a build that uses it is unusual -- and a list that omits it reads such a wipe as ABSENT."
+      },
+      "usedBy": [
+        "compiler/llvm-pass/scripts/run-ladder.sh",
+        "compiler/llvm-pass/scripts/run-envelope.sh",
+        "compiler/llvm-pass/scripts/run-matrix.sh",
+        "compiler/llvm-pass/scripts/run-dual-channel.sh",
+        "compiler/eval/calibration/battery.json"
+      ]
+    },
+
+    "wipe-5-observer": {
+      "symbols": ["llvm.memset", "memset", "explicit_bzero", "bzero", "__memset_chk"],
+      "literal": "llvm.memset,memset,explicit_bzero,bzero,__memset_chk",
+      "differsFrom": { "list": "wipe-6", "missing": ["memset_s"] },
+      "usedBy": [
+        "compiler/pass-instrumentation/observer/rq2/rq2.mjs",
+        "compiler/pass-instrumentation/observer/rq2/modes.mjs",
+        "compiler/pass-instrumentation/observer/rq2/broken-controls.mjs",
+        "compiler/pass-instrumentation/observer/scripts/crosscheck.mjs",
+        "compiler/pass-instrumentation/observer/scripts/noninvasive.mjs"
+      ]
+    }
+  },
+
+  "divergence": {
+    "found": "2026-08-17, while building the fence this file exists for. The count in the report that prompted it was five literals; the sweep found TEN, in two groups of five, and the groups are not equal.",
+    "theDifference": "wipe-5-observer omits memset_s. A wipe spelled memset_s therefore reads ABSENT to every component in that group and PRESENT to every component in wipe-6 -- the exact 'two instruments answering different questions about one build' that battery.json's own note warns about, present in the tree while that note was being written.",
+    "howMuchItMatters": "Bounded, and the bound is worth stating rather than guessing. No specimen in compiler/ wipes through memset_s: the ladder, the battery and the observer fixtures all use memset, __builtin_memset, an asm-labelled memset or an explicit zeroing loop. So no CURRENT measurement in this tree differs because of it, and the divergence is a latent one -- it becomes a real disagreement the first time a subject uses the Annex K spelling. That is why this is registered rather than treated as an outage.",
+    "whyItIsNotFixedHere": "Both directions of a fix change something that should not change quietly. Adding memset_s to the observer group edits harnesses under compiler/pass-instrumentation/observer/rq2 and /scripts, which produce the readings a write-up quotes; a symbol added to an extractor's list can change a count, and a count that moves because of a hygiene commit is worse than a documented asymmetry. Removing it from wipe-6 would narrow the ladder and the battery for the convenience of the fence. Neither is this file's decision to take, so it records the fact, names both groups, and makes any FURTHER drift fail.",
+    "whoDecides": "Whoever owns the observer harnesses' published numbers. Until then the fence holds the tree exactly where it is."
+  },
+
+  "whatThisFileDoesNotDo": [
+    "It does not centralise the literals. A shared constant would let a measurement change land as a one-line edit to a file nobody re-runs, which is the opposite of what a symbol list needs.",
+    "It does not cover the ASSEMBLY-checkpoint list. compiler/eval/calibration/scripts/witness-asm.mjs deliberately uses a different one -- no `llvm.memset`, which no listing can contain, and it adds `__explicit_bzero_chk` -- because the checkpoint is different. That list is documented at its definition and is not a copy of either list here; the fence knows to skip it.",
+    "It does not cover the guarded or forbidden shapes. Those lists are per-fixture rather than per-tree: `cb_deny`, `printf`, `getenv`, `cf_forbidden_entry` name symbols a specimen defines, so there is no cross-component list to keep still."
+  ]
+}
