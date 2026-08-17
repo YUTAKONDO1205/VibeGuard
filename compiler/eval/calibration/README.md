@@ -30,7 +30,8 @@ assembles, `check-ladder.py` grades), with one addition: **the thing that produc
 a reading does not hold the answers.**
 
 ```
-tools/make-battery.sh          the STANDARD. Emits 21 specimens into the lab. Pinned by sha-256.
+run-all.sh                     the ORDER. Every step below, stopping at the first failure.
+tools/make-battery.sh          the STANDARD. Emits 23 specimens into the lab. Pinned by sha-256.
 battery.json                   the cell table: what is measured. No answers in it.
 claims/expected.json           the answers. Opened by check-battery.py and by nothing else.
 claims/degradation-claims.json Experiment 1's ledger: every degradationRisk sentence, verbatim.
@@ -170,7 +171,7 @@ Fenced scope: the `degradationRisk` arrays of the three implemented extractor
 entries — 14 sentences. The per-*property* arrays elsewhere in the catalogue are
 **not** fenced by this revision.
 
-### Result, standard revision 6, clang 18.1.3, 2026-08-17
+### Result, standard revision 7, clang 18.1.3, 2026-08-17
 
 ```
 claim-agrees            7     the documented degradation is real and correctly described
@@ -223,7 +224,7 @@ construction argument did.
 
 **Why the amendment is a separate change from the measurement.** A battery that
 repairs its own subject in the act of measuring it has stopped being an independent
-measurement. Revisions 3 and 4 measured and exited 2; revision 6 amends the
+measurement. Revisions 3 and 4 measured and exited 2; revision 7 amends the
 catalogue, moves this ledger in the same commit because the coverage fence forces
 it, and only then reaches exit 0. Closing the loop also ran the exit-0 path for the
 first time and found a `KeyError` and a `TypeError` sitting on it — both repaired.
@@ -234,9 +235,12 @@ first time and found a `KeyError` and a `TypeError` sitting on it — both repai
 
 | | known-PRESENT | known-ABSENT | known-LOST | known-NOT_APPLICABLE | known-BROKEN |
 |---|---|---|---|---|---|
-| **wipe** | 2 | **-** | 2 | 3 | 1 |
-| **guarded** | 1 | **-** | 2 | 1 | 1 |
+| **wipe** | 2 | 1 | 2 | 3 | 1 |
+| **guarded** | 1 | 1 | 2 | 1 | 1 |
 | **forbidden** | 2 | 1 | 1 | 1 | 1 |
+
+21 cells x **five** configurations. Every class that can be constructed for these
+three shapes now has a cell.
 
 `forbidden x known-LOST` and `forbidden x known-NOT_APPLICABLE` were empty until
 2026-08-17, which meant this extractor had only ever been calibrated on *"the call is
@@ -269,6 +273,55 @@ established — and then never builds a must-survive cell whose true value is `A
 The only two `ABSENT` expectations in the battery are the inverted polarity.
 `REINTRODUCED` is absent everywhere and is structurally unreachable with two
 checkpoints.
+
+## ★ The `-O1` column: an IR checkpoint satisfied by an artefact that is not
+
+The three optimising columns were `not-measured` until 2026-08-17, on the grounds
+that the ladder had found `-O2`, `-O3` and `-Os` indistinguishable to *its* rung set
+— which was never a statement about *this* specimen set and was being quoted as if it
+were. Measuring them produced the sharpest finding in the directory.
+
+At `-O1`, `cal-wipe-lost` reads:
+
+```
+IR observer   post-opt count 1   ->  PRESENT
+asm witness   subject ABSENT, control PRESENT, from the SAME invocation
+```
+
+The wipe survives the entire IR optimiser and is dropped **after** it. A caller
+reading the IR checkpoint alone is told a must-survive property holds in an artefact
+that does not clear the buffer — the dangerous direction.
+
+**Why, established against the compiler rather than the instrument.**
+`clang-18 -mllvm -print-pipeline-passes` lists **zero** dead-store-elimination passes
+at `-O1` and **one** at `-O2` and `-Os`. The pass that removes this wipe is not in the
+`-O1` pipeline, so the extractor reading `PRESENT` is reading its checkpoint
+*correctly*. This is not an extractor defect: it is the scope limit
+`properties.json` already states at `survive.secure-wipe.degradationRisk[0]` — *"a
+wipe that survives to post-opt IR and is then dropped by instruction selection is
+reported PRESENT here"* — reproduced **in-tree for the first time, with both channels
+from one compilation** instead of from a prototype workspace.
+
+It also corrected a claim of mine. The `-O1` expectation had been a `sameAsConfig`
+reference asserting *"a dead store whose object escaped is removable at every
+optimising level"*. Measurement falsified it, and the repair was the argument, not the
+reading.
+
+**And it sharpened the known-broken cell.** `cal-wipe-broken` is now expected to be
+broken at `-O2`/`-O3`/`-Os` and **sound at `-O0` and `-O1`**, which localises its
+apparatus failure to a named pass rather than to "optimisation". At `-O1` the two
+channels disagree about whether the cell is even usable: the IR says the control held
+`1→1`, and the assembly says the control's effect is gone too, so the asm oracle reads
+`VERIFICATION_INCOMPLETE` — blind.
+
+Both disagreements are **graded, not narrated**: `expectAsmSubject` /
+`expectAsmControl` under `artefactDisagreesAtThisConfig`, checked in both directions,
+with `artefact-agreement-forged` in `falsify-battery.py` to show the check fires. A
+listing that quietly started agreeing would erase the finding.
+
+**What is still deferred here**: the sentence this reproduces lives in a *per-property*
+`degradationRisk` array, and the coverage fence covers only the three *extractor*
+entries. Extending it to `survive.secure-wipe` is named and not done.
 
 ## The effect-symbol list is registered, not centralised
 
@@ -310,15 +363,25 @@ Everything below runs on the Linux side. Builds and measurements never go under
 `compiler/` — interfaces.md §1.
 
 ```sh
-# order is load-bearing: a report assembled before its witness exists is exit 3
+bash compiler/eval/calibration/run-all.sh        # all five configurations, in order
+```
+
+The order is load-bearing and fails quietly in one direction: assembling before the
+witness exists is exit 3, which is loud, but *grading* before re-assembling reads the
+previous report. `run-all.sh` is that order written down once, and it stops at the
+first failing step rather than carrying on to grade a report nothing produced. It
+takes its configuration list from `battery.json`, so the list cannot drift from the
+table. The individual steps, if you want them:
+
+```sh
 bash compiler/eval/calibration/scripts/run-battery.sh O0 -O0
 bash compiler/eval/calibration/scripts/run-battery.sh O2 -O2
 node   compiler/eval/calibration/scripts/witness-asm.mjs O0
 node   compiler/eval/calibration/scripts/witness-asm.mjs O2
 python3 compiler/eval/calibration/scripts/build-battery-report.py O0
 python3 compiler/eval/calibration/scripts/build-battery-report.py O2
-python3 compiler/eval/calibration/scripts/check-battery.py     # 0 on revision 6
-python3 compiler/eval/calibration/scripts/check-claims.py      # 2 on revision 6, by design
+python3 compiler/eval/calibration/scripts/check-battery.py     # 0 on revision 7
+python3 compiler/eval/calibration/scripts/check-claims.py      # 2 on revision 7, by design
 ```
 
 Lab: `$VG_CAL_LAB`, default `~/vg-lab/calibration`. Plugin: `$IRCK_PLUGIN`.
@@ -362,8 +425,13 @@ never seen to fire is indistinguishable from a grader that always reports OK.
 
 ## What this directory does not measure
 
-- `-O1`, `-O3`, `-Os` — **not-measured**. The ladder's finding that `-O2`/`-O3`/`-Os`
-  are indistinguishable belongs to *its* rung set and is not transferable here.
+- `REINTRODUCED` — **`no-construction-found`**, with the mechanism named above. Not
+  impossible, as this file used to say.
+- the per-property `degradationRisk` arrays — outside the coverage fence, which covers
+  the three extractor entries only. `survive.secure-wipe` is the one the `-O1` finding
+  reproduces and is named as deferred.
+- which of the two registered effect-symbol groups should move — not this
+  directory's decision; see the registry.
 - anything LTO — **`lto-stage-unobserved`**, refused at measurement time.
 - the `object`, `linked` and `artifact` checkpoints — no extractor to qualify.
 - a second compiler vendor. `gcc` cannot load an LLVM `-fpass-plugin`; the

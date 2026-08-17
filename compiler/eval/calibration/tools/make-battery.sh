@@ -158,6 +158,37 @@ void cw_present_control(void) {
 }
 '
 
+# known-ABSENT, and the must-survive matrix had no such cell until 2026-08-17.
+#
+# The omission mattered because claims/expected.json makes the LOST/ABSENT
+# separation load-bearing -- interfaces.md section 3 separates them by whether the
+# property was ever ESTABLISHED -- and then never built a must-survive cell whose
+# true value is ABSENT. The only two ABSENT expectations in the battery were the
+# inverted polarity, so the discrimination this battery cites as its reason for
+# having a -O0 arm was itself never calibrated.
+#
+# The subject simply has no wipe. Nothing was removed, so there is nothing to call
+# LOST: the count is zero at the FIRST checkpoint, which is what ABSENT means. The
+# control wipes and is read, so it cannot go -- which makes this the must-survive
+# analogue of cal-forbid-clean: an extractor reporting "not there" while its control
+# is demonstrably LIVE. A detector that has only ever fired has not been shown to
+# stop firing, and until this cell that had been checked for the forbidden polarity
+# and not for this one.
+emit cal-wipe-absent '
+void cw_absent_subject(void) {
+  unsigned char b[211];
+  cb_fill(b, sizeof b);
+  cb_use(b, sizeof b);
+}
+
+void cw_absent_control(void) {
+  unsigned char b[223];
+  cb_fill(b, sizeof b);
+  memset(b, 0, sizeof b);
+  cb_use(b, sizeof b);
+}
+'
+
 # known-LOST. The wipe is last and nobody reads the zeros, so it is dead. The
 # buffer has already escaped to an opaque consumer BEFORE the wipe, which is what
 # separates this from cal-wipe-napp: the object cannot be promoted out of memory,
@@ -382,6 +413,20 @@ emit cal-guard-present '
 void cg_present_subject(void) { if (cb_cond()) cb_deny(); }
 
 void cg_present_control(void) { if (cb_cond()) cb_deny(); }
+'
+
+# known-ABSENT for the guarded shape, the other half of the gap cal-wipe-absent
+# closes. The subject has a live conditional branch and no deny call at all, so the
+# live-branch gate is satisfied and the count is still zero at the first checkpoint.
+#
+# That combination is the point: it separates "the guard is gone" from "there was
+# never a guarded call here", which are the same reading to an extractor that only
+# looks at whether the branch survived. The control is a real guarded deny, so a zero
+# here is a quiet detector rather than a blind one.
+emit cal-guard-absent '
+void cg_absent_subject(void) { if (cb_cond()) cb_sink(); }
+
+void cg_absent_control(void) { if (cb_cond()) cb_deny(); }
 '
 
 # known-LOST. The condition is a static the optimiser can prove is zero, so the

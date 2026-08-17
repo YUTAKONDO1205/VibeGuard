@@ -114,6 +114,69 @@ def digest_of(doc):
     return hashlib.sha256(canonical(stripped).encode("utf-8")).hexdigest()
 
 
+def resolve_same_as(expectations):
+    """Expand `sameAsConfig` expectations. Returns (expectations, errors).
+
+    An expectation may say: my true value at this configuration is the one declared
+    at another, and here is why it is the same. That is a real claim rather than a
+    shortcut -- for most cells the construction argument is about whether the
+    OPTIMISER RAN, not about which optimising level it was -- and writing it once
+    beats three copies of the same paragraph. This directory has already been bitten
+    by duplicated prose: `standard revision 3` was hand-written in six places and all
+    six went stale together the day the standard moved.
+
+    What is refused: a reference to a configuration that has no expectation for this
+    cell, a reference to another reference (one hop only, so there is no chain to
+    reason about), a self-reference, and a reference carrying no argument. A cell
+    whose truth is asserted to equal another's without a reason is a copy with extra
+    steps.
+    """
+    by_key = {(e["fixtureId"], e["configId"]): e for e in expectations}
+    out, errors = [], []
+    for e in expectations:
+        target = e.get("sameAsConfig")
+        if target is None:
+            out.append(e)
+            continue
+        key = (e["fixtureId"], target)
+        base = by_key.get(key)
+        if base is None:
+            errors.append(
+                "%s at %s says sameAsConfig=%r and there is no expectation for that cell at that "
+                "configuration" % (e["fixtureId"], e["configId"], target))
+            continue
+        if target == e["configId"]:
+            errors.append("%s at %s refers to itself" % (e["fixtureId"], e["configId"]))
+            continue
+        if base.get("sameAsConfig") is not None:
+            errors.append(
+                "%s at %s refers to %s, which is itself a reference. One hop only: a chain of "
+                "'same as' is a claim nobody can check at a glance."
+                % (e["fixtureId"], e["configId"], target))
+            continue
+        why = e.get("whySameAsThatConfig")
+        if not isinstance(why, str) or len(why) < 40:
+            errors.append(
+                "%s at %s says sameAsConfig=%r and carries no substantial "
+                "whySameAsThatConfig. Asserting that two configurations share a true value "
+                "without saying why is a copy with extra steps."
+                % (e["fixtureId"], e["configId"], target))
+            continue
+        merged = dict(base)
+        merged["configId"] = e["configId"]
+        merged["resolvedFrom"] = target
+        merged["whySameAsThatConfig"] = why
+        # A referring expectation may still override the witness declarations, which
+        # are per-listing facts rather than per-truth ones.
+        for field in ("expectDefinedInAsm", "expectFrameRulesOutObject"):
+            if field in e:
+                merged[field] = e[field]
+            elif field in base:
+                merged.pop(field, None)
+        out.append(merged)
+    return out, errors
+
+
 def load_report(path):
     """Returns (document, why-it-cannot-be-read)."""
     if not os.path.exists(path):
@@ -412,6 +475,34 @@ def grade(name, doc, expectations, table, expected_measured_on=None):
                     "this object at all."
                     % (name, fid, exp["expectFrameRulesOutObject"], config_id, got, "undecidable"))
 
+        # --- the artefact disagreement, graded in both directions -----------
+        # Where a cell's IR reading and the assembly from the SAME invocation
+        # disagree, the expectation says what the listing must show and this holds the
+        # witness to it. Both directions: a listing that stopped disagreeing is a
+        # finding, not a quiet improvement, because the disagreement is the evidence
+        # that an IR-only reading of a must-survive property can be satisfied by an
+        # artefact that does not enforce it.
+        #
+        # Exit 2 rather than 3. This is not "the check could not be completed" -- both
+        # channels produced readings and the document's own numbers are what fail.
+        disagree = exp.get("artefactDisagreesAtThisConfig")
+        if isinstance(disagree, dict):
+            w = cell.get("witness") or {}
+            eff = w.get("effect") or {}
+            for field, key, label in (("expectAsmSubject", "subjectVerdict", "subject"),
+                                      ("expectAsmControl", "controlVerdict", "control")):
+                want = disagree.get(field)
+                if want is None:
+                    continue
+                got = eff.get(key)
+                if got != want:
+                    problems.append(
+                        "%s %s: expected.json declares the assembly %s would read %r at %s and the "
+                        "witness reads %r. That declaration is the evidence that an IR reading of "
+                        "PRESENT here does not mean the artefact enforces the property, so a change "
+                        "in it is a change to the finding -- not a detail."
+                        % (name, fid, label, want, config_id, got))
+
         # --- single-legged truths, counted rather than hidden ---------------
         legs = exp.get("truthArgument") or []
         if legs == ["construction"]:
@@ -492,6 +583,13 @@ def main(argv):
     if not expectations:
         print("check-battery.py: claims/expected.json declares no expectations, so every "
               "cell would pass vacuously", file=sys.stderr)
+        return 3
+
+    expectations, resolve_errors = resolve_same_as(expectations)
+    if resolve_errors:
+        print("\n%d expectation(s) could not be resolved:" % len(resolve_errors), file=sys.stderr)
+        for e in resolve_errors:
+            print("  " + e, file=sys.stderr)
         return 3
 
     paths, ungradeable = targets(argv)

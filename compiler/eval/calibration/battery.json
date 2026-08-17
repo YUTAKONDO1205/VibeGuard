@@ -6,8 +6,8 @@
     "standardRevision is an integer and generatorSha256 is the sha-256 of tools/make-battery.sh. A generator that changed is a different standard: run-battery.sh recomputes the digest at measurement time and refuses to measure when it has moved without this file moving with it. Without that pin the battery would silently become a different battery between two runs whose reports look comparable.",
     "The `role` column separates the two kinds of cell, and mixing them is how a battery stops meaning anything. A `reference` cell has a known true value and the extractor is expected to read it: a disagreement is a defect in the extractor. An `instrument-limit-probe` cell has a known true value the extractor is expected to MISREAD, and the misreading is documented prose in compiler/schema/properties.json: a disagreement there is a defect in the prose or in the extractor, and which one it is has to be worked out rather than assumed."
   ],
-  "standardRevision": 6,
-  "generatorSha256": "09221f776267edf5e73be2e443f0e0704ee792d4d660614436f9aa353e7065d0",
+  "standardRevision": 7,
+  "generatorSha256": "675a17b3b66f2897139a4b74bda28d9811b813e62c513a0621e53a8c3999dec8",
   "generator": "compiler/eval/calibration/tools/make-battery.sh",
   "shapes": {
     "wipe": {
@@ -49,9 +49,24 @@
       "configId": "O2",
       "opt": "-O2",
       "extraArgs": []
+    },
+    {
+      "configId": "O1",
+      "opt": "-O1",
+      "extraArgs": []
+    },
+    {
+      "configId": "O3",
+      "opt": "-O3",
+      "extraArgs": []
+    },
+    {
+      "configId": "Os",
+      "opt": "-Os",
+      "extraArgs": []
     }
   ],
-  "configsNote": "Two, and the two ends only. -O1, -O3 and -Os are not-measured, under that word: the ladder's own measured limit is that -O2, -O3 and -Os are indistinguishable to ITS rung set, and that finding belongs to that rung set and is not transferable to this specimen set. Anything carrying an LTO token is refused at measurement time rather than measured.",
+  "configsNote": "Five, and every one of them is swept: check-battery.py refuses when a declared configuration has no graded document, so this list is the definition of what a whole battery is. -O1, -O3 and -Os were `not-measured` until 2026-08-17 on the grounds that the ladder had found -O2, -O3 and -Os indistinguishable to ITS rung set -- which was never a statement about THIS specimen set and was quoted as if it were. Anything carrying an LTO token is still refused at measurement time under lto-stage-unobserved rather than measured, because the plugin's extension points are never invoked by the LTO backend pipeline.",
   "cells": [
     {
       "fixtureId": "cal-wipe-present",
@@ -61,6 +76,15 @@
       "subjectFn": "cw_present_subject",
       "controlFn": "cw_present_control",
       "sourceRel": "cal-wipe-present/cal-wipe-present.c"
+    },
+    {
+      "fixtureId": "cal-wipe-absent",
+      "shape": "wipe",
+      "role": "reference",
+      "class": "known-ABSENT",
+      "subjectFn": "cw_absent_subject",
+      "controlFn": "cw_absent_control",
+      "sourceRel": "cal-wipe-absent/cal-wipe-absent.c"
     },
     {
       "fixtureId": "cal-wipe-lost",
@@ -139,6 +163,15 @@
       "subjectFn": "cg_present_subject",
       "controlFn": "cg_present_control",
       "sourceRel": "cal-guard-present/cal-guard-present.c"
+    },
+    {
+      "fixtureId": "cal-guard-absent",
+      "shape": "guarded",
+      "role": "reference",
+      "class": "known-ABSENT",
+      "subjectFn": "cg_absent_subject",
+      "controlFn": "cg_absent_control",
+      "sourceRel": "cal-guard-absent/cal-guard-absent.c"
     },
     {
       "fixtureId": "cal-guard-lost",

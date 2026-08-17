@@ -173,8 +173,57 @@ def c_frame_declaration(doc):
     return None, "no cell in this document carries a frame verdict"
 
 
+def declaring_cells(config_id):
+    """Which cells DECLARE an artefact disagreement at this configuration.
+
+    Read from claims/expected.json, because only a declared disagreement is graded and
+    a corruption aimed anywhere else measures nothing. The first version of this
+    corruption picked the first cell whose listing happened to show an absent subject
+    -- cal-wipe-absent, which declares nothing -- and was reported NOT REFUSED when in
+    fact there was nothing there to refuse. A falsifier that cannot tell "the grader
+    let it through" from "I corrupted a field nobody grades" is worse than no
+    falsifier: it manufactures findings about the grader.
+    """
+    path = os.path.join(HERE, "..", "claims", "expected.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (ValueError, OSError):
+        return set()
+    return {e["fixtureId"] for e in doc.get("expectations") or []
+            if e.get("configId") == config_id and isinstance(
+                e.get("artefactDisagreesAtThisConfig"), dict)}
+
+
+def c_artefact_agreement(doc):
+    """Make the assembly stop disagreeing with the IR.
+
+    The -O1 column's finding is that a must-survive property reads PRESENT at the IR
+    checkpoint while the artefact does not enforce it. The expectation states what the
+    listing must show, so a listing that quietly started agreeing would erase the
+    finding -- which is why that declaration is graded in both directions and why this
+    corruption exists.
+    """
+    declared = declaring_cells(doc.get("configId"))
+    if not declared:
+        return None, ("no cell declares an artefact disagreement at %s, so there is nothing "
+                      "here whose forging would be graded" % doc.get("configId"))
+    for c in doc["cells"]:
+        if c["fixtureId"] not in declared:
+            continue
+        eff = (c.get("witness") or {}).get("effect")
+        if not isinstance(eff, dict):
+            continue
+        was = eff.get("subjectVerdict")
+        eff["subjectVerdict"] = "PRESENT" if was != "PRESENT" else "ABSENT"
+        return redigest(doc), ("%s: assembly subject %s -> %s, forging agreement with the IR"
+                               % (c["fixtureId"], was, eff["subjectVerdict"]))
+    return None, "the declaring cell carries no assembly reading to forge"
+
+
 CORRUPTIONS = [
     ("reference-state-flipped", 2, c_state_flipped),
+    ("artefact-agreement-forged", 2, c_artefact_agreement),
     ("pairing-rule-broken", 2, c_pairing_rule),
     ("control-held-null-when-fell", 2, c_control_held_null),
     ("role-laundered", 2, c_role_laundered),
