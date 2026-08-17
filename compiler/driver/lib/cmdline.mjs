@@ -458,6 +458,15 @@ export function expectedArtifacts({ action, output, sources }) {
 export const DRIVER_FLAGS = {
   '--policy': 1,
   '--vg-clang': 1,
+  // The ladder frontier measured for THIS invocation, as a path to a
+  // `vibeguard.ladder-frontier/1` document. It arrives on the command line and
+  // not in the policy because it is a reading of one build rather than a
+  // standing configuration — the same split `--vg-observer` has against
+  // `policy.fallback.enabled`. Consumed only when the policy also names a
+  // sidecar to compare it against; on its own it changes nothing, and a policy
+  // that names a sidecar and receives no frontier is refused rather than passed.
+  // See lib/fallback.mjs.
+  '--vg-exposure-frontier': 1,
   // The property observer `policy.fallback` needs. Consumed only when the policy
   // enables fallback; on its own it changes nothing. See lib/fallback.mjs.
   '--vg-observer': 1,
@@ -474,7 +483,8 @@ export const DRIVER_FLAGS = {
  */
 export function splitDriverArgs(argv) {
   const own = {
-    policy: null, clang: null, observer: null, observePipeline: false, verbose: false, printNormalised: false,
+    policy: null, clang: null, observer: null, exposureFrontier: null,
+    observePipeline: false, verbose: false, printNormalised: false,
   };
   const compilerArgv = [];
   const errors = [];
@@ -508,6 +518,10 @@ export function splitDriverArgs(argv) {
       if (tok.startsWith('--policy=')) { own.policy = tok.slice('--policy='.length); continue; }
       if (tok.startsWith('--vg-clang=')) { own.clang = tok.slice('--vg-clang='.length); continue; }
       if (tok.startsWith('--vg-observer=')) { own.observer = tok.slice('--vg-observer='.length); continue; }
+      if (tok.startsWith('--vg-exposure-frontier=')) {
+        own.exposureFrontier = tok.slice('--vg-exposure-frontier='.length);
+        continue;
+      }
       compilerArgv.push(tok);
       continue;
     }
@@ -519,6 +533,7 @@ export function splitDriverArgs(argv) {
       if (tok === '--policy') own.policy = value;
       if (tok === '--vg-clang') own.clang = value;
       if (tok === '--vg-observer') own.observer = value;
+      if (tok === '--vg-exposure-frontier') own.exposureFrontier = value;
       continue;
     }
     if (tok === '--vg-observe-pipeline') own.observePipeline = true;

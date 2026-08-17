@@ -329,6 +329,14 @@ export async function run({
       root,
       workDir: outDir ? resolve(outDir, 'work', 'driver-fallback') : null,
       observer: own.observer,
+      // The ladder frontier measured for this invocation, resolved against the
+      // working directory rather than the fixture root: the policy names the
+      // sidecar, the invocation carries the reading, and `--vg-observer` already
+      // draws that line the same way. Passed unconditionally and read only when
+      // the policy names a sidecar — without this the guard has two reachable
+      // states, off and refuse-everything, because nothing could ever supply the
+      // half of the comparison that is taken per build.
+      exposureFrontier: own.exposureFrontier,
       env,
       blocked: integrityFailure ? 'toolchain-or-policy-integrity'
         : !properties.complete ? 'policy-properties-unanswerable'

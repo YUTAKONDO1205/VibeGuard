@@ -310,6 +310,7 @@ Consumed by the driver, never forwarded to clang.
 | `--vg-clang <path>` | run this compiler instead of the pinned or `PATH` one |
 | `--vg-observer <path>` | the property observer `policy.fallback` needs. Ignored unless the policy enables fallback; on its own it changes nothing, which the test suite checks by digest |
 | `--vg-observe-pipeline` | additionally run a separate observation build; the shipped artefact is unaffected |
+| `--vg-exposure-frontier <path>` | the frontier measured for THIS build, for the guard `policy.fallback.exposureFrontiers` turns on. Read only when the policy names a sidecar; a policy that names one and a build that supplies none is refused, because an unanswered guard is not a passed one |
 | `--vg-verbose` | name the evidence record on stderr |
 | `--vg-print-normalised` | dump the normalisation to stderr and carry on |
 
