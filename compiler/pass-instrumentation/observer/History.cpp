@@ -77,6 +77,79 @@ void Tracker::handshake(const Module &M) {
   Out->flush();
 }
 
+/// The three answers a module can give about a configured name, plus the one
+/// the log gives when no module was ever walked.
+///
+/// Deliberately four new words. The six state names (PRESENT, ABSENT, LOST,
+/// REINTRODUCED, NOT_APPLICABLE, NOT_OBSERVED) are answers about the property;
+/// these are answers about whether the question had a referent here at all, and
+/// spending a state word on one of them would leave two different facts sharing
+/// a name.
+static const char *const kResolved = "resolved";
+static const char *const kDeclarationOnly = "declaration-only";
+static const char *const kNotInModule = "not-in-module";
+static const char *const kNotScanned = "not-scanned";
+
+void Tracker::resolution(uint64_t S, const Module &M) {
+  if (!Out)
+    return;
+  const std::string Id = M.getModuleIdentifier();
+  if (ResolutionWritten && Id == ResolvedModuleId)
+    return;
+  ResolutionWritten = true;
+  ResolvedModuleId = Id;
+
+  // The control is asked the same question as the subject. A control that does
+  // not resolve breaks the measurement just as completely, and the existing
+  // invariant -- "the control held, so the run was sound" -- is exactly the one
+  // that cannot notice it.
+  struct RoleSpec {
+    const char *Role;
+    const char *EnvVar;
+    const std::string *Name;
+  };
+  const RoleSpec Roles[2] = {{"subject", "OBS_TARGET_FN", &Cfg.TargetFn},
+                             {"control", "OBS_CONTROL_FN", &Cfg.ControlFn}};
+
+  for (const RoleSpec &R : Roles) {
+    // Lineage, not equality: at the first module boundary the name is the one
+    // the frontend emitted, but a later module boundary can be reached after
+    // the inliner has produced `handle_request.llvm.1041`. Asking for the exact
+    // name there would report a subject that is plainly present as missing.
+    const char *Res = kNotInModule;
+    for (const Function &F : M) {
+      if (lineageRoot(F.getName()) != *R.Name)
+        continue;
+      if (F.isDeclaration()) {
+        // Keep looking: a declaration and a definition of the same lineage can
+        // both be in the module, and the definition is the one that decides.
+        Res = kDeclarationOnly;
+        continue;
+      }
+      Res = kResolved;
+      break;
+    }
+
+    *Out << "SUBJECTRES\t" << S << "\t" << Id << "\t" << R.Role << "\t"
+         << *R.Name << "\t" << Res << "\n";
+
+    if (Res == kResolved)
+      continue;
+    // Loud, for the same reason `refusing to install` is loud -- and still not
+    // an error, because this module alone cannot tell a misspelt name from a
+    // subject that lives in a different translation unit, and failing a corpus
+    // build on a fact that is routinely innocent would make the record useless
+    // rather than trustworthy.
+    errs() << "property-observer: " << R.Role << " name '" << *R.Name << "' ("
+           << R.EnvVar << ") did not resolve to a defined function in module "
+           << Id << "; recorded as " << Res
+           << ". If no module in this run resolves it, this run observed "
+              "nothing about the "
+           << R.Role << " -- check the whole run, not this log alone.\n";
+  }
+  Out->flush();
+}
+
 void Tracker::passRecord(uint64_t S, StringRef Phase, StringRef PassID,
                          StringRef UnitKind, StringRef UnitName) {
   PassesSeen++;
@@ -159,6 +232,10 @@ void Tracker::syncModule(uint64_t S, StringRef PassID, const Module &M,
   // census -- a clone the inliner or function specialisation just produced.
   if (Full) {
     handshake(M);
+    // Before discovery, because the answer is about the module as the pipeline
+    // handed it over, and because a reader should meet it next to the handshake
+    // that says which names were asked for.
+    resolution(S, M);
     for (const Function &F : M) {
       if (F.isDeclaration())
         continue;
@@ -363,6 +440,22 @@ void Tracker::finish() {
   writeSummaryFile();
   if (!Out)
     return;
+  // No full module census ever ran -- an `opt` pipeline with no module-level
+  // pass in it, or a compilation that ended before the first one. The names may
+  // be perfect and they were never put to a module, so the log says that rather
+  // than staying silent and letting a reader assume either answer.
+  if (!ResolutionWritten) {
+    ResolutionWritten = true;
+    *Out << "SUBJECTRES\t0\t-\tsubject\t" << Cfg.TargetFn << "\t" << kNotScanned
+         << "\n"
+         << "SUBJECTRES\t0\t-\tcontrol\t" << Cfg.ControlFn << "\t"
+         << kNotScanned << "\n";
+    errs() << "property-observer: no module boundary was reached, so whether "
+              "OBS_TARGET_FN='"
+           << Cfg.TargetFn << "' resolves to anything was never determined; "
+              "recorded as "
+           << kNotScanned << "\n";
+  }
   emitSummaryInto(*Out);
   Out->flush();
 }

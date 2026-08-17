@@ -30,6 +30,10 @@
 // The log is line-oriented TSV. Field one is the record type:
 //
 //   HANDSHAKE schema moduleId target control effectSymbols mode reqLiveBranch
+//   SUBJECTRES seq moduleId role name resolution          (resolved|
+//                                                          declaration-only|
+//                                                          not-in-module|
+//                                                          not-scanned)
 //   PASS      seq phase passID passUnitKind passUnitName  (trace/forensic)
 //   EV        seq phase passID passUnitKind unit lineage role count state
 //             changed
@@ -52,6 +56,24 @@
 // SUMMARY and HIST are also written, on their own, to `<OBS_OUT>.summary.tsv`
 // after every change, so that a run whose process does not unwind still leaves
 // a current attribution behind.
+//
+// 4. A name that resolves to nothing is not an absence of the property.
+//    `OBS_TARGET_FN` is a string, and a misspelt string produces a log in which
+//    the control is PRESENT and the subject simply never appears -- the same
+//    shape a genuine "the subject was erased before the first boundary" would
+//    have, and one the co-resident control cannot distinguish, because the
+//    control is fine. Whether the name resolves cannot be decided when the
+//    plugin is loaded: `llvmGetPassPluginInfo` registers callbacks and there is
+//    no module yet. It can only be decided the first time a module is walked,
+//    which is where SUBJECTRES is written.
+//
+//    SUBJECTRES is a *fact about one module*, never a verdict about the run. In
+//    a whole-project build the plugin is loaded for every translation unit, and
+//    a subject that lives in one file is legitimately absent from all the
+//    others; module-level evidence cannot tell that apart from a typo. The
+//    verdict -- "no module in this run resolved the subject" -- belongs to
+//    whatever reads the logs of the whole run, and lives in
+//    lib/subject-resolution.mjs.
 //
 //===----------------------------------------------------------------------===//
 
@@ -181,6 +203,14 @@ public:
 
   void handshake(const llvm::Module &M);
 
+  /// Write, once per module, whether `OBS_TARGET_FN` and `OBS_CONTROL_FN`
+  /// resolve to a defined function in it.
+  ///
+  /// Called from the full census, which is the earliest point at which the
+  /// question has an answer at all. Records a fact and refuses to draw the
+  /// conclusion from it -- see note 4 at the top of this file.
+  void resolution(uint64_t S, const llvm::Module &M);
+
   /// Record that a pass ran, whatever unit it ran on. Written in Trace and
   /// Forensic modes only.
   void passRecord(uint64_t S, llvm::StringRef Phase, llvm::StringRef PassID,
@@ -218,6 +248,13 @@ private:
   std::string LastModuleId;
   bool Announced = false;
   bool Finished = false;
+
+  /// The module the last SUBJECTRES pair was written for, and whether any pair
+  /// has been written at all. The second is what makes the "no module boundary
+  /// was ever reached" case say so, instead of leaving the question unasked and
+  /// unrecorded -- which is the failure this record exists to end.
+  std::string ResolvedModuleId;
+  bool ResolutionWritten = false;
 
   uint64_t Seq = 0;
   uint64_t PassesSeen = 0;

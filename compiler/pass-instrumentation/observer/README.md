@@ -53,6 +53,11 @@ the field named. That matters more than it looks: the failure mode of an
 observer is an empty log, and an empty log read as "nothing was lost" is worse
 than no measurement at all.
 
+That validation only asks whether the variables were *set*. Whether
+`OBS_TARGET_FN` names anything is a different question, and it is answered
+somewhere else — see [Did the run observe the subject at
+all?](#did-the-run-observe-the-subject-at-all).
+
 ### Modes
 
 | Mode | Records |
@@ -120,6 +125,90 @@ positive impossible — and the units are *grouped* into a lineage by
 `Oracle.cpp`'s `lineageRoot`. Births and deaths are explicit events, so the
 grouping is visible without being load-bearing.
 
+### Did the run observe the subject at all?
+
+There is a third way for this plugin to fail silently, and it is the one the
+other two fences do not touch.
+
+`OBS_TARGET_FN=handle_requestX` is a valid configuration of a subject that does
+not exist. Measured on `clang-18 -O2` against the erasure fixture: **rc 0, zero
+bytes on stderr, a six-line non-empty log, `STATS` counting 650 passes, and the
+control `PRESENT`.** Only the subject's rows are missing — and "no rows for the
+subject" is also what a subject erased before the first boundary looks like. The
+co-resident control cannot separate them, because the control is fine. Every
+invariant the harness had was satisfied.
+
+It cannot be caught at load time. `llvmGetPassPluginInfo` registers callbacks;
+there is no module yet, so there is nothing for a name to resolve against. The
+earliest moment the question has an answer is the first module boundary, and
+that is where the plugin writes it:
+
+```
+SUBJECTRES  seq  moduleId  role  name  resolution
+```
+
+with `resolution` one of `resolved`, `declaration-only`, `not-in-module`,
+`not-scanned` (the last meaning no module boundary was ever reached, so nobody
+asked). Four new words on purpose: none of them is a property state or a unit
+fate, because they answer a different question and a word shared between two
+questions can no longer answer either. Both roles are recorded — a control that
+resolves nowhere breaks the measurement exactly as completely, and "the control
+held" is the invariant that cannot notice it.
+
+Anything but `resolved` also goes to stderr, loudly, in the same family as
+`refusing to install`. The build is **not** failed: rc stays 0.
+
+**The plugin records the fact and refuses to draw the conclusion**, and that is
+the load-bearing part of the design. In a whole-project build the plugin is
+loaded once per translation unit, so a subject defined in one file is
+legitimately `not-in-module` in every other; module-level evidence cannot tell
+that apart from a typo. The question with an answer is about the *run*:
+
+```sh
+node tools/check-subject-resolution.mjs out/*.tsv
+# exit 0 some module resolved the names
+#      2 no module did — the run is broken
+#      3 it could not be judged (no logs, no SUBJECTRES record, or not-scanned)
+```
+
+`lib/subject-resolution.mjs` is the same logic as a module. Measured on a
+two-translation-unit build: the unit holding the subject records `resolved`, the
+other records `not-in-module`, and the aggregate passes; misspell the name and
+both record `not-in-module` and the aggregate exits 2.
+
+### ⚠ What this does NOT yet do — nothing calls it automatically
+
+**No harness in this repository invokes `check-subject-resolution.mjs`.** As of
+2026-08-17 its only caller is `test/subject-resolution.test.mjs`; `scripts/run-all.sh`
+does not run it, and it is not wired into CI (verified by grep, not assumed).
+
+So the honest description of what changed is:
+
+* **closed** — a misspelt `OBS_TARGET_FN` is now *audible* (a line on stderr) and
+  *recorded* (`SUBJECTRES … not-in-module`), and a whole run can be judged by a
+  checker that distinguishes "wrong name" from "the plugin never saw that unit".
+* **not closed** — a typo is not *automatically* detected. A caller who never runs
+  the checker and never reads stderr still gets a rc=0 build and a log whose
+  control is `PRESENT`.
+
+Wiring it into `run-all.sh` is not a one-line change and was deliberately not
+attempted next to a numbers freeze: the checker's aggregate is per *run*, and the
+five harnesses there write logs for several different configurations into one
+tree, so a naive glob reports `inconsistent-name` (correctly) and would turn a
+green harness red for a reason that is not a defect. The per-run call belongs
+with whoever drives an observation; the corpus lane does it that way.
+
+**Do not write "the third silent-failure mode is closed" without this paragraph.**
+
+The record is written to the main `OBS_OUT` log only, not to
+`<OBS_OUT>.summary.tsv` — it is written at the first module boundary, long
+before anything could truncate a run, and keeping the side file unchanged means
+every existing reader of it is untouched.
+
+```sh
+node --test compiler/pass-instrumentation/observer/test/*.test.mjs   # 22 cases
+```
+
 ### Counting
 
 `compiler/schema/interfaces.md` §4, unchanged: walk `CallBase` instructions and
@@ -133,7 +222,12 @@ call.
 Line-oriented TSV; field one is the record type. `History.h` carries the full
 field lists. `SUMMARY`, `HIST` and `STATS` are also written on their own to
 `<OBS_OUT>.summary.tsv` after every change, so a run whose process does not
-unwind still leaves a current attribution behind.
+unwind still leaves a current attribution behind. `SUBJECTRES` is the one record
+that stays out of the side file; the reason is in the section above.
+
+A reader of this log should ignore record types it does not know rather than
+reject them. The types here have been added to before and will be again, and a
+reader that fails on an unfamiliar one turns every addition into a broken tool.
 
 The log is raw observation output, not an evidence record: it carries the module
 identifier as the compiler saw it. A component that turns it into a record under
@@ -168,6 +262,10 @@ filesystem (`interfaces.md` §1):
 ~/vg-lab/pass-observer/noninvasive.mjs   the byte-identity measurement
 ~/vg-lab/pass-observer/rq2/        the ground-truth harness
 ```
+
+`lib/` and `test/` are the exception: they read a recorded log and need no
+compiler, so they run anywhere and are tested with `node --test` like the rest
+of the repository.
 
 The ground-truth harness exists because "how often is the first-loss pass right"
 has no answer until *right* is defined, and no real `-O2` compilation supplies
