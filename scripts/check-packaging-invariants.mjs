@@ -723,31 +723,56 @@ if (!PRE_BUILD) {
 // Measured on the build immediately after those changes:
 //   extensions/chrome/dist   255,326
 //   extensions/vscode/dist   257,428
-// ★ NOT REBASELINED 2026-08-23, and the measurement is here so the next person
-// does not have to take it again.
+// REBASELINED 2026-08-23 for the four rules added with the build-divergence
+// work, and the attribution was taken before the number moved.
 //
-// This gate is currently RED, and it was red before the branch that wrote this
-// note. Measured by building `main` (33c2ac5) in a clean worktree and building
-// the branch, on the same machine, minutes apart:
+// HOW IT WAS MEASURED. `git archive v0.3.4 | tar -x` into a scratch directory
+// (NOT a worktree, and with its own `npm ci` — see the warning below), built
+// there, and both bundles emitted with `--metafile` so the growth could be
+// attributed per input rather than guessed:
 //
-//   main   extensions/vscode/dist   294,164
-//   branch extensions/vscode/dist   293,076
+//   v0.3.4  257,347      (the constant below said 257,428; 81 bytes of
+//                         build-environment difference, which is what makes
+//                         the two comparable rather than identical)
+//   now     293,076      delta +35,729
 //
-// The branch is SMALLER. The ceiling is 283,170 (257,428 + 10%), so main has
-// been over it by ~36 KB for some time and CI has not said so — `--pre-build`
-// skips this half, and the post-build half is reached only where `dist/` exists.
+//   +10,213  packages/rules/dist/rules/auth.js        VG-AUTH-009/010/011
+//    +8,799  analyzer-core/dist/declared-packages.js  0.3.5 declared-package veto
+//    +7,409  extensions/vscode/src/runner.ts          0.3.5 / 0.3.6
+//    +3,939  packages/rules/dist/rules/secrets.js     VG-SEC-005 + the widened 003
+//    +2,503  packages/rules/dist/rules/lang-c.js      0.3.5 / 0.3.6
+//    +2,212  analyzer-core/dist/analyzer.js           0.3.5 / 0.3.6
+//      +595  extensions/vscode/src/{export,extension}.ts
+//    ------
+//    35,670  (59 bytes of bundler overhead unaccounted, ±0.2%)
 //
-// The doctrine three paragraphs up is why the constant is not simply moved:
-// what matters is not the size but what the size is made of. What was checked
-// here: `packages/analysis-graph`, `external-adapters`, `mcp-guard`,
-// `artifact-integrity`, `evidence-bundle` and `evidence-verifier` each appear
-// ZERO times in every shipped `.js`, and invariants 3 and 4 pass. So nothing
-// CLI-only has leaked. What was NOT established is which change between 0.3.4
-// and 0.3.6 added the 36 KB, and until somebody knows that, moving the number
-// records an acceptance nobody actually made.
+// ★ AND THE PART THAT DECIDES WHOSE REBASELINE THIS IS. 0.3.5 and 0.3.6
+// together added 21,577 bytes, which left the bundle at 278,924 — UNDER the
+// 283,170 ceiling. The four new rules added 14,152, and that is what crossed
+// it. This is not an inherited deviation being tidied up; the change that broke
+// the gate is the change rebaselining it, which is the only arrangement this
+// file's doctrine accepts.
+//
+// A superseded measurement is recorded here because it was wrong in an
+// instructive way: an earlier reading had `main` at 294,164, larger than the
+// branch, and concluded the ceiling was already breached upstream. That build
+// ran in a git worktree whose `node_modules/@vibeguard/*` were junctions into
+// THIS repository, so esbuild resolved the workspace packages to the branch's
+// own `dist/` and the "main" bundle contained the branch's rules. The same
+// junctions were then followed by `git worktree remove --force` and deleted 293
+// tracked files out of the working tree. Do not share `node_modules` into a
+// worktree; use `git archive` and a separate `npm ci`, as above.
+//
+// What was checked, and is the check that actually matters here: every
+// CLI-only package — analysis-graph, external-adapters, mcp-guard,
+// artifact-integrity, evidence-bundle, evidence-verifier — appears ZERO times
+// in every shipped `.js`, and invariants 3 and 4 pass. The growth is rule
+// weight, which is the one thing this bundle is supposed to be made of.
+//
+// Chrome is unchanged at 255,326 and measured 274,193, inside its ceiling.
 if (!PRE_BUILD) {
   const CHROME_DIST_JS_BASELINE_BYTES = 255_326;
-  const VSCODE_DIST_JS_BASELINE_BYTES = 257_428;
+  const VSCODE_DIST_JS_BASELINE_BYTES = 293_076;
   const GROWTH_TOLERANCE = 1.1;
 
   const SIZE_TARGETS = [

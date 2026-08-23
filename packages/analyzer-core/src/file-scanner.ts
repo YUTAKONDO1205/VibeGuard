@@ -83,6 +83,11 @@ async function* walk(
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch {
+    // Was a bare `return`, which is the same silence this whole channel exists
+    // to remove — and worse than the size skip it sits next to, because a
+    // directory that cannot be read hides an unknown NUMBER of files rather
+    // than one known file.
+    skips.push({ kind: 'unreadable', full: dir, looksLikeBuildOutput: false });
     return;
   }
   for (const entry of entries) {
@@ -104,6 +109,23 @@ async function* walk(
       yield* walk(full, ignore, skips);
     } else if (entry.isFile()) {
       yield full;
+    } else {
+      // ── NEITHER A FILE NOR A DIRECTORY ─────────────────────────────────────
+      //
+      // A symlink, a Windows junction, a socket, a device. `readdir` with
+      // `withFileTypes` does NOT follow links, so a symlinked source directory
+      // — the ordinary shape of a pnpm store, an Nx or Turborepo output, a
+      // `deploy` tree — reports as `isSymbolicLink()` and fell through both
+      // branches into nothing. Not scanned, and not mentioned.
+      //
+      // Still not followed: resolving links would need cycle detection and
+      // would let a scan wander outside the target the user named. What changes
+      // is that declining to follow one is now something the report says.
+      skips.push({
+        kind: entry.isSymbolicLink() ? 'link-not-followed' : 'unreadable',
+        full,
+        looksLikeBuildOutput: BUILD_OUTPUT_DIRS.has(entry.name) || looksLikeBuildArtifact(full),
+      });
     }
   }
 }
@@ -370,7 +392,9 @@ function toUnexamined(s: SkipRecord, target: string, targetIsFile: boolean): Une
         : `${path}/ was not scanned: it is on the default ignore list.`
       : s.kind === 'over-size-limit'
         ? `${path} was not scanned: ${s.bytes} bytes exceeds the ${MAX_FILE_BYTES}-byte limit. It was dropped, not cleared.`
-        : `${path} could not be read and was skipped.`;
+        : s.kind === 'link-not-followed'
+          ? `${path} is a link and was not followed, so whatever it points at was not scanned.`
+          : `${path} could not be read and was skipped.`;
   return {
     kind: s.kind,
     path,

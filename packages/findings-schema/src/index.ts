@@ -652,7 +652,7 @@ export interface ScanResponse {
  * means anything here.
  */
 export interface UnexaminedInput {
-  kind: 'ignored-directory' | 'over-size-limit' | 'unreadable';
+  kind: 'ignored-directory' | 'over-size-limit' | 'unreadable' | 'link-not-followed';
   /** Path relative to the scan target, `/`-separated. */
   path: string;
   /**
