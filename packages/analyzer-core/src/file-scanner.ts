@@ -366,7 +366,7 @@ function toUnexamined(s: SkipRecord, target: string, targetIsFile: boolean): Une
   const detail =
     s.kind === 'ignored-directory'
       ? s.looksLikeBuildOutput
-        ? `${path}/ was not scanned: it is on the default ignore list. It holds build output, so no finding below is a statement about the code this project ships.`
+        ? `${path}/ was not scanned: it is on the default ignore list. It holds build output, so no finding in this report is a statement about the code this project ships.`
         : `${path}/ was not scanned: it is on the default ignore list.`
       : s.kind === 'over-size-limit'
         ? `${path} was not scanned: ${s.bytes} bytes exceeds the ${MAX_FILE_BYTES}-byte limit. It was dropped, not cleared.`
