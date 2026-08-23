@@ -424,6 +424,20 @@ async function main(): Promise<number> {
       return 2;
     }
     process.stdout.write(fixResult.output);
+    // The fixer is a claimant, not a witness. It knows exactly what it wrote —
+    // which makes its witness token certainly correct, and makes it the most
+    // tempting claimant to believe. "I replaced a console.assert with a throw"
+    // is a statement about the SOURCE, and the subject of this ledger is that
+    // the source is not what ships. So the edits are reported as NOT_OBSERVED
+    // claims and the reader is pointed at the observation that could settle
+    // them, which is the re-scan the line below already recommends.
+    if (fixResult.claims.length) {
+      process.stdout.write(
+        `\n${fixResult.claims.length} protection(s) ${write ? 'were inserted' : 'would be inserted'} ` +
+          'and are NOT_OBSERVED: a fixer cannot vouch for its own edit surviving your build.\n' +
+          'Re-scan with --after-build <dist> to settle them.\n',
+      );
+    }
     const fixGate = FAIL_LEVEL[args.failOn];
     if (fixGate && scan.findings.some((f) => compareSeverity(f.severity, fixGate) <= 0)) {
       process.stderr.write(

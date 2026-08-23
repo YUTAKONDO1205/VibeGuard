@@ -15,7 +15,7 @@
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Finding } from '@vibeguard/findings-schema';
+import { identifierWitness, type Finding, type ProtectionClaim } from '@vibeguard/findings-schema';
 import { applyFixes, buildFix, type FixEdit } from '@vibeguard/remediation-engine';
 
 export interface AppliedFix {
@@ -247,10 +247,58 @@ export async function runFix(
   findings: Finding[],
   resolve: ResolveOptions,
   write: boolean,
-): Promise<{ output: string; code: number }> {
+): Promise<{ output: string; code: number; claims: ProtectionClaim[] }> {
   const result = await planFixes(findings, resolve);
   if (write) {
     await writePlans(result.plans);
   }
-  return { output: renderFixReport(result, write), code: 0 };
+  return { output: renderFixReport(result, write), code: 0, claims: fixerClaims(result.plans) };
+}
+
+/**
+ * What the fixer says it inserted — as a claim, not as a result.
+ *
+ * ── WHY THE FIXER IS A CLAIMANT AND NOT A WITNESS ──────────────────────────
+ *
+ * A fixer knows exactly what text it wrote, which makes it the one claimant
+ * whose witness token is certainly correct. It is also, for that same reason,
+ * the claimant most tempting to believe: it reports success, the finding
+ * disappears from a re-scan of the source, and everything looks repaired. But
+ * "I replaced a console.assert with a throw" is a statement about the SOURCE,
+ * and the entire subject of this ledger is that the source is not what ships.
+ * A fixer vouching for its own edit is the same error as an assistant vouching
+ * for its own code, one layer down.
+ *
+ * So every claim here is `NOT_OBSERVED`, and the only thing that can settle one
+ * is an observation of the shipped bytes — `--after-build` on a later run. The
+ * fix report already tells the reader to re-scan; this is what the re-scan is
+ * for.
+ *
+ * The probe is the inserted line itself, which is exactly the identity control
+ * `crossExamine` needs: a build that included this edit carries that line in
+ * its source map, and a build made before the edit does not.
+ */
+function fixerClaims(plans: FileFixPlan[]): ProtectionClaim[] {
+  const out: ProtectionClaim[] = [];
+  let n = 0;
+  for (const plan of plans) {
+    if (plan.overlapSkipped || plan.oldContent === plan.newContent) continue;
+    const lines = plan.newContent.split(/\r?\n/);
+    for (const fix of plan.fixes) {
+      const inserted = (lines[fix.line - 1] ?? '').trim();
+      const witness = inserted ? identifierWitness(inserted) : null;
+      out.push({
+        id: `fixer-claim-${++n}`,
+        claimant: `fixer:${fix.ruleId}`,
+        claimantLayer: 'fixer',
+        subject: `${fix.title} (${fix.safety})`,
+        ...(witness ? { witness } : {}),
+        ...(inserted.length >= 20 ? { sourceProbe: inserted } : {}),
+        filePath: plan.displayPath,
+        startLine: fix.line,
+        state: 'NOT_OBSERVED',
+      });
+    }
+  }
+  return out;
 }

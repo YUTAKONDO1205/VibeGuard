@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { Finding } from '@vibeguard/findings-schema';
+import { claimsFromFindings, summariseClaims, type Finding } from '@vibeguard/findings-schema';
 import type { ScanRunner } from './runner.js';
 
 const HIGH_SEVERITIES = new Set<Finding['severity']>(['critical', 'high']);
@@ -54,8 +54,31 @@ export class StatusBarManager implements vscode.Disposable {
     // VS Code restricts statusBarItem.backgroundColor to the two tokens below,
     // so palette red/yellow are applied to the foreground color instead.
     const hasHigh = findings.some((f) => HIGH_SEVERITIES.has(f.severity));
+    // ── THE LEDGER, ON THE SURFACE THE USER ACTUALLY WATCHES ────────────────
+    //
+    // Some of these findings are not "you wrote something dangerous" but "you
+    // wrote a protection in a form a build step removes". The editor cannot
+    // check that — it has one file and no build output — and the honest thing
+    // is to say which findings are in that class and that they were NOT
+    // checked, rather than to let them read as ordinary issues.
+    //
+    // Every claim built here is NOT_OBSERVED by construction: nothing in this
+    // process can settle one, and `claimsFromFindings` could not produce a
+    // settled claim even if something tried.
+    const claims = claimsFromFindings(findings);
+    const ledger = summariseClaims(claims);
     this.item.text = `$(shield) VibeGuard: ${findings.length} ${findings.length === 1 ? 'issue' : 'issues'}`;
-    this.item.tooltip = `${findings.length} security finding${findings.length === 1 ? '' : 's'} — click to open the VibeGuard Findings view.`;
+    this.item.tooltip = [
+      `${findings.length} security finding${findings.length === 1 ? '' : 's'} — click to open the VibeGuard Findings view.`,
+      ...(ledger.total
+        ? [
+            '',
+            `${ledger.total} of them declare a protection that a build step can remove.`,
+            'This editor cannot see your build output, so they are UNVERIFIED here.',
+            'Run: vibeguard <dir> --after-build <your dist directory>',
+          ]
+        : []),
+    ].join('\n');
     this.item.color = new vscode.ThemeColor(hasHigh ? 'vibeguard.critical' : 'vibeguard.issue');
     this.item.backgroundColor = new vscode.ThemeColor(
       hasHigh ? 'statusBarItem.errorBackground' : 'statusBarItem.warningBackground',

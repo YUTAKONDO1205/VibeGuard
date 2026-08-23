@@ -31,7 +31,8 @@
 // user, so the artefact half never asserts a property of the bundle without
 // also asserting that the bundle still FINDS something.
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -220,5 +221,157 @@ describe('CLI bundle: what the tarball will contain', () => {
       expect(bundleRules).toEqual(sourceRules);
     },
     60_000,
+  );
+});
+
+describe('--after-build, exercised through the BUILT CLI', () => {
+  // ── WHY THIS SPAWNS dist/index.js AND NOT THE SOURCE ──────────────────────
+  //
+  // The feature reaches its dependencies through two dynamic imports and a
+  // subpath export. Every one of those is a thing that resolves in a workspace
+  // and can fail in a tarball, and the failure mode is quiet by design: the
+  // catch writes one line to stderr and the run continues. A unit test over the
+  // source would pass while the shipped CLI silently never checked anything —
+  // which is precisely the class of defect this whole feature exists to detect,
+  // and it would be embarrassing to ship it inside the detector.
+  //
+  // It also pins the guard. `crossExamine` takes `illegalClaimTransition` as an
+  // argument, so a refactor could pass `() => null` and every unit test would
+  // still pass. Here the real one is wired or the states below do not appear.
+
+  const SOURCE = [
+    'export function deleteUser(session, targetId) {',
+    "  if (process.env.NODE_ENV !== 'production') {",
+    "    if (!session.isAdmin) throw new Error('forbidden');",
+    '  }',
+    '  return db.remove(targetId);',
+    '}',
+    'export function purge(session, id) {',
+    '  if (import.meta.env.DEV) {',
+    "    if (!session.isOwner) throw new Error('unauthorized');",
+    '  }',
+    '  return db.drop(id);',
+    '}',
+  ].join('\n');
+
+  function project(): { root: string; src: string; dist: string } {
+    const root = mkdtempSync(join(tmpdir(), 'vg-afterbuild-'));
+    const src = join(root, 'src');
+    const dist = join(root, 'dist');
+    mkdirSync(src);
+    mkdirSync(dist);
+    writeFileSync(join(src, 'app.js'), `${SOURCE}\n`, 'utf8');
+    return { root, src, dist };
+  }
+
+  function build(src: string, dist: string): void {
+    execFileSync(
+      process.execPath,
+      [
+        join(REPO_ROOT, 'node_modules', 'esbuild', 'bin', 'esbuild'),
+        join(src, 'app.js'),
+        '--minify',
+        '--format=esm',
+        '--drop:console',
+        '--sourcemap',
+        `--outfile=${join(dist, 'app.js')}`,
+      ],
+      { stdio: ['ignore', 'ignore', 'pipe'] },
+    );
+  }
+
+  function scan(target: string, extra: string[]): { findings: unknown[]; [k: string]: unknown } {
+    const stdout = execFileSync(
+      process.execPath,
+      [BUNDLE, target, '--mode', 'standard', '--format', 'json', '--fail-on', 'never', ...extra],
+      { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    return JSON.parse(stdout);
+  }
+
+  it.runIf(built)(
+    name('the shipped CLI settles claims against the shipped bytes'),
+    () => {
+      const { src, dist } = project();
+      build(src, dist);
+      const report = scan(src, ['--after-build', dist]) as {
+        protectionClaims?: { state: string; witness?: string }[];
+        afterBuild?: { artefactsRead: number; artefactsMeasured: number };
+      };
+      const claims = report.protectionClaims ?? [];
+      // Vacuity guard: if the rules stop firing, every assertion below passes
+      // over an empty array.
+      expect(claims.length, 'the fixture must produce claims').toBeGreaterThan(0);
+      expect(report.afterBuild?.artefactsMeasured).toBeGreaterThan(0);
+
+      const states = new Set(claims.map((c) => c.state));
+      // The guard that esbuild folds away is gone from the code and still in
+      // the map; the one behind import.meta.env.DEV survives this build. If the
+      // dynamic imports had failed, everything would be NOT_OBSERVED.
+      expect(states.has('REINTRODUCED'), `states were ${[...states].join(', ')}`).toBe(true);
+      expect(states.has('PRESENT'), `states were ${[...states].join(', ')}`).toBe(true);
+    },
+    120_000,
+  );
+
+  it.runIf(built)(
+    name('a vendor chunk carrying the same tokens cannot turn a loss into a pass'),
+    () => {
+      const { src, dist } = project();
+      build(src, dist);
+      // Another chunk that mentions every witness and knows nothing of this
+      // source. Before jurisdiction, this flipped the verdicts to PRESENT.
+      writeFileSync(
+        join(dist, 'vendor.js'),
+        'export function can(u){return u.isAdmin && u.isOwner}\n//# sourceMappingURL=vendor.js.map\n',
+        'utf8',
+      );
+      writeFileSync(
+        join(dist, 'vendor.js.map'),
+        JSON.stringify({
+          version: 3,
+          sources: ['v.js'],
+          sourcesContent: ['export function can(u){return u.isAdmin && u.isOwner}'],
+        }),
+        'utf8',
+      );
+      const report = scan(src, ['--after-build', dist]) as {
+        protectionClaims?: { state: string }[];
+      };
+      const states = (report.protectionClaims ?? []).map((c) => c.state);
+      expect(states).toContain('REINTRODUCED');
+    },
+    120_000,
+  );
+
+  it.runIf(built)(
+    name('claims are reported without --after-build, as claims rather than results'),
+    () => {
+      const { src } = project();
+      const report = scan(src, []) as { protectionClaims?: { state: string }[]; afterBuild?: unknown };
+      const claims = report.protectionClaims ?? [];
+      expect(claims.length).toBeGreaterThan(0);
+      // Nothing settled anything, and nothing pretended to.
+      expect(claims.every((c) => c.state === 'NOT_OBSERVED')).toBe(true);
+      expect(report.afterBuild).toBeUndefined();
+    },
+    120_000,
+  );
+
+  it.runIf(built)(
+    name('a build directory with nothing to read is reported, not passed over'),
+    () => {
+      const { src, dist } = project();
+      const report = scan(src, ['--after-build', dist]) as {
+        afterBuild?: { artefactsRead: number };
+        protectionClaims?: { state: string }[];
+      };
+      // dist exists and is empty. "We looked and there was nothing" must be
+      // distinguishable from "we never looked".
+      expect(report.afterBuild).toBeDefined();
+      expect(report.afterBuild?.artefactsRead).toBe(0);
+      expect((report.protectionClaims ?? []).every((c) => c.state === 'NOT_OBSERVED')).toBe(true);
+    },
+    120_000,
   );
 });
