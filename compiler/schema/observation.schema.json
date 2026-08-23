@@ -180,8 +180,8 @@
     },
 
     "checkpoint": {
-      "description": "The five checkpoints of policy.schema.json properties[].observeAt, unchanged so that a policy and a record use one vocabulary.",
-      "enum": ["ast", "pre-opt-ir", "after-pass", "object", "linked"]
+      "description": "The seven checkpoints of policy.schema.json properties[].observeAt, in pipeline order, held identical to it by observation-schema.test.mjs so that a policy and a record use one vocabulary. `invocation` and `artifact` were added 2026-08-23: properties.json checkpointOwners had owned both since 2026-08-16 and three IMPLEMENTED entries (configured.optimisation-level, configured.ndebug, configured.pie-relro-nx) named them, so a policy that asked for a check this tree performs was rejected by its own schema. The list is the one docs/manuscript draft section 4.1 already prints. Other spellings in this tree -- ir-pre-opt/ir-post-opt/link in compiler/clang-plugin, preprocess/ir-pre/ir-post/asm in compiler/eval/ablation and the STAGE_TABLE in compiler/evidence/verify.mjs -- are NOT renamed to these, because pinned digest vectors and frozen manuscript macros are computed over those bytes. They are aliases, and the alias table is the place that says so.",
+      "enum": ["invocation", "ast", "pre-opt-ir", "after-pass", "object", "linked", "artifact"]
     },
 
     "stage": {
