@@ -297,12 +297,38 @@ function findDeclared(findings, ruleId, line) {
 /**
  * SCOPE 2.1's INDEPENDENT pairing rule, re-derived here without looking at the
  * generator's declared ruleId/line: same file, line within ±2 of the expected
- * position, same rule FAMILY. Agreement with the generator's explicit pairing is
+ * position, and a rule key. Agreement with the generator's explicit pairing is
  * the cross-check; disagreement is a bug signal in the generator (or in us).
+ *
+ * ── TWO GRANULARITIES, AND WHY BOTH ARE COMPUTED ────────────────────────────
+ *
+ * SCOPE §2.1 says the key is the rule FAMILY, verbatim: 「同一ファイル × 行±L
+ * （L=2…）× rule族一致」. That spelling is what §Limitations names as a
+ * construct limitation, and it is the number the ledger's 6j-3 row tracks, so
+ * it is not deleted here — it is computed as `pairingAgreementFamily`.
+ *
+ * But family is ambiguous the moment two rules of one family land within the
+ * tolerance of each other, and that stopped being hypothetical: VG-SEC-003 and
+ * VG-SEC-005 both fire on test_problem.py:37, so the re-derivation could not
+ * tell them apart and reported five disagreements — one per transform — for a
+ * pairing that was never in doubt. That is a defect in the cross-check, not a
+ * finding about the generator, and lowering the gate's floor to accommodate it
+ * would have blunted a detector to hide a measurement bug.
+ *
+ * So the primary `pairingAgreement` now keys on `ruleId`, which is strictly
+ * more precise. Strictly: a candidate that matched on ruleId also matched on
+ * family (families are derived from ids), the distance sort is unchanged, and
+ * agreement is an equality against a ruleId-keyed declaration — so tightening
+ * the filter can only turn a disagreement into an agreement, never the reverse.
+ * The floor in sec-selftest-baseline.json is therefore NOT moved.
+ *
+ * What ruleId granularity does NOT fix: two findings of the SAME rule one line
+ * apart. VG-QUAL-007 at test_problem.py:179 and :180 stay mutually ambiguous,
+ * which is the pre-existing cluster the 6j-3 ledger row describes.
  */
-function independentPair(findings, family, expectedLine) {
+function independentPairBy(findings, keyName, keyValue, expectedLine) {
   const cands = findings
-    .filter((f) => f.ruleFamily === family)
+    .filter((f) => f[keyName] === keyValue)
     .filter(
       (f) =>
         Math.abs(f.line - expectedLine) <= PAIR_LINE_TOLERANCE ||
@@ -316,6 +342,7 @@ const pairRows = [];
 const excludedOptOutPairs = [];
 const unresolved = [];
 let agreeCount = 0;
+let agreeCountFamily = 0;
 let agreeDenom = 0;
 
 for (const p of [...manifest.pairs].sort((a, b) => String(a.pairId).localeCompare(String(b.pairId)))) {
@@ -353,13 +380,17 @@ for (const p of [...manifest.pairs].sort((a, b) => String(a.pairId).localeCompar
   // generator actually chose). Expected line = origLine + lineDelta when the
   // generator declares one, else the declared disguisedLine.
   const expected = p.disguisedLine ?? p.origLine + (p.lineDelta ?? 0);
-  const indep = independentPair(disgFindings, family, expected);
+  const indep = independentPairBy(disgFindings, 'ruleId', ruleId, expected);
+  const indepFamily = independentPairBy(disgFindings, 'ruleFamily', family, expected);
   agreeDenom += 1;
   const declared = disgHit.finding;
-  const agrees =
-    (declared == null && indep == null) ||
-    (declared != null && indep != null && declared.ruleId === indep.ruleId && declared.line === indep.line);
+  const matches = (cand) =>
+    (declared == null && cand == null) ||
+    (declared != null && cand != null && declared.ruleId === cand.ruleId && declared.line === cand.line);
+  const agrees = matches(indep);
+  const agreesFamily = matches(indepFamily);
   if (agrees) agreeCount += 1;
+  if (agreesFamily) agreeCountFamily += 1;
 
   pairRows.push({
     pairId: p.pairId,
@@ -397,6 +428,7 @@ for (const p of [...manifest.pairs].sort((a, b) => String(a.pairId).localeCompar
         : origHit.finding.severity === RULE_SEVERITY.get(ruleId) &&
           (disgHit.finding == null || disgHit.finding.severity === RULE_SEVERITY.get(ruleId)),
     pairingAgrees: agrees,
+    pairingAgreesFamily: agreesFamily,
     resolution: { orig: origHit.how, disguised: disgHit.how },
   });
 }
@@ -707,10 +739,22 @@ const result = {
     severityRegistryViolations: pairRows.filter((r) => r.severityMatchesRegistry === false).length,
   },
   pairingAgreement: agreeDenom === 0 ? null : ratio(agreeCount, agreeDenom),
+  // SCOPE §2.1 spelled literally (rule FAMILY), kept rather than replaced: the
+  // document says family, and the ledger's 6j-3 row tracks this series. The
+  // primary number above is the same check keyed on ruleId — see
+  // `independentPairBy` for why the primary had to be tightened.
+  pairingAgreementFamily: agreeDenom === 0 ? null : ratio(agreeCountFamily, agreeDenom),
   pairingAgreementDetail: {
-    rule: 'SCOPE 2.1 — same file × line ±2 × rule family, re-derived independently of the manifest ruleId/line',
+    rule: 'same file × line ±2, re-derived independently of the manifest ruleId/line. PRIMARY KEY: ruleId. The `Family` fields are SCOPE 2.1 spelled literally (rule family), which is ambiguous whenever two rules of one family land inside the tolerance.',
     agreed: agreeCount,
     checked: agreeDenom,
+    agreedFamily: agreeCountFamily,
+    // Pairs the tightened key resolved that the literal SCOPE key could not.
+    // Listed rather than counted: this is the evidence that the change removed
+    // a measurement ambiguity and not a real disagreement.
+    disagreementsFamilyOnly: pairRows
+      .filter((r) => r.pairingAgrees && !r.pairingAgreesFamily)
+      .map((r) => ({ pairId: r.pairId, transform: r.transform, ruleId: r.ruleId })),
     disagreements: pairRows.filter((r) => !r.pairingAgrees).map((r) => ({
       pairId: r.pairId,
       transform: r.transform,
@@ -813,7 +857,8 @@ for (const t of THRESHOLDS) {
 }
 
 console.log(
-  `\n## pairing cross-check\n\n- SCOPE 2.1 agreement: **${result.pairingAgreement ?? 'n/a'}** (${agreeCount}/${agreeDenom})` +
+  `\n## pairing cross-check\n\n- agreement (ruleId key): **${result.pairingAgreement ?? 'n/a'}** (${agreeCount}/${agreeDenom})` +
+    `\n- agreement (SCOPE 2.1 literal, family key): **${result.pairingAgreementFamily ?? 'n/a'}** (${agreeCountFamily}/${agreeDenom})` +
     `${result.pairingAgreementDetail.disagreements.length ? ` ⚠ ${result.pairingAgreementDetail.disagreements.length} disagreement(s)` : ' ✓'}`,
 );
 for (const d of result.pairingAgreementDetail.disagreements.slice(0, 10)) {
