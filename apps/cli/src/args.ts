@@ -30,6 +30,8 @@ export interface CliArgs {
   ignore: string[];
   /** Git revision range; when set, scan only added lines in `git diff <range>`. */
   diff?: string;
+  /** Directory of build output to cross-examine source-layer claims against. */
+  afterBuild?: string;
   /** Explicit path to a vibeguard config file. When omitted, auto-discovers in the target dir. */
   config?: string;
   /** Skip config auto-discovery entirely. */
@@ -95,6 +97,9 @@ Options:
   --ignore <name>               Extra directory name to ignore (repeatable)
   --diff <range>                Scan only lines added in \`git diff <range>\`
                                 (e.g. main...HEAD, origin/main..., HEAD~3..HEAD)
+  --after-build <dir>           Also read the build output in <dir> and report which
+                                protections found in the source are missing from the
+                                bytes the project ships
   --include-design-smells       Also run cross-file design-smell analysis over the whole
                                 target (VG-SMELL-*). Reads every source file in the tree,
                                 so it costs more than the default per-file scan.
@@ -192,6 +197,12 @@ export function parseArgs(argv: string[]): CliArgs | { help: true } | { version:
       const v = argv[++i];
       if (!v) return { error: '--ignore requires a value' };
       args.ignore.push(v);
+      continue;
+    }
+    if (a === '--after-build') {
+      const v = argv[++i];
+      if (!v) return { error: '--after-build requires a directory' };
+      args.afterBuild = v;
       continue;
     }
     if (a === '--diff') {

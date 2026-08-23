@@ -246,6 +246,61 @@ async function main(): Promise<number> {
   // legitimate invocation and gets a spoken degradation, because a user who
   // asked for a cross-check and silently received none would reasonably read the
   // clean result as corroboration by tools that never looked.
+  // ── --after-build: cross-examine the source layer against the shipped bytes ─
+  //
+  // Dynamic import for the same reason `@vibeguard/analysis-graph` is: this
+  // package reads files off disk and must never reach an extension bundle.
+  //
+  // The whole block is observability. It adds `protectionClaims` to the report
+  // and changes nothing about `summary`, `findings` or the exit code — the same
+  // posture as `degradations` and `suppressions`, and for a sharper reason than
+  // either. A claim settled `LOST` is a strong statement, but it rests on a
+  // witness token matched by substring against minified text, and the day that
+  // gates a build is the day somebody adds `--no-after-build` to their CI and
+  // stops reading any of it.
+  //
+  // It also never stays quiet. A build directory that could not be read, or one
+  // whose artefacts carry no source map, produces `NOT_OBSERVED` claims and a
+  // printed reason, because "we looked and the protections are fine" and "we
+  // could not look" are the two things this entire feature exists to keep apart.
+  if (args.afterBuild) {
+    try {
+      const { observeBundleDir } = await import('@vibeguard/artifact-integrity/bundle');
+      const { claimsFromFindings, crossExamine } = await import(
+        '@vibeguard/artifact-integrity/cross-examine'
+      );
+      const { illegalClaimTransition } = await import('@vibeguard/findings-schema');
+      const claims = claimsFromFindings(scan.findings);
+      if (claims.length) {
+        const witnesses = [...new Set((claims as { witness?: string }[]).map((c) => c.witness).filter(Boolean))] as string[];
+        // The control. Not optional: without a token that is certainly in the
+        // original text, an empty witness result is indistinguishable from a
+        // source map this code failed to assemble, and the second one would
+        // print as the first. `function` is in every JavaScript source file
+        // this rule set produces claims about; if it is absent, the control is
+        // correctly reported as dead and every claim stays NOT_OBSERVED.
+        const observation = await observeBundleDir(args.afterBuild, {
+          witnesses,
+          control: 'function',
+        });
+        const settled = crossExamine(claims, observation, illegalClaimTransition);
+        scan.protectionClaims = settled;
+        for (const s of observation.skipped) {
+          process.stderr.write(`note: --after-build skipped ${s.path}: ${s.reason}\n`);
+        }
+        if (!observation.records.length) {
+          process.stderr.write(
+            `note: --after-build found no readable JavaScript under ${args.afterBuild}; every claim is NOT_OBSERVED\n`,
+          );
+        }
+      }
+    } catch (err) {
+      process.stderr.write(
+        `note: --after-build did not run (${(err as Error).message}). The protections found in the source were NOT checked against the shipped bytes.\n`,
+      );
+    }
+  }
+
   if (args.ensemble) {
     try {
       const { mergeEnsemble, notSupplied, parseSemgrepReport, parseCodeqlSarifReport, unreadableReport } =

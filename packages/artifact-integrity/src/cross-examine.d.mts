@@ -24,7 +24,15 @@ export declare const CLAIM_BEARING_RULES: Readonly<
 export declare function identifierWitness(evidence: string): string | null;
 
 export declare function claimsFromFindings(
-  findings: { ruleId: string; evidence?: string; filePath?: string; startLine?: number }[],
+  findings: {
+    ruleId: string;
+    /** The rule's raw evidence lines, as `Finding` carries them. */
+    evidence?: string[];
+    /** The matched source line, which is what a witness is usually pulled from. */
+    snippet?: string;
+    filePath?: string;
+    startLine?: number;
+  }[],
 ): ProtectionClaim[];
 
 export declare function claimsFromAssistantProse(

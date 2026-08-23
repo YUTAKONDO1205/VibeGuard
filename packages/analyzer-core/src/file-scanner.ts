@@ -10,6 +10,7 @@ import {
   type ScanMode,
   type ScanResponse,
   type DeclaredPackageVetoRecord,
+  type UnexaminedInput,
 } from '@vibeguard/findings-schema';
 import { Analyzer, ENGINE_VERSION, type AnalyzerOptions } from './analyzer.js';
 import { detectLanguageFromPath } from './language-detect.js';
@@ -50,7 +51,34 @@ export const DEFAULT_IGNORE = new Set([
  */
 export const MAX_FILE_BYTES = 1_000_000;
 
-async function* walk(dir: string, ignore: Set<string>): AsyncGenerator<string> {
+/**
+ * Directory names on `DEFAULT_IGNORE` that hold what a project SHIPS rather
+ * than what it depends on.
+ *
+ * The distinction is the whole point of reporting skips at all. Skipping
+ * `node_modules` is housekeeping and nobody needs telling. Skipping `dist` is
+ * skipping the only artifact the user's visitors will ever execute, and until
+ * `unexamined` existed the scan said the same thing about both: nothing.
+ *
+ * Membership here does NOT change what is skipped. It changes how loudly the
+ * skip is reported.
+ */
+const BUILD_OUTPUT_DIRS = new Set(['dist', 'build', 'out', '.next', '.turbo']);
+
+/** A path the walk declined to descend into or read, with the reason. */
+interface SkipRecord {
+  kind: UnexaminedInput['kind'];
+  /** Absolute path, converted to a target-relative one by the caller. */
+  full: string;
+  looksLikeBuildOutput: boolean;
+  bytes?: number;
+}
+
+async function* walk(
+  dir: string,
+  ignore: Set<string>,
+  skips: SkipRecord[],
+): AsyncGenerator<string> {
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
@@ -58,10 +86,22 @@ async function* walk(dir: string, ignore: Set<string>): AsyncGenerator<string> {
     return;
   }
   for (const entry of entries) {
-    if (ignore.has(entry.name)) continue;
+    if (ignore.has(entry.name)) {
+      // Only directories are recorded. An ignore entry that matched a file is
+      // a configuration choice about one file; an ignored directory is an
+      // unknown quantity of unread input, which is the thing worth saying.
+      if (entry.isDirectory()) {
+        skips.push({
+          kind: 'ignored-directory',
+          full: join(dir, entry.name),
+          looksLikeBuildOutput: BUILD_OUTPUT_DIRS.has(entry.name),
+        });
+      }
+      continue;
+    }
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
-      yield* walk(full, ignore);
+      yield* walk(full, ignore, skips);
     } else if (entry.isFile()) {
       yield full;
     }
@@ -133,10 +173,14 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
 
   const stats = await stat(target);
   const files: string[] = [];
+  // Collected during the walk and while reading, then turned into
+  // `unexamined` at the end. A scan that opened nothing it was asked to open
+  // has to be able to say so; see `ScanResponse.unexamined`.
+  const skips: SkipRecord[] = [];
   if (stats.isFile()) {
     files.push(target);
   } else {
-    for await (const file of walk(target, ignore)) {
+    for await (const file of walk(target, ignore, skips)) {
       files.push(file);
     }
   }
@@ -161,13 +205,28 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
     try {
       info = await stat(file);
     } catch {
+      skips.push({ kind: 'unreadable', full: file, looksLikeBuildOutput: false });
       continue;
     }
-    if (info.size > MAX_FILE_BYTES) continue;
+    if (info.size > MAX_FILE_BYTES) {
+      // Was a bare `continue`. The cap stays exactly where it was — what
+      // changes is that the drop leaves a trace. A production bundle is
+      // routinely several MB, so this branch is not an edge case for the
+      // projects this tool exists to protect: it is the common case, and it
+      // was silent.
+      skips.push({
+        kind: 'over-size-limit',
+        full: file,
+        looksLikeBuildOutput: looksLikeBuildArtifact(file),
+        bytes: info.size,
+      });
+      continue;
+    }
     let content: string;
     try {
       content = await readFile(file, 'utf8');
     } catch {
+      skips.push({ kind: 'unreadable', full: file, looksLikeBuildOutput: false });
       continue;
     }
     const relPath = stats.isFile() ? file : relative(target, file).split(sep).join('/');
@@ -268,5 +327,55 @@ export async function scanPath(target: string, options: ScanPathOptions = {}): P
       : vetoArmed
         ? { declaredPackageVetoes: [] }
         : {}),
+    ...(skips.length
+      ? {
+          unexamined: skips
+            .map((s) => toUnexamined(s, target, stats.isFile()))
+            // Build output first: it is the only kind whose omission changes
+            // what a green tick means.
+            .sort((a, b) =>
+              a.looksLikeBuildOutput === b.looksLikeBuildOutput
+                ? a.path.localeCompare(b.path)
+                : a.looksLikeBuildOutput
+                  ? -1
+                  : 1,
+            ),
+        }
+      : {}),
+  };
+}
+
+/**
+ * Whether a path that was dropped for size is plausibly a build artifact.
+ *
+ * Deliberately weak — it reads the path, nothing else — and it must stay weak,
+ * because it is a sort key and a sentence, never an admission decision. A false
+ * positive here promotes an ordinary large file up the list; a false negative
+ * leaves a bundle further down a list it is still on. Neither hides anything,
+ * which is the only property this predicate needs.
+ */
+function looksLikeBuildArtifact(file: string): boolean {
+  const parts = file.split(sep);
+  if (parts.some((p) => BUILD_OUTPUT_DIRS.has(p))) return true;
+  const base = parts[parts.length - 1] ?? '';
+  return /\.(?:min\.js|min\.css|bundle\.js|js\.map|css\.map)$/i.test(base);
+}
+
+function toUnexamined(s: SkipRecord, target: string, targetIsFile: boolean): UnexaminedInput {
+  const path = targetIsFile ? s.full : relative(target, s.full).split(sep).join('/');
+  const detail =
+    s.kind === 'ignored-directory'
+      ? s.looksLikeBuildOutput
+        ? `${path}/ was not scanned: it is on the default ignore list. It holds build output, so no finding below is a statement about the code this project ships.`
+        : `${path}/ was not scanned: it is on the default ignore list.`
+      : s.kind === 'over-size-limit'
+        ? `${path} was not scanned: ${s.bytes} bytes exceeds the ${MAX_FILE_BYTES}-byte limit. It was dropped, not cleared.`
+        : `${path} could not be read and was skipped.`;
+  return {
+    kind: s.kind,
+    path,
+    looksLikeBuildOutput: s.looksLikeBuildOutput,
+    ...(s.bytes === undefined ? {} : { bytes: s.bytes }),
+    detail,
   };
 }
