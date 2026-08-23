@@ -40,6 +40,18 @@ const WITNESS_KEYWORDS = new Set([
   'function', 'assert', 'console', 'process', 'env', 'true', 'false', 'null',
   'undefined', 'typeof', 'await', 'async', 'this', 'not', 'and', 'or',
   'production', 'development', 'NODE_ENV', 'raise', 'def', 'import',
+  // ── HOST AND LANGUAGE PROPERTY NAMES ──────────────────────────────────────
+  //
+  // These reach the property branch below and beat the domain name, which is
+  // the failure the property-first rule was supposed to fix rather than cause.
+  // Measured: `if (import.meta.env.DEV) { if (!session.isOwner) throw }` chose
+  // `meta` over `isOwner`. `meta` is in every bundle that uses `import.meta`,
+  // so the claim then resolved PRESENT on a token belonging to the module
+  // system — the right verdict for the wrong reason, which is worse than a
+  // wrong verdict because it looks like the mechanism working.
+  'meta', 'length', 'prototype', 'constructor', 'default', 'exports', 'module',
+  'window', 'document', 'globalThis', 'self', 'target', 'value', 'data', 'type',
+  'name', 'message', 'stack', 'code', 'status', 'error',
 ]);
 
 /**

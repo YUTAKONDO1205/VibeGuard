@@ -212,3 +212,51 @@ test('a guard that refuses is honoured, whatever the observation said', () => {
   assert.equal(settled[0].note, 'refused by the guard under test');
   assert.equal(settled[0].crossExaminedAt, undefined);
 });
+
+test('a probe common enough to match many artefacts identifies none of them', () => {
+  // Length is not identity, and MIN_PROBE_CHARS only buys length. Measured on
+  // this repository's corpus: VG-AUTH-009's probe is
+  // `if (process.env.NODE_ENV !== 'production') {` — 44 characters, and one of
+  // the most common lines in the ecosystem. Without this guard it hands
+  // jurisdiction to whichever chunk happens to carry it.
+  const common = "if (process.env.NODE_ENV !== 'production') {";
+  const settled = crossExamine(
+    [sourceClaim({ sourceProbe: common, filePath: undefined })],
+    observation([
+      artefact('a.js', 'x.isAdmin', common),
+      artefact('b.js', 'y', common),
+      artefact('c.js', 'z', common),
+      artefact('d.js', 'w', common),
+    ]),
+    illegal,
+  );
+  assert.equal(settled[0].state, 'NOT_OBSERVED');
+  assert.match(settled[0].note, /does not identify one of them/);
+});
+
+test('the source file narrows jurisdiction when the map names its sources', () => {
+  // A tie-break on the basename, never the primary test: bundlers rewrite these
+  // paths, so a miss must leave the wider set rather than empty it.
+  const common = "if (process.env.NODE_ENV !== 'production') {";
+  const mine = { ...artefact('app.js', 'function o(){}', common), sources: ['src/app.js'] };
+  const theirs = { ...artefact('vendor.js', 'u.isAdmin', common), sources: ['node_modules/react/index.js'] };
+  const settled = crossExamine(
+    [sourceClaim({ sourceProbe: common, filePath: 'src/app.js', witness: 'isAdmin' })],
+    observation([mine, theirs]),
+    illegal,
+  );
+  // The vendor chunk carries the witness. Narrowing keeps it out, so the
+  // verdict is the true one: gone from the artefact that holds this source.
+  assert.equal(settled[0].state, 'LOST');
+});
+
+test('a basename that matches nothing leaves the jurisdiction as it was', () => {
+  const common = "if (process.env.NODE_ENV !== 'production') {";
+  const a = { ...artefact('app.js', 'function o(){}', common), sources: ['webpack:///./weird.ts'] };
+  const settled = crossExamine(
+    [sourceClaim({ sourceProbe: common, filePath: 'src/app.js', witness: 'neverAppears' })],
+    observation([a]),
+    illegal,
+  );
+  assert.equal(settled[0].state, 'LOST');
+});

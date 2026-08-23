@@ -424,18 +424,32 @@ async function main(): Promise<number> {
       return 2;
     }
     process.stdout.write(fixResult.output);
-    // The fixer is a claimant, not a witness. It knows exactly what it wrote —
-    // which makes its witness token certainly correct, and makes it the most
+    // The fixer is a claimant, not a witness. It knows exactly what it wrote,
+    // which makes its witness token certainly correct and makes it the most
     // tempting claimant to believe. "I replaced a console.assert with a throw"
     // is a statement about the SOURCE, and the subject of this ledger is that
-    // the source is not what ships. So the edits are reported as NOT_OBSERVED
-    // claims and the reader is pointed at the observation that could settle
-    // them, which is the re-scan the line below already recommends.
+    // the source is not what ships. So the edits are NOT_OBSERVED.
+    //
+    // ★ AND THE SENTENCE THAT USED TO BE HERE WAS FALSE. It said "Re-scan with
+    // --after-build <dist> to settle them", and that promise cannot be kept:
+    // the moment the fix succeeds, the finding it repaired is gone from the
+    // source, so a later scan's `claimsFromFindings` has nothing to rebuild the
+    // claim from. The claim is not settled by a re-scan — it disappears from
+    // the ledger entirely, and whether the inserted protection survives the
+    // build is then never checked by anything.
+    //
+    // Saying so is the point. A channel whose whole subject is the difference
+    // between "verified" and "nobody looked" does not get to print an
+    // unavailable verification and let the reader assume it happened. The
+    // repair is a persistent fixer ledger that outlives the finding, and it is
+    // not built here; until it is, this says what is actually true.
     if (fixResult.claims.length) {
       process.stdout.write(
         `\n${fixResult.claims.length} protection(s) ${write ? 'were inserted' : 'would be inserted'} ` +
           'and are NOT_OBSERVED: a fixer cannot vouch for its own edit surviving your build.\n' +
-          'Re-scan with --after-build <dist> to settle them.\n',
+          'These claims are NOT tracked past this run — once the finding is fixed there is nothing\n' +
+          'left for a later scan to rebuild them from, so no channel currently checks whether the\n' +
+          'inserted protection survives your build.\n',
       );
     }
     const fixGate = FAIL_LEVEL[args.failOn];

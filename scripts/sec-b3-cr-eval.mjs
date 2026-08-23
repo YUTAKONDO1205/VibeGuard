@@ -322,9 +322,13 @@ function findDeclared(findings, ruleId, line) {
  * the filter can only turn a disagreement into an agreement, never the reverse.
  * The floor in sec-selftest-baseline.json is therefore NOT moved.
  *
- * What ruleId granularity does NOT fix: two findings of the SAME rule one line
- * apart. VG-QUAL-007 at test_problem.py:179 and :180 stay mutually ambiguous,
- * which is the pre-existing cluster the 6j-3 ledger row describes.
+ * What was expected NOT to be fixed, and was: two findings of the SAME rule one
+ * line apart — VG-QUAL-007 at test_problem.py:179 and :180 — since ruleId
+ * cannot separate two findings that share it. The measurement says otherwise:
+ * agreement went to 412/412, so those eight resolved too. The reason is that
+ * the family pool held OTHER VG-QUAL rules within the tolerance, and dropping
+ * them left the distance sort with a single nearest candidate. Written down
+ * because the prediction was wrong and the number is what settles it.
  */
 function independentPairBy(findings, keyName, keyValue, expectedLine) {
   const cands = findings

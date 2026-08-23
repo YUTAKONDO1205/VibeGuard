@@ -36,6 +36,18 @@ describe('identifierWitness', () => {
     expect(identifierWitness('if (x) {}')).toBeNull();
   });
 
+  it('refuses host and language property names, which beat the domain name', () => {
+    // Measured: `if (import.meta.env.DEV) { if (!session.isOwner) throw }` chose
+    // `meta` over `isOwner`, because `.meta` is a property access and the rule
+    // is property-first. `meta` is in every bundle that uses `import.meta`, so
+    // the claim then resolved PRESENT on a token belonging to the module system
+    // — the right verdict for the wrong reason, which is worse than a wrong one
+    // because it looks like the mechanism working.
+    expect(identifierWitness('if (import.meta.env.DEV) { … session.isOwner … }')).toBe('isOwner');
+    expect(identifierWitness('err.message')).toBeNull();
+    expect(identifierWitness('res.status')).toBeNull();
+  });
+
   it('falls back to a called function name when there is no property access', () => {
     expect(identifierWitness('assert(is_admin(u))')).toBe('is_admin');
   });

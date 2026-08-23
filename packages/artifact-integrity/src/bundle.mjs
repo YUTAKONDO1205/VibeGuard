@@ -105,7 +105,19 @@ export async function collectArtefacts(dir) {
         stack.push(full);
         continue;
       }
-      if (!e.isFile()) continue;
+      if (!e.isFile()) {
+        // A symlink, a Windows junction, a socket. `readdir` with
+        // `withFileTypes` does not follow links, so a chunk reached through one
+        // — the ordinary shape of a pnpm deploy tree or an Nx output — fell
+        // through both branches into nothing: not observed, and not mentioned.
+        // Still not followed, for the same reason the source walk does not
+        // follow one; what changes is that the omission is recorded, so a claim
+        // that reads LOST cannot be resting on a chunk nobody opened.
+        if (CODE_EXT.has(extname(e.name).toLowerCase())) {
+          skipped.push({ path: full, reason: 'not a regular file (link or special) and not followed' });
+        }
+        continue;
+      }
       if (!CODE_EXT.has(extname(e.name).toLowerCase())) continue;
       let info;
       try {

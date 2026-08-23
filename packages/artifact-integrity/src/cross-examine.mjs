@@ -40,6 +40,25 @@ import { normaliseText } from './bundle.mjs';
  */
 const MIN_PROBE_CHARS = 20;
 
+/**
+ * How many artefacts a probe may match before it is treated as saying nothing.
+ *
+ * ── LENGTH IS NOT IDENTITY, AND THE FLOOR ABOVE ONLY BUYS LENGTH ────────────
+ *
+ * Measured on this repository's own corpus: VG-AUTH-009's probe is
+ * `if (process.env.NODE_ENV !== 'production') {`. That is 44 characters, so it
+ * clears the floor comfortably, and it is also one of the most common lines in
+ * the JavaScript ecosystem — a React vendor chunk carries it. A probe like that
+ * hands jurisdiction to whichever chunk happens to contain it, and jurisdiction
+ * was the entire mechanism keeping an unrelated chunk from settling a claim.
+ *
+ * So a probe that matches more artefacts than this is not identifying anything
+ * and the claim goes back to NOT_OBSERVED. Three rather than one, because code
+ * splitting legitimately duplicates a module across entry points; beyond that
+ * the probe is describing the ecosystem rather than the file.
+ */
+const MAX_JURISDICTION_ARTEFACTS = 3;
+
 // ── WHERE THE REST OF THE LEDGER IS ─────────────────────────────────────────
 //
 // `CLAIM_BEARING_RULES`, `identifierWitness`, `claimsFromFindings` and
@@ -114,10 +133,25 @@ export function crossExamine(claims, observation, illegal) {
       return { ...claim, state: 'NOT_OBSERVED',
         note: `the source text for this claim is ${probe.length} characters, below the ${MIN_PROBE_CHARS} needed to identify an artefact` };
     }
-    const jurisdiction = usable.filter((r) => r.sidecar && r.sidecar.includes(probe));
+    let jurisdiction = usable.filter((r) => r.sidecar && r.sidecar.includes(probe));
     if (!jurisdiction.length) {
       return { ...claim, state: 'NOT_OBSERVED',
         note: `no artefact under the build output carries this source (${usable.length} measured), so none of them is about this claim` };
+    }
+    // Narrow by the file the claim came from, when the map says which sources
+    // it holds. Bundlers rewrite these paths (`webpack:///./src/x.ts`, absolute,
+    // relative), so this is a TIE-BREAK on the basename and never the primary
+    // test — a miss leaves the wider set rather than emptying it.
+    if (jurisdiction.length > 1 && claim.filePath) {
+      const base = String(claim.filePath).split(/[\\/]/).pop();
+      const narrowed = jurisdiction.filter((r) =>
+        Array.isArray(r.sources) && r.sources.some((src) => String(src).endsWith(base)),
+      );
+      if (narrowed.length) jurisdiction = narrowed;
+    }
+    if (jurisdiction.length > MAX_JURISDICTION_ARTEFACTS) {
+      return { ...claim, state: 'NOT_OBSERVED',
+        note: `this claim's source text appears in ${jurisdiction.length} of the ${usable.length} measured artefacts, so it does not identify one of them` };
     }
     let inCode = null;
     let inSidecar = false;

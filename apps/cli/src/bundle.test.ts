@@ -235,9 +235,19 @@ describe('--after-build, exercised through the BUILT CLI', () => {
   // which is precisely the class of defect this whole feature exists to detect,
   // and it would be embarrassing to ship it inside the detector.
   //
-  // It also pins the guard. `crossExamine` takes `illegalClaimTransition` as an
-  // argument, so a refactor could pass `() => null` and every unit test would
-  // still pass. Here the real one is wired or the states below do not appear.
+  // ★ WHAT IT DOES NOT PIN, corrected here because the first version of this
+  // comment claimed it did. `crossExamine` takes `illegalClaimTransition` as an
+  // argument, and the states asserted below would appear identically if a
+  // refactor passed `() => null` — a guard that permits everything produces
+  // exactly the PRESENT and REINTRODUCED this test looks for. All these asserts
+  // exclude is a guard that refuses everything.
+  //
+  // The refusing half is covered by `crossExamine`'s own suite, which hands it
+  // a guard that always refuses and requires NOT_OBSERVED. Through the CLI it
+  // is currently unpinnable: nothing the CLI builds is an artefact-layer
+  // claimant, so no input to the shipped binary can reach the illegal
+  // transition. That is a real gap in the pin, and naming it is worth more than
+  // a comment that implies otherwise.
 
   const SOURCE = [
     'export function deleteUser(session, targetId) {',
