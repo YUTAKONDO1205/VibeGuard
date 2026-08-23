@@ -1147,17 +1147,14 @@
         "VG-SEC-003@model_provider_keys.js",
         "VG-SEC-003@model_provider_keys.js",
         "VG-SEC-003@model_provider_keys.js",
-        "VG-SEC-003@model_provider_keys.js",
-        "VG-SEC-005@model_provider_keys.js",
-        "VG-SEC-005@model_provider_keys.js",
-        "VG-SEC-005@model_provider_keys.js",
-        "VG-SEC-005@model_provider_keys.js"
+        "VG-SEC-003@model_provider_keys.js"
       ],
       "files": [
         "build_fragile_guards.js",
         "model_provider_keys.js",
         "optimised_away_asserts.py"
-      ]
+      ],
+      "_rebaselined": "2026-08-24: 13 -> 9. The four VG-SEC-005 findings are gone because the shape fixtures left this file. GitHub opened a publicly-leaked-secret alert on the invented Google key that used to be here, and a corpus file is read as TEXT, so a fixture for a rule that recognises a key by its SHAPE has to contain a real-looking one. VG-SEC-005 is exercised in packages/rules/src/rules/rules.test.ts instead, where every shape is assembled at run time and none exists in a file; scripts/no-provider-key-shapes.test.mjs keeps the whole tree that way. What is left here is the half that needs no shape -- VG-SEC-003, which finds a secret by the NAME it is bound to, which is the bug this corpus was built for."
     }
   }
 }
