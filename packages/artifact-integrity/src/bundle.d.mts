@@ -1,7 +1,5 @@
 // Types for `bundle.mjs`. Hand-written because this package is plain ESM with
-// no build step, and the CLI consumes it under `checkJs: false`; without these
-// the dynamic import in `apps/cli/src/index.ts` is `any` and TypeScript rejects
-// it under `noImplicitAny`.
+// no build step, and the CLI consumes it under `checkJs: false`.
 
 export type ProtectionState =
   | 'PRESENT'
@@ -11,31 +9,34 @@ export type ProtectionState =
   | 'NOT_APPLICABLE'
   | 'NOT_OBSERVED';
 
-export interface WitnessResult {
-  witness: string;
-  state: ProtectionState;
-  inCode: boolean | null;
-  inSidecar: boolean | null;
-}
-
+/** One shipped file, its source map's original text, and whether it can be trusted. */
 export interface ArtefactRecord {
   artefact: string;
   bytes: number;
-  state: ProtectionState;
-  why?: string;
+  /** Newline-normalised artefact text, or null when it could not be read. */
+  code: string | null;
+  /** Newline-normalised join of the map's sourcesContent, or null. */
+  sidecar: string | null;
+  sources?: string[];
   sourcesContentEntries?: number;
-  witnesses: WitnessResult[];
+  /** False whenever anything stopped this record from being reasoned about. */
   controlHeld: boolean;
+  why?: string;
 }
 
 export interface BundleObservation {
   dir: string;
   records: ArtefactRecord[];
   skipped: { path: string; reason: string }[];
+  readable: number;
+  controlHeld: number;
 }
 
 export declare const MAX_ARTEFACT_BYTES: number;
 export declare const STATE: Record<ProtectionState, ProtectionState>;
+export declare const CANARY: string;
+
+export declare function normaliseText(s: string): string;
 
 export declare function collectArtefacts(dir: string): Promise<{
   artefacts: { path: string; relPath: string; bytes: number }[];
@@ -49,16 +50,10 @@ export declare function readSourceMap(
   code: string,
 ): Promise<{ map: unknown; origin?: string; why?: string }>;
 
-export declare function republishedWitnesses(
-  code: string,
-  map: unknown,
-  witnesses: string[],
-  control: string | null,
-): { controlHeld: boolean; sourcesContentEntries: number; results: WitnessResult[] };
+export declare function observeArtefact(
+  path: string,
+  relPath: string,
+  bytes: number,
+): Promise<ArtefactRecord>;
 
-export declare function observeBundleDir(
-  dir: string,
-  options?: { witnesses?: string[]; control?: string | null },
-): Promise<BundleObservation>;
-
-export declare function worstState(states: ProtectionState[]): ProtectionState;
+export declare function observeBundleDir(dir: string): Promise<BundleObservation>;

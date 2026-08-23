@@ -246,59 +246,70 @@ async function main(): Promise<number> {
   // legitimate invocation and gets a spoken degradation, because a user who
   // asked for a cross-check and silently received none would reasonably read the
   // clean result as corroboration by tools that never looked.
-  // ── --after-build: cross-examine the source layer against the shipped bytes ─
+  // ── Protection claims, and the cross-examination of them ────────────────
   //
-  // Dynamic import for the same reason `@vibeguard/analysis-graph` is: this
-  // package reads files off disk and must never reach an extension bundle.
+  // GENERATION IS UNCONDITIONAL. A claim is what a rule said about a protection
+  // it found, and it is true whether or not anybody asked for a build to be
+  // checked. Putting generation behind `--after-build` meant the third state
+  // never reached a user who had not already suspected the problem — the ledger
+  // did not exist unless you asked it to prove itself. So every scan now carries
+  // the claims, born NOT_OBSERVED, and `--after-build` adds the only thing it
+  // can add: an observation at another layer.
   //
-  // The whole block is observability. It adds `protectionClaims` to the report
-  // and changes nothing about `summary`, `findings` or the exit code — the same
-  // posture as `degradations` and `suppressions`, and for a sharper reason than
-  // either. A claim settled `LOST` is a strong statement, but it rests on a
-  // witness token matched by substring against minified text, and the day that
-  // gates a build is the day somebody adds `--no-after-build` to their CI and
-  // stops reading any of it.
+  // Dynamic import for the same reason `@vibeguard/analysis-graph` is: these
+  // read files off disk and must never reach an extension bundle.
   //
-  // It also never stays quiet. A build directory that could not be read, or one
-  // whose artefacts carry no source map, produces `NOT_OBSERVED` claims and a
-  // printed reason, because "we looked and the protections are fine" and "we
-  // could not look" are the two things this entire feature exists to keep apart.
-  if (args.afterBuild) {
-    try {
+  // The whole channel is observability. It does not touch `summary`, `findings`
+  // or the exit code — same posture as `degradations` and `suppressions`, and
+  // for a sharper reason than either. A `LOST` rests on a witness token matched
+  // against minified text; the day that gates a build is the day somebody adds
+  // `--no-after-build` to CI and stops reading any of it.
+  try {
+    // Claim construction and claim adjudication come from different packages
+    // on purpose: the first is a pure function of a finding and is bundled into
+    // the extensions, the second reads the build output off disk and must never
+    // reach them.
+    const { claimsFromFindings, illegalClaimTransition } = await import('@vibeguard/findings-schema');
+    const { crossExamine } = await import('@vibeguard/artifact-integrity/cross-examine');
+    const claims = claimsFromFindings(scan.findings);
+    if (claims.length) scan.protectionClaims = claims;
+
+    if (args.afterBuild) {
       const { observeBundleDir } = await import('@vibeguard/artifact-integrity/bundle');
-      const { claimsFromFindings, crossExamine } = await import(
-        '@vibeguard/artifact-integrity/cross-examine'
-      );
-      const { illegalClaimTransition } = await import('@vibeguard/findings-schema');
-      const claims = claimsFromFindings(scan.findings);
-      if (claims.length) {
-        const witnesses = [...new Set((claims as { witness?: string }[]).map((c) => c.witness).filter(Boolean))] as string[];
-        // The control. Not optional: without a token that is certainly in the
-        // original text, an empty witness result is indistinguishable from a
-        // source map this code failed to assemble, and the second one would
-        // print as the first. `function` is in every JavaScript source file
-        // this rule set produces claims about; if it is absent, the control is
-        // correctly reported as dead and every claim stays NOT_OBSERVED.
-        const observation = await observeBundleDir(args.afterBuild, {
-          witnesses,
-          control: 'function',
-        });
-        const settled = crossExamine(claims, observation, illegalClaimTransition);
-        scan.protectionClaims = settled;
-        for (const s of observation.skipped) {
-          process.stderr.write(`note: --after-build skipped ${s.path}: ${s.reason}\n`);
-        }
-        if (!observation.records.length) {
-          process.stderr.write(
-            `note: --after-build found no readable JavaScript under ${args.afterBuild}; every claim is NOT_OBSERVED\n`,
-          );
-        }
+      // Runs whether or not there are claims. "We read your build output and
+      // found nothing to check" and "we never opened it" are different facts,
+      // and the second one used to be reported as the first — silently, because
+      // the observation was inside `if (claims.length)`.
+      const observation = await observeBundleDir(args.afterBuild);
+      scan.afterBuild = {
+        directory: args.afterBuild,
+        artefactsRead: observation.records.length,
+        artefactsMeasured: observation.controlHeld,
+        skipped: observation.skipped.length,
+      };
+      for (const s of observation.skipped) {
+        process.stderr.write(`note: --after-build skipped ${s.path}: ${s.reason}
+`);
       }
-    } catch (err) {
-      process.stderr.write(
-        `note: --after-build did not run (${(err as Error).message}). The protections found in the source were NOT checked against the shipped bytes.\n`,
-      );
+      if (!observation.records.length) {
+        process.stderr.write(
+          `note: --after-build found no readable JavaScript under ${args.afterBuild}; every claim stays NOT_OBSERVED
+`,
+        );
+      }
+      if (claims.length) {
+        scan.protectionClaims = crossExamine(claims, observation, illegalClaimTransition);
+      }
     }
+  } catch (err) {
+    // The ledger SURVIVES the failure. Previously the catch wrote one line to
+    // stderr and left `protectionClaims` unset, so the JSON a machine reads was
+    // indistinguishable from a scan that had no claims at all — the observer
+    // failing looked exactly like nothing to observe.
+    process.stderr.write(
+      `note: protection claims could not be cross-examined (${(err as Error).message}). ` +
+        'Any claim below is NOT_OBSERVED: it was not checked against the shipped bytes.\n',
+    );
   }
 
   if (args.ensemble) {

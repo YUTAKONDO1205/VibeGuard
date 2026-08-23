@@ -28,235 +28,135 @@
 // claim made at its own layer, and `illegalClaimTransition` in
 // `@vibeguard/findings-schema` is the single place that rule is written down.
 
-/**
- * Rules whose findings are claims about a protection that a build can remove.
- *
- * Only these become claims. A finding that SQL is being concatenated is not a
- * claim that a protection exists — it is the opposite — and feeding it into
- * this channel would produce a "protection" whose disappearance is good news.
- *
- * `witness` says how to pull the checkable token out of the finding's evidence.
- * A finding whose witness cannot be extracted still becomes a claim: it simply
- * can never leave `NOT_OBSERVED`, and saying so is more useful than dropping it,
- * because the claimant has already told the user the protection is there.
- */
-export const CLAIM_BEARING_RULES = Object.freeze({
-  'VG-AUTH-009': {
-    subject: 'an authorization check that only runs in development',
-    witness: identifierWitness,
-  },
-  'VG-AUTH-010': {
-    subject: 'an authorization check written as console.assert',
-    witness: identifierWitness,
-  },
-  'VG-AUTH-011': {
-    subject: 'an authorization check written as a Python assert',
-    witness: identifierWitness,
-  },
-  'VG-AUTH-008': {
-    subject: 'an authorization check written as a C assert',
-    witness: identifierWitness,
-  },
-  'VG-MEM-006': {
-    subject: 'a secret being wiped before it goes out of scope',
-    witness: identifierWitness,
-  },
-});
+import { normaliseText } from './bundle.mjs';
 
 /**
- * Pull the most specific identifier out of a finding's evidence.
+ * Shortest source text that may be used to identify an artefact.
  *
- * Deliberately simple, and deliberately biased towards returning nothing: a
- * wrong witness produces a confident wrong verdict, while no witness produces
- * `NOT_OBSERVED`, which is true. So this takes the longest identifier-shaped
- * run that is not a language keyword, and returns null when there is no clear
- * winner.
+ * A one-word probe would be found in every chunk and would hand jurisdiction
+ * to all of them, which is the failure this whole mechanism replaces. Twenty
+ * characters is roughly one meaningful line of code and is deliberately
+ * conservative: below it the answer is NOT_OBSERVED, not a guess.
  */
-export function identifierWitness(evidence) {
-  const KEYWORDS = new Set([
-    'if', 'else', 'return', 'throw', 'new', 'Error', 'const', 'let', 'var',
-    'function', 'assert', 'console', 'process', 'env', 'true', 'false', 'null',
-    'undefined', 'typeof', 'await', 'async', 'this', 'not', 'and', 'or',
-    'production', 'development', 'NODE_ENV', 'raise', 'def', 'import',
-  ]);
-  const admissible = (s) => !KEYWORDS.has(s) && s.length >= 4;
+const MIN_PROBE_CHARS = 20;
 
-  // ── PROPERTY NAMES FIRST, AND NOT AS A TIE-BREAK ──────────────────────────
-  //
-  // A witness is only useful if it would still be spelled the same way in the
-  // shipped bytes, and minifiers treat the two kinds of name completely
-  // differently. A local or a parameter is renamed — `session` becomes `s` —
-  // because the minifier can see every use. A property read through a dot is
-  // NOT renamed, because it cannot know who else indexes the object; that is
-  // why `--mangle-props` exists as a separate, opt-in, widely-avoided flag.
-  //
-  // So `session.isAdmin` has exactly one usable witness and it is `isAdmin`.
-  // The first version of this function took the longest identifier, which on
-  // that expression is a tie that `session` wins by position — a witness
-  // guaranteed to be absent from any minified artefact, which would have made
-  // every claim read LOST. Caught by `cross-examine.test.mjs` rather than in
-  // the field, and worth stating plainly: the earlier heuristic did not
-  // produce a slightly worse witness, it produced a systematically wrong one.
-  const props = (evidence.match(/\.([A-Za-z_$][A-Za-z0-9_$]{2,})/g) ?? [])
-    .map((s) => s.slice(1))
-    .filter(admissible);
-  const pick = (xs) => {
-    let best = null;
-    for (const x of xs) if (best === null || x.length > best.length) best = x;
-    return best;
-  };
-  const fromProps = pick(props);
-  if (fromProps) return fromProps;
-
-  // No property access. Fall back to a bare identifier — a called function
-  // name such as `is_admin(u)` survives minification for the same reason a
-  // property does when it is imported or global, and a renamed local simply
-  // yields a claim that reads LOST, which is the visible direction.
-  return pick((evidence.match(/[A-Za-z_$][A-Za-z0-9_$]{2,}/g) ?? []).filter(admissible));
-}
-
-/**
- * Turn source-layer findings into claims.
- *
- * Every returned claim has `state: 'NOT_OBSERVED'` and no `crossExaminedAt`.
- * That is the invariant, and it holds unconditionally here: this function has
- * no access to an artefact and therefore has nothing that could settle
- * anything.
- */
-export function claimsFromFindings(findings) {
-  const out = [];
-  let n = 0;
-  for (const f of findings) {
-    const spec = CLAIM_BEARING_RULES[f.ruleId];
-    if (!spec) continue;
-    // `Finding.evidence` is an array of lines and `snippet` is the matched
-    // source line; either can carry the identifier, and neither is guaranteed.
-    // Joined rather than chosen between, because a witness that appears in one
-    // and not the other is still a witness, and picking the wrong field is how
-    // a claim silently loses the only token that could settle it.
-    const text = [f.snippet ?? '', ...(f.evidence ?? [])].join('\n').trim();
-    const witness = text ? spec.witness(text) : null;
-    out.push({
-      id: `claim-${++n}`,
-      claimant: f.ruleId,
-      claimantLayer: 'source',
-      subject: spec.subject,
-      ...(witness ? { witness } : {}),
-      ...(f.filePath ? { filePath: f.filePath } : {}),
-      ...(f.startLine ? { startLine: f.startLine } : {}),
-      state: 'NOT_OBSERVED',
-    });
-  }
-  return out;
-}
-
-/**
- * Turn a coding assistant's prose into claims.
- *
- * ── WHY A REGEX AND NOT A MODEL ─────────────────────────────────────────────
- *
- * There is published work that does this conversion properly with a language
- * model, and it does it better than what is below. This package cannot call
- * one: nothing here touches the network, which is the promise the product is
- * built on, and a claim extractor that phones out would break it for every
- * user in order to improve one channel.
- *
- * That constraint is survivable precisely because of the rule at the top of
- * this file. A missed claim costs a line of output nobody sees. A wrongly
- * extracted claim costs a line of output that says NOT_OBSERVED. Neither can
- * produce a false assurance, because no claim from this layer — however it was
- * extracted — is allowed to settle itself. The quality of this function bounds
- * how much work it creates, not how much it can mislead.
- */
-export function claimsFromAssistantProse(prose, { filePath } = {}) {
-  const out = [];
-  let n = 0;
-  // Sentence-ish segmentation. Assistant prose is bulleted as often as it is
-  // written in sentences, so newlines and list markers split too.
-  const segments = prose
-    .split(/(?:[.!?]\s+|\n+|^\s*[-*]\s*)/m)
-    .map((s) => s.trim())
-    .filter((s) => s.length >= 12 && s.length <= 400);
-  const ACTION =
-    /\b(?:add(?:ed|ing)?|insert(?:ed)?|introduc(?:e|ed)|implement(?:ed)?|enforc(?:e|ed|ing)|check(?:ed|ing)?|validat(?:e|ed|ing|ion)|sanitiz(?:e|ed)|sanitis(?:e|ed)|escap(?:e|ed)|wipe[ds]?|zero(?:ed|ing)?|clear(?:ed)?|guard(?:ed)?|restrict(?:ed)?|requir(?:e|ed|es))\b/i;
-  const SUBJECT =
-    /\b(?:auth(?:z|entication|orization|orisation)?|permission|privilege|admin|role|access control|input validation|sanitis|sanitiz|escap|csrf|xss|injection|secret|credential|token|password|rate limit)\w*/i;
-  for (const seg of segments) {
-    if (!ACTION.test(seg)) continue;
-    const subjectMatch = seg.match(SUBJECT);
-    if (!subjectMatch) continue;
-    const witness = identifierWitness(seg);
-    out.push({
-      id: `assistant-claim-${++n}`,
-      claimant: 'assistant',
-      claimantLayer: 'assistant',
-      subject: seg.length > 140 ? `${seg.slice(0, 137)}…` : seg,
-      ...(witness ? { witness } : {}),
-      ...(filePath ? { filePath } : {}),
-      // Unconditional. See the rule at the top of this file.
-      state: 'NOT_OBSERVED',
-    });
-  }
-  return out;
-}
+// ── WHERE THE REST OF THE LEDGER IS ─────────────────────────────────────────
+//
+// `CLAIM_BEARING_RULES`, `identifierWitness`, `claimsFromFindings` and
+// `claimsFromAssistantProse` are pure functions of a finding, and they live in
+// `@vibeguard/findings-schema` — not here — so the editor, the browser panel
+// and the generation-time guard can build a ledger too. None of them can import
+// this package: it reads directories off disk, and the packaging invariants
+// forbid it three ways.
+//
+// They are NOT re-exported from here, and the reason is a test two directories
+// away: `test/boundary.test.mjs` asserts this package declares no dependencies
+// at all, so that it cannot acquire one by drift. A re-export would need one.
+// The split that avoids it is also the better one — this file adjudicates, and
+// adjudication is the only half that needs a filesystem.
+//
+// A caller wanting both imports each from its owner. `apps/cli/src/index.ts`
+// does exactly that.
 
 /**
  * Settle claims against an artefact observation.
  *
- * `observation` is the return of `observeBundleDir`. `illegal` is the
- * transition guard from `@vibeguard/findings-schema`, injected rather than
- * imported so this Node-only module does not pull a browser-bundled package
- * into its own dependency list; the caller passes
- * `illegalClaimTransition`.
+ * ── JURISDICTION: THE STEP THAT WAS MISSING ─────────────────────────────────
  *
- * A claim is settled only if:
- *   * it has a witness (nothing to look for means nothing to find), AND
- *   * at least one artefact record held its control (a measurement with a dead
- *     control is broken, not clean), AND
- *   * the transition is legal for the claim's own layer.
+ * The first version searched every artefact in the directory for the witness
+ * token and called the first hit a PRESENT. That is not cross-examination, it
+ * is a substring search: `isAdmin` and `hasPermission` are ordinary property
+ * names, a vendor chunk is full of other people's code, and a hit in one of
+ * them would have overwritten the disappearance of the user's own guard with a
+ * green line. The witness heuristic was later changed to prefer property names
+ * — which makes the witness survive minification, and makes a collision with a
+ * vendor chunk MORE likely, not less.
  *
- * Anything else stays `NOT_OBSERVED` with the reason recorded.
+ * So a claim is now settled only by an artefact that is demonstrably about the
+ * same source. The test is that the artefact's `sourcesContent` CONTAINS the
+ * text the rule actually matched (`sourceProbe`, newline-normalised). That one
+ * predicate does three jobs:
+ *
+ *   * it kills the vendor-chunk false PRESENT, because a chunk that does not
+ *     carry this source is not consulted about this claim;
+ *   * it is the per-claim positive control the global `control: 'function'`
+ *     could never be — that only said "some source was mapped";
+ *   * it retires a stale map by content rather than by timestamp, since a map
+ *     from an earlier build does not contain a line the rule matched today.
+ *
+ * ── AND WHAT IT MEANS TO FIND NO JURISDICTION ───────────────────────────────
+ *
+ * `NOT_OBSERVED`, never LOST. No artefact under the build output declares that
+ * it contains this source: the file may be tree-shaken, may belong to a
+ * different entry point, may not be part of this build at all. Reporting that
+ * as a removed defence would be exactly the over-claim this channel exists to
+ * prevent.
  */
 export function crossExamine(claims, observation, illegal) {
   const usable = observation.records.filter((r) => r.controlHeld);
   return claims.map((claim) => {
     if (!claim.witness) {
-      return { ...claim, state: 'NOT_OBSERVED', note: 'the claim names nothing that can be looked for in the shipped bytes' };
+      return { ...claim, state: 'NOT_OBSERVED',
+        note: 'the claim names nothing that can be looked for in the shipped bytes' };
     }
     if (!usable.length) {
-      return { ...claim, state: 'NOT_OBSERVED', note: 'no artefact in the build output could be measured with a live control' };
+      return { ...claim, state: 'NOT_OBSERVED',
+        note: `no artefact under the build output could be measured (${observation.records.length} read, none passed its controls)` };
     }
-    let inCode = false;
+    if (!claim.sourceProbe) {
+      return { ...claim, state: 'NOT_OBSERVED',
+        note: 'the claim carries no source text, so no artefact can be shown to be about it' };
+    }
+    const probe = normaliseText(claim.sourceProbe).trim();
+    // Too short a probe would match everywhere and hand jurisdiction to any
+    // artefact. Below the floor the honest answer is that we cannot tell.
+    if (probe.length < MIN_PROBE_CHARS) {
+      return { ...claim, state: 'NOT_OBSERVED',
+        note: `the source text for this claim is ${probe.length} characters, below the ${MIN_PROBE_CHARS} needed to identify an artefact` };
+    }
+    const jurisdiction = usable.filter((r) => r.sidecar && r.sidecar.includes(probe));
+    if (!jurisdiction.length) {
+      return { ...claim, state: 'NOT_OBSERVED',
+        note: `no artefact under the build output carries this source (${usable.length} measured), so none of them is about this claim` };
+    }
+    let inCode = null;
     let inSidecar = false;
-    let where = null;
-    for (const r of usable) {
-      for (const w of r.witnesses) {
-        if (w.witness !== claim.witness) continue;
-        if (w.inCode) {
-          inCode = true;
-          where = r.artefact;
-        }
-        if (w.inSidecar) {
-          inSidecar = true;
-          where = where ?? r.artefact;
-        }
-      }
+    for (const r of jurisdiction) {
+      if (r.code.includes(claim.witness)) inCode = r.artefact;
+      if (r.sidecar.includes(claim.witness)) inSidecar = true;
     }
-    const observedAt = inSidecar && !inCode ? 'sidecar' : 'artifact';
-    const next = inCode ? 'PRESENT' : inSidecar ? 'REINTRODUCED' : 'LOST';
-    const reason = illegal(claim, observedAt, next);
-    if (reason) {
-      // Cannot happen for the claimant layers this package produces, and is
-      // checked anyway: the day somebody adds an artefact-layer claimant, this
-      // is the line that stops it grading its own homework.
-      return { ...claim, state: 'NOT_OBSERVED', note: reason };
+    const where = inCode ?? jurisdiction[0].artefact;
+    const observedAt = inCode ? 'artifact' : 'sidecar';
+    const reason = illegal(claim, observedAt, inCode ? 'PRESENT' : 'LOST');
+    if (reason) return { ...claim, state: 'NOT_OBSERVED', note: reason };
+
+    // ── HISTORY, BECAUSE REINTRODUCED REQUIRES A PRECEDING LOSS ─────────────
+    //
+    // `evidence-bundle/src/states.mjs` fixes the rule: REINTRODUCED means
+    // "PRESENT again after being LOST", and a record that asserts it with no
+    // loss in front of it is malformed. So the loss is written down rather than
+    // skipped over: absent from the code that runs is a LOST, and finding it in
+    // the sidecar afterwards is the REINTRODUCED that follows it.
+    const history = [];
+    if (inCode) {
+      history.push({ checkpoint: 'deployed', state: 'PRESENT', where });
+    } else {
+      history.push({ checkpoint: 'deployed', state: 'LOST', where });
+      if (inSidecar) history.push({ checkpoint: 'sidecar', state: 'REINTRODUCED', where });
     }
-    const note =
-      next === 'PRESENT'
-        ? `found in ${where}`
-        : next === 'REINTRODUCED'
-          ? `absent from the code that runs, still published in the source map next to ${where}`
-          : `not found in any measured artefact under the build output`;
-    return { ...claim, state: next, crossExaminedAt: observedAt, note };
+    const state = history[history.length - 1].state;
+    const note = inCode
+      ? `found in ${where}`
+      : inSidecar
+        ? `absent from the code that runs, still published in the source map next to ${where}`
+        : `not in ${where}, which is the artefact that carries this source`;
+    const unmeasured = observation.records.length - usable.length;
+    return {
+      ...claim,
+      state,
+      crossExaminedAt: observedAt,
+      history,
+      note: unmeasured > 0 ? `${note} (${unmeasured} artefact(s) could not be measured)` : note,
+    };
   });
 }

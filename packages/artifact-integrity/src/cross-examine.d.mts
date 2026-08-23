@@ -10,6 +10,9 @@ export interface ProtectionClaim {
   claimantLayer: ProtectionLayer;
   subject: string;
   witness?: string;
+  /** Source text used to decide which artefact this claim is about. */
+  sourceProbe?: string;
+  history?: { checkpoint: string; state: ProtectionState; where?: string }[];
   filePath?: string;
   startLine?: number;
   state: ProtectionState;
@@ -17,28 +20,8 @@ export interface ProtectionClaim {
   note?: string;
 }
 
-export declare const CLAIM_BEARING_RULES: Readonly<
-  Record<string, { subject: string; witness: (evidence: string) => string | null }>
->;
-
-export declare function identifierWitness(evidence: string): string | null;
-
-export declare function claimsFromFindings(
-  findings: {
-    ruleId: string;
-    /** The rule's raw evidence lines, as `Finding` carries them. */
-    evidence?: string[];
-    /** The matched source line, which is what a witness is usually pulled from. */
-    snippet?: string;
-    filePath?: string;
-    startLine?: number;
-  }[],
-): ProtectionClaim[];
-
-export declare function claimsFromAssistantProse(
-  prose: string,
-  options?: { filePath?: string },
-): ProtectionClaim[];
+// Claim construction lives in `@vibeguard/findings-schema`; this module only
+// adjudicates. See the note at the top of cross-examine.mjs.
 
 export declare function crossExamine(
   claims: ProtectionClaim[],

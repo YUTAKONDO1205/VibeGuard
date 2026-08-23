@@ -182,122 +182,98 @@ export async function readSourceMap(artefactPath, code) {
 }
 
 /**
- * Observation 2 — what the build removed from the code and published anyway.
+ * Text normalisation for every comparison in this file.
  *
- * `witnesses` are tokens to look for. For each: present in the shipped code,
- * present in the map's `sourcesContent`, or both. The interesting cell is
- * "absent from the code, present in the map".
- *
- * ── THE CONTROL ─────────────────────────────────────────────────────────────
- *
- * A witness list that finds nothing anywhere is indistinguishable from a
- * `sourcesContent` this function failed to assemble. So the caller must supply
- * `control`: a token that is certainly in the original text. If the control is
- * not found in `sourcesContent`, every verdict in the result is `NOT_OBSERVED`
- * and `controlHeld` is false. This is the rule from `states.mjs` applied
- * locally, and it is the difference between "the map says the defence is gone"
- * and "we never read the map".
+ * A finding's snippet is read off a file on disk and a map's `sourcesContent`
+ * is JSON, so on Windows one side routinely has CRLF and the other LF. Without
+ * this the identity control below would fail on every claim and the whole
+ * feature would report NOT_OBSERVED for everything — true, and silently
+ * useless, which is the failure mode that is hardest to notice.
  */
-export function republishedWitnesses(code, map, witnesses, control) {
-  const contents = Array.isArray(map?.sourcesContent)
-    ? map.sourcesContent.filter((s) => typeof s === 'string')
+export function normaliseText(s) {
+  return String(s).replace(/\r\n/g, '\n');
+}
+
+/**
+ * A token no source file can contain, used as the NEGATIVE control.
+ *
+ * The positive control (does this map carry the text we are asking about?) and
+ * this one bracket the observer from both sides. If a canary is ever "found",
+ * the matcher is matching things that are not there — a substring search over
+ * an accidentally-empty haystack, a normalisation that collapsed everything, a
+ * regex that became `.*` — and every verdict from that artefact is void.
+ *
+ * Deterministic, because this file may not call Math.random and a fixed token
+ * is equally unfindable.
+ */
+export const CANARY = 'vibeguard‑canary‑a6f31c0e‑must‑never‑match';
+
+/**
+ * Read one artefact and the source map beside it.
+ *
+ * Returns the artefact's own text and the joined `sourcesContent`, so the
+ * adjudicator can ask both "is this artefact the one my claim is about?" and
+ * "is my witness in it?" without this module knowing what a claim is.
+ *
+ * `controlHeld` is the NEGATIVE control only. Whether an artefact is the right
+ * one for a given claim is a per-claim question and is answered in
+ * `cross-examine.mjs`; a single global positive control could only ever say
+ * "some source was mapped", which is what the previous `control: 'function'`
+ * said and why a stale map from an earlier build could settle a claim.
+ */
+export async function observeArtefact(path, relPath, bytes) {
+  let code;
+  try {
+    code = await readFile(path, 'utf8');
+  } catch (err) {
+    return { artefact: relPath, bytes, code: null, sidecar: null, controlHeld: false,
+      why: `artefact could not be read: ${err.message}` };
+  }
+  const { map, why } = await readSourceMap(path, code);
+  if (!map) {
+    return { artefact: relPath, bytes, code: normaliseText(code), sidecar: null, controlHeld: false, why };
+  }
+  const contents = Array.isArray(map.sourcesContent)
+    ? map.sourcesContent.filter((x) => typeof x === 'string')
     : [];
-  const joined = contents.join('\n');
-  const controlHeld = control ? joined.includes(control) : contents.length > 0;
-  const results = witnesses.map((w) => {
-    if (!controlHeld) {
-      return { witness: w, state: 'NOT_OBSERVED', inCode: null, inSidecar: null };
-    }
-    const inCode = code.includes(w);
-    const inSidecar = joined.includes(w);
-    // The four cells, named rather than inferred by the caller:
-    //   in both            PRESENT       — nothing was removed
-    //   code only          PRESENT       — shipped, and the map does not carry it
-    //   sidecar only       REINTRODUCED  — removed from what runs, published anyway
-    //   neither            ABSENT        — not in this artefact at all
-    const state = inCode ? 'PRESENT' : inSidecar ? 'REINTRODUCED' : 'ABSENT';
-    return { witness: w, state, inCode, inSidecar };
-  });
+  if (!contents.length) {
+    return { artefact: relPath, bytes, code: normaliseText(code), sidecar: null, controlHeld: false,
+      why: 'the source map carries no sourcesContent, so nothing can be compared against the original text' };
+  }
+  const sidecar = normaliseText(contents.join('\n'));
+  const codeN = normaliseText(code);
+  // Negative control. A canary that matches means the matcher is broken.
+  if (codeN.includes(CANARY) || sidecar.includes(CANARY)) {
+    return { artefact: relPath, bytes, code: null, sidecar: null, controlHeld: false,
+      why: 'the negative control matched, so this observer is matching text that is not there and every verdict from this artefact is void' };
+  }
   return {
-    controlHeld,
+    artefact: relPath,
+    bytes,
+    code: codeN,
+    sidecar,
+    sources: Array.isArray(map.sources) ? map.sources.slice(0, 200) : [],
     sourcesContentEntries: contents.length,
-    results,
+    controlHeld: true,
   };
 }
 
 /**
  * The whole-directory observation.
  *
- * Returns one record per artefact. `state` at the top of each record is the
- * worst of its witnesses, in the order REINTRODUCED > ABSENT > NOT_OBSERVED >
- * PRESENT — deliberately NOT "any NOT_OBSERVED wins", because an artefact where
- * one witness could not be checked and another was demonstrably republished has
- * something to report, and reporting the unknown would bury it.
+ * Deliberately no `witnesses` parameter any more. Deciding which artefact a
+ * claim is ABOUT is the step that was missing, it is per claim, and it belongs
+ * next to the claim — so this function's job is reduced to producing readable,
+ * control-checked text for each artefact, and `crossExamine` does the rest.
  */
-export async function observeBundleDir(dir, { witnesses = [], control = null } = {}) {
+export async function observeBundleDir(dir) {
   const { artefacts, skipped } = await collectArtefacts(dir);
   const records = [];
+  let held = 0;
   for (const a of artefacts) {
-    let code;
-    try {
-      code = await readFile(a.path, 'utf8');
-    } catch (err) {
-      records.push({
-        artefact: a.relPath,
-        bytes: a.bytes,
-        state: 'NOT_OBSERVED',
-        why: `artefact could not be read: ${err.message}`,
-        witnesses: [],
-        controlHeld: false,
-      });
-      continue;
-    }
-    const { map, why } = await readSourceMap(a.path, code);
-    if (!map) {
-      records.push({
-        artefact: a.relPath,
-        bytes: a.bytes,
-        state: 'NOT_OBSERVED',
-        why,
-        // Witness survival in the CODE is still answerable without a map, and
-        // is reported, but it cannot distinguish "removed" from "renamed", so
-        // the record's own state stays NOT_OBSERVED.
-        witnesses: witnesses.map((w) => ({
-          witness: w,
-          state: 'NOT_OBSERVED',
-          inCode: code.includes(w),
-          inSidecar: null,
-        })),
-        controlHeld: false,
-      });
-      continue;
-    }
-    const r = republishedWitnesses(code, map, witnesses, control);
-    records.push({
-      artefact: a.relPath,
-      bytes: a.bytes,
-      state: worstState(r.results.map((x) => x.state)),
-      sourcesContentEntries: r.sourcesContentEntries,
-      witnesses: r.results,
-      controlHeld: r.controlHeld,
-      ...(r.controlHeld ? {} : { why: 'the control token was not found in sourcesContent' }),
-    });
+    const r = await observeArtefact(a.path, a.relPath, a.bytes);
+    if (r.controlHeld) held += 1;
+    records.push(r);
   }
-  return { dir, records, skipped };
-}
-
-const STATE_RANK = {
-  REINTRODUCED: 4,
-  LOST: 3,
-  ABSENT: 2,
-  NOT_OBSERVED: 1,
-  PRESENT: 0,
-  NOT_APPLICABLE: 0,
-};
-
-export function worstState(states) {
-  if (!states.length) return 'NOT_OBSERVED';
-  let worst = states[0];
-  for (const s of states) if ((STATE_RANK[s] ?? 0) > (STATE_RANK[worst] ?? 0)) worst = s;
-  return worst;
+  return { dir, records, skipped, readable: records.length, controlHeld: held };
 }

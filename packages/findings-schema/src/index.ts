@@ -639,6 +639,15 @@ export interface ScanResponse {
    * Same posture as the channels above — observability only.
    */
   protectionClaims?: ProtectionClaim[];
+  /**
+   * What `--after-build` actually opened.
+   *
+   * Separate from `protectionClaims` because "we read your build output and had
+   * nothing to check against it" and "we never opened it" are different facts,
+   * and without this field they produced identical reports. Present only when
+   * the flag was given.
+   */
+  afterBuild?: AfterBuildSummary;
 }
 
 /**
@@ -726,6 +735,17 @@ export type ProtectionLayer =
  * cannot check the assistant's word, and a green tick sourced from that word
  * hands the user back exactly the question they could not answer.
  */
+/** What a `--after-build` pass read, whether or not it settled anything. */
+export interface AfterBuildSummary {
+  directory: string;
+  /** Artefacts opened. */
+  artefactsRead: number;
+  /** Of those, how many passed their controls and could be reasoned about. */
+  artefactsMeasured: number;
+  /** Paths under the directory that could not be read at all. */
+  skipped: number;
+}
+
 export interface ProtectionClaim {
   /** Stable id for this claim within one scan. */
   id: string;
@@ -744,9 +764,30 @@ export interface ProtectionClaim {
    * such a claim can never leave `NOT_OBSERVED`.
    */
   witness?: string;
+  /**
+   * The source text the claimant was looking at, used to decide WHICH shipped
+   * artefact this claim is about before asking whether the witness is in it.
+   *
+   * The witness answers "is the defence still there"; this answers the prior
+   * question "is this artefact even about my source". Without it, a witness
+   * token is searched for across every file in the build output, and a hit in
+   * an unrelated vendor chunk reports a removed defence as present — which is
+   * the single most dangerous thing this channel could do.
+   */
+  sourceProbe?: string;
   filePath?: string;
   startLine?: number;
   state: ProtectionState;
+  /**
+   * Every transition, oldest first — not only the final state.
+   *
+   * `REINTRODUCED` means "PRESENT again after being LOST", so a record that
+   * asserts it with no loss in front of it is malformed; the rule and the
+   * reasoning are in `packages/evidence-bundle/src/states.mjs`. Keeping the
+   * sequence is also what stops a reader from mistaking "removed from the code
+   * and republished in the map" for "never removed".
+   */
+  history?: { checkpoint: string; state: ProtectionState; where?: string }[];
   /** The layer whose observation set `state`. Absent while `NOT_OBSERVED`. */
   crossExaminedAt?: ProtectionLayer;
   /** What the observer actually saw. Absent while `NOT_OBSERVED`. */
@@ -906,3 +947,15 @@ export const CONFIDENCE_ORDER: Record<Confidence, number> = {
 export function compareConfidence(a: Confidence, b: Confidence): number {
   return CONFIDENCE_ORDER[b] - CONFIDENCE_ORDER[a];
 }
+
+// Protection-claim construction. Pure, so every channel can carry the ledger
+// even where a filesystem is unavailable; see claims.ts for why it is not
+// next to the code that settles claims.
+export {
+  CLAIM_BEARING_RULES,
+  identifierWitness,
+  claimsFromFindings,
+  claimsFromAssistantProse,
+  summariseClaims,
+  type ClaimSourceFinding,
+} from "./claims.js";

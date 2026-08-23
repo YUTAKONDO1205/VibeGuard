@@ -1,27 +1,25 @@
-// The one property worth more than all the others here: a claim cannot settle
-// itself, and therefore cannot turn a screen green. Everything else in this
-// file is a way of trying to break that.
+// Two properties are worth more than everything else here:
+//
+//   1. a claim cannot settle itself, so it cannot turn a screen green;
+//   2. a claim is settled only by an artefact that is demonstrably about the
+//      same source, so a token collision in an unrelated chunk cannot report a
+//      removed defence as present.
+//
+// Everything below is an attempt to break one of the two.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  CLAIM_BEARING_RULES,
-  identifierWitness,
-  claimsFromFindings,
-  claimsFromAssistantProse,
-  crossExamine,
-} from '../src/cross-examine.mjs';
+// Only the adjudicator is this package's. Claim CONSTRUCTION moved to
+// `@vibeguard/findings-schema` and is tested there; the claims below are built
+// by hand so this suite depends on nothing but the file it is about.
+import { crossExamine } from '../src/cross-examine.mjs';
 
 /**
- * The transition guard, restated here rather than imported.
+ * The transition guard, restated rather than imported.
  *
- * `@vibeguard/findings-schema` is a TypeScript package that this plain-ESM one
- * does not depend on, which is why `crossExamine` takes the guard as an
- * argument. Restating it means this file tests the CONTRACT — if the real one
- * ever weakens, the mismatch shows up as this suite passing while the CLI
- * misbehaves, which is why `crossExamine` is also given a deliberately broken
- * guard below and must still refuse.
+ * `@vibeguard/findings-schema` is a TypeScript package this plain-ESM one does
+ * not depend on, which is why `crossExamine` takes the guard as an argument.
  */
 const illegal = (claim, observedAt, next) => {
   if (next === 'NOT_OBSERVED') return null;
@@ -31,131 +29,186 @@ const illegal = (claim, observedAt, next) => {
   return null;
 };
 
-const observationWith = (witnesses) => ({
+/** The source line every fixture claim is about. Long enough to be a probe. */
+const PROBE = 'if (!session.isAdmin) throw new Error("forbidden");';
+
+const artefact = (name, code, sidecar) => ({
+  artefact: name,
+  bytes: code.length,
+  code,
+  sidecar,
+  controlHeld: true,
+});
+
+const observation = (records, skipped = []) => ({
   dir: '/tmp/dist',
-  skipped: [],
-  records: [{ artefact: 'app.js', bytes: 100, state: 'PRESENT', controlHeld: true, witnesses }],
+  skipped,
+  records,
+  readable: records.length,
+  controlHeld: records.filter((r) => r.controlHeld).length,
 });
 
-test('every claim-bearing rule is one whose finding asserts a protection EXISTS', () => {
-  // A finding that says "this code is dangerous" is not a claim that a
-  // protection is present, and its disappearance from the artefact would be
-  // good news reported as a failure. The list is small and deliberate.
-  for (const id of Object.keys(CLAIM_BEARING_RULES)) {
-    assert.match(id, /^VG-(AUTH|MEM)-\d{3}$/, `${id} is not an auth/memory protection rule`);
-  }
+const sourceClaim = (over = {}) => ({
+  id: 'c1',
+  claimant: 'VG-AUTH-009',
+  claimantLayer: 'source',
+  subject: 'an authorization check that only runs in development',
+  witness: 'isAdmin',
+  sourceProbe: PROBE,
+  filePath: 'src/app.js',
+  state: 'NOT_OBSERVED',
+  ...over,
 });
 
-test('identifierWitness skips language and environment names', () => {
-  assert.equal(identifierWitness("if (process.env.NODE_ENV !== 'production') { … }"), null);
-  assert.equal(identifierWitness("if (…) { … session.isAdmin … }"), 'isAdmin');
-  assert.equal(identifierWitness('assert hasPermission'), 'hasPermission');
+test('a vendor chunk that happens to contain the witness cannot settle the claim', () => {
+  // THE test. `isAdmin` is an ordinary property name and a vendor bundle is
+  // full of other people's code. Before jurisdiction, this fixture reported
+  // PRESENT and the user's own guard disappeared behind a green line.
+  const settled = crossExamine(
+    [sourceClaim()],
+    observation([
+      // The artefact that really is about this source: the guard is gone from
+      // the code and still published in the map.
+      artefact('app.js', 'function o(s,e){return db.remove(e)}', `x\n${PROBE}\ny`),
+      // An unrelated chunk that mentions isAdmin and knows nothing of this file.
+      artefact('vendor.js', 'export function can(u){return u.isAdmin}', 'export function can(u){return u.isAdmin}'),
+    ]),
+    illegal,
+  );
+  assert.equal(settled[0].state, 'REINTRODUCED');
+  assert.match(settled[0].note, /still published in the source map/);
 });
 
-test('claims are born NOT_OBSERVED — unconditionally', () => {
-  const claims = claimsFromFindings([
-    { ruleId: 'VG-AUTH-009', snippet: 'if (dev) { if (!s.isAdmin) throw }', filePath: 'a.js', startLine: 3 },
-    { ruleId: 'VG-AUTH-010', evidence: ['console.assert(s.hasPermission)'], filePath: 'a.js' },
-    { ruleId: 'VG-INJ-001', snippet: 'db.query("SELECT " + x)', filePath: 'a.js' },
-  ]);
-  // The injection finding is not a protection claim and must not appear.
-  assert.equal(claims.length, 2);
-  assert.ok(claims.every((c) => c.state === 'NOT_OBSERVED'));
-  assert.ok(claims.every((c) => c.crossExaminedAt === undefined));
-  assert.ok(claims.every((c) => c.claimantLayer === 'source'));
+test('a stale source map from an earlier build cannot settle the claim', () => {
+  // Content, not timestamps: a map written before this line existed does not
+  // contain it, so it is not about this claim. No mtime comparison anywhere.
+  const settled = crossExamine(
+    [sourceClaim()],
+    observation([artefact('app.js', 'function o(){}', 'function older(){ return 1 } // nothing about the guard')]),
+    illegal,
+  );
+  assert.equal(settled[0].state, 'NOT_OBSERVED');
+  assert.match(settled[0].note, /none of them is about this claim/);
 });
 
-test('a claim with no extractable witness stays NOT_OBSERVED and says why', () => {
-  const claims = claimsFromFindings([
-    { ruleId: 'VG-AUTH-009', snippet: "if (process.env.NODE_ENV !== 'production') { }" },
-  ]);
-  assert.equal(claims[0].witness, undefined);
-  const settled = crossExamine(claims, observationWith([]), illegal);
+test('present in the code of the artefact that carries the source', () => {
+  const settled = crossExamine(
+    [sourceClaim()],
+    observation([artefact('app.js', 'function o(s){if(!s.isAdmin)throw 0}', `head\n${PROBE}\ntail`)]),
+    illegal,
+  );
+  assert.equal(settled[0].state, 'PRESENT');
+  assert.equal(settled[0].crossExaminedAt, 'artifact');
+  assert.deepEqual(settled[0].history.map((h) => h.state), ['PRESENT']);
+});
+
+test('absent from both halves of the jurisdiction artefact is LOST, and only there', () => {
+  const settled = crossExamine(
+    [sourceClaim({ witness: 'neverAppears' })],
+    observation([artefact('app.js', 'function o(){}', `head\n${PROBE}\ntail`)]),
+    illegal,
+  );
+  assert.equal(settled[0].state, 'LOST');
+  assert.match(settled[0].note, /which is the artefact that carries this source/);
+});
+
+test('REINTRODUCED is recorded with the loss in front of it', () => {
+  // `evidence-bundle/states.mjs`: REINTRODUCED means PRESENT again after being
+  // LOST, and a record that asserts it with no preceding loss is malformed.
+  const settled = crossExamine(
+    [sourceClaim()],
+    observation([artefact('app.js', 'function o(s,e){return e}', `head\n${PROBE}\ntail`)]),
+    illegal,
+  );
+  assert.deepEqual(settled[0].history.map((h) => h.state), ['LOST', 'REINTRODUCED']);
+  assert.equal(settled[0].state, 'REINTRODUCED');
+});
+
+test('a probe too short to identify anything is refused rather than guessed', () => {
+  const settled = crossExamine(
+    [sourceClaim({ sourceProbe: 'throw 0;' })],
+    observation([artefact('app.js', 'throw 0;', 'throw 0;')]),
+    illegal,
+  );
+  assert.equal(settled[0].state, 'NOT_OBSERVED');
+  assert.match(settled[0].note, /below the 20 needed/);
+});
+
+test('a claim with no probe cannot be settled, however good its witness is', () => {
+  const settled = crossExamine(
+    [sourceClaim({ sourceProbe: undefined })],
+    observation([artefact('app.js', 'x.isAdmin', 'x.isAdmin')]),
+    illegal,
+  );
+  assert.equal(settled[0].state, 'NOT_OBSERVED');
+  assert.match(settled[0].note, /no source text/);
+});
+
+test('a claim with no witness cannot be settled either', () => {
+  const settled = crossExamine([sourceClaim({ witness: undefined })], observation([]), illegal);
   assert.equal(settled[0].state, 'NOT_OBSERVED');
   assert.match(settled[0].note, /nothing that can be looked for/);
 });
 
-test('an artefact observation settles a source claim three ways', () => {
-  const claims = claimsFromFindings([
-    { ruleId: 'VG-AUTH-009', snippet: 'if (dev) { !s.isAdmin }' },
-    { ruleId: 'VG-AUTH-010', snippet: 'console.assert(s.hasPermission)' },
-    { ruleId: 'VG-AUTH-008', snippet: 'assert(is_authorized(u))' },
-  ]);
+test('when nothing was measurable, nothing is settled and the count is reported', () => {
   const settled = crossExamine(
-    claims,
-    observationWith([
-      { witness: 'isAdmin', state: 'PRESENT', inCode: true, inSidecar: true },
-      { witness: 'hasPermission', state: 'REINTRODUCED', inCode: false, inSidecar: true },
-      { witness: 'is_authorized', state: 'ABSENT', inCode: false, inSidecar: false },
+    [sourceClaim()],
+    observation([{ artefact: 'app.js', bytes: 1, code: null, sidecar: null, controlHeld: false }]),
+    illegal,
+  );
+  assert.equal(settled[0].state, 'NOT_OBSERVED');
+  assert.match(settled[0].note, /1 read, none passed its controls/);
+});
+
+test('a LOST verdict says how many artefacts could not be measured', () => {
+  // b-4: a confident LOST alongside unmeasured artefacts is a partial view
+  // presented as a whole one. The verdict stands — it is scoped to the
+  // jurisdiction artefact — but the reader is told what was not looked at.
+  const settled = crossExamine(
+    [sourceClaim({ witness: 'neverAppears' })],
+    observation([
+      artefact('app.js', 'function o(){}', `head\n${PROBE}\ntail`),
+      { artefact: 'broken.js', bytes: 1, code: null, sidecar: null, controlHeld: false },
     ]),
     illegal,
   );
-  const by = Object.fromEntries(settled.map((c) => [c.witness, c.state]));
-  assert.equal(by.isAdmin, 'PRESENT');
-  assert.equal(by.hasPermission, 'REINTRODUCED');
-  assert.equal(by.is_authorized, 'LOST');
-  assert.ok(settled.every((c) => c.crossExaminedAt === 'artifact' || c.crossExaminedAt === 'sidecar'));
+  assert.equal(settled[0].state, 'LOST');
+  assert.match(settled[0].note, /1 artefact\(s\) could not be measured/);
 });
 
-test('no artefact held its control, so nothing is settled', () => {
-  const claims = claimsFromFindings([{ ruleId: 'VG-AUTH-009', snippet: 'if (dev) { !s.isAdmin }' }]);
-  const blind = {
-    dir: '/tmp/dist',
-    skipped: [],
-    records: [{ artefact: 'app.js', bytes: 1, state: 'NOT_OBSERVED', controlHeld: false, witnesses: [] }],
-  };
-  const settled = crossExamine(claims, blind, illegal);
-  assert.equal(settled[0].state, 'NOT_OBSERVED');
-  assert.match(settled[0].note, /live control/);
-});
-
-test('assistant prose becomes claims, and every one of them is NOT_OBSERVED', () => {
-  const prose = [
-    'I added an authorization check so only admins can delete accounts.',
-    'The isAdmin flag is now validated before db.remove runs.',
-    'I also renamed a variable for clarity.',
-  ].join('\n');
-  const claims = claimsFromAssistantProse(prose, { filePath: 'a.js' });
-  assert.ok(claims.length >= 1, 'the prose fixture must produce at least one claim');
-  assert.ok(claims.every((c) => c.claimantLayer === 'assistant'));
-  // THE property. An assistant may add work; it may not discharge it.
-  assert.ok(claims.every((c) => c.state === 'NOT_OBSERVED'));
-  assert.ok(claims.every((c) => c.crossExaminedAt === undefined));
-});
-
-test('an assistant claim is settled by the artefact, not by the assistant', () => {
-  const claims = claimsFromAssistantProse('I added an authorization check on isAdmin before deleting.');
-  assert.equal(claims.length, 1);
+test('CRLF on one side and LF on the other still finds the jurisdiction', () => {
   const settled = crossExamine(
-    claims,
-    observationWith([{ witness: claims[0].witness, state: 'ABSENT', inCode: false, inSidecar: false }]),
+    [sourceClaim({ sourceProbe: PROBE.replace(/ /g, ' ') })],
+    observation([artefact('app.js', 'function o(){}', `head\r\n${PROBE}\r\ntail`)]),
     illegal,
   );
-  assert.equal(settled[0].state, 'LOST');
-  assert.equal(settled[0].crossExaminedAt, 'artifact');
+  assert.notEqual(settled[0].state, 'NOT_OBSERVED');
 });
 
-test('a guard that permits self-settlement is refused by crossExamine anyway', () => {
-  // The day somebody adds an artefact-layer claimant, or weakens the guard,
-  // this is the line that keeps the party under examination from grading its
-  // own homework. `crossExamine` must honour whatever the guard returns.
-  const alwaysIllegal = () => 'refused by the guard under test';
-  const claims = claimsFromFindings([{ ruleId: 'VG-AUTH-009', snippet: 'if (dev) { !s.isAdmin }' }]);
+// ── SELF-SETTLEMENT ─────────────────────────────────────────────────────────
+
+test('an assistant claim is settled by the artefact, never by the assistant', () => {
+  const claims = [sourceClaim({ id: 'a1', claimant: 'assistant', claimantLayer: 'assistant',
+    subject: 'I added an authorization check on session.isAdmin before deleting.' })];
   const settled = crossExamine(
     claims,
-    observationWith([{ witness: 'isAdmin', state: 'PRESENT', inCode: true, inSidecar: true }]),
-    alwaysIllegal,
+    observation([artefact('app.js', 'function o(s,e){return e}', `head\n${PROBE}\ntail`)]),
+    illegal,
+  );
+  assert.notEqual(settled[0].state, 'NOT_OBSERVED');
+  assert.equal(settled[0].crossExaminedAt, 'sidecar');
+});
+
+test('a guard that refuses is honoured, whatever the observation said', () => {
+  // The day somebody adds an artefact-layer claimant, or weakens the guard,
+  // this is the line that keeps the party under examination from grading its
+  // own homework.
+  const settled = crossExamine(
+    [sourceClaim()],
+    observation([artefact('app.js', 'x.isAdmin', `head\n${PROBE}\ntail`)]),
+    () => 'refused by the guard under test',
   );
   assert.equal(settled[0].state, 'NOT_OBSERVED');
   assert.equal(settled[0].note, 'refused by the guard under test');
   assert.equal(settled[0].crossExaminedAt, undefined);
-});
-
-test('vacuity guard: the fixtures above really do produce witnesses', () => {
-  const claims = claimsFromFindings([
-    { ruleId: 'VG-AUTH-009', snippet: 'if (dev) { !s.isAdmin }' },
-  ]);
-  // Without this, every "settled three ways" assertion could be passing over
-  // claims that carry no witness and were never looked up at all.
-  assert.equal(claims[0].witness, 'isAdmin');
 });
