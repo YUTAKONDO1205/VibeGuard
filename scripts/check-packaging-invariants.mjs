@@ -723,6 +723,28 @@ if (!PRE_BUILD) {
 // Measured on the build immediately after those changes:
 //   extensions/chrome/dist   255,326
 //   extensions/vscode/dist   257,428
+// ★ NOT REBASELINED 2026-08-23, and the measurement is here so the next person
+// does not have to take it again.
+//
+// This gate is currently RED, and it was red before the branch that wrote this
+// note. Measured by building `main` (33c2ac5) in a clean worktree and building
+// the branch, on the same machine, minutes apart:
+//
+//   main   extensions/vscode/dist   294,164
+//   branch extensions/vscode/dist   293,076
+//
+// The branch is SMALLER. The ceiling is 283,170 (257,428 + 10%), so main has
+// been over it by ~36 KB for some time and CI has not said so — `--pre-build`
+// skips this half, and the post-build half is reached only where `dist/` exists.
+//
+// The doctrine three paragraphs up is why the constant is not simply moved:
+// what matters is not the size but what the size is made of. What was checked
+// here: `packages/analysis-graph`, `external-adapters`, `mcp-guard`,
+// `artifact-integrity`, `evidence-bundle` and `evidence-verifier` each appear
+// ZERO times in every shipped `.js`, and invariants 3 and 4 pass. So nothing
+// CLI-only has leaked. What was NOT established is which change between 0.3.4
+// and 0.3.6 added the 36 KB, and until somebody knows that, moving the number
+// records an acceptance nobody actually made.
 if (!PRE_BUILD) {
   const CHROME_DIST_JS_BASELINE_BYTES = 255_326;
   const VSCODE_DIST_JS_BASELINE_BYTES = 257_428;
@@ -840,6 +862,35 @@ if (!PRE_BUILD) {
     );
   }
 
+  // ── PACKAGES WITH NOTHING TO BUILD ────────────────────────────────────────
+  //
+  // The failure this invariant catches is precise: a clean checkout has no
+  // `dist/`, so a dependency whose entry point is `dist/index.js` cannot be
+  // resolved until its build line has run. A package whose entry points are
+  // already `src/*.mjs` is resolvable the moment the repository is cloned, and
+  // demanding a build line for it means demanding a no-op `build` script — a
+  // lie told to a guard, which is worse than the omission it would satisfy.
+  //
+  // Derived from each package's own manifest rather than kept as an allowlist,
+  // so a package that later grows a build step is caught by this check on the
+  // day it does. An unreadable manifest is NOT exempt: not knowing is a reason
+  // to demand the line.
+  //
+  // The same derivation exists in `apps/cli/build.mjs` for the metafile-based
+  // half of this question. Two call sites, one rule; if a third appears, hoist
+  // it rather than copying it again.
+  const needsBuildLine = (name) => {
+    const dir = name.replace('@vibeguard/', '');
+    try {
+      const pkg = JSON.parse(
+        readFileSync(join(REPO_ROOT, 'packages', dir, 'package.json'), 'utf8'),
+      );
+      return /dist\//.test(JSON.stringify([pkg.main, pkg.module, pkg.types, pkg.exports]));
+    } catch {
+      return true;
+    }
+  };
+
   const position = new Map();
   const buildLine = /npm run build -w (\S+)/g;
   for (let m = buildLine.exec(actionYml); m; m = buildLine.exec(actionYml)) {
@@ -856,6 +907,7 @@ if (!PRE_BUILD) {
   } else {
     for (const name of needed) {
       const at = position.get(name);
+      if (at === undefined && !needsBuildLine(name)) continue;
       if (at === undefined) {
         failures.push(
           `action.yml does not build ${name}, but @vibeguard/cli depends on it.\n` +
