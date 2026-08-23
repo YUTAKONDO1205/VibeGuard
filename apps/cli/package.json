@@ -19,15 +19,16 @@
     "start": "node dist/index.js"
   },
   "devDependencies": {
+    "@types/node": "^20.19.43",
     "@vibeguard/analysis-graph": "0.3.6",
     "@vibeguard/analyzer-core": "0.3.6",
+    "@vibeguard/artifact-integrity": "0.3.6",
     "@vibeguard/external-adapters": "0.3.6",
     "@vibeguard/findings-schema": "0.3.6",
     "@vibeguard/remediation-engine": "0.3.6",
     "@vibeguard/sarif-adapter": "0.3.6",
     "esbuild": "^0.21.5",
     "typescript": "^5.4.5",
-    "vitest": "^1.6.0",
-    "@types/node": "^20.19.43"
+    "vitest": "^1.6.0"
   }
 }
