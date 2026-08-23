@@ -7,7 +7,15 @@
   "license": "MIT",
   "main": "./src/index.mjs",
   "exports": {
-    ".": "./src/index.mjs"
+    ".": "./src/index.mjs",
+    "./bundle": {
+      "types": "./src/bundle.d.mts",
+      "default": "./src/bundle.mjs"
+    },
+    "./cross-examine": {
+      "types": "./src/cross-examine.d.mts",
+      "default": "./src/cross-examine.mjs"
+    }
   },
   "files": [
     "src",

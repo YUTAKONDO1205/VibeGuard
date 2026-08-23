@@ -20,9 +20,12 @@ import {
   csrfExemptDecorator,
   insecureSessionCookie,
   assertBasedAuthorization,
+  developmentOnlyEnforcement,
+  consoleAssertAuthorization,
+  pythonAssertAuthorization,
 } from './auth.js';
 import { djangoDebugTrue, flaskDebugRun, corsWildcardOrigin } from './framework.js';
-import { hardcodedAwsKey, hardcodedPrivateKey, githubToken, genericApiKey } from './secrets.js';
+import { hardcodedAwsKey, hardcodedPrivateKey, githubToken, genericApiKey, modelProviderKey } from './secrets.js';
 import { weakHashForSecurity, weakRandomForSecurity, httpInsteadOfHttps } from './crypto.js';
 import {
   exceptionSwallow,
@@ -2069,5 +2072,194 @@ describe('VG-AISC-004 mock/dummy security leftover', () => {
       ].join('\n'),
       'src/cli/doctor-diagnostics.ts',
     );
+  });
+});
+
+// ── The class a build removes ───────────────────────────────────────────────
+//
+// Three rules whose whole subject is that the source and the shipped bytes
+// disagree. They are tested for the FALSE-NEGATIVE direction as hard as the
+// positive one, because the shape they look for is the shape an author
+// believes is correct.
+
+describe('VG-AUTH-009 — access control that only runs in development', () => {
+  it('flags a guard that enforces inside a NODE_ENV branch', () => {
+    // Measured with esbuild 0.21.5 and no flags beyond --minify: this compiles
+    // to a function that never reads its session argument.
+    expectMatches(
+      developmentOnlyEnforcement,
+      "export function del(session, id) {\n  if (process.env.NODE_ENV !== 'production') {\n    if (!session.isAdmin) throw new Error('forbidden');\n  }\n  return db.remove(id);\n}\n",
+      'javascript',
+    );
+  });
+
+  it('flags the framework spelling too', () => {
+    expectMatches(
+      developmentOnlyEnforcement,
+      "if (import.meta.env.DEV) {\n  if (!session.isOwner) throw new Error('unauthorized');\n}\n",
+      'javascript',
+    );
+  });
+
+  it('is the OPPOSITE polarity to VG-AUTH-001 and must not collide with it', () => {
+    // VG-AUTH-001 finds a dev branch that SKIPS a check. If 009 also fired on
+    // that, the two would double-report one line with contradictory advice.
+    const bypass = "if (process.env.NODE_ENV === 'development') {\n  return true;\n}\n";
+    expectNoMatch(developmentOnlyEnforcement, bypass, 'javascript');
+    expectMatches(debugBypass, bypass, 'javascript');
+  });
+
+  it('does not flag a development block that only describes', () => {
+    // A dev-only log is what dev-only blocks are for. Requiring BOTH an
+    // enforcement token and an authorization predicate is what keeps this quiet.
+    expectNoMatch(
+      developmentOnlyEnforcement,
+      "if (process.env.NODE_ENV !== 'production') {\n  console.log('user is', session.isAdmin);\n}\n",
+      'javascript',
+    );
+  });
+
+  it('does not flag a development block enforcing something unrelated to access', () => {
+    expectNoMatch(
+      developmentOnlyEnforcement,
+      "if (__DEV__) {\n  if (!Array.isArray(items)) throw new Error('items must be an array');\n}\n",
+      'javascript',
+    );
+  });
+
+  it('carries the guarded predicate in the evidence, not only the condition', () => {
+    // Without it, every identifier in `process.env.NODE_ENV !== 'production'`
+    // is a language or environment name, and nothing downstream can name a
+    // token to look for in the shipped bytes.
+    const m = developmentOnlyEnforcement.match(
+      ctx("if (process.env.NODE_ENV !== 'production') { if (!s.isAdmin) throw 0; }", 'javascript'),
+    );
+    expect(m).toHaveLength(1);
+    expect(m[0]!.evidence).toContain('isAdmin');
+  });
+});
+
+describe('VG-AUTH-010 — authorization decided by console.assert', () => {
+  it('flags an authorization predicate inside console.assert', () => {
+    expectMatches(
+      consoleAssertAuthorization,
+      "console.assert(session.isAdmin, 'admin required');\n",
+      'javascript',
+    );
+  });
+
+  it('ignores console.assert about anything else', () => {
+    expectNoMatch(consoleAssertAuthorization, "console.assert(items.length > 0, 'no items');\n", 'javascript');
+  });
+
+  it('ignores a commented-out one', () => {
+    expectNoMatch(consoleAssertAuthorization, "// console.assert(session.isAdmin);\n", 'javascript');
+  });
+});
+
+describe('VG-AUTH-011 — authorization decided by a Python assert', () => {
+  const py = (content: string, filePath: string): RuleContext => ({
+    content,
+    lines: content.split('\n'),
+    language: 'python',
+    filePath,
+  });
+
+  it('flags an assert whose condition is an authorization predicate', () => {
+    const m = pythonAssertAuthorization.match(
+      py('def d(u, t):\n    assert is_admin(u), "admin required"\n    return 1\n', 'app/service.py'),
+    );
+    expect(m).toHaveLength(1);
+  });
+
+  it('is silent in a test file, decided by path and not by content', () => {
+    // A rule that guesses "is this a test?" from contents will be wrong about
+    // somebody's production module named test_harness.py, and being wrong in
+    // that direction means staying quiet about a real finding.
+    for (const p of ['tests/test_service.py', 'app/test_service.py', 'app/service_test.py', 'conftest.py']) {
+      expect(
+        pythonAssertAuthorization.match(py('assert is_admin(u)\n', p)),
+        `${p} should be excluded`,
+      ).toHaveLength(0);
+    }
+  });
+
+  it('is silent on an ordinary assertion about program state', () => {
+    expect(
+      pythonAssertAuthorization.match(py('assert len(items) == 3\n', 'app/service.py')),
+    ).toHaveLength(0);
+  });
+});
+
+// ── EVERY PROVIDER SHAPE IS ASSEMBLED AT RUN TIME ───────────────────────────
+//
+// The rule this file now obeys, and the reason it is absolute rather than a
+// judgement call per provider:
+//
+//   NO TRACKED FILE IN THIS REPOSITORY MAY CONTAIN A STRING MATCHING A KEY
+//   PROVIDER'S PUBLISHED FORMAT.
+//
+// The first attempt was a judgement call — Stripe and Hugging Face were
+// assembled at run time because GitHub's PUSH PROTECTION had blocked those two,
+// and the rest were written out literally on the strength of having got past
+// it. That reasoning was wrong twice over. Push protection blocks a subset of
+// what secret scanning ALERTS on, so getting past the gate says nothing; and a
+// scanner's coverage grows, so a format that is quiet today is not quiet
+// tomorrow. GitHub opened a "publicly leaked secret" alert on the Google key
+// within minutes of the push.
+//
+// Assembling at run time costs nothing and removes the question. The rule under
+// test sees the joined string exactly as it would see it in a file; no file
+// here contains the shape. `scripts/no-provider-key-shapes.test.mjs` enforces
+// it across the tree so the next person does not have to remember.
+const OPENAI_SHAPE = ['sk', 'proj', `${'Zt7QreamLbXk20fV8pMwNc41hYuEsD9g'}`].join('-');
+const ANTHROPIC_SHAPE = ['sk', 'ant', 'api03', `${'Qw3rTy6UiOp0aSdFgHjKlZxCvBnM'}`].join('-');
+const GOOGLE_SHAPE = `AI${'za'}${'SyB4nR8kQw3rTy6UiOp0aSdFgHjKlZxCvBn'}`;
+const STRIPE_SHAPE = ['rk', 'live', `51${'Jm0e7LbXk20fV8pMwNc41hYuEsD9gZt'}`].join('_');
+const HF_SHAPE = `hf${'_'}${'Q'.repeat(6)}${'wErTyUiOpAsDfGhJkLzXcVbNmQwErTyUi'}`;
+const OPENAI_PLACEHOLDER = ['sk', 'proj', 'your', 'key', 'here', 'x'.repeat(20)].join('-');
+
+describe('VG-SEC-003 — the prefix that used to hide every secret', () => {
+  // `\b` was here, and `_` is a word character, so no boundary ever existed
+  // between a prefix and the keyword. Measured against the shipped 0.3.6
+  // engine: API_KEY was reported and MY_API_KEY was not.
+  it.each([
+    `const API_KEY = "${OPENAI_SHAPE}";`,
+    `const MY_API_KEY = "${OPENAI_SHAPE}";`,
+    `const OPENAI_API_KEY = "${OPENAI_SHAPE}";`,
+    `const STRIPE_SECRET = "${STRIPE_SHAPE}";`,
+    'DB_PASSWORD = "Pr0d!Passw0rd#LongEnough$42"',
+  ])('reports %s', (line) => {
+    expectMatches(genericApiKey, `${line}\n`, 'javascript');
+  });
+
+  it.each([
+    'const notasecret = "abcdefghijklmnopqrstuvwx";',
+    'const apiKey = process.env.STRIPE_API_KEY;',
+    'const tokenUrl = "https://example.com/oauth/token/endpoint";',
+    'const secret = "changeme-please-set-a-real-one";',
+  ])('stays silent on %s', (line) => {
+    expectNoMatch(genericApiKey, `${line}\n`, 'javascript');
+  });
+});
+
+describe('VG-SEC-005 — a model-provider key by shape', () => {
+  it('finds keys the name-based rule cannot, because a minifier destroyed the name', () => {
+    // The two rules fail in different places, which is the point of having both.
+    const minified = `const t="${OPENAI_SHAPE}";`;
+    expectNoMatch(genericApiKey, `${minified}\n`, 'javascript');
+    expectMatches(modelProviderKey, `${minified}\n`, 'javascript');
+  });
+
+  it.each([
+    ANTHROPIC_SHAPE,
+    GOOGLE_SHAPE,
+    HF_SHAPE,
+  ])('recognises %s', (key) => {
+    expectMatches(modelProviderKey, `const x = "${key}";\n`, 'javascript');
+  });
+
+  it('does not report a documentation placeholder', () => {
+    expectNoMatch(modelProviderKey, `const x = "${OPENAI_PLACEHOLDER}";\n`, 'javascript');
   });
 });

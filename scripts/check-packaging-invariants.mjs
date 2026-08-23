@@ -337,10 +337,35 @@ const CLI_ONLY_PACKAGES = [
   AG_PACKAGE_NAME,
   '@vibeguard/external-adapters',
   '@vibeguard/mcp-guard',
+  // ── THE ARTEFACT PACKAGES ────────────────────────────────────────────────
+  //
+  // `compiler/README.md` said this had to happen "in the same commit" as the
+  // evidence packages landing, and it did not: the three arrived at 0.3.6 with
+  // no importer anywhere, so nothing was leaking and nothing was checking
+  // either. They are added now because `--after-build` gives
+  // `@vibeguard/artifact-integrity` its first real consumer, and that consumer
+  // reads directories off disk with `node:fs`. An editor extension that
+  // acquired it would be shipping a filesystem walker into a process the user
+  // agreed to run over one open file.
+  //
+  // The other two are listed alongside it rather than waiting for their own
+  // first importer, for the reason the original omission demonstrates: the
+  // moment to write down that a package is Node-only is while somebody is
+  // thinking about it, not on the day it is convenient to import.
+  '@vibeguard/artifact-integrity',
+  '@vibeguard/evidence-bundle',
+  '@vibeguard/evidence-verifier',
 ];
 
 /** The bare directory names, for matching a specifier that omitted the scope. */
-const CLI_ONLY_PATH_TOKENS = ['analysis-graph', 'external-adapters', 'mcp-guard'];
+const CLI_ONLY_PATH_TOKENS = [
+  'analysis-graph',
+  'external-adapters',
+  'mcp-guard',
+  'artifact-integrity',
+  'evidence-bundle',
+  'evidence-verifier',
+];
 
 /**
  * Subpath exports that are Node-only inside an otherwise browser-safe package.

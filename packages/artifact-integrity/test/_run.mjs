@@ -26,8 +26,9 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-/** Measured 2026-08-07. Raise it when test files are added. */
-const TEST_FILE_FLOOR = 6;
+/** Measured 2026-08-07 at 6; raised to 8 on 2026-08-23 when bundle.test.mjs
+ * and cross-examine.test.mjs landed. Raise it when test files are added. */
+const TEST_FILE_FLOOR = 8;
 
 const files = readdirSync(HERE)
   .filter((f) => f.endsWith('.test.mjs'))

@@ -389,6 +389,29 @@ const CORPUS_DIRS = [
   'samples/vulnerable',
   'samples/embedded/safe',
   'samples/embedded/vulnerable',
+  // ★ BUILD-FRAGILE — protections a build step removes, and the same
+  // protections written so it cannot.
+  //
+  // A SEPARATE PAIR RATHER THAN MORE FILES IN samples/vulnerable, and the
+  // reason is not tidiness. `sec-b1-er-eval.mjs:84` names `samples/vulnerable`
+  // as "the population the corpus was derived from" for the evasion
+  // evaluation, and `sec-b3-cr-eval.mjs` re-scans it for the concealment one.
+  // Adding specimens there moves ΔER and the D1 reduction floor, which is
+  // measured before-and-after evidence about the rule layer's evasion
+  // resistance — numbers that mean nothing if the population underneath them
+  // changes between readings. Measured while the files were briefly in
+  // `samples/vulnerable`: `b1:delta-er-floor` fell 0.050633 → 0.045016 and
+  // `b3:d1-reduction-floor` fell 1 → 0.785714. Neither is a defect in the new
+  // rules; both are what happens when you enlarge the denominator of a ratio
+  // mid-experiment.
+  //
+  // So this pair gets its own gate ids, the existing corpora stay pinned at
+  // 51 and 0, and the evasion numbers keep comparing like with like. If the
+  // new rules should be inside the evasion population, that is a deliberate
+  // re-derivation of the B1/B3 corpora and a re-baseline of both, not a side
+  // effect of dropping three files into a directory.
+  'samples/build-fragile/safe',
+  'samples/build-fragile/vulnerable',
   // ★ #34 CFGATE — the cross-file fixture tree, scanned by the RULE LAYER.
   //
   // This corpus exists for `packages/analysis-graph`, and its own suites run the
