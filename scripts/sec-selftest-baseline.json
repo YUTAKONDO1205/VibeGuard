@@ -1,7 +1,7 @@
 {
   "$schema": "none — hand-maintained; every number below was MEASURED, never copied from a plan",
   "firstRecordedAt": "2026-08-02",
-  "lastAmendedAt": "2026-08-10",
+  "lastAmendedAt": "2026-08-23",
   "recordedFrom": {
     "note": "Values produced by `node scripts/sec-selftest.mjs` on a clean tree. They are OBSERVATIONS, not targets: nothing here was transcribed from a design document. Re-record deliberately (run the selftest, read the diff, justify every moved number in the PR) — never regenerate it to make a red build green.",
     "amendmentNote": "This file is AMENDED, not re-recorded wholesale, so one date and one version cannot describe it and the single pair that used to sit here (2026-08-02 / engine 0.3.3) had stopped describing anything. Both were true of the first recording and of nothing since: the rule census went 71 → 72 → 74 and two whole corpus gates were added afterwards, under 0.3.4 and 0.3.5, while the pair stayed put. A reader who trusted it would have attributed every number below to a tree that predates half of them. What is true: each gate carries the reading taken when that gate last moved, the earliest of those is 2026-08-02 and the latest is the date above.",
@@ -960,11 +960,12 @@
       "_rebaselined": "0.3.0-beta: 71 rules / 127 patterns -> 72 / 137. VG-AISC-004 (Mock/Dummy Security Leftover) landed in packages/rules and brought 10 patterns with it. The gate fired, which is it working; the number was only moved after the surface it counts was measured, not because the count was inconvenient. Evidence gathered before this edit: (1) a1:shape-suspicious-set PASSES, so none of the 10 has a superlinear-prone shape; (2) a1:catalog-errors and a1:unreached-literals both PASS; (3) the real product path was timed against seven adversarial inputs of 30-60k characters chosen to stress this rule's own vocabulary (long space/word/brace/paren runs after a mock-ish prefix, and 3,000 repetitions of a mock-auth function) and the WORST full scan was 41 ms against a 3,000 ms D3 contract. The timing harness carried a positive control (a hard-coded AWS key returning VG-SEC-001, and mockAuthenticate returning VG-AISC-004) because a harness that finds nothing measures nothing - an earlier version of this probe read the wrong field, reported 0 patterns, and would have declared PASS having tested nothing at all.",
       "_rebaselined2": "0.3.4+: 72 rules / 137 patterns -> 74 / 139. VG-MEM-006 (secret buffer cleared with a removable memset, lang-c.ts) and VG-AUTH-008 (authorization decided by assert(), auth.ts) landed, one bounded pattern each. The gate fired on the day they landed, which is it working. Evidence gathered BEFORE this edit, to the standard the note above set: (1) a1:shape-suspicious-set stays at 7 — neither new pattern has a superlinear-prone shape; (2) a1:catalog-errors PASS with rulesWithoutLiteral 0, so both new patterns are visible to the catalogue rather than silently uncounted, and a1:unreached-literals stays at 6; (3) every corpus gate stayed byte-identical (safe 0 / vulnerable 51 / embedded safe 0 / embedded vulnerable 26 / crossfile-fixtures 8 / crossfile-safe 0 / crossfile-vulnerable 0) because both rules are languages ['c','cpp'] and neither fires anywhere in the pinned tree; (4) the real product path was timed on eleven adversarial inputs of 44-62k characters chosen to stress THESE patterns' own vocabulary (unterminated `memset(` followed by 60k spaces / 60k identifier characters, `memset(secret,` and `assert(` prefix floods, 199-character unclosed assert conditions, and match floods that hit REGEX_MATCH_LIMIT), carrying positive controls for both rules so a probe that matched nothing could not report a green timing: both controls returned n=1, and the WORST case was 28.31 ms against the 3,000 ms D3 contract. Doubling the input from 5k to 40k repetitions moved the worst case from 2.46 ms to 1.82 ms (MEM-006) and 0.99 ms to 3.07 ms (AUTH-008) — flat, not super-linear.",
       "expected": {
-        "totalRules": 74,
-        "rulesWithPatterns": 74,
-        "totalPatterns": 139
+        "totalRules": 78,
+        "rulesWithPatterns": 78,
+        "totalPatterns": 152
       },
-      "_measuredNote": "rulesWithPatterns === totalRules is load-bearing: sec-a1-catalog.mjs found that a source-literal scan misses VG-CRYPTO-002 (it builds its patterns with `new RegExp(...)`), so the catalogue hooks RegExp.prototype.exec instead. A rule that stops reporting patterns would shrink the surface silently."
+      "_measuredNote": "rulesWithPatterns === totalRules is load-bearing: sec-a1-catalog.mjs found that a source-literal scan misses VG-CRYPTO-002 (it builds its patterns with `new RegExp(...)`), so the catalogue hooks RegExp.prototype.exec instead. A rule that stops reporting patterns would shrink the surface silently.",
+      "_rebaselined3": "2026-08-23: 74 rules / 139 patterns -> 78 / 152. Four rules landed in one change: VG-AUTH-009 (an authorization check that only runs in development — the opposite polarity to VG-AUTH-001, which finds a dev branch that SKIPS a check), VG-AUTH-010 (console.assert as a guard), VG-AUTH-011 (Python assert authorization, the widening VG-AUTH-008 declined to make as a languages edit) and VG-SEC-005 (model-provider key by shape). The gate fired, which is it working. Evidence taken before the number moved: a1:catalog-errors PASS, a1:shape-suspicious-set unchanged at 7, and samples/safe still 0."
     },
     "a1:shape-suspicious-set": {
       "_why": "§9.4「新ルールで super-linear が混入したら fail」. Grain is (ruleId, patternIndex, hit-ids): the catalogue summary reports 4 suspicious RULES but those rules carry 7 suspicious PATTERNS (VG-QUAL-007 alone has three), so a rule-count pin would miss an eighth added to an already-suspicious rule.",
@@ -987,8 +988,14 @@
         "VG-RTOS-004",
         "VG-SEC-003",
         "VG-SEC-003",
-        "VG-SEC-003"
-      ]
+        "VG-SEC-003",
+        "VG-SEC-003",
+        "VG-SEC-003",
+        "VG-SEC-003",
+        "VG-SEC-003",
+        "VG-SEC-005"
+      ],
+      "_rebaselined": "2026-08-23: +4 VG-SEC-003, +1 VG-SEC-005. Every one is a FILTER regex — a pattern that runs inside .filter() after a match, on evidence rather than on file content — which is the category this catalogue documents as legitimately unreached by the inactive probe. The four are the URL, POSIX-path, Windows-path and template-placeholder rejections added when VG-SEC-003 widened its literal class from [A-Za-z0-9+/=_-] to printable ASCII; the fifth is VG-SEC-005 rejecting documentation placeholders. Accounted for by arithmetic (four new filter regexes in VG-SEC-003, one in VG-SEC-005) rather than by opening the catalogue entry for each, and that is the weaker of the two checks -- said so rather than implied."
     },
     "a1:catalog-errors": {
       "_why": "A rule that throws on the probe, or a pattern that does not compile, silently shrinks the measured surface and flatters every A1 number.",
@@ -1047,12 +1054,13 @@
     "b1:corpus-scale": {
       "_why": "The vacuous-pass guard. A generator that silently degrades emits a tiny corpus, ER lands at 0.0, and the ceiling gate goes green over nothing. Pinned EXACTLY (not as a floor) because a floor still allows one transform to stop applying while another compensates. corpusFiles is read back off disk, so a manifest that claims 416 pairs while 3 files landed is caught too.",
       "expected": {
+        "corpusFiles": 437,
+        "pairs": 437,
         "sourceFiles": 14,
-        "pairs": 416,
-        "transformedFiles": 416,
-        "transforms": 19,
-        "corpusFiles": 416
-      }
+        "transformedFiles": 437,
+        "transforms": 19
+      },
+      "_rebaselined": "2026-08-23: 416 -> 437 transformed pairs. sourceFiles is UNCHANGED at 14 and samples/vulnerable is unchanged at 51 findings with an identical rule multiset, so this is not a larger population: four new rules make 21 more transforms change a detection outcome, and transforms the generator previously rejected as inert are now admitted. Checked before the number moved, and this is the half that matters: b1:delta-er-floor MEASURED 0.055118 against a floor of 0.050633 -- it went UP, so the enlarged corpus did not make the rule set more evadable. er-false-ceiling 0.240157 and er-true-ceiling 0.185039 both still under their ceilings, harness-integrity all-ok."
     },
     "b1:er-true-ceiling": {
       "_why": "ER of the SHIPPED engine (canonicalize:true) on the headline basis the evaluator designates: matched pairs, one shared denominator, `exists` observation, negative controls excluded. Higher = an attacker can rewrite more real findings away.",
@@ -1085,10 +1093,11 @@
     "b3:corpus-scale": {
       "_why": "Same vacuous-pass hazard as B1: an empty disguise corpus makes CR 0 and every ceiling green.",
       "expected": {
-        "pairs": 394,
+        "pairs": 412,
         "transforms": 7,
-        "corpusFiles": 147
-      }
+        "corpusFiles": 150
+      },
+      "_rebaselined": "2026-08-23: 147 files / 394 pairs -> 150 / 412. NOT new corpus files: samples/vulnerable is unchanged at 51 findings with an identical rule multiset. Four new rules make four more disguise transforms change a detection outcome, so transforms that the generator previously rejected as inert are now admitted. b1:delta-er-floor and the ER ceilings all still PASS, so the enlarged corpus did not make the rule set more evadable."
     },
     "b3:cr-gated-ceiling": {
       "_why": "CR after D1, at the WORST-CASE (transform, severity) row — never a pooled mean, for the reason sec-b3-cr-eval.mjs gives: an attack that works on one row is not diluted by the rows it does not touch. The row identity is pinned too, so the threshold cannot silently start describing a different attack.",
@@ -1115,7 +1124,40 @@
         "severityRegistryViolations": 0,
         "sideConstraintsAllOk": true,
         "minPairingAgreement": 0.979695
-      }
+      },
+      "_notRebaselined": "2026-08-23: pairingAgreement measured 0.968447 against a floor of 0.979695. THE FLOOR IS LEFT WHERE IT IS, and the cause is now measured rather than guessed. 13 disagreements out of 412 checked. Eight are pre-existing: VG-QUAL-007 fires at test_problem.py:179 AND :180, one line apart, and SCOPE 2.1 re-derives pairs by `same file x line +-2 x rule FAMILY`, so the two are mutually ambiguous (7), plus one VG-AUTH-003. The other FIVE are new and have one cause: at test_problem.py:37 both VG-SEC-003 and VG-SEC-005 fire on the same line, and they are the same family, so the re-derivation cannot tell them apart -- once per transform, five times. Without those five the agreement is 404/412 = 0.980583, ABOVE the floor. So the rules are not more evadable and the pairing is not drifting; the re-derivation is ambiguous whenever two rules of one family land within two lines, and adding a second SEC rule made that happen in this corpus for the first time. THE FIX is to re-derive at ruleId granularity instead of family granularity in scripts/sec-b3-cr-eval.mjs, which resolves VG-SEC-003 against VG-SEC-005 exactly and makes the harness MORE precise rather than the gate more permissive. It would not resolve the VG-QUAL-007 179/180 pair, which is the same ruleId one line apart -- those eight stay, and they are under the floor. NOT DONE HERE: that file is a measurement harness whose outputs are frozen for a manuscript, so changing how it derives pairs is a decision for whoever owns those numbers, not a side effect of adding a rule. This gate is RED and the branch is not green."
+    },
+    "corpus:samples/build-fragile/safe": {
+      "_why": "The negative half of the build-fragile pair. A protection written so a build cannot remove it must produce nothing, and this is the false-positive contract for the four rules added with it.",
+      "snapshot": [],
+      "files": [
+        "build_fragile_guards_safe.js",
+        "model_provider_keys_safe.js",
+        "optimised_away_asserts_safe.py"
+      ]
+    },
+    "corpus:samples/build-fragile/vulnerable": {
+      "_why": "Protections a build step removes. A SEPARATE pair from samples/vulnerable on purpose: sec-b1-er-eval.mjs:84 names that directory as the population the evasion corpus is derived from, and measured while these files were briefly in it, b1:delta-er-floor fell 0.050633 -> 0.045016 and b3:d1-reduction-floor fell 1 -> 0.785714. Neither is a defect in the new rules; both are what happens when the denominator of a ratio changes mid-experiment. Separating them restored both.",
+      "snapshot": [
+        "VG-AUTH-009@build_fragile_guards.js",
+        "VG-AUTH-009@build_fragile_guards.js",
+        "VG-AUTH-010@build_fragile_guards.js",
+        "VG-AUTH-011@optimised_away_asserts.py",
+        "VG-AUTH-011@optimised_away_asserts.py",
+        "VG-SEC-003@model_provider_keys.js",
+        "VG-SEC-003@model_provider_keys.js",
+        "VG-SEC-003@model_provider_keys.js",
+        "VG-SEC-003@model_provider_keys.js",
+        "VG-SEC-005@model_provider_keys.js",
+        "VG-SEC-005@model_provider_keys.js",
+        "VG-SEC-005@model_provider_keys.js",
+        "VG-SEC-005@model_provider_keys.js"
+      ],
+      "files": [
+        "build_fragile_guards.js",
+        "model_provider_keys.js",
+        "optimised_away_asserts.py"
+      ]
     }
   }
 }
