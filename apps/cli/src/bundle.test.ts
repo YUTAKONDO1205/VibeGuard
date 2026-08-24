@@ -35,6 +35,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildSync } from 'esbuild';
 import { describe, expect, it } from 'vitest';
 import { scanPath } from '@vibeguard/analyzer-core';
 
@@ -274,20 +275,22 @@ describe('--after-build, exercised through the BUILT CLI', () => {
     return { root, src, dist };
   }
 
+  /**
+   * ★ esbuild's JS API, never `node node_modules/esbuild/bin/esbuild`. See the
+   * long note on the same function in `fix-ledger.test.ts`: on anything that is
+   * not Windows, esbuild's installer replaces that path with the NATIVE
+   * executable, so feeding it to `process.execPath` parses an ELF header as
+   * JavaScript. Green here, red on every runner.
+   */
   function build(src: string, dist: string): void {
-    execFileSync(
-      process.execPath,
-      [
-        join(REPO_ROOT, 'node_modules', 'esbuild', 'bin', 'esbuild'),
-        join(src, 'app.js'),
-        '--minify',
-        '--format=esm',
-        '--drop:console',
-        '--sourcemap',
-        `--outfile=${join(dist, 'app.js')}`,
-      ],
-      { stdio: ['ignore', 'ignore', 'pipe'] },
-    );
+    buildSync({
+      entryPoints: [join(src, 'app.js')],
+      outfile: join(dist, 'app.js'),
+      minify: true,
+      format: 'esm',
+      drop: ['console'],
+      sourcemap: true,
+    });
   }
 
   function scan(target: string, extra: string[]): { findings: unknown[]; [k: string]: unknown } {
