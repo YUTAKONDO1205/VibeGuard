@@ -1,3 +1,4 @@
+// vibeguard:disable-file VG-SEC-003 reason="the hard-coded password literal is the file the guard is asked to judge — a suite that proves prose cannot talk a guard past a secret needs a secret for it to find, and the widened VG-SEC-003 literal class now admits it"
 // The claim ledger the guard attaches to every verdict.
 //
 // Driven through `adjudicate` directly, unlike `server.test.ts`, which

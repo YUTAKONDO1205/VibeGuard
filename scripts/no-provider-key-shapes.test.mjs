@@ -189,6 +189,14 @@ it('no tracked file carries a plausible provider key', () => {
 it('the predicate admits the obviously fake and refuses the plausible', () => {
   // The last assertion is the one that matters: that string is exactly what
   // GitHub opened a "publicly leaked secret" alert on.
+  //
+  // The line below is the one place in this file that has to spell an AWS key
+  // out — the predicate cannot be tested against a shape it is never handed —
+  // so VG-SEC-001 finds it and the self-scan's `--fail-on critical` goes red on
+  // it. Suppressed at LINE scope rather than file scope on purpose: file scope
+  // would also cover anything a later edit adds, and this file's whole subject
+  // is that a credential-shaped string in a tracked file is an event.
+  // vibeguard:disable-next-line VG-SEC-001
   expect(looksSynthetic('AKIAIOSFODNN7EXAMPLE')).toBe(true);
   expect(looksSynthetic(`sk_live_${'A'.repeat(24)}`)).toBe(true);
   expect(looksSynthetic(`ghp_${'abcdefghij'.repeat(4).slice(0, 36)}`)).toBe(true);
