@@ -61,6 +61,12 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { extname, join, relative, sep } from 'node:path';
 
+// Relative, and deliberately not through the package's `exports`. Region
+// attribution is an internal detail of this observation; publishing it as a
+// third entry point would add a third thing `check-packaging-invariants.mjs`
+// has to reason about for no caller's benefit.
+import { decodeSourceRegions } from './source-map-regions.mjs';
+
 /**
  * The six states, duplicated from `properties.mjs` rather than imported, for
  * one reason: this module must be readable on its own by someone checking that
@@ -157,6 +163,9 @@ export function sourceMappingUrl(code) {
  */
 export async function readSourceMap(artefactPath, code) {
   const url = sourceMappingUrl(code);
+  // An inline map needs no size bound of its own: it is inside `code`, and
+  // `collectArtefacts` already refused anything over `MAX_ARTEFACT_BYTES`. The
+  // sibling-file branch below is the one that had none.
   if (url && /^data:/i.test(url)) {
     const comma = url.indexOf(',');
     if (comma < 0) return { map: null, why: 'inline source map has no payload' };
@@ -178,6 +187,25 @@ export async function readSourceMap(artefactPath, code) {
   if (url) candidates.push(join(artefactPath, '..', url));
   candidates.push(`${artefactPath}.map`);
   for (const c of candidates) {
+    // ── SIZE, AND WHY THE MAP NEEDS THE SAME BOUND AS THE ARTEFACT ─────────
+    //
+    // `collectArtefacts` refuses an artefact over `MAX_ARTEFACT_BYTES` and
+    // this function used to read whatever sat beside it, unbounded. A map is
+    // routinely several times the size of the file it describes — measured on
+    // this repository, 2,378,190 bytes of map for a 375,052-byte minified CLI
+    // bundle, 6.3× — so the unbounded side was the LARGER one. `stat` first,
+    // and record the overflow as a reason: an artefact whose map was refused
+    // must report NOT_OBSERVED, exactly like one whose map did not parse, and
+    // not fall through to the next candidate as if nothing were there.
+    let info;
+    try {
+      info = await stat(c);
+    } catch {
+      continue;
+    }
+    if (info.size > MAX_ARTEFACT_BYTES) {
+      return { map: null, why: `${c} is ${info.size} bytes, above the ${MAX_ARTEFACT_BYTES} this package will read` };
+    }
     let text;
     try {
       text = await readFile(c, 'utf8');
@@ -206,67 +234,119 @@ export function normaliseText(s) {
   return String(s).replace(/\r\n/g, '\n');
 }
 
-/**
- * A token no source file can contain, used as the NEGATIVE control.
- *
- * The positive control (does this map carry the text we are asking about?) and
- * this one bracket the observer from both sides. If a canary is ever "found",
- * the matcher is matching things that are not there — a substring search over
- * an accidentally-empty haystack, a normalisation that collapsed everything, a
- * regex that became `.*` — and every verdict from that artefact is void.
- *
- * Deterministic, because this file may not call Math.random and a fixed token
- * is equally unfindable.
- */
-export const CANARY = 'vibeguard‑canary‑a6f31c0e‑must‑never‑match';
+// ── THE NEGATIVE CONTROL THAT WAS HERE, AND WHY IT IS GONE ──────────────────
+//
+// This module carried a `CANARY` — a token no source could contain — and
+// `observeArtefact` voided any artefact whose text appeared to contain it. Its
+// own comment claimed it would catch three things: a substring search over an
+// accidentally-empty haystack, a normalisation that collapsed everything, and
+// a matcher that had become a regex. It can catch none of them.
+//
+//   * empty haystack: `''.includes(CANARY)` is FALSE. The control passes —
+//     which is the opposite of detecting, and the failure it was named for is
+//     the one it is blindest to.
+//   * collapsed normalisation: same shape, same answer.
+//   * a regex-ified matcher: the canary check was itself an `includes()`, so
+//     it would go on being a substring search after every other call site had
+//     stopped being one.
+//
+// It was also worse than inert. `CANARY` was a literal in this file, this file
+// is bundled into `apps/cli/dist/index.js`, and the literal appears there
+// TWICE — so pointing `--after-build` at a directory holding a copy of the
+// VibeGuard CLI voided that artefact's verdicts for no reason at all. A
+// control that cannot fire and CAN mis-fire on this product's own binary is
+// worse than no control, because it is read as coverage.
+//
+// Nothing replaces it at this layer, and that is the honest position rather
+// than an omission: there is no reachable failure mode here for a canary to
+// detect. The one real weakness of `String.includes` is a degenerate NEEDLE —
+// `''.includes('')` is true — and a needle is a property of the CLAIM, so it
+// is checked where claims are, by `MIN_WITNESS_CHARS` in `cross-examine.mjs`.
+// The reachable runtime control of this feature now lives in the validity
+// checks in `source-map-regions.mjs`, which is the layer that actually has
+// untrusted structured input to reject. Literalness of the matcher is pinned
+// at test time, in `cross-examine.test.mjs`, where a pin can actually fail.
 
 /**
- * Read one artefact and the source map beside it.
+ * Read one artefact, the source map beside it, and where each byte came from.
  *
- * Returns the artefact's own text and the joined `sourcesContent`, so the
- * adjudicator can ask both "is this artefact the one my claim is about?" and
- * "is my witness in it?" without this module knowing what a claim is.
+ * Returns the artefact's own text, the joined `sourcesContent`, and the
+ * decoded generated-text regions, so the adjudicator can ask "is this artefact
+ * the one my claim is about?", "is my witness in it?" and "is it in MY part of
+ * it?" without this module knowing what a claim is.
  *
- * `controlHeld` is the NEGATIVE control only. Whether an artefact is the right
- * one for a given claim is a per-claim question and is answered in
- * `cross-examine.mjs`; a single global positive control could only ever say
- * "some source was mapped", which is what the previous `control: 'function'`
- * said and why a stale map from an earlier build could settle a claim.
+ * `measured` says only that this record can be reasoned about at all. It is
+ * not a verdict and it is not a control that held: whether an artefact is the
+ * right one for a given claim is a per-claim question answered in
+ * `cross-examine.mjs`. A single global positive control could only ever say
+ * "some source was mapped", which is what the old `control: 'function'` said
+ * and why a stale map from an earlier build could settle a claim.
+ *
+ * ── WHY THE REGIONS ARE DECODED HERE AND NOT PER CLAIM ──────────────────────
+ *
+ * Decoding is per ARTEFACT and adjudication is per CLAIM, so decoding at the
+ * call site would repeat the work once per claim on the same file. Doing it
+ * here makes "once per artefact" structural rather than a cache somebody has
+ * to keep correct. The cost is real and bounded: measured on the 375,052-byte
+ * minified CLI bundle and its 2,378,190-byte map, the decode takes 29.7 ms
+ * against the 28.5 ms `JSON.parse` of the map that this function already pays
+ * — so reading an artefact is about twice as expensive as it was, not an order
+ * of magnitude. The decoded result is small (187 regions for that bundle's
+ * 60,742 segments), which is also why the MAP is not retained: keeping it to
+ * decode later would hold megabytes per artefact to save milliseconds.
  */
 export async function observeArtefact(path, relPath, bytes) {
   let code;
   try {
     code = await readFile(path, 'utf8');
   } catch (err) {
-    return { artefact: relPath, bytes, code: null, sidecar: null, controlHeld: false,
+    return { artefact: relPath, bytes, code: null, sidecar: null, measured: false,
       why: `artefact could not be read: ${err.message}` };
   }
   const { map, why } = await readSourceMap(path, code);
   if (!map) {
-    return { artefact: relPath, bytes, code: normaliseText(code), sidecar: null, controlHeld: false, why };
+    return { artefact: relPath, bytes, code: normaliseText(code), sidecar: null, measured: false, why };
   }
-  const contents = Array.isArray(map.sourcesContent)
-    ? map.sourcesContent.filter((x) => typeof x === 'string')
-    : [];
-  if (!contents.length) {
-    return { artefact: relPath, bytes, code: normaliseText(code), sidecar: null, controlHeld: false,
+  // INDEX-ALIGNED, not filtered. A mapping segment names a source by its index
+  // in `sources`, so compacting the array — which this did — silently shifted
+  // every index past the first absent entry onto the wrong file. Harmless while
+  // nothing read the indices; a wrong-source attribution once something does.
+  const rawContents = Array.isArray(map.sourcesContent) ? map.sourcesContent : [];
+  const width = Math.max(rawContents.length, Array.isArray(map.sources) ? map.sources.length : 0);
+  const contents = [];
+  let present = 0;
+  for (let i = 0; i < width; i += 1) {
+    const c = rawContents[i];
+    if (typeof c === 'string') {
+      contents.push(normaliseText(c));
+      present += 1;
+    } else {
+      contents.push(null);
+    }
+  }
+  if (!present) {
+    return { artefact: relPath, bytes, code: normaliseText(code), sidecar: null, measured: false,
       why: 'the source map carries no sourcesContent, so nothing can be compared against the original text' };
   }
-  const sidecar = normaliseText(contents.join('\n'));
+  const sidecar = contents.filter((c) => c !== null).join('\n');
   const codeN = normaliseText(code);
-  // Negative control. A canary that matches means the matcher is broken.
-  if (codeN.includes(CANARY) || sidecar.includes(CANARY)) {
-    return { artefact: relPath, bytes, code: null, sidecar: null, controlHeld: false,
-      why: 'the negative control matched, so this observer is matching text that is not there and every verdict from this artefact is void' };
-  }
+  const { regions, coarse, why: regionsWhy } = decodeSourceRegions(codeN, map);
   return {
     artefact: relPath,
     bytes,
     code: codeN,
     sidecar,
+    contents,
+    // `null` here is not a failure of the artefact — the sidecar half of the
+    // observation is unaffected — so it does NOT clear `measured`. It removes
+    // the ability to say PRESENT, and `cross-examine.mjs` reports that as
+    // NOT_OBSERVED with this reason attached.
+    regions: regions ?? null,
+    coarse: coarse ?? [],
+    ...(regions ? {} : { regionsWhy }),
     sources: Array.isArray(map.sources) ? map.sources.slice(0, 200) : [],
-    sourcesContentEntries: contents.length,
-    controlHeld: true,
+    sourcesContentEntries: present,
+    measured: true,
   };
 }
 
@@ -281,11 +361,11 @@ export async function observeArtefact(path, relPath, bytes) {
 export async function observeBundleDir(dir) {
   const { artefacts, skipped } = await collectArtefacts(dir);
   const records = [];
-  let held = 0;
+  let measured = 0;
   for (const a of artefacts) {
     const r = await observeArtefact(a.path, a.relPath, a.bytes);
-    if (r.controlHeld) held += 1;
+    if (r.measured) measured += 1;
     records.push(r);
   }
-  return { dir, records, skipped, readable: records.length, controlHeld: held };
+  return { dir, records, skipped, readable: records.length, measured };
 }

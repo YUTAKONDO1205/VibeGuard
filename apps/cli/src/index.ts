@@ -284,7 +284,7 @@ async function main(): Promise<number> {
       scan.afterBuild = {
         directory: args.afterBuild,
         artefactsRead: observation.records.length,
-        artefactsMeasured: observation.controlHeld,
+        artefactsMeasured: observation.measured,
         skipped: observation.skipped.length,
       };
       for (const s of observation.skipped) {

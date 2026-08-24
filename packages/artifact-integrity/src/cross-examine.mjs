@@ -29,6 +29,36 @@
 // `@vibeguard/findings-schema` is the single place that rule is written down.
 
 import { normaliseText } from './bundle.mjs';
+import {
+  SPAN_ATTRIBUTION_CAP,
+  coarseWidthAt,
+  regionSourceAt,
+  sourceIndexesCarrying,
+} from './source-map-regions.mjs';
+
+/**
+ * Shortest witness this adjudicator will look for.
+ *
+ * ── THE ONE REAL FAILURE MODE OF `String.includes` ──────────────────────────
+ *
+ * `haystack.includes('')` is true for every haystack, so a degenerate needle
+ * turns this whole channel into a machine that reports PRESENT for everything
+ * — the single direction the doctrine says nothing here may ever fail in. Four
+ * characters, matching the admissibility floor inside `identifierWitness`.
+ *
+ * ── WHY IT IS CHECKED HERE WHEN THE PRODUCER ALREADY CHECKS IT ──────────────
+ *
+ * `identifierWitness` in `@vibeguard/findings-schema` refuses to return a
+ * token shorter than four characters, so today every witness that reaches this
+ * function already clears the floor. That is a guarantee of the PRODUCER, not
+ * a defence of the ADJUDICATOR, and the difference is about to matter: this
+ * function's falsiness test is `!claim.witness`, which admits `'  '`, `'ab'`
+ * and anything else a future claim source hands it. The claim sources today
+ * are two pure functions in this repository. The next one is a fixer ledger
+ * read off disk, and the check has to be here BEFORE that exists rather than
+ * after, because afterwards it is a fix and before it is a floor.
+ */
+const MIN_WITNESS_CHARS = 4;
 
 /**
  * Shortest source text that may be used to identify an artefact.
@@ -78,6 +108,61 @@ const MAX_JURISDICTION_ARTEFACTS = 3;
 // does exactly that.
 
 /**
+ * Can this occurrence of the witness be attributed to the claim's own source?
+ *
+ * ── WHY PRESENCE NEEDS THIS AND ABSENCE DOES NOT ────────────────────────────
+ *
+ * Absence over the whole chunk is sound as absence over the part: a token that
+ * is nowhere in the file is nowhere in the claim's own module either. So the
+ * LOST and REINTRODUCED paths ask nothing of this function and are unchanged.
+ * Only PRESENT needs it, and it needs it because jurisdiction stops one level
+ * too high — it establishes that the right FILE is being read and says nothing
+ * about which of that file's hundreds of modules the hit is in.
+ *
+ * Returns `{ ok: true }` or `{ ok: false, why }`. There is no third answer and
+ * no default: every path that cannot attribute returns a reason, and the
+ * caller turns a reason into NOT_OBSERVED.
+ *
+ * ── NO CAP ON HOW MANY OCCURRENCES ARE EXAMINED, AND WHY THAT IS SAFE ───────
+ *
+ * The witness can occur many times — measured on this repository's own bundles
+ * the most frequent identifier-shaped token of four characters or more occurs
+ * 985 times in 375 KB — and every occurrence must be examined, because ONE of
+ * them landing in the claim's own region is what PRESENT means. There is no
+ * occurrence cap because the work is already bounded: the scan is linear in
+ * the artefact, which `MAX_ARTEFACT_BYTES` bounds, and each lookup is a binary
+ * search over a region list measured at 187 entries for that same bundle. A
+ * cap here would only add a way to answer NOT_OBSERVED about a witness that is
+ * genuinely, attributably there.
+ */
+function attributeWitness(record, witness, probe) {
+  if (!Array.isArray(record.regions)) {
+    return { ok: false, why: record.regionsWhy ?? 'its source map was not decoded into regions' };
+  }
+  const mine = new Set(sourceIndexesCarrying(record.contents ?? [], probe));
+  if (!mine.size) {
+    // Reachable, and not the same thing as having no jurisdiction. Jurisdiction
+    // tests the JOIN of every `sourcesContent` entry, so a probe straddling the
+    // newline between two of them puts the artefact in scope while belonging to
+    // no single source in it.
+    return { ok: false, why: 'no single source in its map carries this claim\'s source text' };
+  }
+  let widestCoarse = 0;
+  const coarse = Array.isArray(record.coarse) ? record.coarse : [];
+  for (let at = record.code.indexOf(witness); at >= 0; at = record.code.indexOf(witness, at + 1)) {
+    if (mine.has(regionSourceAt(record.regions, at))) return { ok: true };
+    const w = coarseWidthAt(coarse, at);
+    if (w > widestCoarse) widestCoarse = w;
+  }
+  if (widestCoarse) {
+    return { ok: false,
+      why: `the widest mapping covering an occurrence spans ${widestCoarse} generated characters, above the ${SPAN_ATTRIBUTION_CAP} at which a mapping stops attributing anything` };
+  }
+  return { ok: false,
+    why: 'every occurrence sits in a region its map gives to a different source, or in generated text the map attributes to none' };
+}
+
+/**
  * Settle claims against an artefact observation.
  *
  * ── JURISDICTION: THE STEP THAT WAS MISSING ─────────────────────────────────
@@ -110,13 +195,28 @@ const MAX_JURISDICTION_ARTEFACTS = 3;
  * different entry point, may not be part of this build at all. Reporting that
  * as a removed defence would be exactly the over-claim this channel exists to
  * prevent.
+ *
+ * ── AND THE HALF JURISDICTION DOES NOT REACH ────────────────────────────────
+ *
+ * Jurisdiction is a statement about a FILE. A chunk holds hundreds of modules,
+ * so a witness found anywhere in a chunk that legitimately holds jurisdiction
+ * is still only evidence that SOMEBODY in that chunk spells `isAdmin`. That is
+ * the within-chunk false PRESENT, and `attributeWitness` above is what closes
+ * it: presence must be attributed to the claim's own region of the generated
+ * text, and a presence that cannot be attributed is NOT_OBSERVED with the
+ * broken link named — never PRESENT, and never LOST either, because the token
+ * is demonstrably still in the bytes.
  */
 export function crossExamine(claims, observation, illegal) {
-  const usable = observation.records.filter((r) => r.controlHeld);
+  const usable = observation.records.filter((r) => r.measured);
   return claims.map((claim) => {
     if (!claim.witness) {
       return { ...claim, state: 'NOT_OBSERVED',
         note: 'the claim names nothing that can be looked for in the shipped bytes' };
+    }
+    if (String(claim.witness).trim().length < MIN_WITNESS_CHARS) {
+      return { ...claim, state: 'NOT_OBSERVED',
+        note: `the claim's witness is ${JSON.stringify(claim.witness)}, under the ${MIN_WITNESS_CHARS} characters a token needs before it can be looked for` };
     }
     if (!usable.length) {
       return { ...claim, state: 'NOT_OBSERVED',
@@ -153,11 +253,34 @@ export function crossExamine(claims, observation, illegal) {
       return { ...claim, state: 'NOT_OBSERVED',
         note: `this claim's source text appears in ${jurisdiction.length} of the ${usable.length} measured artefacts, so it does not identify one of them` };
     }
+    // ── PRESENCE IS ATTRIBUTED; ABSENCE IS NOT ────────────────────────────
+    //
+    // `inCode` is now set only where the witness could be tied to the claim's
+    // own region of the generated text. `sawWitness` records the weaker fact —
+    // the token is in the bytes somewhere — because the two lead to different
+    // verdicts and collapsing them is the bug being fixed. The sidecar half is
+    // untouched: a source map republishes whole files, so a hit in it needs no
+    // region and gets none.
     let inCode = null;
     let inSidecar = false;
+    let sawWitness = false;
+    let unattributed = null;
     for (const r of jurisdiction) {
-      if (r.code.includes(claim.witness)) inCode = r.artefact;
-      if (r.sidecar.includes(claim.witness)) inSidecar = true;
+      if (r.sidecar && r.sidecar.includes(claim.witness)) inSidecar = true;
+      if (!r.code || !r.code.includes(claim.witness)) continue;
+      sawWitness = true;
+      if (inCode) continue;
+      const attribution = attributeWitness(r, claim.witness, probe);
+      if (attribution.ok) inCode = r.artefact;
+      else if (!unattributed) unattributed = `${r.artefact}: ${attribution.why}`;
+    }
+    if (!inCode && sawWitness) {
+      // NOT_OBSERVED and not LOST. The witness IS in the shipped bytes; what
+      // is missing is the evidence that this claim's copy of it is the one
+      // there. Calling that a removed defence would be a false accusation
+      // pointing the other way, and it is no more allowed than a false pass.
+      return { ...claim, state: 'NOT_OBSERVED',
+        note: `the witness occurs in the shipped bytes but could not be attributed to the source this claim came from (${unattributed})` };
     }
     const where = inCode ?? jurisdiction[0].artefact;
     const observedAt = inCode ? 'artifact' : 'sidecar';

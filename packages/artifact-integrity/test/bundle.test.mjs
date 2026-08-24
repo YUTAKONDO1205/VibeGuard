@@ -4,28 +4,48 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, truncateSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
+  MAX_ARTEFACT_BYTES,
   collectArtefacts,
   sourceMappingUrl,
   readSourceMap,
   observeArtefact,
   observeBundleDir,
   normaliseText,
-  CANARY,
 } from '../src/bundle.mjs';
 
+const HERE = dirname(fileURLToPath(import.meta.url));
+
 /** A minimal shipped file plus the map a bundler writes next to it. */
-function fixture({ code, sourcesContent, mapName = 'app.js.map', writeMap = true, mapText }) {
+function fixture({
+  code,
+  sourcesContent,
+  sources = ['src/app.js'],
+  mappings,
+  mapName = 'app.js.map',
+  writeMap = true,
+  mapText,
+  mapExtra,
+}) {
   const dir = mkdtempSync(join(tmpdir(), 'vg-bundle-'));
   writeFileSync(join(dir, 'app.js'), `${code}\n//# sourceMappingURL=${mapName}\n`, 'utf8');
   if (writeMap) {
     writeFileSync(
       join(dir, mapName),
-      mapText ?? JSON.stringify({ version: 3, sources: ['src/app.js'], sourcesContent }),
+      mapText ??
+        JSON.stringify({
+          version: 3,
+          sources,
+          sourcesContent,
+          ...(mappings === undefined ? {} : { mappings }),
+          ...mapExtra,
+        }),
       'utf8',
     );
   }
@@ -56,20 +76,20 @@ test('normaliseText makes a CRLF snippet comparable with an LF source map', () =
   assert.equal(normaliseText('a\r\nb'), normaliseText('a\nb'));
 });
 
-test('a source map that does not parse yields controlHeld false, never a clean record', async () => {
+test('a source map that does not parse yields measured false, never a clean record', async () => {
   const dir = fixture({ code: 'function o(){}', sourcesContent: null, mapText: '{ not json' });
   const obs = await observeBundleDir(dir);
   assert.equal(obs.records.length, 1);
-  assert.equal(obs.records[0].controlHeld, false);
+  assert.equal(obs.records[0].measured, false);
   assert.match(obs.records[0].why, /did not parse/);
-  assert.equal(obs.controlHeld, 0);
+  assert.equal(obs.measured, 0);
   rmSync(dir, { recursive: true, force: true });
 });
 
 test('a missing source map is not measurable, and says so', async () => {
   const dir = fixture({ code: 'function o(){}', sourcesContent: [], writeMap: false });
   const obs = await observeBundleDir(dir);
-  assert.equal(obs.records[0].controlHeld, false);
+  assert.equal(obs.records[0].measured, false);
   assert.match(obs.records[0].why, /no source map/);
   rmSync(dir, { recursive: true, force: true });
 });
@@ -82,7 +102,7 @@ test('a remote source map is not fetched, and the artefact is not measurable', a
     'utf8',
   );
   const obs = await observeBundleDir(dir);
-  assert.equal(obs.records[0].controlHeld, false);
+  assert.equal(obs.records[0].measured, false);
   assert.match(obs.records[0].why, /no network calls/);
   rmSync(dir, { recursive: true, force: true });
 });
@@ -93,24 +113,96 @@ test('a map with no sourcesContent is not measurable', async () => {
   // text, so nothing may be concluded.
   const dir = fixture({ code: 'function o(){}', sourcesContent: undefined });
   const obs = await observeBundleDir(dir);
-  assert.equal(obs.records[0].controlHeld, false);
+  assert.equal(obs.records[0].measured, false);
   assert.match(obs.records[0].why, /no sourcesContent/);
   rmSync(dir, { recursive: true, force: true });
 });
 
-test('the NEGATIVE control voids an artefact whose matcher finds what is not there', async () => {
-  // If a canary is ever found, the matcher is matching text that does not
-  // exist and every verdict from that artefact is worthless. The positive
-  // control (per claim, in cross-examine.mjs) and this one bracket the
-  // observer from both sides.
+test('an artefact that contains a copy of this observer is still measured', async () => {
+  // The regression the deleted CANARY caused, pinned so it cannot come back in
+  // another form. That canary was a string literal in `bundle.mjs`, so it was
+  // bundled verbatim into `apps/cli/dist/index.js` — and pointing
+  // `--after-build` at any directory holding a copy of the VibeGuard CLI made
+  // every verdict from that artefact void, for no reason connected to the
+  // artefact at all. Nothing in this module may key a refusal on text that
+  // this module itself ships.
+  const self = readFileSync(join(HERE, '..', 'src', 'bundle.mjs'), 'utf8');
   const dir = fixture({
-    code: `function o(){} /* ${CANARY} */`,
+    code: `function o(){}\n/* ${self} */`,
     sourcesContent: ['function o(){ if(!u.isAdmin) throw 0 }'],
   });
   const obs = await observeBundleDir(dir);
-  assert.equal(obs.records[0].controlHeld, false);
-  assert.match(obs.records[0].why, /negative control matched/);
-  assert.equal(obs.records[0].code, null, 'a voided record must not hand its text on');
+  assert.equal(obs.records[0].measured, true);
+  assert.equal(obs.records[0].why, undefined);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('sourcesContent is kept index-aligned with sources, holes and all', async () => {
+  // A mapping segment names a source by INDEX. This used to be
+  // `.filter(x => typeof x === 'string')`, which compacts the array and shifts
+  // every later index onto the wrong file — invisible while nothing read the
+  // indices, and a confident wrong-source attribution the moment something
+  // does.
+  const dir = fixture({
+    code: 'function o(s){return s.ok}',
+    sources: ['vendor/dep.js', 'src/app.js'],
+    sourcesContent: [null, 'function o(s){ if(!s.isAdmin) throw 0; return s.ok }'],
+  });
+  const obs = await observeBundleDir(dir);
+  const r = obs.records[0];
+  assert.equal(r.measured, true);
+  assert.equal(r.contents.length, 2);
+  assert.equal(r.contents[0], null);
+  assert.match(r.contents[1], /isAdmin/);
+  assert.equal(r.sourcesContentEntries, 1);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('an artefact with a decodable map carries its regions', async () => {
+  // `AAAA` is one segment: generated line 0, column 0, source 0, original 0:0.
+  const dir = fixture({
+    code: 'function o(s){return s.ok}',
+    sourcesContent: ['function o(s){ if(!s.isAdmin) throw 0; return s.ok }'],
+    mappings: 'AAAA',
+  });
+  const obs = await observeBundleDir(dir);
+  const r = obs.records[0];
+  assert.equal(r.measured, true);
+  assert.deepEqual(r.regions, [{ start: 0, end: 'function o(s){return s.ok}'.length, source: 0 }]);
+  assert.equal(r.regionsWhy, undefined);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('a map that cannot be decoded into regions still leaves the sidecar measurable', async () => {
+  // This is the one asymmetry worth stating out loud. Losing the regions costs
+  // the ability to say PRESENT and nothing else: the sidecar half of the
+  // observation — the half that needs no oracle — is untouched, so the record
+  // stays measured and `cross-examine.mjs` reports the reason rather than the
+  // whole artefact going dark.
+  const dir = fixture({
+    code: 'function o(s){return s.ok}',
+    sourcesContent: ['function o(s){ if(!s.isAdmin) throw 0; return s.ok }'],
+    mappings: 'A!A',
+  });
+  const obs = await observeBundleDir(dir);
+  const r = obs.records[0];
+  assert.equal(r.measured, true);
+  assert.equal(r.regions, null);
+  assert.match(r.regionsWhy, /not base64 VLQ/);
+  assert.match(r.sidecar, /isAdmin/);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('a source map larger than the artefact bound is refused before it is read', async () => {
+  // The artefact was bounded and the map beside it was not, and the map is the
+  // larger of the two in practice — 2,378,190 bytes of map for a 375,052-byte
+  // minified bundle when this was measured. `truncateSync` gives the file its
+  // size without writing 64 MB of zeroes; `stat` is what the bound consults.
+  const dir = fixture({ code: 'function o(){}', sourcesContent: ['x'] });
+  truncateSync(join(dir, 'app.js.map'), MAX_ARTEFACT_BYTES + 1);
+  const obs = await observeBundleDir(dir);
+  assert.equal(obs.records[0].measured, false);
+  assert.match(obs.records[0].why, /above the 67108864 this package will read/);
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -134,23 +226,23 @@ test('a measurable artefact carries both texts, newline-normalised', async () =>
   });
   const obs = await observeBundleDir(dir);
   const r = obs.records[0];
-  assert.equal(r.controlHeld, true);
+  assert.equal(r.measured, true);
   assert.ok(r.code.includes('function o(s)'));
   assert.ok(r.sidecar.includes('isAdmin'));
   assert.ok(!r.sidecar.includes('\r'), 'sidecar text must be newline-normalised');
-  assert.equal(obs.controlHeld, 1);
+  assert.equal(obs.measured, 1);
   rmSync(dir, { recursive: true, force: true });
 });
 
 test('vacuity guard: the happy-path fixture really is measurable', async () => {
-  // Without this, every assertion above about controlHeld:false is passing over
+  // Without this, every assertion above about measured:false is passing over
   // a fixture set in which nothing was ever measurable.
   const dir = fixture({
     code: 'function o(s){return s.ok}',
     sourcesContent: ['function o(s){ if(!s.isAdmin) throw 0; return s.ok }'],
   });
   const obs = await observeBundleDir(dir);
-  assert.equal(obs.controlHeld, 1);
+  assert.equal(obs.measured, 1);
   assert.equal(obs.readable, 1);
   rmSync(dir, { recursive: true, force: true });
 });
