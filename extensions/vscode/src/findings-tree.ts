@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { Finding } from '@vibeguard/findings-schema';
+import { CLAIM_BEARING_RULES, type Finding } from '@vibeguard/findings-schema';
 import type { ScanRunner } from './runner.js';
 
 type Node = FileNode | FindingNode;
@@ -75,10 +75,35 @@ export class FindingsTreeProvider implements vscode.TreeDataProvider<Node> {
       `${f.severity.toUpperCase()} · ${f.title}`,
       vscode.TreeItemCollapsibleState.None,
     );
-    item.description = `${f.ruleId} · line ${line}`;
+    // ── THE LEDGER, ON THE ROW THE USER CLICKS ──────────────────────────────
+    //
+    // A handful of rules do not report "you wrote something dangerous" but "you
+    // wrote a protection in a form a build step removes". Left unmarked, such a
+    // row reads as an ordinary issue and the reader has no way to know that the
+    // interesting question — did the protection survive the build? — was never
+    // asked. This extension has one file and no build output, so it cannot ask
+    // it; what it can do is refuse to let the silence pass for an answer.
+    //
+    // The mark only ever ADDS something to check. There is no green state, no
+    // tick, and no "verified" affordance here, because there is nothing this
+    // process could observe that would earn one: a claim built in the editor is
+    // NOT_OBSERVED by construction. The wording is the status bar's, kept
+    // deliberately identical so the two surfaces cannot drift into two
+    // phrasings of the same fact.
+    const claim = CLAIM_BEARING_RULES[f.ruleId];
+    item.description = `${f.ruleId} · line ${line}${claim ? ' · declared protection, UNVERIFIED' : ''}`;
     // The row's description is already full (`ruleId · line N`), so confidence
     // rides on the tooltip instead of competing for that space.
-    item.tooltip = f.confidence ? `${f.description}\n\nConfidence: ${f.confidence}` : f.description;
+    const detail = f.confidence ? `${f.description}\n\nConfidence: ${f.confidence}` : f.description;
+    item.tooltip = claim
+      ? [
+          detail,
+          '',
+          `This finding declares a protection — ${claim.subject} — that a build step can remove.`,
+          'This editor cannot see your build output, so it is UNVERIFIED here.',
+          'Run: vibeguard <dir> --after-build <your dist directory>',
+        ].join('\n')
+      : detail;
     item.iconPath = SEVERITY_ICON[f.severity];
     item.contextValue = 'vibeguard.findingNode';
     item.command = {

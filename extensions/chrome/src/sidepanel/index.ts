@@ -22,6 +22,7 @@ import {
   scanBlocks,
   type ExtractedCodeBlock,
 } from '../shared/block-scan.js';
+import { claimsLine } from '../shared/claims-line.js';
 import {
   addedLineSet,
   languageFromPath,
@@ -230,6 +231,43 @@ function buildRuleErrorBanner(errors: RuleError[]): HTMLElement {
   return banner;
 }
 
+/**
+ * "Some of these findings are claims, and this panel cannot check them."
+ *
+ * A handful of rules do not report a dangerous construct — they report a
+ * protection written in a form a build step can remove: an authorization check
+ * inside an `assert`, a secret wiped by a `memset` a compiler is free to delete.
+ * Rendered as ordinary findings they read as things that were looked at. They
+ * were not. The claim is an accusation with nothing behind it yet, and the only
+ * layer that could answer it is the shipped bytes, which are not here.
+ *
+ * So the banner adds work rather than removing it: it names the count, says
+ * plainly that this surface did not verify them, and gives the command that
+ * would. It cannot turn anything green — every claim reachable from a browser
+ * extension is NOT_OBSERVED by construction, and `claims-line.ts` says why.
+ *
+ * Same shape as the degradation banners above, and for the same reason: this is
+ * another way the panel's verdict is less complete than it looks.
+ */
+function buildClaimsBanner(findings: Finding[]): HTMLElement | null {
+  // Wording is `summariseClaims().line`, verbatim, via the shared helper — see
+  // the note in `../shared/claims-line.ts` before rephrasing anything here.
+  const line = claimsLine(findings);
+  if (!line) return null;
+
+  const banner = document.createElement('div');
+  banner.className = 'vg-degradation';
+  const head = document.createElement('div');
+  head.textContent =
+    `⚠ ${line} — this panel cannot see your build output, so these are UNVERIFIED here.`;
+  banner.appendChild(head);
+  const how = document.createElement('div');
+  how.className = 'vg-file-meta';
+  how.textContent = 'The command that would check them: vibeguard <dir> --after-build <your dist directory>';
+  banner.appendChild(how);
+  return banner;
+}
+
 function renderFindings(
   findings: Finding[],
   degradations?: ScanDegradation[],
@@ -243,6 +281,8 @@ function renderFindings(
   if (ruleErrors?.length) {
     findingsEl.appendChild(buildRuleErrorBanner(ruleErrors));
   }
+  const claimsBanner = buildClaimsBanner(findings);
+  if (claimsBanner) findingsEl.appendChild(claimsBanner);
 
   // An empty result is only CLEAN when nothing was cut short and nothing
   // crashed. Either one makes it merely unproven.
@@ -310,6 +350,12 @@ function renderFileGroups(groups: FileGroupResult[], skippedFiles: string[] = []
   if (allDegradations.length) {
     findingsEl.appendChild(buildDegradationBanner(allDegradations));
   }
+
+  // Across the whole review, not per file: a claim is about a protection, and
+  // the reader's question ("how many of these were never checked against a
+  // build?") is not answered by scattering the count through the sections.
+  const claimsBanner = buildClaimsBanner(allFindings);
+  if (claimsBanner) findingsEl.appendChild(claimsBanner);
 
   findingsEl.appendChild(buildSummaryBar(summarize(allFindings)));
 
