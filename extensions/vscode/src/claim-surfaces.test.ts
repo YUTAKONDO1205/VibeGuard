@@ -21,7 +21,7 @@
 // claim this process can build is NOT_OBSERVED by construction.
 import { describe, expect, it, vi } from 'vitest';
 import { toSarif } from '@vibeguard/sarif-adapter';
-import type { Finding } from '@vibeguard/findings-schema';
+import { claimsFromFindings, summariseClaims, type Finding } from '@vibeguard/findings-schema';
 
 // Hoisted above every import in this module by Vitest, which is what makes the
 // pattern work: `findings-tree.ts` constructs ThemeIcons at module scope, so
@@ -85,6 +85,7 @@ vi.mock('vscode', () => {
 
 import { buildExportResponse, type ExportInputs } from './export.js';
 import { FindingsTreeProvider } from './findings-tree.js';
+import { claimTooltipLines } from './status-bar.js';
 
 const BASE: Omit<Finding, 'findingId' | 'ruleId' | 'title' | 'description' | 'category'> = {
   severity: 'high',
@@ -246,5 +247,32 @@ describe('FindingsTreeProvider marks the rows that declare a protection', () => 
     }
     // A claim must never recolour the row: severity still owns the icon.
     expect(item.iconPath?.color?.id).toBe('vibeguard.critical');
+  });
+});
+
+describe('the status bar says the count the same way every other surface does', () => {
+  it('takes the summary verbatim from summariseClaims().line', () => {
+    const lines = claimTooltipLines([CLAIMED, ORDINARY]);
+    const expected = summariseClaims(claimsFromFindings([CLAIMED, ORDINARY])).line;
+    // The identity, not a substring match. This is the whole point of the
+    // change: the moment somebody composes a second phrasing of this count
+    // here, the browser panel and the status bar start disagreeing about the
+    // same ledger and this goes red.
+    expect(lines).toContain(expected);
+  });
+
+  it('says nothing at all when no finding declares a protection', () => {
+    // Vacuity in the other direction: silence must mean "nothing declared a
+    // protection", never "the declared protections are fine".
+    expect(claimTooltipLines([ORDINARY])).toEqual([]);
+  });
+
+  it('names the gap and the command that closes it, and reassures about nothing', () => {
+    const surface = claimTooltipLines([CLAIMED]).join(' ');
+    expect(surface).toContain('UNVERIFIED');
+    expect(surface).toContain('--after-build');
+    for (const word of ['verified present', 'safe', 'all good', 'no issues', '✓']) {
+      expect(surface).not.toContain(word);
+    }
   });
 });
