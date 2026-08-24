@@ -1,7 +1,15 @@
-// vibeguard:disable-file VG-AUTH-003 VG-AUTH-004 VG-AUTH-006
+// vibeguard:disable-file VG-AUTH-001 VG-AUTH-003 VG-AUTH-004 VG-AUTH-006
 // This file defines the auth rules; dummy-token, TLS-disable, and the
 // "secure: false" / "httpOnly: false" literals appear inside regex
 // patterns and remediation prose by design.
+//
+// VG-AUTH-001 joined the list with VG-AUTH-009. That rule's doc comment has to
+// state the polarity it is NOT — a debug branch that SKIPS a check, quoted as
+// the one-line example — and VG-AUTH-001 reads the quotation as the bypass it
+// describes. Same exemption class as the two design-smell files that quote an
+// unfinished-authorization marker: prose quoting the pattern the rule detects.
+// Named rather than wildcarded, so a real bypass written into this file's own
+// code still reports at critical.
 import type { RuleDefinition, RuleMatch } from '../rule-types.js';
 import {
   runRegex,

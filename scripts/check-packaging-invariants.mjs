@@ -1556,7 +1556,26 @@ if (!PRE_BUILD) {
   // before the test (see walkPragma), which drops AGENTS.md and keeps the two
   // Markdown files that carry a real one on line 1, outside any fence —
   // CHANGELOG.md and packages/mcp-guard/README.md.
-  const PRAGMA_FILE_BASELINE = 58; // measured 2026-08-10, counting directives only (prose and fenced examples excluded)
+  // 2026-08-24: 58 → 61. Three test files, all three carrying a fixture the
+  // scanner is SUPPOSED to find, and each naming its rule ids:
+  //   · extensions/chrome/src/shared/claims-line.test.ts   VG-INJ-001 VG-INJ-006
+  //   · extensions/vscode/src/claim-surfaces.test.ts       VG-INJ-001
+  //     Both carry a SQL-concatenation snippet (the chrome one an innerHTML
+  //     write as well) as the `snippet` of a synthetic ORDINARY finding. The
+  //     claim ledger is only interesting against a finding that declares no
+  //     protection, so the control has to look like a real vulnerability.
+  //   · packages/mcp-guard/src/guard.test.ts               VG-SEC-003
+  //     Hands the guard a file with a hard-coded password so the refusal it
+  //     asserts on actually occurs. Same class as packages/mcp-guard/README.md
+  //     already on this list.
+  // Two more rules were added to pragmas that already existed, which is why
+  // this is +3 and not +5: VG-AUTH-001 on packages/rules/src/rules/auth.ts
+  // (VG-AUTH-009's doc comment quotes the opposite-polarity bypass it has to
+  // distinguish itself from) and VG-SEC-003 on
+  // packages/analyzer-core/src/secret-redaction.test.ts (that rule lost its
+  // `\b` in the same release, which is what finally made `GH_TOKEN = '…'`
+  // visible to it). Both were verified against the source before being named.
+  const PRAGMA_FILE_BASELINE = 61; // measured 2026-08-24, counting directives only (prose and fenced examples excluded)
   const PRAGMA = 'vibeguard:disable-' + 'file';
   // Comment-opening token, then the directive. `m` so it applies per line.
   // Built from a raw source string, not a template literal: `\s` inside a

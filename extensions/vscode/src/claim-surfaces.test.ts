@@ -1,3 +1,4 @@
+// vibeguard:disable-file VG-INJ-001 reason="the SQL-concatenation string is the `snippet` of a synthetic ORDINARY finding — the control this suite contrasts a protection claim against — and is never executed"
 // WP-B2 — the claim ledger on the two surfaces the editor's user actually reads.
 //
 // A handful of rules report a PROTECTION rather than a vulnerability: the code

@@ -1,3 +1,4 @@
+// vibeguard:disable-file VG-INJ-001 VG-INJ-006 reason="the SQL-concatenation and innerHTML strings are `snippet` payloads on synthetic findings, fed to a claim counter; they are the NON-claim control this suite needs and are never executed"
 import { describe, expect, it } from 'vitest';
 import {
   claimsFromFindings,

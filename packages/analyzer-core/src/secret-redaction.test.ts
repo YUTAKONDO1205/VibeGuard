@@ -1,8 +1,15 @@
-// vibeguard:disable-file VG-SEC-001 VG-SEC-004 VG-AUTH-003
+// vibeguard:disable-file VG-SEC-001 VG-SEC-003 VG-SEC-004 VG-AUTH-003
 // This file's fixtures ARE secrets by construction — that is what it tests.
 // The AWS key is Amazon's published example value and the GitHub token is an
 // obvious fake; neither is a live credential. Rules named individually so the
 // suppression cannot quietly widen.
+//
+// VG-SEC-003 was added when that rule stopped using `\b` before the keyword.
+// `GH_TOKEN = '…'` was invisible to it for as long as the boundary was there —
+// `_` is a word character, so no boundary ever existed between a prefix and
+// `token` — and the whole point of the lookbehind that replaced it is that
+// `OPENAI_API_KEY` and friends now match. This fixture is the first thing the
+// widened rule finds in its own repository, which is the rule working.
 import { describe, expect, it } from 'vitest';
 import { maskSecret } from './snippet.js';
 import { scan } from './index.js';

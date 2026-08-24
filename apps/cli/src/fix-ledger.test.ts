@@ -12,11 +12,12 @@
 // green having verified nothing. The name carries the reason so a skipped run
 // says why in its own output.
 
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildSync } from 'esbuild';
 import { describe, expect, it } from 'vitest';
 
 const CLI_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -90,19 +91,31 @@ const scan = (
       '{}',
   );
 
+/**
+ * Minify the fixture the way a real project's build step would.
+ *
+ * ★ THROUGH esbuild's JS API, NEVER `node node_modules/esbuild/bin/esbuild`.
+ * That spelling is green on Windows and red on every runner, and the asymmetry
+ * is not a flake — it is what esbuild's own installer does. `install.js`
+ * ends in `maybeOptimizePackage`, which on `platform !== 'win32'` hard-links
+ * the platform's NATIVE executable over `bin/esbuild` to save a node start-up
+ * per invocation. So the same path is a JS shim on a developer's Windows
+ * machine and an ELF binary in CI, and handing the ELF to `process.execPath`
+ * fails at parse: `SyntaxError: Invalid or unexpected token` on a line whose
+ * first four bytes are `\x7fELF`. Six tests here and two in `bundle.test.ts`
+ * failed exactly that way on the merge of #85, having passed locally.
+ *
+ * The API has no such platform seam — esbuild resolves its own binary — and
+ * the flags map one-to-one onto what the command line took.
+ */
 function build(src: string, dist: string): void {
-  execFileSync(
-    process.execPath,
-    [
-      join(REPO_ROOT, 'node_modules', 'esbuild', 'bin', 'esbuild'),
-      join(src, 'app.js'),
-      '--minify',
-      '--format=esm',
-      '--sourcemap',
-      `--outfile=${join(dist, 'app.js')}`,
-    ],
-    { stdio: ['ignore', 'ignore', 'pipe'] },
-  );
+  buildSync({
+    entryPoints: [join(src, 'app.js')],
+    outfile: join(dist, 'app.js'),
+    minify: true,
+    format: 'esm',
+    sourcemap: true,
+  });
 }
 
 // The ledger lives under the directory that was SCANNED, which is src/ and not
