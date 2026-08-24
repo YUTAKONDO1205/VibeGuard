@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 import { readFileSync, statSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { ENGINE_VERSION, loadConfig, scanPath } from '@vibeguard/analyzer-core';
 import {
   compareConfidence,
   compareSeverity,
   emptySummary,
   summarize,
+  type ProtectionClaim,
   type Severity,
 } from '@vibeguard/findings-schema';
 import { toSarif } from '@vibeguard/sarif-adapter';
@@ -15,6 +16,7 @@ import { parseArgs, HELP_TEXT } from './args.js';
 import { formatHuman, formatMarkdown } from './format.js';
 import { diffScopePrefix, gitRepoRootOf, scanDiff } from './diff.js';
 import { runFix } from './fix.js';
+import { claimsFromLedger, recordFixerClaims } from './fix-ledger.js';
 import { readDeclaredPackages } from './declared-packages.js';
 
 // Tool version: the released CLI artifact version. Read from package.json at
@@ -43,6 +45,23 @@ const VERSION = (
 async function sarifUriPrefix(target: string): Promise<string> {
   const root = await gitRepoRootOf(target);
   return root ? diffScopePrefix(root, target) : '';
+}
+
+/**
+ * Is the scan target a single file rather than a directory?
+ *
+ * Both the fix path and the ledger need it, and it has to answer the same way
+ * for both: the ledger's `filePath` entries are relative to the root the fixer
+ * resolved its edits against, so a disagreement here would write a ledger under
+ * one root and look for it under another.
+ */
+function targetIsFileOf(target: string): boolean {
+  try {
+    return statSync(target).isFile();
+  } catch {
+    // A missing target has already failed the scan; `--diff` defaults to '.'.
+    return false;
+  }
 }
 
 const FAIL_LEVEL: Record<string, Severity | null> = {
@@ -272,7 +291,33 @@ async function main(): Promise<number> {
     const { claimsFromFindings, illegalClaimTransition } = await import('@vibeguard/findings-schema');
     const { crossExamine } = await import('@vibeguard/artifact-integrity/cross-examine');
     const claims = claimsFromFindings(scan.findings);
-    if (claims.length) scan.protectionClaims = claims;
+
+    // ── AND THE CLAIMS WHOSE FINDING NO LONGER EXISTS ──────────────────────
+    //
+    // A fixer's claim cannot be rebuilt from a finding, because fixing the
+    // finding is what removed it. It is read back from the ledger the fixer
+    // wrote instead. `claimsFromLedger` re-checks each entry against the source
+    // before handing it over, so an edit that was reverted comes back expired
+    // rather than as a claim about a line nobody can find any more.
+    //
+    // These are UNTRUSTED input in a way nothing else here is — see the header
+    // of `fix-ledger.ts`. They arrive NOT_OBSERVED like every other claim, and
+    // `claimantLayer` is hard-coded rather than read from the file, so a ledger
+    // cannot promote itself to a layer that would let it settle itself.
+    let ledgerNote: string | undefined;
+    let expiredClaims: ProtectionClaim[] = [];
+    try {
+      const fromLedger = await claimsFromLedger(args.target, targetIsFileOf(args.target));
+      ledgerNote = fromLedger.note;
+      expiredClaims = fromLedger.expired;
+      claims.push(...fromLedger.claims);
+    } catch (err) {
+      ledgerNote = `the fix ledger could not be read (${(err as Error).message})`;
+    }
+    if (ledgerNote) process.stderr.write(`note: ${ledgerNote}\n`);
+    if (claims.length || expiredClaims.length) {
+      scan.protectionClaims = [...claims, ...expiredClaims];
+    }
 
     if (args.afterBuild) {
       const { observeBundleDir } = await import('@vibeguard/artifact-integrity/bundle');
@@ -298,7 +343,34 @@ async function main(): Promise<number> {
         );
       }
       if (claims.length) {
-        scan.protectionClaims = crossExamine(claims, observation, illegalClaimTransition);
+        // ★ NO SPECIAL CASE FOR `--fix --after-build`, AND THAT IS DELIBERATE.
+        //
+        // The obvious worry is that this run is about to write edits the
+        // observed build cannot contain, so a fixer claim would read LOST for a
+        // protection the build never had a chance to ship. Two things already
+        // prevent it, and adding a third would only cost correct answers.
+        //
+        // The ordering: the ledger was read above, BEFORE the fix block runs,
+        // so nothing this run inserts is in `claims` at all. And jurisdiction:
+        // a claim is only settled by an artefact whose `sourcesContent` carries
+        // its probe, and a fixer claim's probe IS the inserted line — a build
+        // made before the edit does not contain it, so the claim comes back
+        // NOT_OBSERVED rather than LOST. That is the honest answer, produced by
+        // a mechanism that is already load-bearing rather than by a flag check
+        // bolted on beside it.
+        //
+        // What IS worth saying is the ordering itself, because a user combining
+        // the two flags reasonably expects this run to check the repair.
+        scan.protectionClaims = [
+          ...crossExamine(claims, observation, illegalClaimTransition),
+          ...expiredClaims,
+        ];
+        if (args.fix && !args.dryRun) {
+          process.stderr.write(
+            'note: --fix and --after-build together read a build made before this run wrote ' +
+              'anything, so the edits below are not in it. Rebuild, then scan again to settle them.\n',
+          );
+        }
       }
     }
   } catch (err) {
@@ -407,13 +479,10 @@ async function main(): Promise<number> {
   // re-running the scan on the written tree — an observation, not a claim by the
   // thing that did the writing.
   if (args.fix || args.dryRun) {
-    let targetIsFile = false;
-    try {
-      targetIsFile = statSync(args.target).isFile();
-    } catch {
-      // --diff defaults the target to '.', a directory; a missing target would
-      // already have failed the scan above. Either way, treat as not-a-file.
-    }
+    // Shared with the ledger read above, deliberately: see `targetIsFileOf`.
+    // Two copies of this could disagree, and a ledger written under one root
+    // and read under another is a ledger that silently never settles anything.
+    const targetIsFile = targetIsFileOf(args.target);
     const write = args.fix && !args.dryRun;
     let fixResult;
     try {
@@ -430,26 +499,46 @@ async function main(): Promise<number> {
     // is a statement about the SOURCE, and the subject of this ledger is that
     // the source is not what ships. So the edits are NOT_OBSERVED.
     //
-    // ★ AND THE SENTENCE THAT USED TO BE HERE WAS FALSE. It said "Re-scan with
-    // --after-build <dist> to settle them", and that promise cannot be kept:
-    // the moment the fix succeeds, the finding it repaired is gone from the
-    // source, so a later scan's `claimsFromFindings` has nothing to rebuild the
-    // claim from. The claim is not settled by a re-scan — it disappears from
-    // the ledger entirely, and whether the inserted protection survives the
-    // build is then never checked by anything.
+    // ★ TWO SENTENCES HAVE STOOD HERE, AND BOTH WERE ABOUT THE SAME GAP.
     //
-    // Saying so is the point. A channel whose whole subject is the difference
-    // between "verified" and "nobody looked" does not get to print an
-    // unavailable verification and let the reader assume it happened. The
-    // repair is a persistent fixer ledger that outlives the finding, and it is
-    // not built here; until it is, this says what is actually true.
+    // The first said "Re-scan with --after-build <dist> to settle them", which
+    // was false: fixing the finding deletes the only thing a later scan could
+    // rebuild the claim from, so the claim did not survive to be settled. The
+    // second said so plainly — the claims are not tracked past this run — which
+    // was true, and was the right thing to print while it was true.
+    //
+    // It is no longer true. `fix-ledger.ts` writes the inserted line down, the
+    // next scan reads it back, and an artefact observation settles it. What has
+    // NOT changed is that the settling cannot happen in this run: the build
+    // output on disk right now was made before this edit, so nothing in it
+    // could carry the line just written. The user has to rebuild, and this says
+    // so rather than implying the check already happened.
     if (fixResult.claims.length) {
+      let recorded: Awaited<ReturnType<typeof recordFixerClaims>> | null = null;
+      if (write) {
+        try {
+          recorded = await recordFixerClaims(args.target, targetIsFile, fixResult.claims);
+        } catch (err) {
+          // The ledger failing must not fail the fix. What it must not do is
+          // fail quietly: without this line the user would believe a claim was
+          // recorded that was not, and would read the next scan's silence about
+          // it as the protection having been checked.
+          process.stderr.write(
+            `note: the inserted protection(s) could not be recorded (${(err as Error).message}); ` +
+              'nothing will check whether they survive your build.\n',
+          );
+        }
+      }
       process.stdout.write(
         `\n${fixResult.claims.length} protection(s) ${write ? 'were inserted' : 'would be inserted'} ` +
           'and are NOT_OBSERVED: a fixer cannot vouch for its own edit surviving your build.\n' +
-          'These claims are NOT tracked past this run — once the finding is fixed there is nothing\n' +
-          'left for a later scan to rebuild them from, so no channel currently checks whether the\n' +
-          'inserted protection survives your build.\n',
+          (recorded
+            ? `Recorded in ${relative(process.cwd(), recorded.path) || recorded.path} (${recorded.total} entr(y/ies)` +
+              `${recorded.evicted ? `, ${recorded.evicted} oldest dropped` : ''}).\n` +
+              'Rebuild, then re-scan with --after-build <your dist directory> to settle them.\n'
+            : write
+              ? 'They are NOT recorded, so nothing will check whether they survive your build.\n'
+              : 'A dry run records nothing: there is no edit yet for a build to keep or drop.\n'),
       );
     }
     const fixGate = FAIL_LEVEL[args.failOn];

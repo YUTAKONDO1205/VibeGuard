@@ -24,6 +24,29 @@ export interface AppliedFix {
   safety: 'safe' | 'needs-review';
   /** 1-based line the fix landed on. */
   line: number;
+  /**
+   * The text this fix actually WROTE, as the fixer produced it.
+   *
+   * ── WHY THE LINE NUMBER WAS NOT ENOUGH ──────────────────────────────────
+   *
+   * `line` is where the FINDING was, and for a fix that REPLACES something
+   * that is also where the new text is. For a fix that INSERTS — the
+   * prototype-pollution guard is one — the new text goes on a line that did not
+   * exist before, and everything below it shifts. Reading `newContent` at
+   * `line` then returns the anchor: a line that was there before the fix and is
+   * there after it.
+   *
+   * That is not a small inaccuracy for the claim ledger, it inverts the
+   * mechanism. The probe is supposed to be the thing that tells a build made
+   * AFTER the edit apart from one made before, and an anchor line appears in
+   * both. The witness is derived from the same text, so it was being read off
+   * the wrong line too — for the guard above it comes out empty, and a claim
+   * with no witness can never be settled by anything.
+   *
+   * So the fixer's own output is carried here rather than recovered by
+   * indexing. `replacement` is exactly what was written; nothing has to guess.
+   */
+  insertedText: string;
 }
 
 export interface FileFixPlan {
@@ -135,6 +158,12 @@ export async function planFixes(findings: Finding[], o: ResolveOptions): Promise
         title: built.title,
         safety: built.safety,
         line: f.startLine ?? 1,
+        // Longest replacement when a fix is several edits: the others are
+        // usually punctuation or a closing token, and the longest is the one
+        // that carries the protection's own vocabulary.
+        insertedText: built.edits
+          .map((e) => e.replacement.trim())
+          .reduce((best, cur) => (cur.length > best.length ? cur : best), ''),
       });
     }
     if (edits.length === 0) continue;
@@ -274,18 +303,73 @@ export async function runFix(
  * fix report already tells the reader to re-scan; this is what the re-scan is
  * for.
  *
- * The probe is the inserted line itself, which is exactly the identity control
- * `crossExamine` needs: a build that included this edit carries that line in
+ * The probe is the text the fixer WROTE, which is the identity control
+ * `crossExamine` needs: a build that included this edit carries that text in
  * its source map, and a build made before the edit does not.
+ *
+ * ★ IT USED TO BE `newContent` INDEXED AT THE FINDING'S LINE, and the sentence
+ * above was false whenever the fix INSERTED rather than replaced. The new line
+ * did not exist before, so everything below it shifts and the index lands on
+ * the ANCHOR — a line present in both builds, which distinguishes nothing. The
+ * witness came off the same wrong text: for the prototype-pollution guard it
+ * came out empty, and a claim with no witness is one nothing can ever settle.
+ * The fix wrote the protection and the ledger recorded the line above it.
+ * `insertedText` carries the fixer's own output so nothing has to be recovered
+ * by arithmetic.
  */
+/**
+ * Lines that are in the new content and were not in the old one.
+ *
+ * ── WHY A DIFF AND NOT THE FIXER'S REPLACEMENT ALONE ────────────────────────
+ *
+ * `insertedText` is exactly what the fixer wrote, which makes it unambiguous
+ * about WHICH fix produced what — but on its own it is often not distinctive.
+ * `VG-EMB-020` swaps a debug define to `0`, and `0` identifies no build. The
+ * useful probe is the resulting LINE, `#define DEBUG 0`, which the pre-edit
+ * build does not contain because it said `1`.
+ *
+ * Taking added lines gives that for both shapes of fix, and gives it by
+ * construction rather than by argument: a line that is in the new content and
+ * not in the old one is, definitionally, text a build made before this edit
+ * cannot carry. That is the exact property `crossExamine` needs of a probe.
+ *
+ * Compared by trimmed text, so a re-indentation is not mistaken for an
+ * insertion, and consumed once each so a file with two identical lines does not
+ * report a phantom addition.
+ */
+function addedLines(oldContent: string, newContent: string): { line: number; text: string }[] {
+  const before = new Map<string, number>();
+  for (const l of oldContent.split(/\r?\n/)) {
+    const t = l.trim();
+    before.set(t, (before.get(t) ?? 0) + 1);
+  }
+  const out: { line: number; text: string }[] = [];
+  const after = newContent.split(/\r?\n/);
+  for (let i = 0; i < after.length; i += 1) {
+    const t = after[i]!.trim();
+    const left = before.get(t) ?? 0;
+    if (left > 0) {
+      before.set(t, left - 1);
+      continue;
+    }
+    if (t) out.push({ line: i + 1, text: t });
+  }
+  return out;
+}
+
 function fixerClaims(plans: FileFixPlan[]): ProtectionClaim[] {
   const out: ProtectionClaim[] = [];
   let n = 0;
   for (const plan of plans) {
     if (plan.overlapSkipped || plan.oldContent === plan.newContent) continue;
-    const lines = plan.newContent.split(/\r?\n/);
+    const added = addedLines(plan.oldContent, plan.newContent);
     for (const fix of plan.fixes) {
-      const inserted = (lines[fix.line - 1] ?? '').trim();
+      // The added line that CONTAINS this fixer's own output. That ties an
+      // exact per-fix string to a full, distinctive line without having to
+      // guess which fix a given added line belongs to when a file has several.
+      const written = fix.insertedText.trim();
+      const own = written ? added.find((l) => l.text.includes(written)) : undefined;
+      const inserted = own?.text ?? written;
       const witness = inserted ? identifierWitness(inserted) : null;
       out.push({
         id: `fixer-claim-${++n}`,
@@ -295,7 +379,10 @@ function fixerClaims(plans: FileFixPlan[]): ProtectionClaim[] {
         ...(witness ? { witness } : {}),
         ...(inserted.length >= 20 ? { sourceProbe: inserted } : {}),
         filePath: plan.displayPath,
-        startLine: fix.line,
+        // Where the text now IS, not where the finding was. For an insertion
+        // those differ by the lines the fix pushed down, and a reader following
+        // this number wants to land on the protection.
+        startLine: own?.line ?? fix.line,
         state: 'NOT_OBSERVED',
       });
     }

@@ -169,3 +169,9 @@ docs/*
 # other half, so the directory stops showing up as untracked and stops being a
 # candidate for `git add .`.
 .wrangler/
+
+# Written by `vibeguard --fix --write`: the fixer's record of what it inserted,
+# read back by a later `--after-build` to check the repair survived the build.
+# Machine-written and tree-local, so it is not a thing to commit — and this
+# repository is scanned by its own CLI, so one would otherwise appear here.
+.vibeguard/
