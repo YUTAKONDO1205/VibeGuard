@@ -386,7 +386,9 @@ export function toSarif(scan: ScanResponse, options: ToSarifOptions = {}): Sarif
   const degradations = scan.degradations ?? [];
   const suppressions = scan.suppressions ?? [];
   const vetoes = scan.declaredPackageVetoes ?? [];
-  if (ruleErrors.length || degradations.length || suppressions.length || vetoes.length) {
+  const claims = scan.protectionClaims ?? [];
+  const unexamined = scan.unexamined ?? [];
+  if (ruleErrors.length || degradations.length || suppressions.length || vetoes.length || claims.length || unexamined.length) {
     const notifications: SarifNotification[] = [
       // Rule crashes are errors: the rule produced nothing.
       ...ruleErrors.map((e) => ({
@@ -456,6 +458,41 @@ export function toSarif(scan: ScanResponse, options: ToSarifOptions = {}): Sarif
             'so this is a statement about the manifest, not evidence that the package exists or is safe.',
         },
         associatedRule: { id: v.ruleId },
+      })),
+      // ── Protection claims ────────────────────────────────────────────────
+      //
+      // SARIF is what the GitHub Action uploads by default, so a channel that
+      // exists only in the human and JSON output vanishes on the path most
+      // projects actually run — the same argument that put suppressions here.
+      //
+      // Levels are chosen by what the reader has to do about each state, not by
+      // how alarming the word sounds. LOST and REINTRODUCED are warnings: the
+      // source and the shipped bytes disagree and somebody has to look.
+      // NOT_OBSERVED is a note, and is emitted rather than dropped, because the
+      // claimant has already told the user the protection is there and silence
+      // would leave that standing unchallenged. PRESENT is not emitted at all:
+      // a verified protection is not a notification.
+      ...claims
+        .filter((c) => c.state !== 'PRESENT' && c.state !== 'NOT_APPLICABLE')
+        .map((c) => ({
+          level: (c.state === 'NOT_OBSERVED' ? 'note' : 'warning') as SarifLevel,
+          message: {
+            text:
+              c.state === 'NOT_OBSERVED'
+                ? `${c.claimant} claims ${c.subject}${c.filePath ? ` in ${c.filePath}` : ''}, and it was NOT checked against the shipped bytes. This is a claim, not a result.${c.note ? ` (${c.note})` : ''}`
+                : `${c.state}: ${c.subject}${c.filePath ? ` in ${c.filePath}` : ''} — declared in the source and not in the shipped bytes.${c.note ? ` (${c.note})` : ''}`,
+          },
+          ...(c.claimant.startsWith('VG-') ? { associatedRule: { id: c.claimant } } : {}),
+        })),
+      // ── Input the scan never opened ──────────────────────────────────────
+      //
+      // Build output first and as a warning, because a directory scan that
+      // skipped `dist` has said nothing whatsoever about what the project
+      // ships, and a green SARIF run over that is the misunderstanding this
+      // channel exists to prevent. The rest is a note.
+      ...unexamined.map((u) => ({
+        level: (u.looksLikeBuildOutput ? 'warning' : 'note') as SarifLevel,
+        message: { text: u.detail },
       })),
     ];
     run.invocations = [

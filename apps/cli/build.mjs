@@ -128,6 +128,8 @@ rmSync(OUTDIR, { recursive: true, force: true });
 const LAZY_SPECIFIERS = [
   { spec: '@vibeguard/analysis-graph', dir: 'analysis-graph', reachedBy: '--include-design-smells' },
   { spec: '@vibeguard/external-adapters', dir: 'external-adapters', reachedBy: '--ensemble' },
+  { spec: '@vibeguard/artifact-integrity/bundle', dir: 'artifact-integrity', reachedBy: '--after-build' },
+  { spec: '@vibeguard/artifact-integrity/cross-examine', dir: 'artifact-integrity', reachedBy: '--after-build' },
   // Resolves to packages/sarif-adapter/dist/provenance-node.js — the package
   // root is imported statically too, so this one is matched on the module file.
   { spec: '@vibeguard/sarif-adapter/node', dir: 'sarif-adapter', reachedBy: '--format sarif' },
@@ -287,6 +289,33 @@ function assertActionBuildsWhatWeInlined(metafile) {
     if (m) inlined.add(`@vibeguard/${m[1]}`);
   }
 
+  // ── PACKAGES THAT NEED NO BUILD LINE, AND HOW THAT IS DECIDED ─────────────
+  //
+  // The failure this check exists to catch is precise: a clean checkout has no
+  // `dist/`, so a package whose entry point is `dist/index.js` cannot be
+  // resolved by esbuild until its build line has run. A package whose entry
+  // point is already `src/*.mjs` has nothing to build and is resolvable the
+  // moment the repository is cloned — requiring a build line for it would mean
+  // requiring a no-op script, which is a lie told to a guard.
+  //
+  // So the exemption is DERIVED, by reading each inlined package's own
+  // manifest, rather than being a hand-maintained allowlist that would
+  // eventually exempt a package that did start needing a build. If the manifest
+  // cannot be read, the package is NOT exempt: an unreadable manifest is a
+  // reason to demand the build line, not a reason to skip the check.
+  const needsBuildLine = (name) => {
+    const dir = name.replace('@vibeguard/', '');
+    try {
+      const pkg = JSON.parse(
+        readFileSync(resolve(REPO_ROOT, 'packages', dir, 'package.json'), 'utf8'),
+      );
+      const entries = JSON.stringify([pkg.main, pkg.module, pkg.types, pkg.exports]);
+      return /dist\//.test(entries);
+    } catch {
+      return true;
+    }
+  };
+
   const position = new Map();
   const re = /npm run build -w (\S+)/g;
   for (let m = re.exec(actionYml); m; m = re.exec(actionYml)) {
@@ -314,6 +343,7 @@ function assertActionBuildsWhatWeInlined(metafile) {
 
   for (const name of [...inlined].sort()) {
     const at = position.get(name);
+    if (at === undefined && !needsBuildLine(name)) continue;
     if (at === undefined) {
       problems.push(
         `action.yml does not build ${name}, but this bundle inlined code from it. The Action ` +

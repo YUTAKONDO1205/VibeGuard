@@ -41,6 +41,16 @@ export function formatHuman(scan: ScanResponse, useColor: boolean): string {
     // Deliberately also on the zero-findings path, and this is the case that
     // matters most: "✓ No findings" printed over a scan where every finding was
     // suppressed is precisely the outcome an attacker is buying.
+    //
+    // `appendDegradations` was missing from this branch while the comment above
+    // spelled out exactly why it should not have been. A scan whose rules were
+    // all cut short by a ReDoS bound, and which therefore found nothing in the
+    // part that ran, printed an unqualified green tick. Same argument, same
+    // branch, so it is now called from both paths — as are the two channels
+    // below it.
+    appendDegradations(lines, scan, useColor);
+    appendUnexamined(lines, scan, useColor);
+    appendProtectionClaims(lines, scan, useColor);
     appendSuppressions(lines, scan, useColor);
     return lines.join('\n');
   }
@@ -61,8 +71,100 @@ export function formatHuman(scan: ScanResponse, useColor: boolean): string {
   lines.push(`  total: ${summary.total}    elapsed: ${scan.executionTimeMs}ms`);
   appendRuleErrors(lines, scan, useColor);
   appendDegradations(lines, scan, useColor);
+  appendUnexamined(lines, scan, useColor);
+  appendProtectionClaims(lines, scan, useColor);
   appendSuppressions(lines, scan, useColor);
   return lines.join('\n');
+}
+
+/**
+ * Surface input the walk never opened.
+ *
+ * Worded to separate the two cases a reader treats differently, because
+ * flattening them is what made this channel unnecessary-looking for years: an
+ * ignored `node_modules` is housekeeping, an ignored `dist` means every line
+ * above is a statement about source that nobody ships. Build output is listed
+ * first and is the only part that gets the warning colour; the rest is dim,
+ * like suppressions, because it is context rather than a claim that the tool
+ * failed at something.
+ */
+function appendUnexamined(lines: string[], scan: ScanResponse, useColor: boolean): void {
+  if (!scan.unexamined?.length) return;
+  const shipped = scan.unexamined.filter((u) => u.looksLikeBuildOutput);
+  const rest = scan.unexamined.filter((u) => !u.looksLikeBuildOutput);
+  lines.push('');
+  if (shipped.length) {
+    lines.push(
+      colorise(
+        `⚠ ${shipped.length} build output path(s) were NOT scanned — nothing above is a statement about what this project ships:`,
+        YELLOW,
+        useColor,
+      ),
+    );
+    for (const u of shipped) lines.push(`  ${u.detail}`);
+  }
+  if (rest.length) {
+    lines.push(
+      colorise(`ℹ ${rest.length} other path(s) were not scanned:`, DIM, useColor),
+    );
+    for (const u of rest) lines.push(colorise(`  ${u.detail}`, DIM, useColor));
+  }
+}
+
+/**
+ * Surface claims about protections and what settled them.
+ *
+ * Grouped by state rather than by claimant, because the reader's question is
+ * "what is unproven?" and not "who said what". `LOST` and `REINTRODUCED` come
+ * first and carry the warning colour: those are the two states that mean the
+ * source and the shipped bytes disagree. `NOT_OBSERVED` is dim and is never
+ * omitted — a claim nobody could cross-examine is the single most misleading
+ * thing this channel could hide, since the claimant has already told the user
+ * the protection is there.
+ */
+function appendProtectionClaims(lines: string[], scan: ScanResponse, useColor: boolean): void {
+  if (!scan.protectionClaims?.length) return;
+  const settled = scan.protectionClaims.filter(
+    (c) => c.state === 'LOST' || c.state === 'REINTRODUCED' || c.state === 'ABSENT',
+  );
+  const held = scan.protectionClaims.filter((c) => c.state === 'PRESENT');
+  const open = scan.protectionClaims.filter((c) => c.state === 'NOT_OBSERVED');
+  lines.push('');
+  if (settled.length) {
+    lines.push(
+      colorise(
+        `⚠ ${settled.length} declared protection(s) are in the source and NOT in the shipped bytes:`,
+        YELLOW,
+        useColor,
+      ),
+    );
+    for (const c of settled) {
+      const at = c.filePath ? `${c.filePath}${c.startLine ? `:${c.startLine}` : ''} — ` : '';
+      lines.push(`  ${at}${c.state}: ${c.subject}${c.note ? ` (${c.note})` : ''}`);
+    }
+  }
+  if (open.length) {
+    lines.push(
+      colorise(
+        `ℹ ${open.length} declared protection(s) could not be checked against the shipped bytes (NOT_OBSERVED — a claim, not a result):`,
+        DIM,
+        useColor,
+      ),
+    );
+    for (const c of open) {
+      const at = c.filePath ? `${c.filePath} — ` : '';
+      lines.push(colorise(`  ${at}${c.claimant} claims: ${c.subject}`, DIM, useColor));
+    }
+  }
+  if (held.length) {
+    lines.push(
+      colorise(
+        `ℹ ${held.length} declared protection(s) were found in the shipped bytes.`,
+        DIM,
+        useColor,
+      ),
+    );
+  }
 }
 
 /**

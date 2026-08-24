@@ -610,6 +610,209 @@ export interface ScanResponse {
    * emit `[]` when armed, and omit the field only when the veto never ran.
    */
   declaredPackageVetoes?: DeclaredPackageVetoRecord[];
+  /**
+   * Inputs the walk decided not to read, and why.
+   *
+   * WHY THIS EXISTS. `✓ No findings` is a claim about the files that were
+   * opened, and until now nothing said which those were. Two admission rules
+   * drop input with no trace: `DEFAULT_IGNORE` skips `dist` / `build` / `out` /
+   * `.next` / `.turbo`, and `MAX_FILE_BYTES` drops anything over 1 MB through a
+   * bare `continue`. Both are defensible as admission rules and neither is
+   * changed here. What is not defensible is that the two together mean a
+   * directory scan of a web project has, structurally, never once looked at the
+   * bytes that project ships — and then printed a green tick.
+   *
+   * Same posture as `degradations` and `suppressions`: does not contribute to
+   * `summary`, does not appear in `findings`, does not affect the exit code.
+   * Present only when non-empty, so a scan that skipped nothing is byte
+   * identical to what it produced before.
+   */
+  unexamined?: UnexaminedInput[];
+  /**
+   * Claims that some party made about a protection being present, and what an
+   * observation at a DIFFERENT layer had to say about each.
+   *
+   * See `ProtectionClaim`. The single rule this channel exists to enforce is
+   * that a claim can only ever ADD something to prove: it is born
+   * `NOT_OBSERVED` and no claimant can move its own claim to `PRESENT`.
+   *
+   * Same posture as the channels above — observability only.
+   */
+  protectionClaims?: ProtectionClaim[];
+  /**
+   * What `--after-build` actually opened.
+   *
+   * Separate from `protectionClaims` because "we read your build output and had
+   * nothing to check against it" and "we never opened it" are different facts,
+   * and without this field they produced identical reports. Present only when
+   * the flag was given.
+   */
+  afterBuild?: AfterBuildSummary;
+}
+
+/**
+ * One input the scan declined to read.
+ *
+ * `kind` says which admission rule fired, because the two are not equally
+ * interesting: an ignored `node_modules` is housekeeping, an ignored `dist` is
+ * the shipped artifact, and a 2 MB `index.js` dropped for size is very likely
+ * both. `bytes` is carried for the size kind so a reader can see how close the
+ * limit was, and omitted for the others because a directory has no size that
+ * means anything here.
+ */
+export interface UnexaminedInput {
+  kind: 'ignored-directory' | 'over-size-limit' | 'unreadable' | 'link-not-followed';
+  /** Path relative to the scan target, `/`-separated. */
+  path: string;
+  /**
+   * Whether this path looks like build output rather than source. Set by the
+   * producer, because only the walk knows which list the name came off. This is
+   * the field a reader should sort by: it is the difference between "we skipped
+   * your dependencies" and "we skipped what you ship".
+   */
+  looksLikeBuildOutput: boolean;
+  bytes?: number;
+  /** Human-readable and explicit that this is an omission, not a clean result. */
+  detail: string;
+}
+
+/**
+ * The six states a protection can be in, and the only vocabulary this channel
+ * uses.
+ *
+ * Deliberately the same six as `packages/evidence-bundle/src/states.mjs`, which
+ * fixed them first and carries the sequencing rules (keep the whole history;
+ * `REINTRODUCED` requires a preceding loss). Re-declared rather than imported
+ * because that package is Node-only and this one is bundled into two browser
+ * extensions; the states test asserts the two lists agree, so the duplication
+ * is checked rather than hoped for.
+ */
+export const PROTECTION_STATES = [
+  'PRESENT',
+  'ABSENT',
+  'LOST',
+  'REINTRODUCED',
+  'NOT_APPLICABLE',
+  'NOT_OBSERVED',
+] as const;
+
+export type ProtectionState = (typeof PROTECTION_STATES)[number];
+
+/** Which layer a statement about a protection was made at, or observed at. */
+export type ProtectionLayer =
+  /** A coding assistant's own prose about what it wrote. */
+  | 'assistant'
+  /** The source text, as read by a rule. */
+  | 'source'
+  /** A fixer's record of what it inserted. */
+  | 'fixer'
+  /** The bytes the project ships. */
+  | 'artifact'
+  /** A file shipped alongside the artifact — a source map, for instance. */
+  | 'sidecar';
+
+/**
+ * One claim that a protection is present, and its cross-examination.
+ *
+ * ── THE RULE THIS TYPE EXISTS TO ENFORCE ─────────────────────────────────────
+ *
+ * A claim is an accusation, not evidence. Whoever says "there is an
+ * authorization check here" — an assistant in its prose, a rule reading the
+ * source, a fixer reporting its own edit — has created something that must be
+ * proven, and has proven nothing. So:
+ *
+ *   * `state` is `NOT_OBSERVED` at birth and `crossExaminedAt` is absent;
+ *   * only an observation at a layer OTHER than `claimantLayer` may set
+ *     `state` to anything else, and it must record itself in
+ *     `crossExaminedAt`;
+ *   * therefore a claim can only ever add work. It cannot turn a screen green.
+ *
+ * That last line is the whole reason the type is shaped this way. The obvious
+ * design — let a coding assistant annotate its output and believe the
+ * annotation — makes the party being examined the examiner. The measured
+ * behaviour of assistants is not good enough for that, and more to the point it
+ * would not be good enough even if it were: the product exists because its user
+ * cannot check the assistant's word, and a green tick sourced from that word
+ * hands the user back exactly the question they could not answer.
+ */
+/** What a `--after-build` pass read, whether or not it settled anything. */
+export interface AfterBuildSummary {
+  directory: string;
+  /** Artefacts opened. */
+  artefactsRead: number;
+  /** Of those, how many passed their controls and could be reasoned about. */
+  artefactsMeasured: number;
+  /** Paths under the directory that could not be read at all. */
+  skipped: number;
+}
+
+export interface ProtectionClaim {
+  /** Stable id for this claim within one scan. */
+  id: string;
+  /** Who said it — a rule id, `assistant`, or a fixer id. */
+  claimant: string;
+  claimantLayer: ProtectionLayer;
+  /**
+   * What is claimed to be protected, in the claimant's own words where there
+   * are any. Short: this is a label, not a specification.
+   */
+  subject: string;
+  /**
+   * The token an observer can look for. A symbol name, a string literal — the
+   * thing whose presence or absence in another layer settles the claim. Absent
+   * when the claim names nothing checkable, which is itself worth surfacing:
+   * such a claim can never leave `NOT_OBSERVED`.
+   */
+  witness?: string;
+  /**
+   * The source text the claimant was looking at, used to decide WHICH shipped
+   * artefact this claim is about before asking whether the witness is in it.
+   *
+   * The witness answers "is the defence still there"; this answers the prior
+   * question "is this artefact even about my source". Without it, a witness
+   * token is searched for across every file in the build output, and a hit in
+   * an unrelated vendor chunk reports a removed defence as present — which is
+   * the single most dangerous thing this channel could do.
+   */
+  sourceProbe?: string;
+  filePath?: string;
+  startLine?: number;
+  state: ProtectionState;
+  /**
+   * Every transition, oldest first — not only the final state.
+   *
+   * `REINTRODUCED` means "PRESENT again after being LOST", so a record that
+   * asserts it with no loss in front of it is malformed; the rule and the
+   * reasoning are in `packages/evidence-bundle/src/states.mjs`. Keeping the
+   * sequence is also what stops a reader from mistaking "removed from the code
+   * and republished in the map" for "never removed".
+   */
+  history?: { checkpoint: string; state: ProtectionState; where?: string }[];
+  /** The layer whose observation set `state`. Absent while `NOT_OBSERVED`. */
+  crossExaminedAt?: ProtectionLayer;
+  /** What the observer actually saw. Absent while `NOT_OBSERVED`. */
+  note?: string;
+}
+
+/**
+ * The one invariant, as a function, so callers and tests share it rather than
+ * each restating it.
+ *
+ * Returns the reason a transition is illegal, or `null` when it is allowed.
+ * Exported because the alternative — every producer re-deriving "am I allowed
+ * to write this?" — is how the rule gets quietly dropped at the third call
+ * site.
+ */
+export function illegalClaimTransition(
+  claim: Pick<ProtectionClaim, 'claimantLayer'>,
+  observedAt: ProtectionLayer,
+  next: ProtectionState,
+): string | null {
+  if (next === 'NOT_OBSERVED') return null;
+  if (observedAt === claim.claimantLayer) {
+    return `a claim made at layer "${claim.claimantLayer}" cannot be settled by an observation at the same layer`;
+  }
+  return null;
 }
 
 /**
@@ -744,3 +947,15 @@ export const CONFIDENCE_ORDER: Record<Confidence, number> = {
 export function compareConfidence(a: Confidence, b: Confidence): number {
   return CONFIDENCE_ORDER[b] - CONFIDENCE_ORDER[a];
 }
+
+// Protection-claim construction. Pure, so every channel can carry the ledger
+// even where a filesystem is unavailable; see claims.ts for why it is not
+// next to the code that settles claims.
+export {
+  CLAIM_BEARING_RULES,
+  identifierWitness,
+  claimsFromFindings,
+  claimsFromAssistantProse,
+  summariseClaims,
+  type ClaimSourceFinding,
+} from "./claims.js";

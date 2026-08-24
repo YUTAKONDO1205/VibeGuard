@@ -104,7 +104,7 @@
           "observeAt": {
             "description": "Checkpoints at which this property is examined. A property with no reachable checkpoint is exit 3, not a pass.",
             "type": "array",
-            "items": { "enum": ["ast", "pre-opt-ir", "after-pass", "object", "linked"] }
+            "items": { "enum": ["invocation", "ast", "pre-opt-ir", "after-pass", "object", "linked", "artifact"] }
           }
         }
       }

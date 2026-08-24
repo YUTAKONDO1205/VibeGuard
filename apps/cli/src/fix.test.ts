@@ -55,8 +55,19 @@ describe('planFixes — single-file target', () => {
     expect(plans).toHaveLength(1);
     expect(plans[0]!.overlapSkipped).toBe(false);
     expect(plans[0]!.newContent).toBe('#define DEBUG 0\nint main() { return 0; }\n');
+    // `insertedText` is the fixer's own replacement, carried so the claim
+    // ledger does not have to recover it by indexing into the new content —
+    // which lands on the wrong line for any fix that inserts. Asserted as part
+    // of the exact shape rather than loosely, because a fix that stopped
+    // carrying it would silently take the ledger back to reading anchors.
     expect(plans[0]!.fixes).toEqual([
-      { ruleId: 'VG-EMB-020', title: 'Set the debug define to 0', safety: 'safe', line: 1 },
+      {
+        ruleId: 'VG-EMB-020',
+        title: 'Set the debug define to 0',
+        safety: 'safe',
+        line: 1,
+        insertedText: '0',
+      },
     ]);
   });
 

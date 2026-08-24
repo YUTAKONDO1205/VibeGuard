@@ -108,11 +108,13 @@ export const STAGES = Object.freeze(['compile', 'lto-backend', 'link', 'artifact
 
 /** Which stage a checkpoint is reached in when nothing says otherwise. */
 export const DEFAULT_STAGE_FOR_CHECKPOINT = Object.freeze({
+  invocation: 'compile',
   ast: 'compile',
   'pre-opt-ir': 'compile',
   'after-pass': 'compile',
   object: 'compile',
   linked: 'link',
+  artifact: 'artifact',
 });
 
 export const CHECKPOINTS = Object.freeze(Object.keys(DEFAULT_STAGE_FOR_CHECKPOINT));

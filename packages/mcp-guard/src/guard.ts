@@ -63,8 +63,11 @@ import {
   type AnalyzerOptions,
 } from '@vibeguard/analyzer-core';
 import {
+  claimsFromAssistantProse,
+  claimsFromFindings,
   compareSeverity,
   type Finding,
+  type ProtectionClaim,
   type ScanDegradation,
   type ScanRequest,
   type ScanResponse,
@@ -145,6 +148,26 @@ export interface Verdict {
   degradations: ScanDegradation[];
   /** One line naming the decision and its cause, for a human reading a log. */
   detail: string;
+  /**
+   * Protections the content — and the assistant's own account of it — claim to
+   * contain. Every one NOT_OBSERVED.
+   *
+   * ── WHY A GUARD THAT ONLY ADJUDICATES CARRIES A LEDGER ────────────────────
+   *
+   * This is the only channel that runs at the moment code is written; the
+   * other four run afterwards. It is therefore the only place where the
+   * assistant is still there to be told that what it just claimed has not been
+   * checked. And it is structurally incapable of checking: it sees content on
+   * its way to disk and no build output at all.
+   *
+   * So the ledger here can only grow the set of things to prove. Nothing in
+   * this file can settle a claim, `claimsFromFindings` cannot emit a settled
+   * one, and an assistant's prose is admitted as an ACCUSATION — it adds an
+   * obligation and never discharges one. An allow carrying three NOT_OBSERVED
+   * claims is not a safer allow than one carrying none; it is the same allow
+   * with three things written down.
+   */
+  claims: ProtectionClaim[];
 }
 
 /**
@@ -158,6 +181,14 @@ export interface Verdict {
 export interface AdjudicateInput {
   path: string;
   content: string;
+  /**
+   * The assistant's own description of what it wrote, if it offered one.
+   *
+   * Optional, and useless to the decision on purpose: it cannot allow a write
+   * and it cannot refuse one. All it does is add claims to the ledger, which is
+   * exactly what a statement from the party under examination is worth.
+   */
+  explanation?: string;
 }
 
 /**
@@ -170,6 +201,22 @@ export interface AdjudicateInput {
  * disagree about the same file. Reusing the project's constant is only worth
  * anything if it is also reused with the project's unit.
  */
+/**
+ * The first line of the content long enough to identify an artefact later.
+ *
+ * The assistant's prose does not say which shipped file it is about; the code
+ * it accompanied does. A claim without a probe can never be settled, which is
+ * correct but useless, so the guard hands over the best probe it has — a real
+ * line of the content on its way to disk.
+ */
+function firstLongLine(content: string): string | undefined {
+  for (const line of content.split(/\r?\n/)) {
+    const t = line.trim();
+    if (t.length >= 20 && !t.startsWith('//') && !t.startsWith('#') && !t.startsWith('*')) return t;
+  }
+  return undefined;
+}
+
 function byteLength(content: string): number {
   return Buffer.byteLength(content, 'utf8');
 }
@@ -187,6 +234,11 @@ function refuse(
     blocking: [],
     observed: [],
     degradations: [],
+    // Empty rather than absent. Every refusal routed through this helper
+    // happens BEFORE or INSTEAD OF a scan — bad arguments, oversized content, a
+    // scanner that threw — so there is nothing to claim, and saying so with an
+    // empty array keeps `claims` a field a consumer can read unconditionally.
+    claims: [],
     detail,
     ...extra,
   };
@@ -226,6 +278,8 @@ export function adjudicate(input: unknown, scanFn: ScanFn = coreScan): Verdict {
     );
   }
   const content = args.content;
+  // Read but never acted on. See `AdjudicateInput.explanation`.
+  const explanation = typeof args.explanation === 'string' ? args.explanation : undefined;
 
   // ── The size cap: the project's number, deliberately NOT the project's response
   //
@@ -308,6 +362,20 @@ export function adjudicate(input: unknown, scanFn: ScanFn = coreScan): Verdict {
 
   const observed = result.findings;
   const blocking = observed.filter((f) => compareSeverity(f.severity, BLOCK_AT) <= 0);
+  // Built from the findings, and from the assistant's own prose when it offered
+  // any. Both are NOT_OBSERVED by construction — see `Verdict.claims`. Neither
+  // participates in the decision above or below; a claim adds an obligation and
+  // cannot discharge one, least of all here, where the party being examined is
+  // the one supplying the text.
+  const claims: ProtectionClaim[] = [
+    ...claimsFromFindings(observed),
+    ...(explanation && explanation.trim()
+      ? claimsFromAssistantProse(explanation, {
+          filePath: path,
+          sourceProbe: firstLongLine(content),
+        })
+      : []),
+  ];
   // `degradations` is optional on the response and present only when non-empty.
   const degradations = result.degradations ?? [];
 
@@ -320,6 +388,7 @@ export function adjudicate(input: unknown, scanFn: ScanFn = coreScan): Verdict {
       blocking,
       observed,
       degradations,
+      claims,
       detail: `refused: ${blocking.length} finding(s) at ${BLOCK_AT} or above.`,
     };
   }
@@ -352,6 +421,7 @@ export function adjudicate(input: unknown, scanFn: ScanFn = coreScan): Verdict {
     blocking: [],
     observed,
     degradations,
+    claims,
     detail:
       observed.length === 0
         ? 'allowed: no findings.'

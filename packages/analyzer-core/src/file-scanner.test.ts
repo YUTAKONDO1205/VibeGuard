@@ -1,6 +1,6 @@
 // vibeguard:disable-file VG-INJ-004 VG-SEC-001 VG-SEC-003
 // Test fixtures contain intentional vulnerable code to exercise the rules.
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -194,5 +194,70 @@ describe('scanPath — suppression tally (D8)', () => {
     const result = await scanPath(dir);
     expect(result.findings.some((f) => f.ruleId === 'VG-INJ-004')).toBe(true);
     expect('suppressions' in (result as object)).toBe(false);
+  });
+});
+
+describe('unexamined — what the walk declined to read', () => {
+  // The channel exists because two admission rules were silent, and a green
+  // tick over silence is the thing this whole area is about. Neither admission
+  // rule changes here; only whether the skip leaves a trace.
+
+  it('records an ignored build directory and marks it as build output', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vg-unexamined-'));
+    TEMP_DIRS.push(dir);
+    await mkdir(join(dir, 'dist'));
+    await mkdir(join(dir, 'node_modules'));
+    await writeFile(join(dir, 'dist', 'bundle.js'), 'export const a = 1;\n', 'utf8');
+    await writeFile(join(dir, 'ok.js'), 'export const b = 2;\n', 'utf8');
+
+    const scan = await scanPath(dir, { config: false });
+    const paths = (scan.unexamined ?? []).map((u) => u.path);
+    expect(paths).toContain('dist');
+    expect(paths).toContain('node_modules');
+    // The distinction the channel is FOR: one of these is housekeeping and the
+    // other is everything the project ships.
+    const dist = scan.unexamined!.find((u) => u.path === 'dist')!;
+    const nm = scan.unexamined!.find((u) => u.path === 'node_modules')!;
+    expect(dist.looksLikeBuildOutput).toBe(true);
+    expect(nm.looksLikeBuildOutput).toBe(false);
+    expect(dist.kind).toBe('ignored-directory');
+  });
+
+  it('records a file dropped for size, with its size, instead of dropping it silently', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vg-unexamined-'));
+    TEMP_DIRS.push(dir);
+    const big = `/*${'x'.repeat(1_200_000)}*/\nexport const a = 1;\n`;
+    await writeFile(join(dir, 'huge.bundle.js'), big, 'utf8');
+
+    const scan = await scanPath(dir, { config: false });
+    const rec = (scan.unexamined ?? []).find((u) => u.path === 'huge.bundle.js');
+    expect(rec, 'an over-size file must leave a record').toBeDefined();
+    expect(rec!.kind).toBe('over-size-limit');
+    expect(rec!.bytes).toBeGreaterThan(1_000_000);
+    // A `.bundle.js` over the limit is almost always the shipped artifact.
+    expect(rec!.looksLikeBuildOutput).toBe(true);
+    expect(rec!.detail).toMatch(/dropped, not cleared/);
+  });
+
+  it('is absent, not empty, when nothing was skipped', async () => {
+    // The field is omitted so a scan that skipped nothing stays byte-identical
+    // to what it produced before this channel existed.
+    const dir = await mkdtemp(join(tmpdir(), 'vg-unexamined-'));
+    TEMP_DIRS.push(dir);
+    await writeFile(join(dir, 'ok.js'), 'export const a = 1;\n', 'utf8');
+    const scan = await scanPath(dir, { config: false });
+    expect(scan.unexamined).toBeUndefined();
+  });
+
+  it('does not contribute to summary, findings or the severity tally', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vg-unexamined-'));
+    TEMP_DIRS.push(dir);
+    await mkdir(join(dir, 'dist'));
+    await writeFile(join(dir, 'dist', 'x.js'), 'export const a = 1;\n', 'utf8');
+    await writeFile(join(dir, 'ok.js'), 'export const b = 2;\n', 'utf8');
+    const scan = await scanPath(dir, { config: false });
+    expect(scan.unexamined!.length).toBeGreaterThan(0);
+    expect(scan.findings).toHaveLength(0);
+    expect(scan.summary.total).toBe(0);
   });
 });

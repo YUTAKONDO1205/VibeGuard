@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   allDesignSmellLocations,
@@ -12,6 +14,9 @@ import {
   DESIGN_SMELL_SCOPE_ORDER,
   SECURITY_JUDGEMENT_SEVERITIES,
   SEVERITY_ORDER,
+  PROTECTION_STATES,
+  illegalClaimTransition,
+  type ProtectionLayer,
   type DesignSmellFinding,
   type DesignSmellScope,
   type Finding,
@@ -241,5 +246,60 @@ describe('DESIGN_SMELL_SCOPE_ORDER', () => {
 
   it('is total, so adding a scope breaks the build rather than defaulting', () => {
     expect(Object.keys(DESIGN_SMELL_SCOPE_ORDER)).toHaveLength(6);
+  });
+});
+
+describe('PROTECTION_STATES', () => {
+  // ── WHY THIS TEST EXISTS, IN ITS OWN WORDS ─────────────────────────────────
+  //
+  // The comment on `PROTECTION_STATES` says the six states are "deliberately the
+  // same six as packages/evidence-bundle/src/states.mjs" and that "the states
+  // test asserts the two lists agree, so the duplication is checked rather than
+  // hoped for". When that comment was written the test did not exist, so the
+  // sentence was false — in a file whose subject is the difference between a
+  // claim and a checked claim. This is the check the comment promised.
+  //
+  // Read off disk rather than imported: `@vibeguard/evidence-bundle` is Node-only
+  // and this package is bundled into two browser extensions, so an import would
+  // break the fence that `check-packaging-invariants.mjs` enforces. A test file
+  // is not bundled, so it may read what the source may not import.
+  it('agrees, item for item and in order, with evidence-bundle/src/states.mjs', () => {
+    const text = readFileSync(
+      resolve(__dirname, '../../evidence-bundle/src/states.mjs'),
+      'utf8',
+    );
+    const block = /export const PROPERTY_STATES = Object\.freeze\(\[([\s\S]*?)\]\)/.exec(text);
+    // Vacuity guard: a regex that stopped matching would compare against an
+    // empty list and pass, which is the failure this whole file is about.
+    expect(block, 'PROPERTY_STATES not found in states.mjs').not.toBeNull();
+    const theirs = [...block![1]!.matchAll(/'([A-Z_]+)'/g)].map((m) => m[1]);
+    expect(theirs.length).toBeGreaterThan(0);
+    expect([...PROTECTION_STATES]).toEqual(theirs);
+  });
+});
+
+describe('illegalClaimTransition', () => {
+  it('lets an observation at another layer settle a claim', () => {
+    expect(illegalClaimTransition({ claimantLayer: 'source' }, 'artifact', 'LOST')).toBeNull();
+    expect(illegalClaimTransition({ claimantLayer: 'assistant' }, 'artifact', 'PRESENT')).toBeNull();
+    expect(illegalClaimTransition({ claimantLayer: 'source' }, 'sidecar', 'REINTRODUCED')).toBeNull();
+  });
+
+  it('refuses to let any layer settle its own claim', () => {
+    // The rule the whole channel exists for. Enumerated rather than spot-checked,
+    // because a layer added later must be covered by construction.
+    const layers: ProtectionLayer[] = ['assistant', 'source', 'fixer', 'artifact', 'sidecar'];
+    for (const layer of layers) {
+      expect(
+        illegalClaimTransition({ claimantLayer: layer }, layer, 'PRESENT'),
+        `${layer} was allowed to settle its own claim`,
+      ).toMatch(/cannot be settled by an observation at the same layer/);
+    }
+  });
+
+  it('always permits NOT_OBSERVED, including from the claimant itself', () => {
+    // Staying unproven is not a transition anyone needs permission for, and
+    // forbidding it would leave a claim with nowhere legal to go.
+    expect(illegalClaimTransition({ claimantLayer: 'assistant' }, 'assistant', 'NOT_OBSERVED')).toBeNull();
   });
 });
