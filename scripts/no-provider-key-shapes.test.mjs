@@ -37,22 +37,53 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * The formats, as each provider publishes them.
+ * The formats, and the floor this list may never fall below.
  *
- * Kept slightly WIDER than the corresponding VG-SEC-005 patterns on purpose:
- * this is a hygiene gate, and the cost of a false positive is renaming a
- * fixture, while the cost of a miss is a public alert on the repository.
+ * ── IT MUST NOT BE NARROWER THAN THE PRODUCT'S OWN RULES ────────────────────
+ *
+ * The first version claimed to be "slightly WIDER than the corresponding
+ * VG-SEC-005 patterns on purpose". It was not. Measured against random
+ * base64url bodies, `sk-ant-[A-Za-z0-9-]{20,}` missed 21.9% of real-shaped
+ * Anthropic keys, because a real one is base64url and base64url contains `_`,
+ * which that character class omits — while `packages/rules/src/rules/secrets.ts`
+ * catches the same string. A hygiene gate narrower than the scanner it is meant
+ * to keep clean is worse than none: it reports green over exactly the strings
+ * the product would flag.
+ *
+ * Two formats were also missing outright that the product itself detects:
+ * `github_pat_` (VG-SEC-004) and a PEM private key block (VG-SEC-002).
+ *
+ * So the rule for this list: every shape any VibeGuard rule recognises appears
+ * here, at least as wide, plus the partner formats a fixture is likely to reach
+ * for. It is still not all 200-plus patterns GitHub scans — that is not
+ * achievable here and the gap is stated rather than implied.
  */
 const SHAPES = [
   ['OpenAI project key', /sk-proj-[A-Za-z0-9_-]{20,}/g],
+  ['OpenAI service/admin key', /sk-(?:svcacct|admin)-[A-Za-z0-9_-]{20,}/g],
   ['OpenAI user key', /sk-[A-Za-z0-9]{32,}/g],
-  ['Anthropic key', /sk-ant-[A-Za-z0-9-]{20,}/g],
+  ['Anthropic key', /sk-ant-[A-Za-z0-9_-]{20,}/g],
+  ['OpenRouter key', /sk-or-v1-[A-Za-z0-9]{32,}/g],
   ['Google API key', /AIza[A-Za-z0-9_-]{35}/g],
+  ['Google OAuth client secret', /GOCSPX-[A-Za-z0-9_-]{20,}/g],
   ['Hugging Face token', /hf_[A-Za-z0-9]{30,}/g],
   ['Groq key', /gsk_[A-Za-z0-9]{30,}/g],
-  ['Stripe live key', /[rs]k_live_[A-Za-z0-9]{20,}/g],
+  ['Stripe key', /[rs]k_(?:live|test)_[A-Za-z0-9]{20,}/g],
   ['AWS access key id', /(?<![A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Za-z0-9])/g],
-  ['GitHub token', /(?:ghp|gho|ghs|ghr)_[A-Za-z0-9]{36}/g],
+  ['GitHub token', /(?:ghp|gho|ghs|ghr|ghu)_[A-Za-z0-9]{36}/g],
+  ['GitHub fine-grained PAT', /github_pat_[A-Za-z0-9_]{40,}/g],
+  ['GitLab PAT', /glpat-[A-Za-z0-9_-]{20,}/g],
+  ['Slack token', /xox[baprs]-[A-Za-z0-9-]{20,}/g],
+  ['npm token', /npm_[A-Za-z0-9]{30,}/g],
+  ['PyPI token', /pypi-[A-Za-z0-9_-]{40,}/g],
+  ['SendGrid key', /SG\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/g],
+  ['Shopify token', /shpat_[a-fA-F0-9]{32}/g],
+  ['Azure storage account key', /AccountKey=[A-Za-z0-9+/=]{60,}/g],
+  // The HEADER alone is not a credential — `packages/rules/src/rules/secrets.ts`
+  // flags it as VG-SEC-002 because a header in source is a smell, but a scanner
+  // needs key MATERIAL to call it a leak, and the fixture for that rule carries
+  // only the header. So this requires at least one line of base64 after it.
+  ['PEM private key with material', /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----[\r\n]+[A-Za-z0-9+/=]{40,}/g],
 ];
 
 /**
