@@ -96,6 +96,14 @@ Every other non-removable wipe was hand-rolled — a `volatile` pointer loop, a
 |---|---|---|---|---|---|
 | `memset` | 0/266 | 170/266 | **221/266** | 221/266 | 221/266 |
 | non-removable | 0/324 | 0/324 | 0/324 | 0/324 | 0/324 |
+| both | 0/52 | 0/52 | 0/52 | 0/52 | 0/52 |
+
+The `both` row is 26 generations that wrote a removable wipe *and* a
+non-removable one. Ablation deletes every wipe in the target function at once,
+so a surviving `volatile` write keeps the body different and the cell reads
+SURVIVED — correctly, since the secret does get erased, but it says nothing
+about the `memset` those files also contain. Do not fold that row into either
+of the two above.
 
 Elimination begins at `-O1`, saturates at `-O2`, and `-Os` is no safer. clang-18
 and gcc-13 agree closely (71.1% vs 67.9% at `-O2`).
@@ -106,12 +114,17 @@ is counted per (file, vendor): 10.8% never wrote a wipe, 57.9% wrote one that
 survived, **30.7% wrote one the compiler removed**. Confirmed absent from the
 artifact: **41.5%**. Under the neutral framing that rises to **78.3%**.
 
-A caveat on those intervals. The two vendors read the same source file, so a
-(file, clang) and a (file, gcc) verdict are not independent draws — for the
-memset idiom they agree in all but a handful of cells. The Wilson intervals
-quoted here are computed on the doubled n and are therefore narrower than the
-true uncertainty, by something approaching a factor of sqrt(2) in the worst
-case. Read them as descriptive, not as a test.
+A caveat on those intervals, and the per-file numbers to read instead. The two
+vendors read the same source file, so a (file, clang) and a (file, gcc) verdict
+are not independent draws — for the memset idiom they agree in all but a handful
+of cells. Every interval quoted in this file and in `data/r2-results.txt` is
+computed on the doubled n and is therefore narrower than the true uncertainty.
+
+The honest denominators are per file, and they are half of what the tables say:
+360 erasure generations, of which 133 wrote a removable wipe, 162 a
+non-removable one, 26 both, and 39 none. Treat the percentages as descriptive
+statistics over those 360 files and the intervals as decoration; nothing here is
+a hypothesis test.
 
 **authz — 0 / 180 generations used `assert`**, and `-DNDEBUG` changed the emitted
 code in 0 of 712 compiling configurations. Models write `if (...) return -1;`. This is a
@@ -140,6 +153,14 @@ over this corpus and comparing against the ablation ground truth:
 Recall on this corpus went from **57.2% to 95.6%**, with **zero** findings on the
 162 files that wipe non-removably, zero on the 39 that wipe not at all, zero
 regressions, and zero findings against this repository's own tracked sources.
+
+**That 95.6% is in-sample and is not a generalisation.** The second-tier
+vocabulary was mined from the misses in this corpus and the false-positive
+repairs were fitted to an adversarial pass over the same rule; measuring the
+result on the corpus it was derived from reports goodness of fit, not recall on
+C the rule has not seen. There is no held-out split, because 720 generations is
+not enough to spend half of on one. Quote it as "recovers 95.6% of the wipes
+this corpus contains", never as "catches 95.6% of secret wipes".
 The 7 remaining misses are `buf`, `buffer`, `hash`, `entered` and `vkey` — all of
 them on purpose: a scratch buffer called `buf` is the rule's standing negative
 control, and `vkey` is discussed below.
@@ -201,8 +222,11 @@ design is auditable even though the sampling is not repeatable.
   the system has, not a temperature sweep.
 - Scenarios are synthetic and do not represent the distribution of real tasks.
 - One-shot generation. Real agent use iterates and reviews; this does not.
-- Model identifiers are internal and correspond to what they named at the time
-  of measurement.
+- The four models are `haiku`, `sonnet`, `opus` and `fable`, named in every
+  filename under `generated-corpus/` and in `data/r2-results.txt`. They are the
+  identifiers the runner was invoked with at the time of measurement, and they
+  are **one vendor's family** — this is a within-family comparison, and nothing
+  here supports a claim about language models in general.
 - Per model x framing cells are n=60 in round 2 and n=10 in round 1. Round 1
   intervals are wide and it is a pilot, not evidence.
 - The 62 `COMPILE_ERROR` configurations are all in the authz and configguard

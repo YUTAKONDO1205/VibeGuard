@@ -456,7 +456,12 @@ function secretTier(identifier: string, fileHandlesSecrets: boolean): SecretTier
  *     `sk`, …) reports at LOW confidence and only when no sibling word in the
  *     same identifier vetoes it, because those words also name ordinary things:
  *     an RNG seed, a GPIO pin, a socket. `--min-confidence medium` filters the
- *     second tier back out and leaves the first-tier vocabulary as it was. It
+ *     second tier back out and leaves the first-tier vocabulary as it was. That
+ *     matters for a gate as well as for a report: `low` is a confidence, not a
+ *     severity, so a second-tier finding still carries the rule's `medium` and
+ *     `--fail-on medium` alone will fail a build on one. Pair it with
+ *     `--min-confidence medium` to gate on the first tier only — measured: the
+ *     same input exits 1 with `--fail-on medium` and 0 with both flags. It
  *     does NOT undo the cast form: `memset((void *)password, 0, n)` was always
  *     meant to fire and its absence was a defect, so it reports at the rule's
  *     own confidence like any other first-tier match. On the measured corpus
