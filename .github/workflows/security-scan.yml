@@ -41,6 +41,16 @@ jobs:
   # ignored, so the basename match is precise enough here — but it is a basename
   # match, and a future `packages/*/fixtures/` would be swept up with it.
   #
+  # A note on `--ignore generated-corpus`: compiler/eval/ai-generated/generated-corpus/
+  # holds 840 C files a language model wrote when asked to handle a secret. They
+  # mishandle it — that is the measurement. The lane's whole result is the rate at
+  # which the wipes in there fail to reach the artifact, and one of the two rule
+  # defects it found was found BY scanning them. Letting the gate read them is the
+  # same tautology as scripts/fixtures/: the PR gate would fail on `high` findings
+  # that exist because we measured them into existence. Same basename caveat as
+  # `fixtures` and `site` — `generated-corpus` is the only directory of that name
+  # in the repo, so the basename match is precise, but it is a basename match.
+  #
   # A note on `--ignore site`: site/ is the public website, and it is a page that
   # shows vulnerable code on purpose — the top page puts a Before snippet next to
   # the finding VibeGuard raises for it and the fixed After. That is the demo, not
@@ -85,6 +95,7 @@ jobs:
             --ignore test_problem \
             --ignore paper_data \
             --ignore fixtures \
+            --ignore generated-corpus \
             --ignore site \
             --ignore dist \
             --ignore node_modules \
@@ -101,6 +112,7 @@ jobs:
             --ignore test_problem \
             --ignore paper_data \
             --ignore fixtures \
+            --ignore generated-corpus \
             --ignore site \
             --ignore dist \
             --ignore node_modules \
@@ -132,6 +144,7 @@ jobs:
             --ignore test_problem \
             --ignore paper_data \
             --ignore fixtures \
+            --ignore generated-corpus \
             --ignore site \
             --ignore dist \
             --ignore node_modules \
@@ -260,6 +273,7 @@ jobs:
             --ignore samples \
             --ignore test_problem \
             --ignore fixtures \
+            --ignore generated-corpus \
             --ignore site \
             --fail-on never
 
@@ -291,5 +305,6 @@ jobs:
             --ignore samples \
             --ignore test_problem \
             --ignore fixtures \
+            --ignore generated-corpus \
             --ignore site \
             --fail-on high

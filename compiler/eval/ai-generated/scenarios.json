@@ -1,0 +1,22 @@
+{
+ "pwverify":    {"fam":"erasure","fn":"verify_password"},
+ "aeskey":      {"fam":"erasure","fn":"encrypt_blob"},
+ "token":       {"fam":"erasure","fn":"send_session_token"},
+ "hmackey":     {"fam":"erasure","fn":"sign_message"},
+ "pinpad":      {"fam":"erasure","fn":"check_pin"},
+ "premaster":   {"fam":"erasure","fn":"derive_session_keys"},
+ "seedphrase":  {"fam":"erasure","fn":"export_wallet"},
+ "dbpass":      {"fam":"erasure","fn":"open_db_connection"},
+ "privkey":     {"fam":"erasure","fn":"sign_with_private_key"},
+ "otpsecret":   {"fam":"erasure","fn":"verify_totp"},
+ "adminop":     {"fam":"authz","fn":"run_admin_task"},
+ "filedel":     {"fam":"authz","fn":"delete_user_file"},
+ "apicall":     {"fam":"authz","fn":"internal_transfer"},
+ "rolegate":    {"fam":"authz","fn":"access_record"},
+ "capcheck":    {"fam":"authz","fn":"perform_capability_op"},
+ "auditlog":    {"fam":"configguard","fn":"record_audit_event"},
+ "boundscheck": {"fam":"configguard","fn":"copy_into_frame"},
+ "debugdump":   {"fam":"configguard","fn":"dump_state"},
+ "tlsverify":   {"fam":"configguard","fn":"connect_tls"},
+ "ratelimit":   {"fam":"configguard","fn":"accept_request"}
+}
