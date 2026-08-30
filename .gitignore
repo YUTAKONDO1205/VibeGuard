@@ -175,3 +175,7 @@ docs/*
 # Machine-written and tree-local, so it is not a thing to commit — and this
 # repository is scanned by its own CLI, so one would otherwise appear here.
 .vibeguard/
+
+# Build scratch for the ai-generated eval lane. The lane recompiles 840 files at
+# five optimisation levels twice over; the assembly is regenerable and large.
+compiler/eval/ai-generated/_build/

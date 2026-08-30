@@ -296,8 +296,140 @@ function identifierWords(identifier: string): string[] {
     .map((word) => word.toLowerCase());
 }
 
-function namesASecret(identifier: string): boolean {
-  return identifierWords(identifier).some((word) => SECRET_WORDS.has(word));
+/**
+ * A second tier of secret words, each paired with the words that argue it is NOT
+ * a secret in this identifier.
+ *
+ * WHY A SECOND TIER RATHER THAN MORE ENTRIES IN SECRET_WORDS. The words above are
+ * unambiguous: nothing called `password` is not a password. These are not. `seed`
+ * is a secret in a wallet and a nuisance in `srand`; `pin` is a secret on a keypad
+ * and a GPIO number in every embedded file this rule is meant to read; `sk` is a
+ * signing key in crypto code and a socket in kernel code. Putting them in the
+ * first tier would trade the E3=0 invariant for recall, which is the trade this
+ * family exists not to make.
+ *
+ * So they fire, but with two brakes: a veto list checked against the OTHER words
+ * of the same identifier, and `confidence: 'low'` on the match, so a reader who
+ * has decided this rule may only speak when sure can filter them out with
+ * `--min-confidence medium` and get exactly the previous behaviour back.
+ *
+ * The vocabulary is not guesswork. It is the set of identifiers that a measured
+ * corpus of AI-generated C actually used for a secret and this rule silently
+ * missed; see `compiler/eval/ai-generated/`. `buf` and `buffer` appear in that
+ * corpus too and are deliberately NOT here — `samples/crossfile-fixtures/
+ * embedded-real-api/main.c` wipes a scratch buffer called `buf` and is the
+ * standing negative control for this rule.
+ */
+interface TierBWord {
+  /** Words in the SAME identifier that argue this is not a secret. */
+  readonly veto: ReadonlySet<string>;
+  /**
+   * Also require the FILE to look like it handles secrets.
+   *
+   * Only for a word whose collision is with a different domain entirely AND whose
+   * commonest spelling offers no sibling to veto. `sk` is the case: kernel code
+   * writes a bare `sk` for a socket and control code writes `Sk` for the Kalman
+   * innovation covariance, and neither has a second word to test. `pin` and
+   * `seed` do not need this — embedded and PRNG code qualifies them (`relay_pin`,
+   * `xorshift_seed`), so the veto list reaches them, and requiring crypto
+   * vocabulary would silence the keypad file that is precisely the target.
+   */
+  readonly needsSecretContext?: boolean;
+}
+
+const SECRET_WORDS_TIER_B = new Map<string, TierBWord>([
+  [
+    'seed',
+    { veto: new Set([
+      // PRNG families, spelled the way each library spells them.
+      'rand', 'random', 'srand', 'prng', 'rng', 'mt', 'mersenne', 'twister',
+      'xorshift', 'xoshiro', 'xoroshiro', 'pcg', 'lcg', 'splitmix', 'wyhash',
+      'hash', 'noise', 'perlin', 'simplex',
+      // "seed" as a starting point: region growing, flood fill, BFS.
+      'fill', 'flood', 'grow', 'growth', 'region', 'bfs', 'dfs', 'queue', 'stack',
+      // non-crypto qualifiers
+      'world', 'sim', 'tile', 'chunk', 'worker', 'test', 'demo',
+    ]) },
+  ],
+  [
+    'pin',
+    { veto: new Set([
+      // attribute words
+      'gpio', 'led', 'pwm', 'adc', 'dac', 'mux', 'irq', 'port', 'mask', 'map',
+      'mode', 'dir', 'config', 'cfg', 'num', 'no', 'index', 'idx', 'state', 'level',
+      'bit', 'reg', 'register', 'assign', 'assignment', 'default', 'init',
+      // device words: what embedded code qualifies a physical pin with
+      'relay', 'row', 'col', 'column', 'scan', 'channel', 'sensor', 'button',
+      'switch', 'motor', 'servo', 'spi', 'uart', 'i2c', 'can', 'header', 'board',
+      'table', 'list', 'array', 'drive', 'input', 'output', 'analog', 'digital',
+    ]) },
+  ],
+  [
+    'sk',
+    {
+      veto: new Set(['buf', 'buff', 'sock', 'socket', 'skb', 'net', 'conn', 'fd', 'list', 'queue', 'lock', 'prot']),
+      needsSecretContext: true,
+    },
+  ],
+  ['premaster', { veto: new Set() }],
+  // `vkey` is NOT here. It is the Win32 name for the 256-byte virtual-key state
+  // array that GetKeyboardState() fills — key-down bits, not a secret — and it
+  // has no sibling word to veto, so it would fire on every input handler. It was
+  // worth two detections across 720 generations. Not a trade worth making.
+]);
+
+/**
+ * Does the FILE look like it handles secrets at all?
+ *
+ * The second tier needs this and the first tier does not. `password` means one
+ * thing everywhere; `sk`, `pin` and `seed` mean a signing key, a keypad code and
+ * a wallet phrase inside cryptographic code, and a socket, a GPIO number and an
+ * RNG seed outside it. An identifier-local veto list cannot separate those,
+ * because the commonest spellings have no sibling word to veto: kernel code
+ * writes a bare `sk`, control code writes `Sk` for the Kalman innovation
+ * covariance, and neither offers anything to test against.
+ *
+ * Only the words that need it are gated on this — see `needsSecretContext`.
+ * Applying it to all of them was measured and rejected: it took recall on the
+ * corpus from 96.9% to 66.0%, because a keypad file that wipes a `pin` has no
+ * cryptographic vocabulary in it and is exactly the file this rule is for.
+ *
+ * This is a whole-file test, computed once per scan and not per match.
+ */
+// The boundaries are `[A-Za-z0-9]`, NOT `\b`. C identifiers join words with an
+// underscore, and `_` is a word character, so `\bed25519\b` does not match inside
+// `ed25519_sign` and `\bprivate_key\b` does not match inside
+// `sign_with_private_key`. Anchoring on \b silently failed to find the context in
+// every file that had it, which took the gate from selective to total.
+const SECRET_CONTEXT_RE =
+  /(?<![A-Za-z0-9])(?:crypto|cipher|encrypt|decrypt|chacha|poly1305|aes|rsa|ecdsa|eddsa|ed25519|curve25519|x25519|secp256|hmac|sha1|sha256|sha512|blake2|kdf|pbkdf2?|scrypt|argon2?|bcrypt|sodium|openssl|mbedtls|wolfssl|keypair|privkey|private|secret|password|passwd|passphrase|credential|token|wallet|mnemonic|totp|hotp|zeroize|explicit_bzero|memset_s|securezeromemory)(?![A-Za-z0-9])/i;
+
+type SecretTier = 'named' | 'probable';
+
+/**
+ * Does this identifier name a secret, and how sure is the name alone?
+ *
+ * `null`  - no reason to think so; the rule stays silent.
+ * `named` - a first-tier word. Reported at the rule's own confidence.
+ * `probable` - a second-tier word, in a file that handles secrets, with no
+ *   vetoing sibling. Reported at low confidence: the name is suggestive rather
+ *   than decisive.
+ */
+function secretTier(identifier: string, fileHandlesSecrets: boolean): SecretTier | null {
+  const words = identifierWords(identifier);
+  if (words.some((word) => SECRET_WORDS.has(word))) return 'named';
+  for (const word of words) {
+    const entry = SECRET_WORDS_TIER_B.get(word);
+    if (!entry) continue;
+    if (entry.needsSecretContext && !fileHandlesSecrets) continue;
+    // Vetoes are written singular; identifiers are not. `pin_state` and
+    // `pin_states` are the same claim and must be vetoed alike.
+    const vetoed = words.some(
+      (other) => entry.veto.has(other) || (other.endsWith('s') && entry.veto.has(other.slice(0, -1))),
+    );
+    if (!vetoed) return 'probable';
+  }
+  return null;
 }
 
 /**
@@ -312,15 +444,46 @@ function namesASecret(identifier: string): boolean {
  * dataflow to name: `memset` is removable, `explicit_bzero` is not.
  *
  * SCOPE, deliberately narrow (E3=0 is the constraint that shapes this):
- *   - Only `memset(<secret-named>, 0, …)`. A wipe with a non-zero fill is not
- *     the idiom, and a non-secret-named buffer is not this rule's business —
- *     `memset(buf, 0, sizeof(buf))` on a scratch buffer is ordinary code and
- *     stays silent. `samples/crossfile-fixtures/embedded-real-api/main.c`
- *     contains exactly that line and is the standing negative control.
+ *   - Only `memset(<secret-named>, 0, …)`, where the argument may be taken by
+ *     address (`&secret`) or converted (`(void *)secret`). A wipe with a
+ *     non-zero fill is not the idiom, and a non-secret-named buffer is not this
+ *     rule's business — `memset(buf, 0, sizeof(buf))` on a scratch buffer is
+ *     ordinary code and stays silent. `samples/crossfile-fixtures/
+ *     embedded-real-api/main.c` contains exactly that line and is the standing
+ *     negative control.
+ *   - The name test has two tiers. A first-tier word (`password`, `key`, …)
+ *     reports at the rule's confidence. A second-tier word (`seed`, `pin`,
+ *     `sk`, …) reports at LOW confidence and only when no sibling word in the
+ *     same identifier vetoes it, because those words also name ordinary things:
+ *     an RNG seed, a GPIO pin, a socket. `--min-confidence medium` filters the
+ *     second tier back out and leaves the first-tier vocabulary as it was. That
+ *     matters for a gate as well as for a report: `low` is a confidence, not a
+ *     severity, so a second-tier finding still carries the rule's `medium` and
+ *     `--fail-on medium` alone will fail a build on one. Pair it with
+ *     `--min-confidence medium` to gate on the first tier only — measured: the
+ *     same input exits 1 with `--fail-on medium` and 0 with both flags. It
+ *     does NOT undo the cast form: `memset((void *)password, 0, n)` was always
+ *     meant to fire and its absence was a defect, so it reports at the rule's
+ *     own confidence like any other first-tier match. On the measured corpus
+ *     that is a difference of two findings from the pre-change behaviour, and
+ *     both of them are casts over words the vocabulary already contained.
  *   - `memset(secret, '\0', n)` is NOT matched: the character literal is blanked
  *     with strings before the scan. A known, accepted false negative.
  *   - Whether the compiler ACTUALLY removed the store is not decidable here and
  *     is not claimed. The finding is about depending on a removable wipe.
+ *   - REGEX_MATCH_LIMIT is first-come, not confidence-ordered, so in a file with
+ *     more than 1,000 wipes the second tier can fill the budget ahead of a
+ *     first-tier match and that match is not reported. Measured, and left as is:
+ *     1,000 first-tier matches already evict the 1,001st today, so this is the
+ *     limit's existing behaviour meeting a larger population rather than a new
+ *     defect. Ordering the budget by confidence is a change to the limit's
+ *     semantics and belongs with the limit, not with this rule.
+ *
+ * The cast form and the second-tier vocabulary both come from measurement, not
+ * from imagination: 720 generated C files were classified, compiled at five
+ * optimisation levels on two compilers, and the wipes this rule missed were
+ * counted. `compiler/eval/ai-generated/` holds the protocol, the corpus and the
+ * numbers.
  */
 export const cInsecureSecretWipe: RuleDefinition = {
   ruleId: 'VG-MEM-006',
@@ -348,13 +511,35 @@ export const cInsecureSecretWipe: RuleDefinition = {
     // One bounded run per element and no two variable-length runs adjacent (the
     // optional `&` group opens with a literal, so a space is never ambiguous
     // between two quantifiers). Linear, per the L1 rewrite rule.
+    //
+    // THE CAST GROUP. `memset((void *)password, 0, sizeof password)` wipes a
+    // secret and the previous pattern did not see it: it admitted `&` but not a
+    // cast, so a wipe was silently unreported whenever the model or the author
+    // spelled the pointer conversion out. Measured on generated C, the cast form
+    // was common enough to matter on its own (see compiler/eval/ai-generated/).
+    //
+    // It keeps the linearity rule. The group opens with the literal `(`, so the
+    // preceding space run is never ambiguous. Inside, the type blob's alphabet
+    // EXCLUDES `*`, which makes the blob's end a determined position — the first
+    // `*` — rather than something to search for; the trailing `*`s are then a
+    // counted run each opening on that literal. Every adjacency in the group is
+    // therefore literal-to-run or run-to-disjoint-alphabet, never run-to-run.
+    // Non-capturing, so `m[1]` is still the identifier.
     const wipeRe =
-      /(?<![\w.>])memset[ \t]{0,8}\([ \t]{0,8}(?:&[ \t]{0,8})?([A-Za-z_][A-Za-z0-9_.>[\]-]{0,60})[ \t]{0,8},[ \t]{0,8}0(?:x0{1,2})?[ \t]{0,8},/g;
+      /(?<![\w.>])memset[ \t]{0,8}\([ \t]{0,8}(?:\([ \t]{0,8}[A-Za-z_][A-Za-z0-9_ \t]{0,40}\*[ \t]{0,8}(?:\*[ \t]{0,8}){0,2}\)[ \t]{0,8})?(?:&[ \t]{0,8})?([A-Za-z_][A-Za-z0-9_.>[\]-]{0,60})[ \t]{0,8},[ \t]{0,8}0(?:x0{1,2})?[ \t]{0,8},/g;
     const out: RuleMatch[] = [];
+    // Once per scan, not once per match: the second tier is gated on the file.
+    //
+    // It reads `scanText`, which is already truncated at REGEX_INPUT_CAP, so in a
+    // file longer than the cap the context has to appear in the part that is
+    // scanned. That is the same text the matching sees, so the two cannot
+    // disagree — a match past the cap is not found either.
+    const fileHandlesSecrets = SECRET_CONTEXT_RE.test(scanText);
     let m: RegExpExecArray | null;
     while ((m = wipeRe.exec(scanText)) !== null && out.length < REGEX_MATCH_LIMIT) {
       const target = m[1]!;
-      if (!namesASecret(target)) continue;
+      const tier = secretTier(target, fileHandlesSecrets);
+      if (tier === null) continue;
       const pos = indexToPosition(scanText, m.index);
       if (isCommentLine(ctx.lines[pos.line - 1] ?? '', ctx.language)) continue;
       out.push({
@@ -363,6 +548,10 @@ export const cInsecureSecretWipe: RuleDefinition = {
         startColumn: pos.column,
         endColumn: pos.column + m[0].length,
         evidence: `memset(${target}, 0, ...)`,
+        // A second-tier name is suggestive, not decisive. Saying so here rather
+        // than in the rule's static confidence keeps the first-tier findings at
+        // the strength they have always had.
+        ...(tier === 'probable' ? { confidence: 'low' as const } : {}),
       });
     }
     return out;
