@@ -770,8 +770,36 @@ if (!PRE_BUILD) {
 // weight, which is the one thing this bundle is supposed to be made of.
 //
 // Chrome is unchanged at 255,326 and measured 274,193, inside its ceiling.
+//
+// REBASELINED 2026-08-30, chrome only, for the VG-MEM-006 widening. Attribution
+// taken before the number moved, and taken by substitution rather than by
+// reading a metafile, because exactly one input changed:
+//
+//   HEAD's lang-c.ts, everything else this branch  280,357
+//   this branch                                    282,711   delta +2,354
+//
+// The whole +2,354 is `packages/rules/dist/rules/lang-c.js` (22,954 bytes now).
+// It is three things, and all three are vocabulary rather than machinery: a
+// second tier of secret words with a per-word veto list, a whole-file context
+// test that gates the one word (`sk`) whose collision is with kernel and
+// control-theory code, and a cast group in the wipe pattern. Both extensions
+// embed the rules package, so both pay; VS Code measured 305,317 against a
+// 322,383 ceiling and did not move enough to matter.
+//
+// ★ WHOSE REBASELINE THIS IS. Chrome sat at 280,357 before this change, 501
+// bytes under the ceiling — so the branch is crossing a line the tree had
+// already walked up to. That is still this change's line to cross: the doctrine
+// above is that the change which breaks the gate is the change which rebaselines
+// it, and 2,354 bytes is not a rounding error being blamed on drift.
+//
+// What was checked before the number moved: analysis-graph, external-adapters,
+// mcp-guard, artifact-integrity, evidence-bundle and evidence-verifier each
+// appear ZERO times across every shipped `.js` in both extensions, and
+// invariants 3 and 4 pass. The growth is rule weight.
+//
+//   extensions/chrome/dist   282,711
 if (!PRE_BUILD) {
-  const CHROME_DIST_JS_BASELINE_BYTES = 255_326;
+  const CHROME_DIST_JS_BASELINE_BYTES = 282_711;
   const VSCODE_DIST_JS_BASELINE_BYTES = 293_076;
   const GROWTH_TOLERANCE = 1.1;
 
