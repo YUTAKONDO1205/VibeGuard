@@ -62,15 +62,29 @@
 }
 
 /*
- * The hero is a code band that has to hold one finding at display size and
- * nothing else. Its height is bounded rather than set to 100vh: on mobile the
- * viewport unit changes as the URL bar hides and reveals, and a hero measured
- * that way clips the very thing it exists to show at exactly the moment the
- * reader starts to scroll.
+ * The hero.
+ *
+ * It used to be a Carbon band holding one finding at display size. It is now
+ * the model's own hero pattern instead: a Frost band with the product name
+ * centred at display size, a one-line tagline under it in the light weight, a
+ * filled pill and an outlined pill side by side, and then the thing the product
+ * makes — a real finding, in a rounded Carbon panel that stands in for the
+ * product render the model puts there.
+ *
+ * The band carries no min-height. That was needed when the band's whole content
+ * was one finding and it had to fill a screen; with five stacked elements in it
+ * the content sets the height, and a floor would only ever add a gap under the
+ * caption. The rhythm is padding — --vg-space-8 above, which every band gets,
+ * and the same below.
+ *
+ * The alternative to moving it — keeping the Carbon band and putting the
+ * buttons on it — is the one thing the palette forbids: the filled pill's fill
+ * does not clear 3.0 against a Carbon surface in either scheme, so the primary
+ * action would have been a button some readers cannot find. Standing the panel
+ * on the canvas instead gets the model's layout and keeps the button legible.
  */
 .vg-band--hero,
 .vg-hero {
   display: grid;
   align-items: center;
-  min-height: clamp(24rem, 62vh, 40rem);
 }

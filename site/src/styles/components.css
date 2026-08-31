@@ -33,7 +33,7 @@
   background: var(--vg-brand-strong);
   color: var(--vg-ink-on-code);
   border-radius: var(--vg-radius-pill);
-  font-weight: 700;
+  font-weight: 600;
   text-decoration: none;
   transform: translateY(-200%);
 }
@@ -44,30 +44,42 @@
 
 /* ── Call to action ─────────────────────────────────────────────────────────
  *
- * One button, one destination, one appearance. The fill is --vg-brand-strong
- * and the label is --vg-ink-on-code, which is 6.86 in light and 4.87 in dark;
- * the fill itself clears 3.0 against the band behind it in both.
+ * A fully rounded pill at 980px, body size, weight 400, no border and no
+ * shadow. The reference gives buttons exactly one radius and calls it
+ * non-negotiable, so both variants below take it, and nothing else on the site
+ * is allowed to be press-shaped without it.
  *
- * That second number is why the button is only ever placed on a base-coloured
- * band. On the code band the same fill reads 2.25 against the surface and the
- * button loses its edges entirely. The constraint is enforced in the markup —
- * the header, the band under the hero and the footer are all base bands — and
- * recorded here so the next person to place a CTA knows there is a rule.
+ * The fill is --vg-brand-strong and the label is --vg-ink-on-code; the fill
+ * itself clears 3.0 against the band behind it in both schemes. That second
+ * number is why the filled button is only ever placed on a light band. On a
+ * Carbon surface the same fill loses its edges entirely — which is why the
+ * hero's buttons stand on the Frost canvas above the panel and not inside it.
+ * The constraint is enforced in the markup and recorded here so the next person
+ * to place a CTA knows there is a rule.
  *
- * Hover thickens the underline rather than lightening the fill. Lightening it
- * would have to move toward --vg-brand, and --vg-brand in the dark scheme is a
- * pale green that leaves the near-white label at 1.68.
+ * Weight 400, not the 700 that used to be here. The reference reserves 600 for
+ * navigation and button text and 400 for the rest, and a heavy label is what
+ * made this button read as a web-app control rather than as one of these.
+ *
+ * Hover thickens the underline rather than lightening the fill, and that is a
+ * deliberate divergence: the model lightens its blue, and every lighter green
+ * available here drops the near-white label under 4.5. An underline is the only
+ * hover this site can express that does not cost contrast — there is no script
+ * to express any other kind.
  */
 .vg-cta {
   display: inline-flex;
   align-items: center;
   gap: var(--vg-space-2);
-  padding: var(--vg-space-3) var(--vg-space-5);
+  padding: 0.6875rem 1.375rem;
   background: var(--vg-brand-strong);
   color: var(--vg-ink-on-code);
+  border: 1px solid transparent;
   border-radius: var(--vg-radius-pill);
-  font-weight: 700;
+  font-size: var(--vg-fs-500);
+  font-weight: 400;
   line-height: 1.3;
+  letter-spacing: var(--vg-track-body);
   text-decoration: none;
 }
 
@@ -75,6 +87,27 @@
   text-decoration: underline;
   text-decoration-thickness: 2px;
   text-underline-offset: 0.2em;
+}
+
+/*
+ * The secondary action. The reference is explicit that two filled buttons never
+ * stack and that a filled primary is paired with an outlined secondary, so this
+ * exists to make that pairing possible rather than to give the site a second
+ * kind of button: it is the same pill, the same padding and the same label
+ * size, drawn in a 1px border instead of a fill.
+ *
+ * The transparent border on .vg-cta above is what keeps the two the same
+ * height. Without it the outlined variant is 2px taller than the filled one and
+ * the pair sits off the same baseline.
+ *
+ * Unlike the filled button, this one is safe on any surface: it paints
+ * --vg-brand-strong as a foreground, and the dark scheme's fg-dark scope
+ * already re-defines that token for exactly the foreground case.
+ */
+.vg-cta--outline {
+  background: none;
+  border-color: var(--vg-brand-strong);
+  color: var(--vg-brand-strong);
 }
 
 .vg-cta--sm {
@@ -101,7 +134,13 @@
 .vg-header__inner {
   width: min(72rem, 100% - var(--vg-space-5) * 2);
   margin-inline: auto;
-  min-height: 4rem;
+  /*
+   * 3rem. The model's global bar is a thin rule with a wordmark and a row of
+   * small links in it, and its height is what makes the page below feel like it
+   * starts immediately; anything taller reads as application chrome. base.css
+   * sets scroll-margin-top against this number.
+   */
+  min-height: 3rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -123,10 +162,15 @@
   gap: var(--vg-space-3);
 }
 
+/*
+ * 21px weight 600 with the heading's tracking — the reference's own spec for a
+ * product wordmark in a sticky bar. 800 was heavier than anything else on the
+ * site and made the header the loudest thing on every page.
+ */
 .vg-wordmark {
   font-size: var(--vg-fs-700);
-  font-weight: 800;
-  letter-spacing: -0.01em;
+  font-weight: 600;
+  letter-spacing: var(--vg-track-head);
   color: var(--vg-ink);
   text-decoration: none;
 }
@@ -184,10 +228,16 @@
   gap: var(--vg-space-1);
 }
 
+/*
+ * The card radius rather than the chip one. --vg-radius-chip is the press
+ * radius now (980px), and a full-width block link rounded to 980px is a lozenge
+ * the width of the panel — a shape that says "pill" about something that is a
+ * row.
+ */
 .vg-menu__panel a {
   display: block;
-  padding: var(--vg-space-2);
-  border-radius: var(--vg-radius-chip);
+  padding: var(--vg-space-2) var(--vg-space-3);
+  border-radius: var(--vg-radius-card);
   color: var(--vg-ink);
   text-decoration: none;
 }
@@ -223,13 +273,28 @@
   gap: var(--vg-space-5) var(--vg-space-7);
 }
 
+/*
+ * The reference's footer is a flat typographic directory: small links in the
+ * muted grey rather than in the accent, hairline dividers, no card surfaces.
+ * The accent is spent on actions, and a footer is not an action — colouring
+ * fourteen links green here is what makes an accent stop meaning anything.
+ *
+ * The underline stays. Dropping it would leave these links distinguished from
+ * the surrounding text by nothing at all, now that they are the same colour as
+ * it.
+ */
 .vg-footer__sitemap ul {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: var(--vg-space-2);
+  gap: var(--vg-space-3);
   align-content: start;
+  font-size: var(--vg-fs-300);
+}
+
+.vg-footer__sitemap a {
+  color: var(--vg-ink-muted);
 }
 
 .vg-footer__legal {
@@ -301,15 +366,21 @@
  * --vg-brand-soft was the other candidate and is worse: 1.03 against the news
  * surface, i.e. an invisible badge.
  */
+/*
+ * All three are pills now — --vg-radius-chip resolves to the press radius, and
+ * the reference gives tags the same 980px it gives buttons. They are still told
+ * apart by fill and border rather than by shape alone, which is what the note
+ * above is about.
+ */
 .vg-badge {
   display: inline-flex;
   align-items: center;
   gap: var(--vg-space-1);
-  padding: 0 0.6ch;
+  padding: 0 0.9ch;
   font-size: var(--vg-fs-300);
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  line-height: 1.6;
+  font-weight: 600;
+  letter-spacing: var(--vg-track-body);
+  line-height: 1.7;
   border-radius: var(--vg-radius-chip);
   white-space: nowrap;
 }
@@ -317,8 +388,7 @@
 .vg-badge--available {
   background: var(--vg-brand-soft);
   color: var(--vg-status-available);
-  border-radius: var(--vg-radius-pill);
-  padding: 0 1ch;
+  padding: 0 1.2ch;
 }
 
 .vg-badge--research {
@@ -362,7 +432,6 @@
 .vg-h1 {
   max-width: 26ch;
   margin-bottom: var(--vg-space-4);
-  letter-spacing: -0.015em;
 }
 
 /*
@@ -370,12 +439,23 @@
  * as title-then-subtitle; muted so that it does not compete with the title it
  * is explaining.
  */
+/*
+ * Weight 300 at 21px, in full ink rather than the muted grey.
+ *
+ * That swap is the reference's whisper-voice, and it is worth stating why it is
+ * not just a lighter grey by another route: a subhead that is quiet because of
+ * its colour is quiet at every size and reads as secondary information, while
+ * one that is quiet because of its weight still reads as the sentence directly
+ * under the title. The lead on these pages is the second half of the headline,
+ * not a caption on it.
+ */
 .vg-lead {
   max-width: 46rem;
   font-size: var(--vg-fs-700);
-  font-weight: 400;
-  line-height: 1.5;
-  color: var(--vg-ink-muted);
+  font-weight: 300;
+  line-height: 1.4;
+  letter-spacing: var(--vg-track-head);
+  color: var(--vg-ink);
 }
 
 .vg-h2 {
@@ -383,9 +463,18 @@
   margin-bottom: var(--vg-space-6);
 }
 
+/*
+ * The one ornament on the site, kept through the restyle. The reference has no
+ * ornament at all and dropping this was the obvious move — but it is the only
+ * mark on any page that says what the product reads, and a canvas this
+ * restrained can carry exactly one. It is set in the code face at 400 so that
+ * it reads as notation beside a 600-weight heading rather than as part of the
+ * word.
+ */
 .vg-h2__deco {
   font-family: var(--vg-font-mono);
   font-weight: 400;
+  letter-spacing: normal;
   color: var(--vg-brand);
   margin-right: 0.5ch;
 }
@@ -479,7 +568,7 @@
 }
 
 .vg-grid8__label {
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.35;
 }
 
@@ -627,7 +716,7 @@
  * second <h3> here would put a level in the outline that says nothing.
  */
 .vg-triptych__fixtitle {
-  font-weight: 700;
+  font-weight: 600;
   font-size: var(--vg-fs-400);
   line-height: 1.5;
 }
@@ -698,10 +787,31 @@
 .vg-code__body {
   counter-reset: ln;
   display: block;
+  /*
+   * `normal` here and `pre` on each line below, and the pair is a bug fix
+   * rather than a style choice.
+   *
+   * Triptych.astro emits a literal newline between every <span class="ln">, on
+   * purpose: the lines are display:block, so they stack without it, but the
+   * newline is what puts a real line break into the text a reader copies out.
+   * Under the <pre> element's inherited `white-space: pre` that newline is also
+   * a rendered line box — an empty one, between every pair of lines. Every code
+   * block on the site was drawn at exactly twice its own leading, which is why
+   * the 1.55 the rule below is set to never appeared on screen.
+   *
+   * Switching this element to `normal` makes that newline collapsible
+   * whitespace between two block boxes, which is discarded; putting `pre` back
+   * on the line itself keeps the indentation of the code inside it. The newline
+   * text nodes stay in the DOM, so a copied selection still breaks where it
+   * should — measured at 15 lines of innerText before and after, with the
+   * horizontal overflow the block depends on intact.
+   */
+  white-space: normal;
 }
 
 .vg-code__body .ln {
   display: block;
+  white-space: pre;
   padding-inline: var(--vg-space-3);
   /*
    * `width: max-content` with `min-width: 100%` is what makes the horizontal
@@ -881,14 +991,21 @@
 }
 
 /*
- * The hero is the same finding component at display size. It is not a separate
+ * The hero is the same finding component one step up. It is not a separate
  * component, and that is the point of the band mechanism: one finding block,
- * rendered large on the hero and small inside the triptych, with no second
+ * rendered larger on the hero and small inside the triptych, with no second
  * implementation to keep in step.
+ *
+ * It used to be set at --vg-fs-900, because it was the display element of the
+ * page. It no longer is: the product name above it is, and two things at 52px
+ * one above the other is a hero with no hierarchy in it. 21px is a step above
+ * the triptych's code and still reads as CLI output rather than as a headline,
+ * which is what it has to stay — the argument the band makes is that this is a
+ * thing the scanner printed, not a slogan set in a monospace face.
  */
 .vg-finding--hero {
-  font-size: var(--vg-fs-900);
-  line-height: 1.3;
+  font-size: var(--vg-fs-700);
+  line-height: 1.5;
 }
 
 .vg-finding--hero .vg-finding__at,
@@ -928,9 +1045,14 @@
 
 /* ── News ───────────────────────────────────────────────────────────────────
  *
- * Date and one line of title, separated by a dashed rule. The rule is faint on
+ * Date and one line of title, separated by a hairline. The rule is faint on
  * purpose; what separates one entry from the next for a reader is the date
  * column, not the line.
+ *
+ * Solid rather than dashed. Every other line on the site is a 1px hairline in
+ * --vg-rule, and a dashed one here was the single place the page drew a
+ * different kind of line — which, in a system whose only structural device is
+ * the hairline, reads as a rendering fault rather than as a choice.
  */
 .vg-news {
   list-style: none;
@@ -943,8 +1065,8 @@
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--vg-space-2) var(--vg-space-4);
-  padding-block: var(--vg-space-3);
-  border-bottom: 1px dashed var(--vg-rule);
+  padding-block: var(--vg-space-4);
+  border-bottom: 1px solid var(--vg-rule);
 }
 
 .vg-news__item time,
@@ -963,7 +1085,8 @@
 .vg-news__link {
   flex: none;
   font-family: var(--vg-font-mono);
-  font-weight: 700;
+  font-weight: 600;
+  letter-spacing: normal;
 }
 
 /* The release's own title, when it has one that is not just the tag again. */
@@ -1035,7 +1158,7 @@
   display: flex;
   align-items: baseline;
   gap: var(--vg-space-2);
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   list-style: none;
 }
@@ -1096,31 +1219,86 @@
 
 /* ── The hero ───────────────────────────────────────────────────────────────
  *
- * The band is a code surface holding one real finding at display size, and the
- * <h1> above it. Both of those want to be the biggest thing on the screen, and
- * before this rule existed they both were: the title at --vg-fs-900 in the sans
- * face and the finding at --vg-fs-900 in the mono face, one line apart, which a
- * reader meets as a single run-on paragraph rather than as a claim and its
- * evidence.
+ * The model's hero, in the order it sets: product name, one-line tagline, two
+ * pill buttons, then the product render filling the space below. The render
+ * here is a real finding on a Carbon panel — this product has nothing to
+ * photograph, and a rendering of the interface on the one page arguing that
+ * everything shown is real output would be the only thing on it nobody can
+ * check.
  *
- * The title yields. It drops to --vg-fs-700, keeps its weight, and takes a rule
- * and a band of space underneath — so it reads as the label on the exhibit
- * while the finding stays the exhibit. That is the order the page argues in:
- * §5.9 puts a finding above the fold precisely so the product is judged on
- * something it found rather than on a sentence about finding things.
+ * Centred, which the rest of the site is not. The model centres its heroes and
+ * its call-out blocks and left-aligns everything with more than two lines in
+ * it, and that split is kept exactly: this band and the pitch band below it are
+ * the only two centred things on the site. Centring the category blurbs or the
+ * rule list would cost readability for a resemblance.
+ *
+ * §5.9 — that the page shows a finding above the fold so the product is judged
+ * on something it found rather than on a sentence about finding things — still
+ * holds. The finding is one scroll-free element lower than it was, under a name
+ * and a line that between them say less than the finding does.
  */
 .vg-hero .vg-band__inner {
   display: grid;
+  justify-items: center;
+  text-align: center;
   gap: 0;
 }
 
 .vg-hero .vg-h1 {
-  max-width: 46rem;
+  max-width: 20ch;
+  margin-bottom: var(--vg-space-4);
+}
+
+/*
+ * The tagline. Weight 300 is the model's whisper-voice and the reason this line
+ * can sit directly under a 52px name without competing with it — the contrast
+ * between them is weight, not size or colour, so the pair reads as one lockup.
+ */
+.vg-hero__tagline {
+  max-width: 34ch;
   font-size: var(--vg-fs-700);
-  letter-spacing: 0;
-  margin-bottom: var(--vg-space-5);
-  padding-bottom: var(--vg-space-5);
-  border-bottom: 1px solid var(--vg-rule);
+  font-weight: 300;
+  line-height: 1.4;
+  letter-spacing: var(--vg-track-head);
+}
+
+/*
+ * The pair. Filled first, outlined second, and never two filled — the model is
+ * explicit about that, and the reason is the same one that makes a single
+ * accent work at all: if both actions are filled, neither is the default.
+ *
+ * They wrap rather than shrink. At narrow widths two pills side by side push
+ * past the gutter, and a button that has been squeezed until its label wraps
+ * inside the pill stops looking pressable.
+ */
+.vg-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--vg-space-3);
+  margin-top: var(--vg-space-6);
+}
+
+/*
+ * The panel. This is the site's second Carbon surface and the only one that is
+ * not a full band: 8px radius, no shadow, no border, standing on the canvas.
+ *
+ * It re-declares nothing about colour. `.vg-panel--code` is the same selector
+ * the code band uses in tokens.css, so the finding inside it resolves the dark
+ * scope's greens and severity colours without knowing it is in a panel rather
+ * than on a band.
+ *
+ * `text-align: start` because the band above it is centred and this is CLI
+ * output. A finding centred line by line is not something any terminal has ever
+ * printed, and the page's whole claim is that this is what the tool printed.
+ */
+.vg-hero__panel {
+  width: 100%;
+  margin-top: var(--vg-space-7);
+  padding: var(--vg-space-6);
+  border-radius: var(--vg-radius-card);
+  background: var(--vg-surface-code);
+  text-align: start;
 }
 
 /*
@@ -1129,8 +1307,8 @@
  * still deciding whether to believe the finding has to have read it first.
  */
 .vg-hero__caption {
-  margin-top: var(--vg-space-6);
-  max-width: 46rem;
+  margin-top: var(--vg-space-5);
+  max-width: 52ch;
   font-size: var(--vg-fs-300);
   line-height: 1.6;
   color: var(--vg-ink-muted);
@@ -1138,20 +1316,30 @@
 
 /* ── The pitch band ─────────────────────────────────────────────────────────
  *
- * One sentence and the button, and nothing else on the band. `justify-items:
- * start` keeps the CTA at its own width: a grid child stretches by default, and
- * a pill button stretched to 72rem stops looking like a button at all.
+ * Two sentences and nothing else — the model's typography-only call-out, which
+ * is a centred stack with a great deal of room around it and no surface of its
+ * own.
+ *
+ * The button that used to be here has moved into the hero. It was on this band
+ * for a measured reason: its fill was unreadable against the Carbon hero above
+ * it, so the first action a reader could see had to be one band down. The hero
+ * is Frost now, the fill clears its floor there, and the action belongs with
+ * the name it is an action on. What is left here is the claim itself, which is
+ * README.md's own second sentence.
  */
 .vg-pitch .vg-band__inner {
   display: grid;
-  justify-items: start;
-  gap: var(--vg-space-6);
+  justify-items: center;
+  text-align: center;
+  gap: var(--vg-space-4);
 }
 
 .vg-pitch__line {
   max-width: 46rem;
   font-size: var(--vg-fs-700);
-  line-height: 1.6;
+  font-weight: 300;
+  line-height: 1.5;
+  letter-spacing: var(--vg-track-head);
 }
 
 /*
@@ -1176,7 +1364,6 @@
  */
 .vg-pitch__where {
   max-width: 46rem;
-  margin-top: var(--vg-space-3);
   color: var(--vg-ink-muted);
 }
 
@@ -1215,12 +1402,20 @@
   align-content: start;
 }
 
+/*
+ * The only element on the site that casts a shadow, and the reference's only
+ * permitted use of one: a product photograph needs grounding against a
+ * near-white canvas, and everything else on the page is separated by a hairline
+ * instead. If a second selector ever names --vg-shadow-image, one of the two is
+ * wrong.
+ */
 .vg-shot__img {
   display: block;
   width: 100%;
   height: auto;
   border: 1px solid var(--vg-rule);
   border-radius: var(--vg-radius-card);
+  box-shadow: var(--vg-shadow-image);
 }
 
 /*
@@ -1317,8 +1512,9 @@
 .vg-picker__heading {
   margin: 0;
   font-size: var(--vg-fs-700);
-  font-weight: 700;
-  line-height: 1.3;
+  font-weight: 600;
+  line-height: 1.24;
+  letter-spacing: var(--vg-track-head);
 }
 
 /*
@@ -1336,9 +1532,9 @@
   color: var(--vg-brand-strong);
   border-radius: var(--vg-radius-pill);
   font-size: var(--vg-fs-300);
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  line-height: 1.6;
+  font-weight: 600;
+  letter-spacing: var(--vg-track-body);
+  line-height: 1.7;
   white-space: nowrap;
 }
 
@@ -1579,5 +1775,5 @@
  * as a hole where something failed to render.
  */
 .vg-research__prose > .vg-h2:first-child {
-  margin-top: var(--vg-space-5);
+  margin-top: var(--vg-space-6);
 }

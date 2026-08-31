@@ -2,11 +2,18 @@
 /**
  * The front page.
  *
- * Six bands under the header, each on its own surface token, in the order fixed
- * by §5.2: hero (code) / pitch and CTA (base) / categories (tint) / triptych
- * (code) / screenshots (base) / news (news). The alternation is not decoration.
- * It is how a long scrolling page tells a reader that one subject has ended and
- * another has begun, on a site with no illustrations to do that job.
+ * Six bands under the header, each on its own surface token: hero (base) /
+ * pitch (tint) / categories (base) / triptych (code) / screenshots (tint) /
+ * news (news). The alternation is not decoration. It is how a long scrolling
+ * page tells a reader that one subject has ended and another has begun, on a
+ * site with no illustrations to do that job.
+ *
+ * §5.2 fixed a different assignment — hero on the code surface, with the first
+ * two bands then running base / tint. The order was inverted when the palette
+ * moved: the hero is now the canvas and the finding sits on a Carbon panel
+ * inside it, which is what forced the two bands below to swap so that no two
+ * adjacent bands share a surface. The property §5.2 was protecting is the
+ * alternation, and the alternation is intact.
  *
  * WHAT THIS PAGE DELIBERATELY DOES NOT DO
  *
@@ -171,11 +178,44 @@ const SHOTS = [
   title="VibeGuard — a security scanner for AI-generated code"
   description="VibeGuard is an open-source (MIT) security scanner for AI-generated code. It finds skipped login checks, hard-coded secrets, unsafe deserialization and swallowed exceptions, and runs in VS Code, in Chrome, and in CI. Your code never leaves your machine."
 >
-  {/* Band 2 — the hero. The CTA is not in here; see the band below. */}
-  <section class="vg-band vg-band--code vg-hero" aria-labelledby="hero-h">
+  {/*
+    Band 2 — the hero: name, tagline, the two actions, then the thing the
+    product makes.
+
+    The <h1> is the product name alone, where it used to be the name and the
+    description in one line. The description is the <p> directly under it and
+    the full sentence is still the page's <title> and its meta description, so
+    nothing has been dropped — but a heading and a tagline are two different
+    utterances, and setting them as one line was what stopped either of them
+    being set at the size it wanted.
+
+    The finding is inside a panel rather than on a band. That is the only way to
+    have both this layout and a legible primary action: the filled pill's fill
+    does not clear its floor against a Carbon surface, so a hero that is a
+    Carbon band cannot hold the button, which is exactly why the button used to
+    live one band lower.
+  */}
+  <section class="vg-band vg-band--base vg-hero" aria-labelledby="hero-h">
     <div class="vg-band__inner">
-      <h1 class="vg-h1" id="hero-h">VibeGuard — a security scanner for AI-generated code</h1>
-      <Finding finding={hero} variant="hero" />
+      <h1 class="vg-h1" id="hero-h">VibeGuard</h1>
+      <p class="vg-hero__tagline">A security scanner for AI-generated code.</p>
+
+      {/*
+        Filled, then outlined. The second action is deliberately not a second
+        route to a distribution channel — every one of those goes through
+        /install and is counted there (§1.2, §2.2). It points at the catalogue,
+        which is the other question a reader has at this moment: not "where do I
+        get it" but "what does it actually look for".
+      */}
+      <div class="vg-hero__actions">
+        <CtaButton />
+        <a class="vg-cta vg-cta--outline" href="/rules">See what it finds</a>
+      </div>
+
+      <div class="vg-hero__panel vg-panel--code">
+        <Finding finding={hero} variant="hero" />
+      </div>
+
       <p class="vg-hero__caption">
         Real output. The code is <code>{heroSource}</code> in this repository — a fixture that is
         vulnerable on purpose.
@@ -184,16 +224,18 @@ const SHOTS = [
   </section>
 
   {/*
-    Band 3 — one line and the button.
+    Band 3 — the claim, and nothing to press.
 
-    The CTA sits here rather than in the hero for a measured reason: its fill
-    reads at 7.90 against this surface and 2.25 against the code surface above,
-    so on the hero it would be a button nobody with low vision can find. The
-    sentence is README.md's own second sentence, not a new one written for the
-    site; a home page that describes the product differently from its README is
-    a second description to keep true.
+    The CTA used to sit here for a measured reason: its fill was unreadable
+    against the Carbon hero above, so the first action a reader could see had to
+    be one band down. The hero is the canvas now, the fill clears its floor
+    there, and the action has gone back up to the name it is an action on.
+
+    The sentence is README.md's own second sentence, not a new one written for
+    the site; a home page that describes the product differently from its README
+    is a second description to keep true.
   */}
-  <section class="vg-band vg-band--base vg-pitch">
+  <section class="vg-band vg-band--tint vg-pitch">
     <div class="vg-band__inner">
       <p class="vg-pitch__line">
         It catches the bugs that "looks fine, ships fine" code tends to hide: missing input checks,
@@ -212,12 +254,11 @@ const SHOTS = [
         "install anywhere", because /install is where choosing happens (§2.2).
       */}
       <p class="vg-pitch__where">It runs in VS Code, in Chrome, and in CI.</p>
-      <CtaButton />
     </div>
   </section>
 
   {/* Band 4 — the eight categories. The page's main explanation. */}
-  <section class="vg-band vg-band--tint" aria-labelledby="cats-h">
+  <section class="vg-band vg-band--base" aria-labelledby="cats-h">
     <div class="vg-band__inner">
       <h2 class="vg-h2" id="cats-h"><span class="vg-h2__deco" aria-hidden="true">//</span>What it finds</h2>
       <IconGrid />
@@ -252,7 +293,7 @@ const SHOTS = [
   </section>
 
   {/* Band 6 — the two product screens, or an honest note that they are absent. */}
-  <section class="vg-band vg-band--base" aria-labelledby="shots-h">
+  <section class="vg-band vg-band--tint" aria-labelledby="shots-h">
     <div class="vg-band__inner">
       <h2 class="vg-h2" id="shots-h">
         <span class="vg-h2__deco" aria-hidden="true">//</span>On your screen

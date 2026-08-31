@@ -35,12 +35,30 @@ body {
   font-family: var(--vg-font-sans);
   font-size: var(--vg-fs-500);
   /*
-   * 1.7 rather than the 1.6 that would be enough for English alone. The
-   * Japanese translation of this site is a second set of pages against the same
-   * stylesheet, and Japanese text at 1.6 sits noticeably tighter; setting the
-   * looser value now means the type does not have to be re-set later.
+   * The negative tracking is not a refinement on top of the type — it is half
+   * of what makes this typography recognisable, and the reason a 17px body set
+   * without it reads as a slightly large default rather than as this system.
+   * Applied at the root so that everything inherits it and only the three
+   * places that want a different step (headings, display, code) say so.
+   */
+  letter-spacing: var(--vg-track-body);
+  /*
+   * 1.7 rather than the 1.47 the reference sets. Japanese text at the tighter
+   * value sits noticeably closer than the same measure in English, and this
+   * stylesheet serves both — the site's Japanese pages are a second set of
+   * pages against this same file, not a second stylesheet. The looser leading
+   * also happens to be the direction the rest of this restyle went in: the one
+   * thing the model spends most freely is vertical room.
    */
   line-height: 1.7;
+  /*
+   * The model's own text rendering. On macOS the default stroke weight makes
+   * SF at 17px look a half-step bolder than it is set; the antialiased hint is
+   * what the pages this palette comes from use to get it back. It is a no-op on
+   * every other platform, which is why it is safe to set unconditionally.
+   */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   /*
    * A rule identifier, a long URL, a package name. At 400% zoom the viewport is
    * a few characters wide and any of those would push the page sideways.
@@ -56,8 +74,16 @@ h2,
 h3,
 h4 {
   margin: 0;
-  line-height: 1.3;
-  font-weight: 700;
+  line-height: 1.14;
+  /*
+   * 600, and 700 is not available to a heading anywhere on this site. The
+   * reference is explicit that 600 is the maximum for a product name and that
+   * 700 exists only for promotional lockups — of which this site has none. The
+   * weight that used to be here made every heading read a step louder than the
+   * canvas it now sits on.
+   */
+  font-weight: 600;
+  letter-spacing: var(--vg-track-head);
   /*
    * text-wrap: balance is ignored by browsers that do not have it, which is the
    * whole reason it is safe to use — the fallback is the ragged line it would
@@ -66,8 +92,15 @@ h4 {
   text-wrap: balance;
 }
 
+/*
+ * Tracking tightens as the size grows and leading closes with it. Those two
+ * moves together are what give a large heading its architectural quality; a
+ * 40px line set at body tracking and 1.3 leading is just a big paragraph.
+ */
 h1 {
   font-size: var(--vg-fs-900);
+  line-height: 1.08;
+  letter-spacing: var(--vg-track-display);
 }
 
 h2 {
@@ -76,6 +109,7 @@ h2 {
 
 h3 {
   font-size: var(--vg-fs-700);
+  line-height: 1.24;
 }
 
 p,
@@ -101,10 +135,24 @@ figure + p {
   margin-top: var(--vg-space-4);
 }
 
+/*
+ * The one place this restyle refuses the reference outright.
+ *
+ * A ghost link there is "no background, no border, accent text, underline on
+ * hover only". Underline-on-hover-only means the link is distinguished from the
+ * surrounding text by colour alone, which WCAG 1.4.1 permits only when the link
+ * colour clears 3:1 against the body text colour. --vg-brand-strong against
+ * --vg-ink is 2.54 — under the floor, and no green that passes it would still
+ * be the accent this site uses. Every link keeps its underline.
+ *
+ * What is taken from the reference is the rest of it: no background, no border,
+ * no weight change, and the underline set thin and offset far enough that it
+ * reads as a hairline rather than as emphasis.
+ */
 a {
   color: var(--vg-brand-strong);
   text-decoration: underline;
-  text-underline-offset: 0.15em;
+  text-underline-offset: 0.2em;
   text-decoration-thickness: 1px;
 }
 
@@ -152,6 +200,13 @@ samp {
   /* 1em, not a token: inline code inside a heading should be the size of the
    * heading, and inside body copy the size of the body. */
   font-size: 1em;
+  /*
+   * Tracking is cancelled rather than inherited. The body's negative tracking
+   * is set for a proportional face; applied to a monospace one it pulls the
+   * columns of a code block out of alignment with the line numbers beside them,
+   * which is the one thing on this site that has to stay in a grid.
+   */
+  letter-spacing: normal;
 }
 
 pre {
@@ -192,10 +247,11 @@ hr {
 
 /*
  * The header is sticky, so an in-page link would otherwise land with its target
- * hidden underneath it. 5rem is the header's 4rem plus a little air.
+ * hidden underneath it. 4rem is the header's 3rem plus a little air; the two
+ * numbers move together, and the header's own rule in components.css says so.
  */
 [id] {
-  scroll-margin-top: 5rem;
+  scroll-margin-top: 4rem;
 }
 
 /*
