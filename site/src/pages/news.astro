@@ -40,6 +40,8 @@
  * prereleases.
  */
 import ProductLayout from '../layouts/ProductLayout.astro';
+import PageHero from '../components/PageHero.astro';
+import CtaButton from '../components/CtaButton.astro';
 import NewsList, { type Release } from '../components/NewsList.astro';
 import releasesData from '../data/releases.json';
 
@@ -64,15 +66,13 @@ const ordered = [...releases].sort((a, b) => Date.parse(b.published_at) - Date.p
   title="Releases — VibeGuard"
   description="Every VibeGuard release, newest first, linking to its notes on GitHub."
 >
-  <section class="vg-band vg-band--base" aria-labelledby="news-h">
-    <div class="vg-band__inner">
-      <h1 class="vg-h1" id="news-h">Releases</h1>
-      <p class="vg-news__lead">
-        Every release, newest first. The notes themselves stay on GitHub, where they are written — this page keeps
-        no second copy of them.
-      </p>
-    </div>
-  </section>
+  <PageHero
+    id="news-h"
+    title="Releases"
+    tagline="Every release, newest first. The notes themselves stay on GitHub, where they are written — this page keeps no second copy of them."
+  >
+    <CtaButton slot="actions" class="vg-cta--outline" />
+  </PageHero>
 
   <section class="vg-band vg-band--news" aria-labelledby="news-list-h">
     <div class="vg-band__inner">

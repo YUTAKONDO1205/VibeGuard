@@ -1,0 +1,89 @@
+---
+/**
+ * The opening band of every page.
+ *
+ * The front page had this shape first — product name at display size, a
+ * one-line tagline under it in the light weight, then whatever the page offers
+ * to do about it — and every other page opened instead with the same <h1> and
+ * lead paragraph set flush left at body rhythm. Two different openings on one
+ * site is one more than it has a reason for, so this is the front page's,
+ * everywhere.
+ *
+ * ★ THIS FILE MUST NOT IMPORT CtaButton, AND THE OMISSION IS LOAD-BEARING.
+ *
+ * ResearchLayout's whole job is that the research page cannot offer a way to
+ * get something that is not distributed: the button is absent from its
+ * component graph. That graph is ResearchLayout -> ResearchBanner + FooterBase
+ * + (from the page) this file, and none of those four imports anything at all
+ * — `grep -rn '^import' src/components/{ResearchBanner,FooterBase,PageHero}.astro`
+ * comes back empty. A hero component that imported the button would put it into
+ * that graph the moment the research page used the hero, which is exactly what
+ * the split exists to prevent. Actions therefore arrive through the `actions`
+ * slot, from the page, so a page with nothing to offer passes nothing and
+ * renders no button rather than passing a flag that says not to.
+ *
+ * The end-to-end proof is not that grep, though, and it is worth naming the one
+ * that is: rule R2 in scripts/site-copy-lint.mjs scans the <main> of every
+ * /research page for `install`, `download`, `npm`, `brew` and a version number,
+ * and fails the build on any of them. A button labelled "Install VibeGuard"
+ * cannot reach that page without R2 seeing the word.
+ *
+ * (ProductLayout's own header cites `grep -rl CtaButton src/layouts/` for this.
+ * That command does not work and did not work before this file existed: it
+ * matches the prose of both layouts' comments and the import of neither, since
+ * ProductLayout reaches the button through SiteHeader and FooterWithCta rather
+ * than directly. The property is real; that particular check is not.)
+ *
+ * SLOTS
+ *
+ *   title    – for a heading that is more than text. /rules puts its Available
+ *              badge inside the heading, which a string prop cannot carry.
+ *   tagline  – same, for a line with markup or interpolated counts in it.
+ *   actions  – the pill row. Filled first, outlined second; the reference is
+ *              explicit that two filled buttons never stack.
+ *   default  – anything the band carries below the actions. It is NOT wrapped,
+ *              so its children are centred grid items like everything else
+ *              here. A page with a block that has to be full width and read
+ *              flush left — /rules has two — wraps that block in
+ *              `.vg-hero__rest` itself, which is the one class that opts out.
+ */
+interface Props {
+  /** The id the band's aria-labelledby points at. Lands on the <h1>. */
+  id: string;
+  /** Plain-text heading. Ignored when the `title` slot has content. */
+  title?: string;
+  /** Plain-text tagline. Ignored when the `tagline` slot has content. */
+  tagline?: string;
+  /** Which surface the band paints. Every page opens on the canvas so far. */
+  band?: 'base' | 'tint' | 'news';
+}
+
+const { id, title, tagline, band = 'base' } = Astro.props;
+
+/*
+ * Rendered only when there is something to render. An empty <p> here would be
+ * a blank line of 21px leading between the heading and the actions on every
+ * page that has no tagline, which reads as a missing sentence rather than as
+ * no sentence.
+ */
+const hasTagline = Boolean(tagline) || Astro.slots.has('tagline');
+const hasActions = Astro.slots.has('actions');
+---
+
+<section class:list={['vg-band', `vg-band--${band}`, 'vg-hero']} aria-labelledby={id}>
+  <div class="vg-band__inner">
+    <h1 class="vg-h1" id={id}><slot name="title">{title}</slot></h1>
+
+    {hasTagline && <p class="vg-hero__tagline"><slot name="tagline">{tagline}</slot></p>}
+
+    {
+      hasActions && (
+        <div class="vg-hero__actions">
+          <slot name="actions" />
+        </div>
+      )
+    }
+
+    <slot />
+  </div>
+</section>

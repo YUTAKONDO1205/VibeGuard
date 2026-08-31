@@ -41,6 +41,7 @@
  * glance when only one of them has been updated.
  */
 import ResearchLayout from '../../layouts/ResearchLayout.astro';
+import PageHero from '../../components/PageHero.astro';
 
 const COMPILER_DIR_URL = 'https://github.com/YUTAKONDO1205/VibeGuard/tree/main/compiler';
 
@@ -112,11 +113,23 @@ const COMPILER_DIR_URL = 'https://github.com/YUTAKONDO1205/VibeGuard/tree/main/c
   title="VibeGuard Compiler — Research"
   description="A research project on security properties that survive in source but not in the compiled binary, tracked at LLVM pass granularity."
 >
-  <section class="vg-band vg-band--base" aria-labelledby="compiler-h">
-    <div class="vg-band__inner">
-      <h1 class="vg-h1" id="compiler-h">VibeGuard Compiler</h1>
+  {/*
+    No `actions` slot, on the page where that matters most. PageHero does not
+    import CtaButton — see the note at the top of it — so there is no button in
+    this page's import graph to pass even by accident, which is the property
+    ResearchLayout exists to give.
 
-      <div class="vg-research__prose">
+    The tagline is this page's own meta description, word for word, rather than
+    a new sentence written to fill a slot. A page that describes itself one way
+    to a crawler and another way to a reader is a second description to keep
+    true, and rule R2 already checks this one for the words it must not carry.
+  */}
+  <PageHero
+    id="compiler-h"
+    title="VibeGuard Compiler"
+    tagline="A research project on security properties that survive in source but not in the compiled binary, tracked at LLVM pass granularity."
+  >
+      <div class="vg-hero__rest vg-research__prose">
         <h2 class="vg-h2">
           <span class="vg-h2__deco" aria-hidden="true">//</span>The question
         </h2>
@@ -182,8 +195,7 @@ const COMPILER_DIR_URL = 'https://github.com/YUTAKONDO1205/VibeGuard/tree/main/c
         </h2>
         <p>A paper about this work is in preparation. It will be linked here once it is published.</p>
       </div>
-    </div>
-  </section>
+  </PageHero>
 
   <section class="vg-band vg-band--news" lang="ja" aria-labelledby="compiler-ja-h">
     <div class="vg-band__inner">

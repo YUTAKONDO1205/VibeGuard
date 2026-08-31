@@ -45,6 +45,8 @@
  * frame around them.
  */
 import ProductLayout from '../layouts/ProductLayout.astro';
+import PageHero from '../components/PageHero.astro';
+import CtaButton from '../components/CtaButton.astro';
 import { BUCKETS } from '../shared/taxonomy';
 import rulesData from '../data/rules.json';
 
@@ -172,15 +174,29 @@ const fixLabel = (r: Rule): string => (r.fixerSafety === 'safe' ? 'auto-fix · s
   title="Detection rules — VibeGuard"
   description="Every rule VibeGuard ships, generated from the rule sources at build time: severity, languages, CWE, and which rules carry an automatic fix. Includes the cross-file rules that run in the CLI and the GitHub Action."
 >
-  <section class="vg-band vg-band--base" aria-labelledby="rules-h">
-    <div class="vg-band__inner">
-      <h1 class="vg-h1" id="rules-h">
-        Detection rules <span class="vg-badge vg-badge--available">Available</span>
-      </h1>
-      <p class="vg-rules__lead">
-        Every rule VibeGuard ships — {data.totals.rules} that judge a file on its own, and{' '}
-        {data.totals.crossFileRules} more that reason across files. Generated from the rule sources at build time.
-      </p>
+  <PageHero id="rules-h">
+    <Fragment slot="title">
+      Detection rules <span class="vg-badge vg-badge--available">Available</span>
+    </Fragment>
+
+    <Fragment slot="tagline">
+      Every rule VibeGuard ships — {data.totals.rules} that judge a file on its own, and{' '}
+      {data.totals.crossFileRules} more that reason across files. Generated from the rule sources at build time.
+    </Fragment>
+
+    {/*
+      Outlined rather than filled. A reader who is on this page has already
+      decided to find out what the tool looks for, so the action is made
+      available rather than urged; the filled pill stays the front page's and
+      the header's.
+    */}
+    <CtaButton slot="actions" class="vg-cta--outline" />
+
+    {/*
+      The counts and the category index are blocks, not lines, so they opt out
+      of the hero's centring. See .vg-hero__rest in components.css.
+    */}
+    <div class="vg-hero__rest">
 
       <dl class="vg-rules__stats">
         <div>
@@ -246,7 +262,7 @@ const fixLabel = (r: Rule): string => (r.fixerSafety === 'safe' ? 'auto-fix · s
         }
       </p>
     </div>
-  </section>
+  </PageHero>
 
   {
     sections.map((section, i) => (

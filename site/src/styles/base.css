@@ -26,6 +26,15 @@ html {
    * comparison, silently destroys the alignment the comparison is made of.
    */
   -webkit-text-size-adjust: 100%;
+
+  /*
+   * Every in-page jump on this site is a link to a heading — the category tiles
+   * point at /rules' sections, the rule index points at them from the top of
+   * that page — and an instant jump gives a reader no way to tell whether the
+   * page moved or was replaced. Switched off again under reduced motion, at the
+   * bottom of this file.
+   */
+  scroll-behavior: smooth;
 }
 
 body {
@@ -76,13 +85,23 @@ h4 {
   margin: 0;
   line-height: 1.14;
   /*
-   * 600, and 700 is not available to a heading anywhere on this site. The
-   * reference is explicit that 600 is the maximum for a product name and that
-   * 700 exists only for promotional lockups — of which this site has none. The
-   * weight that used to be here made every heading read a step louder than the
-   * canvas it now sits on.
+   * 700, where this said 600, and the change is a correction rather than a
+   * louder heading.
+   *
+   * The reference reserves 600 as the ceiling for a product name, and against
+   * SF that is a real weight one step below bold. Against the family this site
+   * is actually set in it is not: Meiryo UI's only break is between 500 and
+   * 600, so 600 and 700 draw the identical face. 600 was therefore not a
+   * lighter bold, it was bold with a number on it that implied otherwise —
+   * and on the two fallback families that DO draw a semibold, it was quietly a
+   * different design than the one on screen here.
+   *
+   * 700 is the top of the three-step scale this site uses: 300 light (the
+   * --vg-font-light token, for taglines), 400 regular (body, buttons), 700 bold
+   * (headings, wordmark, labels). Each of the three draws a different face in
+   * every family in both stacks, which is the property 600 did not have.
    */
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: var(--vg-track-head);
   /*
    * text-wrap: balance is ignored by browsers that do not have it, which is the
@@ -161,19 +180,47 @@ a:hover {
 }
 
 /*
- * The site has no script, so `:hover`, `:focus-visible` and `:target` are the
- * complete set of states it can express. That makes the transition policy easy
- * to state and easy to keep: colour and the underline only, under 150ms, and
- * nothing that moves.
+ * THE MOTION POLICY, AND IT IS THE OPPOSITE OF THE ONE THAT USED TO BE HERE.
+ *
+ * This file used to say that colour and the underline were the only things that
+ * changed and that nothing moved. The site moves now: things arrive when they
+ * are scrolled to, and anything pressable rises under the pointer and presses
+ * back down under the click.
+ *
+ * Three rules keep that from becoming noise, and all three are mechanical:
+ *
+ *   1. One curve and three durations, all of them tokens. --vg-ease starts fast
+ *      and settles, which reads as arrival rather than as animation.
+ *   2. Only `transform` and `opacity` are animated. Both are composited, so a
+ *      band of eight tiles revealing on scroll costs no layout and no paint.
+ *      Nothing here animates a height, a width, a margin or a colour stop.
+ *   3. Every entrance and every scroll-driven reveal is written inside
+ *      `@media (prefers-reduced-motion: no-preference)` rather than switched
+ *      off afterwards. That ordering matters: a reader who asked for less
+ *      motion never gets the hidden `from` state at all, so there is no way for
+ *      a mistake here to leave them on a blank page. The reduce block at the
+ *      bottom of this file is a second line, not the first.
+ *
+ * Still no script. `:hover`, `:focus-visible`, `:target` and `[open]` remain the
+ * complete set of states the site can express; the scroll reveals are CSS
+ * scroll-driven animations, behind an `@supports` test, and a browser without
+ * them simply shows the page.
  */
 a,
 summary,
-button {
+button,
+.vg-cta,
+.vg-picker__card,
+.vg-grid8__circle,
+.vg-shot__img,
+.vg-rules__toc a,
+.vg-menu__button {
   transition:
-    color 120ms linear,
-    background-color 120ms linear,
-    border-color 120ms linear,
-    text-decoration-color 120ms linear;
+    color var(--vg-motion-fast) var(--vg-ease),
+    background-color var(--vg-motion-fast) var(--vg-ease),
+    border-color var(--vg-motion-fast) var(--vg-ease),
+    text-decoration-color var(--vg-motion-fast) var(--vg-ease),
+    transform var(--vg-motion-fast) var(--vg-ease);
 }
 
 /*
@@ -255,11 +302,16 @@ hr {
 }
 
 /*
- * Nothing on this site animates, so this block currently has almost nothing to
- * switch off. It is here anyway, because the next person to add a transition
- * will add it to a component and not think about this file — and the honest
- * place for the policy is one rule that covers everything rather than a
- * convention that each new rule has to remember.
+ * The backstop.
+ *
+ * It is no longer the whole policy — every animation on this site is written
+ * inside a `no-preference` query, so a reader who asked for less motion is
+ * never served one — but it is what catches the next rule somebody adds without
+ * reading that. It also does the one job the `no-preference` pattern cannot:
+ * `animation-timeline` is not a duration, so a scroll-driven animation ignores
+ * the line below it. `animation-timeline: auto` puts such an animation back on
+ * the document timeline, where the 0.01ms duration then ends it immediately at
+ * its `to` state — which for every keyframe set on this site is the visible one.
  */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -267,6 +319,8 @@ hr {
   *::after {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-timeline: auto !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
   }

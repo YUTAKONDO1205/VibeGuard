@@ -33,7 +33,7 @@
   background: var(--vg-brand-strong);
   color: var(--vg-ink-on-code);
   border-radius: var(--vg-radius-pill);
-  font-weight: 600;
+  font-weight: 700;
   text-decoration: none;
   transform: translateY(-200%);
 }
@@ -87,6 +87,17 @@
   text-decoration: underline;
   text-decoration-thickness: 2px;
   text-underline-offset: 0.2em;
+  transform: translateY(var(--vg-lift));
+}
+
+/*
+ * The press. It has to be a separate state from hover rather than its absence,
+ * because on a touch screen there is no hover to leave — a tap that only
+ * removes a lift it never had gives no feedback at all. Scaling down is
+ * feedback either way.
+ */
+.vg-cta:active {
+  transform: translateY(0) scale(0.97);
 }
 
 /*
@@ -169,7 +180,7 @@
  */
 .vg-wordmark {
   font-size: var(--vg-fs-700);
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: var(--vg-track-head);
   color: var(--vg-ink);
   text-decoration: none;
@@ -188,6 +199,11 @@
  */
 .vg-menu {
   position: relative;
+}
+
+.vg-menu__button:hover {
+  border-color: var(--vg-brand);
+  transform: translateY(var(--vg-lift));
 }
 
 .vg-menu__button {
@@ -378,7 +394,7 @@
   gap: var(--vg-space-1);
   padding: 0 0.9ch;
   font-size: var(--vg-fs-300);
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: var(--vg-track-body);
   line-height: 1.7;
   border-radius: var(--vg-radius-chip);
@@ -440,23 +456,12 @@
  * is explaining.
  */
 /*
- * Weight 300 at 21px, in full ink rather than the muted grey.
- *
- * That swap is the reference's whisper-voice, and it is worth stating why it is
- * not just a lighter grey by another route: a subhead that is quiet because of
- * its colour is quiet at every size and reads as secondary information, while
- * one that is quiet because of its weight still reads as the sentence directly
- * under the title. The lead on these pages is the second half of the headline,
- * not a caption on it.
+ * .vg-lead used to live here: the sentence under an <h1>, at 21px weight 300 in
+ * full ink. It is gone because every page's lead is now the hero's own tagline
+ * — see .vg-hero__tagline below, which carries those declarations and the
+ * argument for the weight. Two classes that set the same three properties on
+ * the same paragraph is how one of them quietly stops matching the other.
  */
-.vg-lead {
-  max-width: 46rem;
-  font-size: var(--vg-fs-700);
-  font-weight: 300;
-  line-height: 1.4;
-  letter-spacing: var(--vg-track-head);
-  color: var(--vg-ink);
-}
 
 .vg-h2 {
   font-size: var(--vg-fs-800);
@@ -538,6 +543,18 @@
 }
 
 /*
+ * The disc grows rather than the tile lifting. A tile here is a circle, a name,
+ * a blurb and a count stacked in a grid cell; lifting the whole stack moves
+ * three lines of text for the sake of one pictogram, and eight of those moving
+ * at once is a page that ripples. The disc is the only part of the tile that is
+ * a shape, so it is the part that responds.
+ */
+.vg-grid8__item:hover .vg-grid8__circle,
+.vg-grid8__item:focus-visible .vg-grid8__circle {
+  transform: scale(1.09);
+}
+
+/*
  * The circle is a surface in its own right: filled with --vg-brand, carrying a
  * pictogram stroked in currentColor. That is why the pictogram markup sets no
  * colour of its own — it inherits, so the one line in tokens.css that fixes the
@@ -568,7 +585,7 @@
 }
 
 .vg-grid8__label {
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1.35;
 }
 
@@ -716,7 +733,7 @@
  * second <h3> here would put a level in the outline that says nothing.
  */
 .vg-triptych__fixtitle {
-  font-weight: 600;
+  font-weight: 700;
   font-size: var(--vg-fs-400);
   line-height: 1.5;
 }
@@ -1085,7 +1102,7 @@
 .vg-news__link {
   flex: none;
   font-family: var(--vg-font-mono);
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: normal;
 }
 
@@ -1096,15 +1113,13 @@
 }
 
 /*
- * The lead paragraph on /news and the "All releases" link under the front
- * page's four rows. The link sits below a dashed rule with no separator of its
- * own, so it needs the space to stop reading as a fifth release.
+ * The "All releases" link under the front page's four rows. It sits below a
+ * hairline with no separator of its own, so it needs the space to stop reading
+ * as a fifth release.
+ *
+ * .vg-news__lead was here too, for the paragraph under the /news heading. That
+ * paragraph is the page's hero tagline now.
  */
-.vg-news__lead {
-  max-width: 46rem;
-  color: var(--vg-ink-muted);
-}
-
 .vg-news__more {
   margin-top: var(--vg-space-5);
   font-size: var(--vg-fs-300);
@@ -1158,7 +1173,7 @@
   display: flex;
   align-items: baseline;
   gap: var(--vg-space-2);
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   list-style: none;
 }
@@ -1219,23 +1234,23 @@
 
 /* ── The hero ───────────────────────────────────────────────────────────────
  *
- * The model's hero, in the order it sets: product name, one-line tagline, two
- * pill buttons, then the product render filling the space below. The render
- * here is a real finding on a Carbon panel — this product has nothing to
- * photograph, and a rendering of the interface on the one page arguing that
- * everything shown is real output would be the only thing on it nobody can
- * check.
+ * Every page opens with this now, through PageHero.astro: heading at display
+ * size, a tagline under it in the light weight, then whatever that page offers
+ * to do about it. The front page adds the product render below — a real finding
+ * on a Carbon panel, because this product has nothing to photograph and a
+ * drawing of the interface on the one page arguing that everything shown is
+ * real output would be the only thing on it nobody can check.
  *
- * Centred, which the rest of the site is not. The model centres its heroes and
- * its call-out blocks and left-aligns everything with more than two lines in
- * it, and that split is kept exactly: this band and the pitch band below it are
- * the only two centred things on the site. Centring the category blurbs or the
- * rule list would cost readability for a resemblance.
+ * Centred, which the body of a page is not. The model centres its heroes and
+ * its call-out blocks and left-aligns anything with more than two lines in it;
+ * that split is what --vg-hero__rest below exists to keep once the hero is on
+ * pages that carry more than a sentence. Centring a rule list or a category
+ * blurb would be trading readability for a resemblance.
  *
- * §5.9 — that the page shows a finding above the fold so the product is judged
- * on something it found rather than on a sentence about finding things — still
- * holds. The finding is one scroll-free element lower than it was, under a name
- * and a line that between them say less than the finding does.
+ * §5.9 — that the front page shows a finding above the fold so the product is
+ * judged on something it found rather than on a sentence about finding things —
+ * still holds. The finding is one scroll-free element lower than it was, under
+ * a name and a line that between them say less than the finding does.
  */
 .vg-hero .vg-band__inner {
   display: grid;
@@ -1245,7 +1260,7 @@
 }
 
 .vg-hero .vg-h1 {
-  max-width: 20ch;
+  max-width: 24ch;
   margin-bottom: var(--vg-space-4);
 }
 
@@ -1253,13 +1268,45 @@
  * The tagline. Weight 300 is the model's whisper-voice and the reason this line
  * can sit directly under a 52px name without competing with it — the contrast
  * between them is weight, not size or colour, so the pair reads as one lockup.
+ *
+ * 56ch rather than the front page's own line length. This element is now every
+ * page's lead paragraph as well as the front page's tagline, and those are
+ * different lengths: "A security scanner for AI-generated code." is one line at
+ * any sane measure, while /privacy and /news open with two sentences. A measure
+ * that fits the longer one still sets the shorter one on a single line, so one
+ * value covers both; the reverse does not.
  */
 .vg-hero__tagline {
-  max-width: 34ch;
+  max-width: 56ch;
+  /*
+   * The one place on the site that is not Meiryo UI, and the token's own
+   * comment carries the measurement. In short: Meiryo UI draws two weights, so
+   * a tagline set at 300 in it is the body face at a larger size, which is a
+   * size difference dressed up as a weight one. --vg-font-light draws a real
+   * Light, so the pair below the heading is genuinely bold-over-light.
+   */
+  font-family: var(--vg-font-light);
   font-size: var(--vg-fs-700);
   font-weight: 300;
   line-height: 1.4;
   letter-spacing: var(--vg-track-head);
+  text-wrap: pretty;
+}
+
+/*
+ * The opt-out, and the only one.
+ *
+ * A hero band centres its children, which is right for a heading, a tagline and
+ * a row of buttons and wrong for everything else. /rules opens with a row of
+ * counts and a list of category chips in the same band as its heading; centred
+ * grid items, those shrink to their content and sit in the middle of a 72rem
+ * column looking like they failed to lay out. Anything in a hero that is a
+ * block rather than a line goes in one of these.
+ */
+.vg-hero__rest {
+  justify-self: stretch;
+  width: 100%;
+  text-align: start;
 }
 
 /*
@@ -1336,6 +1383,7 @@
 
 .vg-pitch__line {
   max-width: 46rem;
+  font-family: var(--vg-font-light);
   font-size: var(--vg-fs-700);
   font-weight: 300;
   line-height: 1.5;
@@ -1355,6 +1403,23 @@
 .vg-picker__card > .vg-badge,
 .vg-h1 > .vg-badge {
   justify-self: start;
+  /*
+   * And the same on the other axis, for the same reason on a different one.
+   *
+   * The picker card is a grid whose third row is `1fr`, so that the channel
+   * name can be pushed to the bottom edge of every card and the four line up.
+   * A card with five children puts a badge in that row, and a badge in a `1fr`
+   * row is stretched to whatever slack the tallest card in the row leaves —
+   * with a 980px radius, that renders as a green oval with the word sitting at
+   * the top of it rather than as a pill.
+   *
+   * How much slack there is depends on the metrics of whatever face is
+   * rendering, which is what makes this the kind of bug that arrives with a
+   * font change rather than with the CSS that causes it: the badge was already
+   * 38px against a natural 24px before this stylesheet named a family, and only
+   * became unmistakable at 62px once it named one.
+   */
+  align-self: start;
 }
 
 /*
@@ -1416,6 +1481,16 @@
   border: 1px solid var(--vg-rule);
   border-radius: var(--vg-radius-card);
   box-shadow: var(--vg-shadow-image);
+}
+
+/*
+ * A product shot is the one thing on the page a reader might want to look at
+ * more closely, and the only response available without a script is to make it
+ * slightly larger. 1.015 rather than anything bigger: this is a screenshot of
+ * text, and past about 2% the text inside it visibly resamples.
+ */
+.vg-shot__img:hover {
+  transform: scale(1.015);
 }
 
 /*
@@ -1496,6 +1571,11 @@
 
 .vg-picker__card:hover {
   border-color: var(--vg-brand);
+  transform: translateY(var(--vg-lift));
+}
+
+.vg-picker__card:active {
+  transform: translateY(0) scale(0.995);
 }
 
 .vg-picker__card:hover .vg-picker__heading {
@@ -1512,7 +1592,7 @@
 .vg-picker__heading {
   margin: 0;
   font-size: var(--vg-fs-700);
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1.24;
   letter-spacing: var(--vg-track-head);
 }
@@ -1527,12 +1607,13 @@
  */
 .vg-picker__badge {
   justify-self: start;
+  align-self: start;
   padding: 0 1ch;
   background: var(--vg-brand-soft);
   color: var(--vg-brand-strong);
   border-radius: var(--vg-radius-pill);
   font-size: var(--vg-fs-300);
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: var(--vg-track-body);
   line-height: 1.7;
   white-space: nowrap;
@@ -1572,9 +1653,11 @@
  * exactly the kind of split the no-inline architecture exists to avoid. Every
  * rule that used to be scoped to a page is in this file for that reason.
  */
-.vg-rules__lead {
-  max-width: 46rem;
-}
+/*
+ * .vg-rules__lead was here, for the sentence under this page's heading. That
+ * sentence is the page's hero tagline now, and the counts in it are still read
+ * out of rules.json rather than typed.
+ */
 
 .vg-rules__stats {
   display: flex;
@@ -1643,6 +1726,7 @@
 .vg-rules__toc a:hover {
   border-color: var(--vg-brand);
   text-decoration: underline;
+  transform: translateY(var(--vg-lift));
 }
 
 .vg-rules__langs {
@@ -1776,4 +1860,195 @@
  */
 .vg-research__prose > .vg-h2:first-child {
   margin-top: var(--vg-space-6);
+}
+
+/* ── Motion ─────────────────────────────────────────────────────────────────
+ *
+ * The last section of the file, and the newest. base.css carries the policy
+ * this is written under; what is here is the two keyframe sets everything on
+ * the site shares and the lists of what plays them.
+ *
+ * TWO PROPERTIES, AND NOTHING ELSE. Every keyframe below moves `transform` and
+ * `opacity` and touches nothing else. Both are composited, so a band of eight
+ * tiles arriving at once costs no layout and no paint — which is what makes it
+ * affordable to do this on every band of every page rather than on a hero.
+ *
+ * WHY THE `no-preference` QUERY RATHER THAN A `reduce` OVERRIDE. Each block is
+ * written so that its `from` state — the invisible one — cannot exist for a
+ * reader who asked for less motion, because the rule that declares it is never
+ * matched for them. Switching the animations off afterwards would leave the
+ * hidden state one specificity mistake away from a blank page. The reduce block
+ * in base.css is still there; it is the second line, not the first.
+ */
+
+@keyframes vg-rise {
+  from {
+    opacity: 0;
+    transform: translateY(2rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Downward, because the two things that play it open downward from a control
+ * the reader has just pressed: the menu panel and a disclosure body. */
+@keyframes vg-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-0.5rem) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /*
+   * The hero, on load, in the order it reads. The stagger is small — 80ms a
+   * step — because the point is that the parts arrive in sequence, not that a
+   * reader waits through the sequence. The whole thing is done in under a
+   * second, and the caption, which is last, is also the part nobody reads
+   * first.
+   */
+  .vg-hero .vg-h1,
+  .vg-hero__tagline,
+  .vg-hero__actions,
+  .vg-hero__panel,
+  .vg-hero__caption,
+  .vg-hero__rest {
+    animation: vg-rise var(--vg-motion-slow) var(--vg-ease) both;
+  }
+
+  .vg-hero__tagline {
+    animation-delay: 80ms;
+  }
+
+  .vg-hero__actions {
+    animation-delay: 160ms;
+  }
+
+  .vg-hero__panel,
+  .vg-hero__rest {
+    animation-delay: 240ms;
+  }
+
+  .vg-hero__caption {
+    animation-delay: 320ms;
+  }
+
+  /*
+   * The two things that open. `[open]` is a state this site can express without
+   * a script, so these are the only two animations on it that a reader starts
+   * themselves rather than by scrolling.
+   *
+   * Only the opening is animated. There is no closing animation and there
+   * cannot be one without a script: the moment `open` is removed the element is
+   * display:none, and nothing that is not rendered can play a keyframe.
+   */
+  .vg-menu[open] .vg-menu__panel {
+    animation: vg-drop var(--vg-motion) var(--vg-ease) both;
+  }
+
+  .vg-disclosure[open] > .vg-disclosure__body,
+  .vg-details[open] > *:not(summary) {
+    animation: vg-drop var(--vg-motion) var(--vg-ease) both;
+  }
+}
+
+/* ── Scroll-driven reveals ──────────────────────────────────────────────────
+ *
+ * CSS scroll-driven animations: no script, no observer, no library. The
+ * `@supports` test is the whole compatibility story — a browser without
+ * `animation-timeline` never matches these rules, so it never applies the
+ * hidden `from` state either, and the page it renders is the page as it was
+ * before this section existed.
+ *
+ * ★ THE RANGE IS A LENGTH, NOT A PERCENTAGE, AND THAT IS THE ONE NON-OBVIOUS
+ * DECISION HERE.
+ *
+ * `entry 0%` to `entry 100%` spans the whole time a subject is entering, and
+ * the length of that span is the subject's own height. On a news row that is
+ * 40px of scrolling and the reveal is instant; on a triptych card holding two
+ * code blocks it is fifteen hundred, and the card would sit half-faded through
+ * an entire screen of scrolling. Naming a length instead gives every element on
+ * the site the same 240px of travel regardless of how tall it is, which is what
+ * makes a page of mixed content read as one behaviour rather than as several.
+ *
+ * The `animation` shorthand resets `animation-timeline` and `animation-range`,
+ * so both have to follow it. Reversing those three lines silently turns every
+ * rule below back into a time-based animation that has already finished.
+ */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .vg-band:not(.vg-hero) .vg-h2,
+    .vg-pitch__line,
+    .vg-pitch__where,
+    .vg-grid8__cell,
+    .vg-triptych__card,
+    .vg-triptych__step,
+    .vg-triptych__note,
+    .vg-shot,
+    .vg-news__item,
+    .vg-picker__item,
+    .vg-picker__note,
+    .vg-disclosure,
+    .vg-rule,
+    .vg-rules__stats,
+    .vg-rules__toc,
+    .vg-research__prose > p,
+    .vg-privacy p,
+    .vg-footer__brand,
+    .vg-footer__sitemap {
+      animation-name: vg-rise;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 240px;
+    }
+
+    /*
+     * The stagger, for the two things that arrive as a row rather than as a
+     * line: the eight category tiles and the four channel cards. Their top
+     * edges are identical, so without this they cross the viewport edge at the
+     * same instant and the row appears as one block.
+     *
+     * A time delay cannot do it — a scroll-driven animation has no clock — so
+     * the offset is in the range itself: each column starts 50px of scrolling
+     * after the one to its left and finishes the same 240px later.
+     */
+    .vg-grid8__cell:nth-child(4n + 2),
+    .vg-picker__item:nth-child(4n + 2) {
+      animation-range: entry 50px entry 290px;
+    }
+
+    .vg-grid8__cell:nth-child(4n + 3),
+    .vg-picker__item:nth-child(4n + 3) {
+      animation-range: entry 100px entry 340px;
+    }
+
+    .vg-grid8__cell:nth-child(4n + 4),
+    .vg-picker__item:nth-child(4n + 4) {
+      animation-range: entry 150px entry 390px;
+    }
+
+    /*
+     * The triptych is three columns of one sample, and its columns mean
+     * Before / finding / After — an order the arrow between them already
+     * states. Staggering them left to right makes the sequence visible in the
+     * motion as well, which is the one place on the site where the stagger
+     * carries meaning rather than rhythm.
+     */
+    .vg-triptych__card:nth-child(2),
+    .vg-triptych__step:nth-child(2) {
+      animation-range: entry 70px entry 310px;
+    }
+
+    .vg-triptych__card:nth-child(3),
+    .vg-triptych__step:nth-child(3) {
+      animation-range: entry 140px entry 380px;
+    }
+  }
 }

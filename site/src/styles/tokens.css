@@ -49,9 +49,17 @@
 /* contrast-scope: light */
 :root {
   /* ── Surfaces ────────────────────────────────────────────────────────────
-   * Four bands' worth of surface, and three of the four are Apple's own: Frost
-   * as the canvas, white as the lifted band, Ice as the barely-blue wash,
-   * Carbon as the dark one.
+   * Four bands' worth of surface. The ladder is the reference's — a near-white
+   * canvas, white as the lifted band, a barely-blue wash, and one dark surface
+   * — with every rung moved one stop toward the light. The canvas is above
+   * Frost rather than at it, the wash is lighter than Ice, and the dark surface
+   * is the elevated grey of the model's dark palette rather than its Carbon.
+   *
+   * That lift is bounded by two things and neither is taste. The dark surface
+   * cannot rise past the point where the light greys on it stop clearing 4.5,
+   * and the canvas cannot rise past white, which is where --vg-surface-tint
+   * already is. What is left is roughly the one stop taken here; the checker
+   * below is what says the result still holds.
    *
    * The ordering is inherited from the previous palette and matters more than
    * the hues: the code surface stays the darkest of the four, so a page reads
@@ -64,10 +72,10 @@
    * surface alone does not tell a reader that one section ended and another
    * began.
    */
-  --vg-surface-base: #F5F5F7;
+  --vg-surface-base: #FAFAFA;
   --vg-surface-tint: #FFFFFF;
-  --vg-surface-code: #1D1D1F;
-  --vg-surface-news: #F4F8FB;
+  --vg-surface-code: #2C2C2E;
+  --vg-surface-news: #F7FBFD;
 
   /* ── Ink ─────────────────────────────────────────────────────────────────
    * Carbon for primary text and Apple's own secondary grey under it.
@@ -116,7 +124,7 @@
    */
   --vg-brand: #1A7F37;
   --vg-brand-strong: #0F6B2E;
-  --vg-brand-soft: #E8F3EA;
+  --vg-brand-soft: #EDF7F0;
 
   /* ── Lines ───────────────────────────────────────────────────────────────
    * #D2D2D7 is Apple's hairline, used unchanged. It is faint, and that is on
@@ -265,10 +273,18 @@
    * tracking as negative and tightening with size. The prose is followed here.
    * Positive tracking on a 40px heading loosens exactly the thing the style is
    * recognisable for, and the two statements cannot both be applied.
+   *
+   * The three steps are shallower than the reference's, because the face they
+   * are applied to is not the one it measured. Its values are for SF, which is
+   * drawn open enough to take -0.022em at caption size; Meiryo UI is already a
+   * tighter face and its kana are on a fixed em body that negative tracking
+   * pushes into each other rather than merely closing up. Two thirds of the
+   * quoted values keeps the effect — the heading still closes as it grows —
+   * without setting Japanese text at a spacing no Japanese text is set at.
    */
-  --vg-track-body: -0.016em;
-  --vg-track-head: -0.021em;
-  --vg-track-display: -0.028em;
+  --vg-track-body: -0.01em;
+  --vg-track-head: -0.014em;
+  --vg-track-display: -0.018em;
 
   /* ── Fonts ───────────────────────────────────────────────────────────────
    * No web font is loaded, from anywhere, in either stack. A third-party font
@@ -276,26 +292,94 @@
    * that nothing on it reaches out to anyone — and self-hosting trades that
    * away for a few hundred KB on first paint plus an asset to maintain.
    *
-   * The reference names SF Pro Text and SF Pro Display, and substitutes Inter.
-   * Inter is not available: it would have to come from a font host, and the CSP
-   * forbids one. SF Pro is available on the machines that have it, which is why
-   * the two family names lead the stack and `system-ui` follows. On macOS and
-   * iOS `system-ui` already resolves to SF, so naming the families first only
-   * helps the case where someone has installed them elsewhere; everywhere else
-   * the lookup fails silently and costs nothing.
+   * Meiryo UI leads the stack, by decision rather than by inheritance. It is
+   * what this site is set in: one family for headings, body, navigation and
+   * buttons, so that a page has a single voice rather than whatever face each
+   * OS happens to call `system-ui`.
    *
-   * The Japanese family names at the end of both stacks are not padding.
-   * `system-ui` and `ui-monospace` resolve to different faces per OS, and some
-   * of those faces have no Japanese glyphs; the browser then falls back to
-   * something the page did not choose. Naming the fallbacks fixes where it
-   * lands. In the monospace stack this matters more than it looks: if Japanese
-   * comment text alone falls back to a proportional face, the columns of a code
-   * block stop lining up.
+   * WHAT THAT COSTS, STATED PLAINLY. Meiryo UI is a Windows font. It ships with
+   * Windows and is on no other platform, so on macOS, iOS, Android and Linux
+   * the browser walks past it and lands on the next entry that exists. The
+   * stack below is therefore not decoration: it is the design on every machine
+   * that is not a Windows one, and it is ordered so that what it lands on is a
+   * face of the same kind — a humanist UI sans with real Japanese coverage —
+   * rather than whatever the browser would have picked unaided.
+   *
+   * `メイリオ` and `Meiryo` follow because Windows installations vary in which
+   * of the three names resolve; `system-ui` and the platform names follow those
+   * because a machine with none of them still has to render something chosen.
+   *
+   * No web font is loaded, from anywhere, and Meiryo UI does not change that. A
+   * third-party font host contradicts the one sentence this site most wants to
+   * be able to say — that nothing on it reaches out to anyone — and self-hosting
+   * trades that away for a few hundred KB on first paint plus an asset to
+   * maintain. A font is used here only where it is already installed.
+   *
+   * THE MONOSPACE STACK IS DELIBERATELY NOT UNIFIED WITH IT. Meiryo UI is
+   * proportional. Every code block on this site puts a column of line numbers
+   * beside code that has to keep its indentation, and the triptych sets three
+   * of those side by side so that a reader can compare them line for line. Set
+   * in a proportional face, none of those columns line up and the comparison
+   * the band exists for stops working. The Japanese names at the end of the
+   * mono stack are there for the same reason at a smaller scale: if Japanese
+   * comment text alone fell back to a proportional face, the columns would
+   * break on exactly the lines that have a comment.
    */
   --vg-font-sans:
-    "SF Pro Text", "SF Pro Display", system-ui, -apple-system, "Segoe UI",
-    Roboto, "Helvetica Neue", "Hiragino Sans", "Hiragino Kaku Gothic ProN",
-    "Noto Sans JP", "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif;
+    "Meiryo UI", "メイリオ", Meiryo, system-ui, -apple-system, "Segoe UI",
+    "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", Roboto,
+    "Helvetica Neue", sans-serif;
+
+  /* ── The light face ──────────────────────────────────────────────────────
+   * A second family, for one role, and the reason is a measurement rather than
+   * a preference.
+   *
+   * Meiryo UI ships two weights and no more. Rendering the same string at 40px
+   * across the nine CSS weights gives exactly two widths — 727.02px from 100
+   * through 500, and 790.23px from 600 through 900 — so the family's real
+   * break is between 500 and 600, and everything below it is one face. A
+   * heading set at 600 is genuinely bold in it; a subhead set at 300 is
+   * genuinely the same face as the body text beside it. The weight scale this
+   * design is built on has three steps and Meiryo UI can only draw two of them.
+   *
+   * Yu Gothic UI can draw the third: the same probe gives 653.03 at 100–300,
+   * 679.20 at 400 and 701.47 at 500–900 — a real Light, a real Regular and a
+   * real Bold. So the light step, and only the light step, is set in it.
+   *
+   * That is a mixed-family page, which is a cost worth naming. It is bounded to
+   * two elements — the hero tagline and the pitch line — both of which are set
+   * a size larger than anything they sit beside, so what a reader sees is a
+   * lighter voice rather than a different alphabet. Everything else on the site
+   * is Meiryo UI.
+   *
+   * Segoe UI is next in the stack because it draws five weights (718.86 /
+   * 746.64 / 762.72 / 783.59 / 810.84) and is the better fallback than Meiryo
+   * UI here for exactly the reason this token exists. Meiryo UI is last so that
+   * a machine with neither still lands on the site's own family rather than on
+   * the browser's default.
+   */
+  --vg-font-light:
+    "Yu Gothic UI", "游ゴシック体", YuGothic, "Segoe UI", "Hiragino Sans",
+    "Noto Sans JP", "Meiryo UI", sans-serif;
+
+  /* ── Motion ──────────────────────────────────────────────────────────────
+   * Four values, and they are new. This site used to state that nothing on it
+   * moved; base.css now carries the policy that replaced that one, and these
+   * are what it is written in.
+   *
+   * The curve is the important one. A linear or ease-in-out move reads as a
+   * thing being animated; this one starts fast and settles, which reads as a
+   * thing arriving. It is the same shape the model uses on everything it moves.
+   *
+   * --vg-lift is a distance rather than a duration: how far a pressable thing
+   * rises under the pointer. One value, so that a button, a card and a chip all
+   * rise by the same amount and the page has one hover rather than five.
+   */
+  --vg-motion-fast: 180ms;
+  --vg-motion: 340ms;
+  --vg-motion-slow: 680ms;
+  --vg-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --vg-lift: -3px;
 
   --vg-font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
@@ -335,7 +419,7 @@
 .vg-panel--code {
   --vg-ink: var(--vg-ink-on-code);
   --vg-ink-muted: #A1A1A6; /* the model's own grey on a dark surface */
-  --vg-rule: #3A3A3C; /* decorative, see above */
+  --vg-rule: #48484A; /* decorative, see above */
   --vg-brand: #6FD98A;
   /*
    * Links land on this scope — the note under the triptych points at /rules —
@@ -385,17 +469,26 @@
 @media (prefers-color-scheme: dark) {
   /* contrast-scope: dark */
   :root {
-    --vg-surface-base: #1D1D1F;
-    --vg-surface-tint: #2A2A2C;
-    --vg-surface-code: #000000;
-    --vg-surface-news: #1F2325;
+    /*
+     * Lifted with the light scheme, but by less, and the limit is measured
+     * rather than chosen. --vg-brand-strong fills the button and has to clear
+     * 3.0 against whatever this surface is while still carrying a near-white
+     * label at 4.5; those two constraints leave the fill a window a few
+     * hundredths of a luminance wide. Raising this surface eats that window
+     * from below. #26262A closes it entirely — the fill lands at 2.97 — so the
+     * lift stops here, one stop up rather than two.
+     */
+    --vg-surface-base: #212124;
+    --vg-surface-tint: #2E2E32;
+    --vg-surface-code: #101013;
+    --vg-surface-news: #23282B;
 
     --vg-ink: #F5F5F7;
     --vg-ink-muted: #A1A1A6;
     --vg-ink-on-code: #F5F5F7;
 
     --vg-brand: #6FD98A;
-    --vg-brand-soft: #16301E;
+    --vg-brand-soft: #1A3925;
 
     /*
      * The one token that genuinely has two values across the schemes, and it is
@@ -411,7 +504,7 @@
      */
     --vg-brand-strong: #1A7F37;
 
-    --vg-rule: #3A3A3C; /* decorative */
+    --vg-rule: #48484A; /* decorative */
     --vg-focus: #A9DCB4;
 
     --vg-sev-critical: #F0A5D8;

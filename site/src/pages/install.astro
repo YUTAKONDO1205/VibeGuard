@@ -25,6 +25,7 @@
  * classify themselves first, and self-classification is where people stop.
  */
 import ProductLayout from '../layouts/ProductLayout.astro';
+import PageHero from '../components/PageHero.astro';
 import { CHANNELS, CHANNEL_LABELS, goHref, type Channel } from '../shared/links.ts';
 
 /**
@@ -112,12 +113,12 @@ const cards = CHANNELS.map((channel) => {
   description="VibeGuard runs in VS Code, in VS Code–based editors through Open VSX, in Chrome, and in CI through the GitHub Action. Pick the place you write or read code."
   header={false}
 >
-  <section class="vg-band vg-band--base" aria-labelledby="install-h">
-    <div class="vg-band__inner">
-      <h1 class="vg-h1" id="install-h">Install VibeGuard</h1>
-      <p class="vg-lead">Where do you write (or read) the code?</p>
-    </div>
-  </section>
+  {/*
+    No actions in this hero, and this is the one page where their absence is the
+    point: the four cards below ARE the action, and a pill above them would be a
+    fifth thing to press that only leads back to the four.
+  */}
+  <PageHero id="install-h" title="Install VibeGuard" tagline="Where do you write (or read) the code?" />
 
   <section class="vg-band vg-band--tint" aria-label="Distribution channels">
     <div class="vg-band__inner">
