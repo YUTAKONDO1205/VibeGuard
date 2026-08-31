@@ -28,6 +28,23 @@ export default defineConfig({
     // /install/ the canonical URL. The URL rule is no trailing slash, so
     // pages are emitted as install.html instead.
     format: 'file',
+
+    // NOT the default, and it closes a trap rather than tuning anything.
+    //
+    // Astro's default is 'auto', which inlines a stylesheet chunk under about
+    // 4KB into a <style> element in <head>. The CSP this site serves says
+    // `style-src 'self'`, so such a block is refused by the browser and the
+    // page renders without those rules — while `astro preview`, which applies
+    // no CSP, shows it looking correct. Four pages had already shipped in that
+    // state once; scripts/site-copy-lint.mjs --dist now fails the build on an
+    // inline <style>, which catches it, but catching it at the end of a build
+    // is worse than not being able to cause it.
+    //
+    // Today the site emits one chunk well over the threshold, so 'auto' would
+    // not inline anything. That is exactly why this is worth writing down: the
+    // day someone adds a second, smaller stylesheet, the default would start
+    // inlining with no other change to point at.
+    inlineStylesheets: 'never',
   },
 
   // The other half of the same rule. Astro will not silently accept the

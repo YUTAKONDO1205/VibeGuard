@@ -189,8 +189,10 @@ a:hover {
  *
  * Three rules keep that from becoming noise, and all three are mechanical:
  *
- *   1. One curve and three durations, all of them tokens. --vg-ease starts fast
- *      and settles, which reads as arrival rather than as animation.
+ *   1. Two curves and three durations, all of them tokens. --vg-ease starts
+ *      fast and settles, which reads as arrival rather than as animation;
+ *      --vg-ease-spring overshoots once, and is spent on exactly two selectors,
+ *      each of them a single object arriving at a stop.
  *   2. Only `transform` and `opacity` are animated. Both are composited, so a
  *      band of eight tiles revealing on scroll costs no layout and no paint.
  *      Nothing here animates a height, a width, a margin or a colour stop.
@@ -201,20 +203,21 @@ a:hover {
  *      a mistake here to leave them on a blank page. The reduce block at the
  *      bottom of this file is a second line, not the first.
  *
- * Still no script. `:hover`, `:focus-visible`, `:target` and `[open]` remain the
- * complete set of states the site can express; the scroll reveals are CSS
- * scroll-driven animations, behind an `@supports` test, and a browser without
- * them simply shows the page.
+ * Still no script. `:hover`, `:focus-visible`, `:target`, `[open]` and — since
+ * the accent-coloured panel outline in the hero — `:has()` remain the complete
+ * set of states the site can express; the scroll reveals are scroll-driven
+ * animations in the stylesheet, behind an `@supports` test, and a browser
+ * without them simply shows the page.
+ *
+ * The list below is elements only. Every `.vg-*` selector that needs the same
+ * transition is in components.css, because a class in this file is how a reader
+ * loses the ability to tell, from the file a rule is in, whether it applies to
+ * a page nobody has written yet — which is the sentence at the top of this
+ * file, and it had been broken here.
  */
 a,
 summary,
-button,
-.vg-cta,
-.vg-picker__card,
-.vg-grid8__circle,
-.vg-shot__img,
-.vg-rules__toc a,
-.vg-menu__button {
+button {
   transition:
     color var(--vg-motion-fast) var(--vg-ease),
     background-color var(--vg-motion-fast) var(--vg-ease),
