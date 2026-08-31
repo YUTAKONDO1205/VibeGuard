@@ -330,6 +330,57 @@
     "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", Roboto,
     "Helvetica Neue", sans-serif;
 
+  /* ── The light face ──────────────────────────────────────────────────────
+   * A second family, for one role, and the reason is a measurement rather than
+   * a preference.
+   *
+   * Meiryo UI ships two weights and no more. Rendering the same string at 40px
+   * across the nine CSS weights gives exactly two widths — 727.02px from 100
+   * through 500, and 790.23px from 600 through 900 — so the family's real
+   * break is between 500 and 600, and everything below it is one face. A
+   * heading set at 600 is genuinely bold in it; a subhead set at 300 is
+   * genuinely the same face as the body text beside it. The weight scale this
+   * design is built on has three steps and Meiryo UI can only draw two of them.
+   *
+   * Yu Gothic UI can draw the third: the same probe gives 653.03 at 100–300,
+   * 679.20 at 400 and 701.47 at 500–900 — a real Light, a real Regular and a
+   * real Bold. So the light step, and only the light step, is set in it.
+   *
+   * That is a mixed-family page, which is a cost worth naming. It is bounded to
+   * two elements — the hero tagline and the pitch line — both of which are set
+   * a size larger than anything they sit beside, so what a reader sees is a
+   * lighter voice rather than a different alphabet. Everything else on the site
+   * is Meiryo UI.
+   *
+   * Segoe UI is next in the stack because it draws five weights (718.86 /
+   * 746.64 / 762.72 / 783.59 / 810.84) and is the better fallback than Meiryo
+   * UI here for exactly the reason this token exists. Meiryo UI is last so that
+   * a machine with neither still lands on the site's own family rather than on
+   * the browser's default.
+   */
+  --vg-font-light:
+    "Yu Gothic UI", "游ゴシック体", YuGothic, "Segoe UI", "Hiragino Sans",
+    "Noto Sans JP", "Meiryo UI", sans-serif;
+
+  /* ── Motion ──────────────────────────────────────────────────────────────
+   * Four values, and they are new. This site used to state that nothing on it
+   * moved; base.css now carries the policy that replaced that one, and these
+   * are what it is written in.
+   *
+   * The curve is the important one. A linear or ease-in-out move reads as a
+   * thing being animated; this one starts fast and settles, which reads as a
+   * thing arriving. It is the same shape the model uses on everything it moves.
+   *
+   * --vg-lift is a distance rather than a duration: how far a pressable thing
+   * rises under the pointer. One value, so that a button, a card and a chip all
+   * rise by the same amount and the page has one hover rather than five.
+   */
+  --vg-motion-fast: 180ms;
+  --vg-motion: 340ms;
+  --vg-motion-slow: 680ms;
+  --vg-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --vg-lift: -3px;
+
   --vg-font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     "DejaVu Sans Mono", "Liberation Mono",
