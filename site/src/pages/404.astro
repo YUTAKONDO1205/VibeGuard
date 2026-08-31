@@ -17,14 +17,16 @@
  * it is a page like any other and gets the same layout, header and footer.
  */
 import ProductLayout from '../layouts/ProductLayout.astro';
+import PageHero from '../components/PageHero.astro';
 ---
 
 <ProductLayout title="Not found — VibeGuard" description="That page does not exist.">
-  <section class="vg-band vg-band--base" aria-labelledby="notfound-h">
-    <div class="vg-band__inner">
-      <h1 class="vg-h1" id="notfound-h">Not found</h1>
-      <p class="vg-lead">That page does not exist.</p>
-      <p><a href="/">Go to the front page</a></p>
-    </div>
-  </section>
+  {/*
+    The way out is a button rather than a sentence with a link in it. This is
+    the one page a reader did not choose to be on, so the single thing they can
+    do about it should be shaped like a thing you press.
+  */}
+  <PageHero id="notfound-h" title="Not found" tagline="That page does not exist.">
+    <a class="vg-cta vg-cta--outline" slot="actions" href="/">Go to the front page</a>
+  </PageHero>
 </ProductLayout>

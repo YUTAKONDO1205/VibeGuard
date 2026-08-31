@@ -31,6 +31,7 @@
  * on a thing it found, not on a sentence about finding things.
  */
 import ProductLayout from '../layouts/ProductLayout.astro';
+import PageHero from '../components/PageHero.astro';
 import CtaButton from '../components/CtaButton.astro';
 import Finding from '../components/Finding.astro';
 import IconGrid from '../components/IconGrid.astro';
@@ -195,33 +196,28 @@ const SHOTS = [
     Carbon band cannot hold the button, which is exactly why the button used to
     live one band lower.
   */}
-  <section class="vg-band vg-band--base vg-hero" aria-labelledby="hero-h">
-    <div class="vg-band__inner">
-      <h1 class="vg-h1" id="hero-h">VibeGuard</h1>
-      <p class="vg-hero__tagline">A security scanner for AI-generated code.</p>
+  <PageHero id="hero-h" title="VibeGuard" tagline="A security scanner for AI-generated code.">
+    {/*
+      Filled, then outlined. The second action is deliberately not a second
+      route to a distribution channel — every one of those goes through /install
+      and is counted there (§1.2, §2.2). It points at the catalogue, which is
+      the other question a reader has at this moment: not "where do I get it"
+      but "what does it actually look for".
+    */}
+    <Fragment slot="actions">
+      <CtaButton />
+      <a class="vg-cta vg-cta--outline" href="/rules">See what it finds</a>
+    </Fragment>
 
-      {/*
-        Filled, then outlined. The second action is deliberately not a second
-        route to a distribution channel — every one of those goes through
-        /install and is counted there (§1.2, §2.2). It points at the catalogue,
-        which is the other question a reader has at this moment: not "where do I
-        get it" but "what does it actually look for".
-      */}
-      <div class="vg-hero__actions">
-        <CtaButton />
-        <a class="vg-cta vg-cta--outline" href="/rules">See what it finds</a>
-      </div>
-
-      <div class="vg-hero__panel vg-panel--code">
-        <Finding finding={hero} variant="hero" />
-      </div>
-
-      <p class="vg-hero__caption">
-        Real output. The code is <code>{heroSource}</code> in this repository — a fixture that is
-        vulnerable on purpose.
-      </p>
+    <div class="vg-hero__panel vg-panel--code">
+      <Finding finding={hero} variant="hero" />
     </div>
-  </section>
+
+    <p class="vg-hero__caption">
+      Real output. The code is <code>{heroSource}</code> in this repository — a fixture that is
+      vulnerable on purpose.
+    </p>
+  </PageHero>
 
   {/*
     Band 3 — the claim, and nothing to press.

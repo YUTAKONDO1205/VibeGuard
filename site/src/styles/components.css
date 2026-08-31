@@ -440,23 +440,12 @@
  * is explaining.
  */
 /*
- * Weight 300 at 21px, in full ink rather than the muted grey.
- *
- * That swap is the reference's whisper-voice, and it is worth stating why it is
- * not just a lighter grey by another route: a subhead that is quiet because of
- * its colour is quiet at every size and reads as secondary information, while
- * one that is quiet because of its weight still reads as the sentence directly
- * under the title. The lead on these pages is the second half of the headline,
- * not a caption on it.
+ * .vg-lead used to live here: the sentence under an <h1>, at 21px weight 300 in
+ * full ink. It is gone because every page's lead is now the hero's own tagline
+ * — see .vg-hero__tagline below, which carries those declarations and the
+ * argument for the weight. Two classes that set the same three properties on
+ * the same paragraph is how one of them quietly stops matching the other.
  */
-.vg-lead {
-  max-width: 46rem;
-  font-size: var(--vg-fs-700);
-  font-weight: 300;
-  line-height: 1.4;
-  letter-spacing: var(--vg-track-head);
-  color: var(--vg-ink);
-}
 
 .vg-h2 {
   font-size: var(--vg-fs-800);
@@ -1096,15 +1085,13 @@
 }
 
 /*
- * The lead paragraph on /news and the "All releases" link under the front
- * page's four rows. The link sits below a dashed rule with no separator of its
- * own, so it needs the space to stop reading as a fifth release.
+ * The "All releases" link under the front page's four rows. It sits below a
+ * hairline with no separator of its own, so it needs the space to stop reading
+ * as a fifth release.
+ *
+ * .vg-news__lead was here too, for the paragraph under the /news heading. That
+ * paragraph is the page's hero tagline now.
  */
-.vg-news__lead {
-  max-width: 46rem;
-  color: var(--vg-ink-muted);
-}
-
 .vg-news__more {
   margin-top: var(--vg-space-5);
   font-size: var(--vg-fs-300);
@@ -1219,23 +1206,23 @@
 
 /* ── The hero ───────────────────────────────────────────────────────────────
  *
- * The model's hero, in the order it sets: product name, one-line tagline, two
- * pill buttons, then the product render filling the space below. The render
- * here is a real finding on a Carbon panel — this product has nothing to
- * photograph, and a rendering of the interface on the one page arguing that
- * everything shown is real output would be the only thing on it nobody can
- * check.
+ * Every page opens with this now, through PageHero.astro: heading at display
+ * size, a tagline under it in the light weight, then whatever that page offers
+ * to do about it. The front page adds the product render below — a real finding
+ * on a Carbon panel, because this product has nothing to photograph and a
+ * drawing of the interface on the one page arguing that everything shown is
+ * real output would be the only thing on it nobody can check.
  *
- * Centred, which the rest of the site is not. The model centres its heroes and
- * its call-out blocks and left-aligns everything with more than two lines in
- * it, and that split is kept exactly: this band and the pitch band below it are
- * the only two centred things on the site. Centring the category blurbs or the
- * rule list would cost readability for a resemblance.
+ * Centred, which the body of a page is not. The model centres its heroes and
+ * its call-out blocks and left-aligns anything with more than two lines in it;
+ * that split is what --vg-hero__rest below exists to keep once the hero is on
+ * pages that carry more than a sentence. Centring a rule list or a category
+ * blurb would be trading readability for a resemblance.
  *
- * §5.9 — that the page shows a finding above the fold so the product is judged
- * on something it found rather than on a sentence about finding things — still
- * holds. The finding is one scroll-free element lower than it was, under a name
- * and a line that between them say less than the finding does.
+ * §5.9 — that the front page shows a finding above the fold so the product is
+ * judged on something it found rather than on a sentence about finding things —
+ * still holds. The finding is one scroll-free element lower than it was, under
+ * a name and a line that between them say less than the finding does.
  */
 .vg-hero .vg-band__inner {
   display: grid;
@@ -1245,7 +1232,7 @@
 }
 
 .vg-hero .vg-h1 {
-  max-width: 20ch;
+  max-width: 24ch;
   margin-bottom: var(--vg-space-4);
 }
 
@@ -1253,13 +1240,37 @@
  * The tagline. Weight 300 is the model's whisper-voice and the reason this line
  * can sit directly under a 52px name without competing with it — the contrast
  * between them is weight, not size or colour, so the pair reads as one lockup.
+ *
+ * 56ch rather than the front page's own line length. This element is now every
+ * page's lead paragraph as well as the front page's tagline, and those are
+ * different lengths: "A security scanner for AI-generated code." is one line at
+ * any sane measure, while /privacy and /news open with two sentences. A measure
+ * that fits the longer one still sets the shorter one on a single line, so one
+ * value covers both; the reverse does not.
  */
 .vg-hero__tagline {
-  max-width: 34ch;
+  max-width: 56ch;
   font-size: var(--vg-fs-700);
   font-weight: 300;
   line-height: 1.4;
   letter-spacing: var(--vg-track-head);
+  text-wrap: pretty;
+}
+
+/*
+ * The opt-out, and the only one.
+ *
+ * A hero band centres its children, which is right for a heading, a tagline and
+ * a row of buttons and wrong for everything else. /rules opens with a row of
+ * counts and a list of category chips in the same band as its heading; centred
+ * grid items, those shrink to their content and sit in the middle of a 72rem
+ * column looking like they failed to lay out. Anything in a hero that is a
+ * block rather than a line goes in one of these.
+ */
+.vg-hero__rest {
+  justify-self: stretch;
+  width: 100%;
+  text-align: start;
 }
 
 /*
@@ -1355,6 +1366,23 @@
 .vg-picker__card > .vg-badge,
 .vg-h1 > .vg-badge {
   justify-self: start;
+  /*
+   * And the same on the other axis, for the same reason on a different one.
+   *
+   * The picker card is a grid whose third row is `1fr`, so that the channel
+   * name can be pushed to the bottom edge of every card and the four line up.
+   * A card with five children puts a badge in that row, and a badge in a `1fr`
+   * row is stretched to whatever slack the tallest card in the row leaves —
+   * with a 980px radius, that renders as a green oval with the word sitting at
+   * the top of it rather than as a pill.
+   *
+   * How much slack there is depends on the metrics of whatever face is
+   * rendering, which is what makes this the kind of bug that arrives with a
+   * font change rather than with the CSS that causes it: the badge was already
+   * 38px against a natural 24px before this stylesheet named a family, and only
+   * became unmistakable at 62px once it named one.
+   */
+  align-self: start;
 }
 
 /*
@@ -1527,6 +1555,7 @@
  */
 .vg-picker__badge {
   justify-self: start;
+  align-self: start;
   padding: 0 1ch;
   background: var(--vg-brand-soft);
   color: var(--vg-brand-strong);
@@ -1572,9 +1601,11 @@
  * exactly the kind of split the no-inline architecture exists to avoid. Every
  * rule that used to be scoped to a page is in this file for that reason.
  */
-.vg-rules__lead {
-  max-width: 46rem;
-}
+/*
+ * .vg-rules__lead was here, for the sentence under this page's heading. That
+ * sentence is the page's hero tagline now, and the counts in it are still read
+ * out of rules.json rather than typed.
+ */
 
 .vg-rules__stats {
   display: flex;

@@ -35,6 +35,7 @@
  * and check it. A typed date would be correct exactly until the next edit.
  */
 import ProductLayout from '../layouts/ProductLayout.astro';
+import PageHero from '../components/PageHero.astro';
 
 /*
  * ?raw is resolved by the bundler against this file's own location, so the path
@@ -101,15 +102,16 @@ const NOT_STORED: readonly string[] = [
   title="Privacy — VibeGuard"
   description="What this website stores (three fields, and the list of what it does not), and a summary of the product's privacy policy."
 >
-  <section class="vg-band vg-band--base" aria-labelledby="privacy-h">
-    <div class="vg-band__inner vg-privacy">
-      <h1 class="vg-h1" id="privacy-h">Privacy</h1>
-      <p class="vg-privacy__lead">
-        Two separate subjects, kept apart: this website, and the VibeGuard software. What is true of one is not
-        automatically true of the other.
-      </p>
-    </div>
-  </section>
+  {/*
+    No action in this hero. A page whose subject is what the site does not
+    collect is not a place to put a button: the reader arrived to check
+    something, not to be sold to on the way past.
+  */}
+  <PageHero
+    id="privacy-h"
+    title="Privacy"
+    tagline="Two separate subjects, kept apart: this website, and the VibeGuard software. What is true of one is not automatically true of the other."
+  />
 
   <section class="vg-band vg-band--tint" aria-labelledby="site-h">
     <div class="vg-band__inner vg-privacy">
