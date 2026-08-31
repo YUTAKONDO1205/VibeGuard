@@ -363,9 +363,9 @@
     "Noto Sans JP", "Meiryo UI", sans-serif;
 
   /* ── Motion ──────────────────────────────────────────────────────────────
-   * Four values, and they are new. This site used to state that nothing on it
-   * moved; base.css now carries the policy that replaced that one, and these
-   * are what it is written in.
+   * Six values — the five below and the spring after them — and they are new.
+   * This site used to state that nothing on it moved; base.css now carries the
+   * policy that replaced that one, and these are what it is written in.
    *
    * The curve is the important one. A linear or ease-in-out move reads as a
    * thing being animated; this one starts fast and settles, which reads as a
@@ -380,6 +380,33 @@
   --vg-motion-slow: 680ms;
   --vg-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --vg-lift: -3px;
+
+  /*
+   * The second curve, and the only thing on this site that overshoots.
+   *
+   * A cubic-bezier cannot go past its endpoints, so a settle — the small
+   * bounce a physical thing makes when it stops — is not expressible as one.
+   * `linear()` is: it is a piecewise curve, so the points below rise past 1 at
+   * 21.6% and come back. Measured as supported in the engine this site was
+   * checked in.
+   *
+   * WHAT HAPPENS WHERE IT IS NOT SUPPORTED, stated correctly because the first
+   * version of this note had it wrong. A `var()` substitution that produces a
+   * value the property cannot parse is invalid at computed-value time, and
+   * `animation-timing-function` does not inherit, so the declaration falls back
+   * to that property's INITIAL value, which is `ease` - not to a linear ramp.
+   * That is a perfectly ordinary curve and the animation still plays; what is
+   * lost is the overshoot, and nothing else.
+   *
+   * Two elements use it and no more: the pair of buttons in the hero, and the
+   * severity word of the hero finding. Both are single objects arriving at a
+   * stop. Applying it to a paragraph makes the text look like it bounced, which
+   * is the tell of a site that found a new easing function.
+   */
+  --vg-ease-spring: linear(
+    0, 0.402 7.4%, 0.842 15.5%, 1.023 21.6%, 1.077 27.8%, 1.018 40.1%,
+    0.995 60.3%, 1
+  );
 
   --vg-font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,

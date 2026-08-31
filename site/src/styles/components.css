@@ -1328,7 +1328,8 @@
 
 /*
  * The panel. This is the site's second Carbon surface and the only one that is
- * not a full band: 8px radius, no shadow, no border, standing on the canvas.
+ * not a full band: 8px radius, no shadow, and a 1px border that is transparent
+ * until the primary action is hovered, standing on the canvas.
  *
  * It re-declares nothing about colour. `.vg-panel--code` is the same selector
  * the code band uses in tokens.css, so the finding inside it resolves the dark
@@ -1343,6 +1344,12 @@
   width: 100%;
   margin-top: var(--vg-space-7);
   padding: var(--vg-space-6);
+  /*
+   * Transparent at rest, and present at rest so that gaining a colour on hover
+   * does not change the panel's size. The colour it gains is in the pointer
+   * coupling near the bottom of this file.
+   */
+  border: 1px solid transparent;
   border-radius: var(--vg-radius-card);
   background: var(--vg-surface-code);
   text-align: start;
@@ -1864,9 +1871,9 @@
 
 /* ── Motion ─────────────────────────────────────────────────────────────────
  *
- * The last section of the file, and the newest. base.css carries the policy
- * this is written under; what is here is the two keyframe sets everything on
- * the site shares and the lists of what plays them.
+ * The last section of the file. base.css carries the policy this is written
+ * under; what is here is the keyframe sets, the lists of what plays them, and
+ * the two scroll-driven behaviours that are not reveals.
  *
  * TWO PROPERTIES, AND NOTHING ELSE. Every keyframe below moves `transform` and
  * `opacity` and touches nothing else. Both are composited, so a band of eight
@@ -1874,17 +1881,60 @@
  * affordable to do this on every band of every page rather than on a hero.
  *
  * WHY THE `no-preference` QUERY RATHER THAN A `reduce` OVERRIDE. Each block is
- * written so that its `from` state — the invisible one — cannot exist for a
- * reader who asked for less motion, because the rule that declares it is never
- * matched for them. Switching the animations off afterwards would leave the
- * hidden state one specificity mistake away from a blank page. The reduce block
- * in base.css is still there; it is the second line, not the first.
+ * written so that its hidden `from` state cannot exist for a reader who asked
+ * for less motion, because the rule that declares it is never matched for them.
+ * Switching the animations off afterwards would leave the hidden state one
+ * specificity mistake away from a blank page. The reduce block in base.css is
+ * still there; it is the second line, not the first.
+ *
+ * ★ EVERY KEYFRAME SET BELOW ENDS IN THE VISIBLE STATE, without exception.
+ * That is what the reduce backstop in base.css rests on: it forces a 0.01ms
+ * duration and a document timeline, so any animation it catches jumps straight
+ * to its `to`. A `to` that is invisible would blank the element instead.
+ *
+ * There was an exception for one commit — a hero fade tied to the `exit` range —
+ * and the note recording why it was removed is further down this section. Read
+ * it before writing a second one.
  */
+
+/* The transitions for the named parts. These live here rather than in base.css
+ * because that file is element selectors only, and a `.vg-*` class in it is how
+ * a reader loses the ability to tell, from the file a rule is in, whether it
+ * applies to a page nobody has written yet. base.css keeps `a`, `summary` and
+ * `button`; everything class-shaped is here. */
+.vg-cta,
+.vg-picker__card,
+.vg-grid8__circle,
+.vg-shot__img,
+.vg-rules__toc a,
+.vg-menu__button,
+.vg-hero__panel {
+  transition:
+    color var(--vg-motion-fast) var(--vg-ease),
+    background-color var(--vg-motion-fast) var(--vg-ease),
+    border-color var(--vg-motion-fast) var(--vg-ease),
+    text-decoration-color var(--vg-motion-fast) var(--vg-ease),
+    transform var(--vg-motion-fast) var(--vg-ease);
+}
 
 @keyframes vg-rise {
   from {
     opacity: 0;
     transform: translateY(2rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Shorter travel, for the parts of the finding. They arrive inside a panel that
+ * is itself arriving, and a 2rem move on a line of 15px monospace reads as the
+ * line being thrown rather than placed. */
+@keyframes vg-rise-sm {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
   }
   to {
     opacity: 1;
@@ -1905,19 +1955,57 @@
   }
 }
 
+/*
+ * A `vg-liftoff` keyframe set was here: the hero fading to 0.3 and rising as it
+ * was scrolled past. It is gone, and the reason is worth keeping, because the
+ * mistake is an easy one to make again.
+ *
+ * It was applied to `.vg-hero .vg-band__inner`, on the belief that the hero is a
+ * short banner sliding off the top. That is not what that element is. PageHero
+ * puts its default slot inside it, and two pages put substantial content there:
+ * /research/compiler's article — 8 of its 14 prose paragraphs measured inside —
+ * and /rules' counts and category index. And for a subject TALLER than the
+ * viewport, the `exit` range does not begin when the subject starts to leave. It
+ * begins when the subject's bottom edge reaches the bottom of the viewport, so
+ * the entire fade plays out across one viewport-height during which the subject
+ * still fills the screen.
+ *
+ * Measured on the built site at 1280x800, /research/compiler: the paragraph
+ * beginning "A paper about this work is in preparation" reads 16.12:1 at rest;
+ * at scroll 1700 it is on screen at y=228 and reads 3.73:1; at scroll 1900 it is
+ * at the top of the screen and reads 2.28:1. The floor this site enforces
+ * everywhere else is 4.5, and site/scripts/contrast.mjs cannot see any of it —
+ * it computes 84 token-to-token pairs and has no model of an ancestor's opacity.
+ *
+ * It was also the only keyframe set on the site whose `to` was not the visible
+ * state, which is the assumption the reduce backstop in base.css rests on. With
+ * it gone that invariant is unconditional again, which is worth more than the
+ * effect was.
+ */
+
+@keyframes vg-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   /*
-   * The hero, on load, in the order it reads. The stagger is small — 80ms a
-   * step — because the point is that the parts arrive in sequence, not that a
-   * reader waits through the sequence. The whole thing is done in under a
-   * second, and the caption, which is last, is also the part nobody reads
-   * first.
+   * The hero, on load, in the order it reads, and retimed so the whole thing is
+   * done inside a second.
+   *
+   * The <h1> keeps a delay of zero and that is not an aesthetic choice: it is
+   * the largest text on the page and therefore the likely Largest Contentful
+   * Paint element, and an element that starts at opacity 0 does not count as
+   * painted. Delaying it would move a real metric to buy a nicer stagger.
    */
   .vg-hero .vg-h1,
   .vg-hero__tagline,
   .vg-hero__actions,
   .vg-hero__panel,
-  .vg-hero__caption,
   .vg-hero__rest {
     animation: vg-rise var(--vg-motion-slow) var(--vg-ease) both;
   }
@@ -1926,8 +2014,11 @@
     animation-delay: 80ms;
   }
 
+  /* The one place the spring is spent on the page's own furniture: two buttons
+   * arriving at a stop. */
   .vg-hero__actions {
     animation-delay: 160ms;
+    animation-timing-function: var(--vg-ease-spring);
   }
 
   .vg-hero__panel,
@@ -1935,13 +2026,71 @@
     animation-delay: 240ms;
   }
 
+  /*
+   * ── The finding's own choreography ──────────────────────────────────────
+   *
+   * The panel is the page's exhibit and this is what makes it read as one: the
+   * finding assembles in the order the CLI prints it — severity, then what it
+   * is, then which rule said so, then where, then what to do — rather than
+   * appearing as a block of monospace that was already there.
+   *
+   * Scoped to `--hero`. The same component renders three more times inside the
+   * triptych, where it is evidence in a comparison rather than an arrival, and
+   * animating those would set nine columns of code moving at once.
+   *
+   * The four parts of the head are animatable because .vg-finding__head is a
+   * flex container, so its <span> children are blockified into flex items. As
+   * plain inline boxes they would ignore `transform` entirely and the whole
+   * choreography would silently be a fade.
+   *
+   * Nothing here is decoration on top of the data: every element moved is real
+   * scanner output, and the order is the order it was printed in.
+   */
+  .vg-finding--hero .vg-sev,
+  .vg-finding--hero .vg-finding__title,
+  .vg-finding--hero .vg-finding__id,
+  .vg-finding--hero .vg-finding__conf,
+  .vg-finding--hero .vg-finding__at,
+  .vg-finding--hero .vg-finding__rem {
+    animation: vg-rise-sm var(--vg-motion) var(--vg-ease) both;
+  }
+
+  /* The severity word settles rather than stops. It is the first thing the
+   * finding says and the only word in it that is a judgement. */
+  .vg-finding--hero .vg-sev {
+    animation-delay: 340ms;
+    animation-timing-function: var(--vg-ease-spring);
+  }
+
+  .vg-finding--hero .vg-finding__title {
+    animation-delay: 380ms;
+  }
+
+  .vg-finding--hero .vg-finding__id {
+    animation-delay: 420ms;
+  }
+
+  .vg-finding--hero .vg-finding__conf {
+    animation-delay: 450ms;
+  }
+
+  .vg-finding--hero .vg-finding__at {
+    animation-delay: 500ms;
+  }
+
+  .vg-finding--hero .vg-finding__rem {
+    animation-delay: 560ms;
+  }
+
+  /* Last, and at the short duration, so the band finishes inside a second. */
   .vg-hero__caption {
-    animation-delay: 320ms;
+    animation: vg-rise var(--vg-motion) var(--vg-ease) both;
+    animation-delay: 620ms;
   }
 
   /*
    * The two things that open. `[open]` is a state this site can express without
-   * a script, so these are the only two animations on it that a reader starts
+   * a script, so these are the only animations on it that a reader starts
    * themselves rather than by scrolling.
    *
    * Only the opening is animated. There is no closing animation and there
@@ -1956,30 +2105,108 @@
   .vg-details[open] > *:not(summary) {
     animation: vg-drop var(--vg-motion) var(--vg-ease) both;
   }
+
+
+  /*
+   * ── Between pages ───────────────────────────────────────────────────────
+   *
+   * Cross-document view transitions, which are the one piece of this that
+   * needed no script and no build step — two declarations and every navigation
+   * on the site cross-fades instead of blinking.
+   *
+   * `view-transition-name` is on `.vg-header__logo` and NOT on `.vg-wordmark`,
+   * which is the whole reason the class exists on the research layout's link
+   * now. The wordmark appears twice per page — once in the header and once in
+   * the footer — and two elements sharing one transition name makes the browser
+   * skip the entire transition without an error. One name, one element, checked
+   * by counting them in the built HTML.
+   *
+   * /install has no header at all, so on that page the name is simply absent.
+   * A name present on one side of a navigation and missing on the other is not
+   * a failure: that element cross-fades with the rest of the page.
+   */
+  @view-transition {
+    navigation: auto;
+  }
+
+  .vg-header__logo {
+    view-transition-name: vg-wordmark;
+  }
+}
+
+/* --- Pointer coupling -----------------------------------------------------
+ *
+ * The panel outlines itself in the accent while the primary action is under the
+ * pointer, so the button and the thing the button gets you are visibly the same
+ * subject. Three other components already answer a hover in a child - the
+ * category tile's label and its disc, the picker card's heading - but this is
+ * the only one that reaches ACROSS a subtree rather than down into its own,
+ * which is what `:has()` buys and what would otherwise need a script.
+ *
+ * NOT inside the reduced-motion gate, and that is a correction rather than a
+ * choice: this changes a colour and moves nothing. Hiding it from readers who
+ * asked for less motion removed an affordance without removing any motion,
+ * which is the opposite of what the preference asks for.
+ *
+ * `:not(.vg-cta--outline)` because the outlined secondary carries `.vg-cta`
+ * too. Without the exclusion the panel answers both buttons, and the whole
+ * point of the coupling is that it names ONE of them as the thing the panel
+ * belongs to.
+ *
+ * It is a BORDER COLOUR and not a transform, and that is forced rather than
+ * chosen. The panel carries an entrance animation with `fill-mode: both` whose
+ * final keyframe sets `transform: none`; a filled animation wins over a normal
+ * declaration, so a transform written here would be overridden from the moment
+ * the entrance finished and would work only while it was running. The keyframes
+ * touch opacity and transform, so every other property is free.
+ *
+ * `@media (hover: hover)` because on a touch screen `:hover` sticks after a
+ * tap, and a panel that stays outlined until the next tap elsewhere reads as a
+ * selection the reader did not make.
+ *
+ * The colour it takes is --vg-brand resolved in the `.vg-panel--code` scope, so
+ * it is drawn against --vg-surface-code - a pair contrast.mjs already carries,
+ * at 9.59 in light and higher in dark.
+ */
+@media (hover: hover) {
+  .vg-hero:has(.vg-hero__actions .vg-cta:not(.vg-cta--outline):hover) .vg-hero__panel {
+    border-color: var(--vg-brand);
+  }
 }
 
 /* ── Scroll-driven reveals ──────────────────────────────────────────────────
  *
- * CSS scroll-driven animations: no script, no observer, no library. The
- * `@supports` test is the whole compatibility story — a browser without
- * `animation-timeline` never matches these rules, so it never applies the
- * hidden `from` state either, and the page it renders is the page as it was
- * before this section existed.
+ * Scroll-driven animations: no script, no observer, no library. The `@supports`
+ * test is the whole compatibility story — a browser without `animation-timeline`
+ * never matches these rules, so it never applies the hidden `from` state
+ * either, and the page it renders is the page as it was before this section
+ * existed.
  *
- * ★ THE RANGE IS A LENGTH, NOT A PERCENTAGE, AND THAT IS THE ONE NON-OBVIOUS
- * DECISION HERE.
+ * ★ THE RANGE IS A LENGTH, NOT A PERCENTAGE.
  *
  * `entry 0%` to `entry 100%` spans the whole time a subject is entering, and
  * the length of that span is the subject's own height. On a news row that is
  * 40px of scrolling and the reveal is instant; on a triptych card holding two
  * code blocks it is fifteen hundred, and the card would sit half-faded through
  * an entire screen of scrolling. Naming a length instead gives every element on
- * the site the same 240px of travel regardless of how tall it is, which is what
- * makes a page of mixed content read as one behaviour rather than as several.
+ * the site the same 240px of travel regardless of how tall it is.
+ *
+ * ★ THE FOOTER IS DELIBERATELY NOT IN THE LIST BELOW, and the reason is a
+ * measurement. A reveal needs 240px of scrolling after the element first
+ * appears; an element at the very end of the document does not have it, because
+ * the document stops. Measured on the deployed site, `.vg-footer__brand` on
+ * /research/compiler settled at opacity 0.971 and could never reach 1 — the one
+ * element on the site that was permanently, if barely, unfinished. The footer
+ * is at the end of the runway by definition, so it is out of the set rather
+ * than given a special range; a special range would only move the same bug to
+ * whatever is last on the next page.
  *
  * The `animation` shorthand resets `animation-timeline` and `animation-range`,
- * so both have to follow it. Reversing those three lines silently turns every
- * rule below back into a time-based animation that has already finished.
+ * so both have to follow it — and worse, the minifier merges the shorthand and
+ * the timeline into `animation: linear both name view()`, a form Chrome rejects
+ * outright, which silently computes `animation-name` to `none` while
+ * `animation-range` survives and makes the stylesheet look correct. Longhands
+ * are not merged. That is why the four properties below are spelled out.
  */
 @supports (animation-timeline: view()) {
   @media (prefers-reduced-motion: no-preference) {
@@ -1999,9 +2226,7 @@
     .vg-rules__stats,
     .vg-rules__toc,
     .vg-research__prose > p,
-    .vg-privacy p,
-    .vg-footer__brand,
-    .vg-footer__sitemap {
+    .vg-privacy p {
       animation-name: vg-rise;
       animation-timing-function: linear;
       animation-fill-mode: both;
@@ -2049,6 +2274,112 @@
     .vg-triptych__card:nth-child(3),
     .vg-triptych__step:nth-child(3) {
       animation-range: entry 140px entry 380px;
+    }
+
+    /*
+     * ── Focus rescues a reveal ──────────────────────────────────────────
+     *
+     * A scroll-driven reveal is a function of position, and a keyboard user
+     * does not choose their position: pressing Tab scrolls only far enough to
+     * bring the focused element into view, which for an element revealing over
+     * 240px of travel is not far enough to finish it. Without this rule, Tab
+     * can land on a link inside an element still at a fraction of its opacity,
+     * with the focus ring fading along with it.
+     *
+     * `animation-name: none` rather than an opacity override, because removing
+     * the animation is what returns the element to its ordinary computed values
+     * — opacity 1 and no transform — instead of fighting the animation for one
+     * property and leaving the other displaced. It holds for as long as focus
+     * is inside and reverses when focus leaves.
+     *
+     * The list below is the revealed set MINUS the three members that cannot
+     * hold focus today: `.vg-pitch__line`, `.vg-pitch__where` and
+     * `.vg-rules__stats` are a sentence, a sentence and a row of numbers, with
+     * no link, control or tabindex among them. That is the whole rule for
+     * whether something belongs here — so if a link is ever added to one of
+     * them, it belongs here too, and leaving it out would quietly restore the
+     * bug this block exists to close.
+     */
+    .vg-band:not(.vg-hero) .vg-h2:focus-within,
+    .vg-grid8__cell:focus-within,
+    .vg-triptych__card:focus-within,
+    .vg-triptych__step:focus-within,
+    .vg-triptych__note:focus-within,
+    .vg-shot:focus-within,
+    .vg-news__item:focus-within,
+    .vg-picker__item:focus-within,
+    .vg-picker__note:focus-within,
+    .vg-disclosure:focus-within,
+    .vg-rule:focus-within,
+    .vg-rules__toc:focus-within,
+    .vg-research__prose > p:focus-within,
+    .vg-privacy p:focus-within {
+      animation-name: none;
+    }
+  }
+}
+
+/* ── The header's progress hairline ─────────────────────────────────────────
+ *
+ * A 2px accent rule under the sticky header that fills left to right as the
+ * document is read. It is drawn with `::after` rather than an element, so no
+ * markup carries it and no page had to be edited to get it; it is positioned
+ * against the header because a sticky element is a positioned one.
+ *
+ * `scroll(root block)` and not `view()`: the subject here is the document, not
+ * the header. Progress is the same pure function of scroll position everything
+ * else uses, so it costs nothing while the page is still.
+ *
+ * Decorative, and it has to stay that way. It repeats information the scrollbar
+ * already carries, which is what makes it safe to draw in an accent colour at
+ * 2px without a text alternative — nothing on this site is knowable only by
+ * seeing it. On a page too short to scroll the progress is 0 and the rule is
+ * scaled to nothing, which is the correct appearance for a page with no
+ * progress to report.
+ */
+@supports (animation-timeline: scroll(root block)) {
+  @media (prefers-reduced-motion: no-preference) {
+    /*
+     * The sticky head only.
+     *
+     * `.vg-research-head` had this too for one commit, on the reasoning that the
+     * long-form page was the one that most wanted a progress rule. It was taken
+     * back out: that head is not sticky, so the bar scrolls off the top with it
+     * and the only moment a reader can see it is the moment there is no progress
+     * to report. Making the head sticky to rescue the bar would be a layout
+     * change made to suit a decoration, and drawing it anyway would be a rule
+     * that only ever renders as zero.
+     *
+     * /install has no head at all — it sets `header={false}` so the page that IS
+     * the call to action does not carry a second one — so there is nothing there
+     * to draw on either, and that is the right outcome rather than a gap.
+     */
+    .vg-header::after {
+      content: "";
+      position: absolute;
+      inset-inline: 0;
+      bottom: -1px;
+      height: 2px;
+      background: var(--vg-brand);
+      transform-origin: left center;
+      transform: scaleX(0);
+      animation-name: vg-progress;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: scroll(root block);
+    }
+
+    /*
+     * Off under forced colours. The bar is drawn one pixel below the header's
+     * bottom border and covers it; in a forced palette both become system
+     * colours, so what a reader sees is the rule under the header being erased
+     * from the left as they scroll. A decoration that damages a structural line
+     * is worth less than the line.
+     */
+    @media (forced-colors: active) {
+      .vg-header::after {
+        content: none;
+      }
     }
   }
 }

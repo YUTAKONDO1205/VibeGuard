@@ -6,9 +6,17 @@
  * The counterpart is ResearchLayout, and the difference between the two files
  * is the entire mechanism protecting the site from promising unshipped work.
  * This one imports the header, the CTA and the version badge; that one imports
- * none of them. The separation is checkable — `grep -rl CtaButton src/layouts/`
- * returns this file and not the other — which is why it is a file split rather
- * than a documented convention.
+ * none of them.
+ *
+ * The separation is real but this file used to cite the wrong check for it.
+ * `grep -rl CtaButton src/layouts/` returns BOTH layouts and always did: it
+ * matches the prose of both header comments and the import of neither, because
+ * this layout reaches the button through SiteHeader and FooterWithCta rather
+ * than directly. What is actually checkable is the component graph —
+ * ResearchLayout imports only ResearchBanner and FooterBase, and neither of
+ * those, nor PageHero, imports anything at all — and, end to end, rule R2 in
+ * scripts/site-copy-lint.mjs, which fails the build if the word `install` ever
+ * reaches a /research page's <main>.
  */
 import '../styles/tokens.css';
 import '../styles/base.css';
