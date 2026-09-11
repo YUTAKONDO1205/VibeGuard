@@ -1,16 +1,18 @@
 /**
  * Where the repair cannot reach, stated per family rather than left out.
  *
- * The repair plugin runs at the start of the LLVM optimisation pipeline. That
- * fixes what it can and cannot see:
+ * Each repair plugin runs inside its compiler's middle end: WipePin at the start
+ * of the LLVM optimisation pipeline, WipePinGcc on GIMPLE directly after `cfg`.
+ * That fixes what they can and cannot see:
  *
- *   - It sees IR. Anything the preprocessor already removed never reaches it:
- *     an `assert` under -DNDEBUG, a check behind an `#ifdef` that the default
- *     build leaves undefined. No IR pass brings back tokens that were never
- *     parsed.
- *   - It is an LLVM plugin. gcc cannot load it.
- *   - It pins zero-fill memset intrinsics. A loss that is a folded comparison
- *     rather than a deleted store is a different repair.
+ *   - They see the compiler's IR. Anything the preprocessor already removed
+ *     never reaches it: an `assert` under -DNDEBUG, a check behind an `#ifdef`
+ *     that the default build leaves undefined. No IR pass brings back tokens
+ *     that were never parsed.
+ *   - Each loads into one vendor only. A run drives one compiler; the tracked
+ *     rows of any other compiler get one line (otherVendorLine).
+ *   - They pin zero-fill memsets. A loss that is a folded comparison rather
+ *     than a deleted store is a different repair.
  *
  * Silence about those families would read as "not examined" or, worse, as
  * "covered". So each gets a line, and the one that can be MEASURED is measured:
@@ -20,6 +22,7 @@
  *
  * Everything here is pure: it reads rows and bodies it is handed.
  */
+import { vendorOf, VENDORS } from './vendor.mjs';
 
 /** authz: summarise the tracked NDEBUG differential. */
 export function authzSummary(rows) {
@@ -91,11 +94,32 @@ export function configguardRow(target, measured, { cc = 'clang-18', opt = '-O2',
   };
 }
 
-/** gcc: one line, no rows. */
-export function unsupportedVendorLine(rows, vendor = 'gcc-13') {
-  const n = rows.filter((r) => r.kind === 'erasure' && r.cc === vendor).length;
-  return `${vendor}: UNSUPPORTED_VENDOR -- ${n} tracked erasure cell(s); an LLVM pass plugin cannot load into gcc, `
-    + 'so this lane has no plugin-on compile to make for them';
+/**
+ * A compiler the tracked rows know and this run did not drive: one line, no rows.
+ *
+ *   SEPARATE_RUN        a repair plugin exists for its vendor (vendor.VENDORS);
+ *                       its cells are measured by a run with --cc <that compiler>,
+ *                       and the cross-vendor coverage line reads that run's tracked
+ *                       rows, if there are any
+ *   UNSUPPORTED_VENDOR  no repair plugin loads into it, so there is no plugin-on
+ *                       compile to make for its cells at all
+ */
+export function otherVendorLine(rows, cc) {
+  const n = rows.filter((r) => r.kind === 'erasure' && r.cc === cc).length;
+  const vendor = vendorOf(cc);
+  if (vendor === null) {
+    return `${cc}: UNSUPPORTED_VENDOR -- ${n} tracked erasure cell(s); no repair plugin loads into ${cc}, `
+      + 'so this lane has no plugin-on compile to make for them';
+  }
+  const v = VENDORS[vendor];
+  return `${cc}: SEPARATE_RUN -- ${n} tracked erasure cell(s); its repair plugin is ${v.component} `
+    + `(${v.pluginFlag}<so>), and its cells are measured by a run with --cc ${cc}, not by this one`;
+}
+
+/** One otherVendorLine per compiler in the tracked erasure rows other than `runCc`, in name order. */
+export function otherVendorLines(rows, runCc) {
+  const ccs = [...new Set(rows.filter((r) => r.kind === 'erasure' && r.cc !== runCc).map((r) => r.cc))].sort();
+  return ccs.map((cc) => otherVendorLine(rows, cc));
 }
 
 /** Families outside the corpus and outside the repair's mechanism. */

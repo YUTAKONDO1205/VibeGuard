@@ -24,17 +24,26 @@
  * and the pin plan (<out>/pin-plan.json) that turns the find step's eliminations
  * into WPIN_TARGET_FNS per file and level.
  *
+ * One compiler per run, and the vendor is read from the --cc basename
+ * (lib/vendor.mjs): clang loads WipePin (compiler/llvm-repair/) with
+ * -fpass-plugin=<so>, gcc loads WipePinGcc (compiler/gcc-repair/) with
+ * -fplugin=<so>, and the record reader is told which component to insist on.
+ * Everything else -- the cell, the per-span layer, the controls, surgicality,
+ * the plan, configguard -- is the same code for both.
+ *
  *   node run-repair-loop.mjs --plugin <libWipePin.so> --out <lab dir> [options]
+ *   node run-repair-loop.mjs --cc gcc-13 --plugin <libWipePinGcc.so> --out <lab dir> [options]
  *
  * Exit codes: 0 run complete and every integrity check held; 2 run complete but a
  * baseline disagreed with the tracked rows, a surgicality check was violated, a
  * red control did not give its designed answer, or the preflight's refusal checks
  * failed (a record written without a target, a silent or failing compile without
  * WPIN_OUT; with --write-data that is refused before any cell); 3 vacuous
- * (nothing selected); 4 bad arguments; 5 a tool, the plugin, the shared verdict
- * module or the effect oracle could not be used, the module-scope preflight record
- * was refused (before any cell), or a text about to be written carried an
- * absolute path.
+ * (nothing selected); 4 bad arguments (including a --cc whose basename names
+ * neither vendor); 5 a tool, the plugin (a plugin of the other vendor fails to
+ * load here), the shared verdict module or the effect oracle could not be used,
+ * the module-scope preflight record was refused (before any cell), or a text
+ * about to be written carried an absolute path.
  */
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, existsSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -44,11 +53,14 @@ import { dirname, resolve, join, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readPinRecord, unresolvedNames, SEEN_KEYS, UNHANDLED_KEYS } from './lib/pin-record.mjs';
 import { outcomeOf, absentAfterAblation, gradeRedControl, OUTCOMES, ELIMINATED } from './lib/outcome.mjs';
-import { ablatedUnchanged, controlUntouched, noPinNoChange, pinDelta } from './lib/surgicality.mjs';
-import { authzSummary, configguardTargets, configguardRow, unsupportedVendorLine, notAttemptedLine } from './lib/stage-gate.mjs';
+import { ablatedUnchanged, controlUntouched, controlRenumberedOnly, differsOnlyInLabels, noPinNoChange, pinDelta } from './lib/surgicality.mjs';
+import { authzSummary, configguardTargets, configguardRow, otherVendorLines, notAttemptedLine } from './lib/stage-gate.mjs';
+import { vendorOf, vendorConfig, dataFileNames, fullRunCheck, fortifyFromDefines } from './lib/vendor.mjs';
 import { spanPlan, spanSourceOf, spanRows, hiddenFlags } from './lib/spans.mjs';
-import { spanSummary, effectVerdict, corroborationSummary, listingChangedWithoutLoss, crossVendorCoverage, buildPinPlan } from './lib/summaries.mjs';
-import { readPlan, planMismatch, planSummary, renderPlanSummary } from './lib/plan.mjs';
+import {
+  spanSummary, effectVerdict, corroborationSummary, listingChangedWithoutLoss, labelRenumbering, crossVendorCoverage, buildPinPlan,
+} from './lib/summaries.mjs';
+import { readPlan, planMismatch, planCompilerMismatch, planSummary, renderPlanSummary } from './lib/plan.mjs';
 import { sha256Text, absolutePathHits, rowsFileLabel } from './lib/provenance.mjs';
 import { preflightProblems } from './lib/preflight.mjs';
 
@@ -62,6 +74,11 @@ const CELL_PATH = join(AIGEN, 'lib', 'ablation-cell.mjs');
 // The effect oracle the find step's controlPresent is built on. Imported, not
 // copied, for the corroboration column.
 const ORACLE_PATH = resolve(HERE, '..', 'second-vendor', 'lib', 'asm-oracle.mjs');
+// The rep-stos reading of a target body (the form gcc-13 gives a zero fill at
+// -Os, which the effect oracle does not know). Imported from the GCC plugin's
+// fixture reader rather than written a third time; it is the find step's
+// controlPresent fallback applied to any function. Corroboration only.
+const REPSTOS_PATH = resolve(HERE, '..', '..', 'gcc-repair', 'scripts', 'lib', 'asm-presence.mjs');
 const DEFAULT_ROWS = join(AIGEN, 'data', 'r2-build-rows.json');
 // Build scratch: regenerable, ignored by .gitignore.
 const BUILD = join(HERE, '_build');
@@ -71,9 +88,12 @@ const CONTROL_FN = 'vgctl_control';
 
 const USAGE = `usage: node run-repair-loop.mjs --plugin <so> --out <dir> [options]
 
-  --plugin <so>          the repair plugin (required; there is no default)
+  --plugin <so>          the repair plugin (required; there is no default): libWipePin.so for
+                         clang, libWipePinGcc.so for gcc
   --out <dir>            lab directory for records, rows, the manifest and pin-plan.json (required)
-  --cc <compiler>        default clang-18; gcc is refused
+  --cc <compiler>        default clang-18. The vendor is read from the basename (clang, clang-18,
+                         gcc-13, g++-13, x86_64-linux-gnu-gcc-13, ...): clang loads the plugin with
+                         -fpass-plugin=, gcc with -fplugin=. Any other basename is refused
   --scope functions|module     default functions
   --opts <list>          comma list from ${ALL_OPTS.join(' ')} (default: all five)
   --dry-run              load the plugin with WPIN_DRY_RUN=1 (red control)
@@ -84,7 +104,9 @@ const USAGE = `usage: node run-repair-loop.mjs --plugin <so> --out <dir> [option
   --plan <pin-plan.json> find -> fix as a user would run it: pin ONLY the (file, level) cells a
                          previous run's pin plan names, with the names it lists, and confirm each
                          with the same verdict (functions scope; refused with --write-data)
-  --write-data           also write data/r2-repair-rows.json and data/r2-repair-results.txt
+  --write-data           also write the tracked rows and results: data/r2-repair-rows.json and
+                         data/r2-repair-results.txt for clang-18, data/r2-repair-rows-<cc>.json and
+                         data/r2-repair-results-<cc>.txt for any other --cc
                          (refused for red controls and partial runs)
 `;
 
@@ -119,10 +141,10 @@ function parseArgs(argv) {
   }
   if (!a.plugin) die(4, '--plugin is required. There is no default: the plugin under test must be named by whoever runs the lane.');
   if (!a.out) die(4, '--out is required: records and manifests go to a lab directory outside the repository.');
-  const ccBase = basename(a.cc);
-  if (/^(gcc|g\+\+)(-[\d.]+)?$/.test(ccBase) || /-(gcc|g\+\+)(-[\d.]+)?$/.test(ccBase)) {
-    die(4, `--cc ${a.cc} refused: an LLVM pass plugin cannot load into gcc. gcc's cells are reported as `
-      + 'UNSUPPORTED_VENDOR from the tracked rows; there is nothing to run.');
+  a.vendor = vendorOf(a.cc);
+  if (a.vendor === null) {
+    die(4, `--cc ${basename(a.cc)}: the basename names neither clang nor gcc, so neither the plugin flag nor the `
+      + 'record component can be chosen. Name the compiler as clang[-N] or gcc[-N] / g++[-N].');
   }
   if (!['functions', 'module'].includes(a.scope)) die(4, `--scope must be functions or module, not ${a.scope}`);
   for (const o of a.opts) if (!ALL_OPTS.includes(o)) die(4, `--opts: ${o} is not one of ${ALL_OPTS.join(' ')}`);
@@ -218,6 +240,10 @@ async function main() {
   const oracle = await import(pathToFileURL(ORACLE_PATH).href);
   if (typeof oracle.observeEffect !== 'function') die(5, 'asm-oracle.mjs does not export observeEffect');
   const effectOf = (listing, fn) => effectVerdict(oracle.observeEffect, listing, fn, cell.CONTROL_EFFECT);
+  if (!existsSync(REPSTOS_PATH)) die(5, 'gcc-repair/scripts/lib/asm-presence.mjs is missing; the rep-stos reading imports it and has no copy.');
+  const presence = await import(pathToFileURL(REPSTOS_PATH).href);
+  if (typeof presence.repStosZeroFill !== 'function') die(5, 'asm-presence.mjs does not export repStosZeroFill');
+  const repStosOf = (listing, fn) => (typeof listing === 'string' ? presence.repStosZeroFill(listing, fn) : null);
 
   let ccVersion;
   try {
@@ -227,7 +253,10 @@ async function main() {
     die(5, `${args.cc} --version failed: the compiler is not runnable here`);
   }
   const ccName = basename(args.cc);
+  const vc = vendorConfig(args.vendor, args.plugin);
+  const component = vc.component;
   const pluginSha = sha256(args.plugin);
+  const dataNames = dataFileNames(ccName);
 
   const scen = JSON.parse(readFileSync(SCEN_PATH, 'utf8'));
   let tracked;
@@ -241,6 +270,8 @@ async function main() {
     try { obj = JSON.parse(readFileSync(args.plan, 'utf8')); } catch { die(5, 'the --plan file could not be read as JSON'); }
     const p = readPlan(obj, { allOpts: ALL_OPTS });
     if (!p.ok) die(5, `the --plan file was refused: ${p.problems.slice(0, 5).join('; ')}`);
+    const ccWhy = planCompilerMismatch(obj, ccName);
+    if (ccWhy) die(5, `the --plan file was refused: ${ccWhy}`);
     planIn = p.entries;
     planSha = sha256(args.plan);
   }
@@ -248,7 +279,7 @@ async function main() {
   mkdirSync(BUILD, { recursive: true });
   mkdirSync(join(args.out, 'records'), { recursive: true });
 
-  const pluginArg = `-fpass-plugin=${args.plugin}`;
+  const pluginArg = vc.pluginArg;
   const pluginEnv = (recordPath, requested, scope = args.scope) => {
     const env = { ...BASE_ENV, WPIN_OUT: recordPath };
     if (scope === 'module') env.WPIN_SCOPE = 'module';
@@ -258,7 +289,8 @@ async function main() {
   };
 
   // ---- preflight: does the plugin load, and does it refuse when it should? ----
-  const pre = { loads: null, loadStderr: null, recordOnModuleScope: null, noRecordWithoutTarget: null, noRecordWithoutOut: null };
+  const pre = { vendor: args.vendor, component, loads: null, loadStderr: null, recordOnModuleScope: null,
+    noRecordWithoutTarget: null, noRecordWithoutOut: null, fortify: {} };
   {
     const src = join(BUILD, '_preflight.c');
     writeFileSync(src, 'void vgpre_wipe(unsigned char *p) { __builtin_memset(p, 0, 64); }\n', 'utf8');
@@ -273,8 +305,11 @@ async function main() {
       pre.loads = false;
       pre.loadStderr = String(e.stderr || e.message || '').split('\n').slice(0, 6).join('\n');
     }
-    if (!pre.loads) die(5, `the plugin did not load into ${ccName}; first lines of stderr:\n${pre.loadStderr}`);
-    const rA = readPinRecord(recA, { component: 'WipePin', scope: 'module', dryRun: args.dryRun, opt: '-O2', module: basename(src) });
+    // A plugin built for the other vendor lands here: gcc cannot dlopen an LLVM
+    // pass plugin as a GCC plugin, and clang cannot load a GCC plugin as a pass
+    // plugin, so the compile fails and the run stops before any cell.
+    if (!pre.loads) die(5, `the plugin did not load into ${ccName} (loaded with ${pluginArg.split('=')[0]}=, as a ${component} plugin); first lines of stderr:\n${pre.loadStderr}`);
+    const rA = readPinRecord(recA, { component, scope: 'module', dryRun: args.dryRun, opt: '-O2', module: basename(src) });
     pre.recordOnModuleScope = rA.ok ? 'valid' : rA.problems.join(', ');
     // Contract: WPIN_OUT set but no target -> no record.
     const envB = { ...BASE_ENV, WPIN_OUT: recB };
@@ -291,6 +326,18 @@ async function main() {
       pre.noRecordWithoutOut = stderr.trim().length > 0 ? 'stderr-nonempty' : 'stderr-empty';
     } catch {
       pre.noRecordWithoutOut = 'compile-failed';
+    }
+    // What the headers the cells include are, per level: _FORTIFY_SOURCE as the
+    // compiler predefines it with the cells' own FLAGS (-E wins over the -S in
+    // FLAGS). Measured, not assumed: Ubuntu's gcc-13 defines it at -O1 and above
+    // and clang-18 does not, and FLAGS does not equalise that (lib/vendor.mjs).
+    for (const o of ALL_OPTS) {
+      try {
+        const { stdout } = await run(args.cc, [...cell.FLAGS, o, '-dM', '-E', src], { env: BASE_ENV, timeout: 30000, maxBuffer: 16 << 20 });
+        pre.fortify[o] = fortifyFromDefines(stdout);
+      } catch {
+        pre.fortify[o] = 'unmeasured';
+      }
     }
     // Fail closed. A plugin whose one known-good record is refused would make
     // every cell BROKEN_REPAIR; there is nothing to measure, so stop here.
@@ -401,8 +448,8 @@ async function main() {
 
     const baseline = cell.verdictOf(aWoff, aWooff, meta.fn);
     const repaired = cell.verdictOf(aWon, aWoon, meta.fn);
-    const rW = readPinRecord(recW, { component: 'WipePin', ...baseExpect, opt, module: basename(pW), requested });
-    const rWo = readPinRecord(recWo, { component: 'WipePin', ...baseExpect, opt, module: basename(pWo), requested });
+    const rW = readPinRecord(recW, { component, ...baseExpect, opt, module: basename(pW), requested });
+    const rWo = readPinRecord(recWo, { component, ...baseExpect, opt, module: basename(pWo), requested });
     const ctlW = aWon ? cell.controlPresent(aWon) : { ok: false, via: 'COMPILE_ERROR' };
     const ctlWo = aWoon ? cell.controlPresent(aWoon) : { ok: false, via: 'COMPILE_ERROR' };
     const oc = outcomeOf(baseline, repaired, rW, rWo, ctlW.ok && ctlWo.ok);
@@ -419,7 +466,7 @@ async function main() {
       rmSync(recS, { force: true });
       const aSoff = await cell.compile(args.cc, [opt], pS, asmPath(meta.id, opt, side, 'off'));
       const aSon = await cell.compile(args.cc, [opt, pluginArg], pS, asmPath(meta.id, opt, side, 'on'), { env: pluginEnv(recS, requested) });
-      const rS = readPinRecord(recS, { component: 'WipePin', ...baseExpect, opt, module: basename(pS), requested });
+      const rS = readPinRecord(recS, { component, ...baseExpect, opt, module: basename(pS), requested });
       measured[p.index] = { off: cell.verdictOf(aWoff, aSoff, meta.fn), on: cell.verdictOf(aWon, aSon, meta.fn), recordOk: rS.ok };
     }
     const spans = spanRows(c.plan, { baseline, repaired, measured });
@@ -439,6 +486,9 @@ async function main() {
       spanSource: spanSourceOf(c.plan), spans,
       hiddenElimination: hidden.hiddenElimination, hiddenRetained: hidden.hiddenRetained,
       effectW: { off: effectOf(aWoff, meta.fn), on: effectOf(aWon, meta.fn) },
+      // A second, separately labelled reading: rep stos in the target body (the
+      // -Os form on gcc, which observeEffect does not know). Never merged into effectW.
+      effectWRepStos: { off: repStosOf(aWoff, meta.fn), on: repStosOf(aWon, meta.fn) },
       listings: { wOff: sha256Text(aWoff), woOff: sha256Text(aWooff), wOn: sha256Text(aWon), woOn: sha256Text(aWoon) },
       controlOnW: ctlW.ok, controlOnWVia: ctlW.via, controlOnWo: ctlWo.ok, controlOnWoVia: ctlWo.via,
       recordW: summarizeRecord(rW), recordWo: summarizeRecord(rWo),
@@ -449,6 +499,13 @@ async function main() {
       pinDelta: pinDelta(rW, rWo),
       ablatedUnchanged: ablatedUnchanged({ asmWoOff: aWooff, asmWoOn: aWoon, fn: meta.fn, recordWo: rWo, bodyOf: cell.bodyOf }),
       controlUntouched: controlUntouched({ scope: args.scope, pairs: [[aWoff, aWon], [aWooff, aWoon]], bodyOf: cell.bodyOf, controlFn: CONTROL_FN }),
+      controlUntouchedRenumberedOnly: controlRenumberedOnly({ scope: args.scope, pairs: [[aWoff, aWon], [aWooff, aWoon]], bodyOf: cell.bodyOf, controlFn: CONTROL_FN }),
+      // Where the two target bodies differ only in gcc's unit-wide .L<n> label
+      // names (lib/surgicality.mjs). Reported; the verdicts above are unchanged.
+      labelsOnly: {
+        baseline: differsOnlyInLabels(aWoff && cell.bodyOf(aWoff, meta.fn), aWooff && cell.bodyOf(aWooff, meta.fn)),
+        repaired: differsOnlyInLabels(aWon && cell.bodyOf(aWon, meta.fn), aWoon && cell.bodyOf(aWoon, meta.fn)),
+      },
       noPinNoChangeW: noPinNoChange({ asmOff: aWoff, asmOn: aWon, record: rW }),
       noPinNoChangeWo: noPinNoChange({ asmOff: aWooff, asmOn: aWoon, record: rWo }),
     });
@@ -463,7 +520,7 @@ async function main() {
     rmSync(recW, { force: true });
     const aOff = await cell.compile(args.cc, [opt], pW, asmPath(meta.id, opt, 'w', 'off'));
     const aOn = await cell.compile(args.cc, [opt, pluginArg], pW, asmPath(meta.id, opt, 'w', 'on'), { env: pluginEnv(recW, requested) });
-    const rW = readPinRecord(recW, { component: 'WipePin', ...baseExpect, opt, module: basename(pW), requested });
+    const rW = readPinRecord(recW, { component, ...baseExpect, opt, module: basename(pW), requested });
     rows.push({
       id: meta.id, model: meta.model, framing: meta.framing, scen: meta.scen, fam: meta.fam, fn: meta.fn,
       kind: 'none', verdict: 'NO_WIPE_WRITTEN', cc: ccName, opt, scope: args.scope, dryRun: args.dryRun, targetSuffix: args.targetSuffix,
@@ -476,6 +533,7 @@ async function main() {
       pinnedCount: rW.ok ? rW.record.pinnedCount : null,
       noPinNoChange: noPinNoChange({ asmOff: aOff, asmOn: aOn, record: rW }),
       controlUntouched: controlUntouched({ scope: args.scope, pairs: [[aOff, aOn]], bodyOf: cell.bodyOf, controlFn: CONTROL_FN }),
+      controlUntouchedRenumberedOnly: controlRenumberedOnly({ scope: args.scope, pairs: [[aOff, aOn]], bodyOf: cell.bodyOf, controlFn: CONTROL_FN }),
     });
     tick();
   }, args.conc);
@@ -502,7 +560,7 @@ async function main() {
       const aOff = await cell.compile(args.cc, ['-O2'], p, asmPath(t.id, '-O2', 'default', 'off'));
       const aOn = await cell.compile(args.cc, ['-O2', pluginArg], p, asmPath(t.id, '-O2', 'default', 'on'), { env: pluginEnv(rec, [], 'module') });
       const aEn = await cell.compile(args.cc, ['-O2', ...t.macros.map((m) => `-D${m}=1`)], p, asmPath(t.id, '-O2', 'enabled', 'off'));
-      const rr = readPinRecord(rec, { component: 'WipePin', scope: 'module', dryRun: args.dryRun, opt: '-O2', module: basename(p) });
+      const rr = readPinRecord(rec, { component, scope: 'module', dryRun: args.dryRun, opt: '-O2', module: basename(p) });
       cfgRows.push(configguardRow(t, {
         bodyDefaultOff: aOff ? cell.bodyOf(aOff, t.fn) : null,
         bodyDefaultOn: aOn ? cell.bodyOf(aOn, t.fn) : null,
@@ -519,8 +577,30 @@ async function main() {
 
   // ---- views beside the outcome ------------------------------------------------------
   const pinPlan = buildPinPlan(rows, args.opts);
+  // Every other compiler the tracked find-step rows know: its tracked repair rows,
+  // if a --write-data run with that --cc left any. Read here, judged by the pure
+  // functions; nothing is inferred when the file is absent.
+  const corpusErasureIds = all.map(metaOf).filter((m) => m && m.fam === 'erasure').map((m) => m.id);
+  const others = {};
+  for (const cc of [...new Set(tracked.filter((r) => r.kind === 'erasure' && r.cc !== ccName).map((r) => r.cc))].sort()) {
+    let names;
+    try { names = dataFileNames(cc); } catch { continue; }
+    const p = join(DATA, names.rows);
+    if (!existsSync(p)) continue;
+    const label = `compiler/eval/repair-loop/data/${names.rows}`;
+    let sha = null, parsed;
+    try {
+      sha = sha256(p);
+      parsed = JSON.parse(readFileSync(p, 'utf8'));
+    } catch {
+      others[cc] = { label, sha256: sha, error: 'not JSON' };
+      continue;
+    }
+    if (!Array.isArray(parsed)) { others[cc] = { label, sha256: sha, error: 'not a list of rows' }; continue; }
+    others[cc] = { label, sha256: sha, rows: parsed, full: fullRunCheck(parsed, { cc, allOpts: ALL_OPTS, erasureIds: corpusErasureIds }) };
+  }
   const coverage = crossVendorCoverage({
-    tracked, rows, runCc: ccName, ids: new Set(erasure.map((x) => x.meta.id)), opts: args.opts,
+    tracked, rows, runCc: ccName, ids: new Set(erasure.map((x) => x.meta.id)), opts: args.opts, others,
   });
 
   // ---- results text ----------------------------------------------------------------
@@ -537,7 +617,8 @@ async function main() {
   }, null, 2) + '\n';
   const manifestText = JSON.stringify({
     generatedAt: new Date().toISOString(), node: process.version,
-    cc: ccName, ccVersion, plugin: { basename: basename(args.plugin), sha256: pluginSha },
+    cc: ccName, ccVersion, vendor: args.vendor, component, pluginFlag: pluginArg.split('=')[0] + '=',
+    plugin: { basename: basename(args.plugin), sha256: pluginSha },
     scope: args.scope, dryRun: args.dryRun, targetSuffix: args.targetSuffix, opts: args.opts,
     files: args.files,
     rowsFile: rowsFileLabel(args.rows, { defaultPath: DEFAULT_ROWS, repoRoot: REPO }), rowsSha256: sha256(args.rows),
@@ -545,14 +626,16 @@ async function main() {
     erasureFiles: erasure.length, cells: cells.length, noWipeCells: noneCells.length, configguardRows: cfgRows.length,
     perSpanCompilePairs: spanCompilePairs, pinPlanEntries: pinPlan.length,
     planInput: planIn ? { sha256: planSha, entries: planIn.size } : null,
+    otherCompilersTrackedRows: Object.fromEntries(Object.entries(others).map(([cc, o]) => [cc,
+      { file: o.label, sha256: o.sha256, full: o.full ? o.full.full : null, why: o.full ? o.full.why : [], error: o.error ?? null }])),
     ignoredInheritedEnv: inherited,
   }, null, 2) + '\n';
 
   // Nothing written may carry the measuring machine's layout. Checked on the
   // exact texts, before the tracked copies are written.
   const pathHits = [];
-  for (const [name, t] of [['r2-repair-rows.json', rowsText], ['manifest.json', manifestText],
-    ['r2-repair-results.txt', text], ['pin-plan.json', planText]]) {
+  for (const [name, t] of [[dataNames.rows, rowsText], ['manifest.json', manifestText],
+    [dataNames.results, text], ['pin-plan.json', planText]]) {
     const h = absolutePathHits(t);
     if (h.length) pathHits.push(`${name}: ${h.join(', ')}`);
   }
@@ -568,9 +651,12 @@ async function main() {
     die(5, `an absolute path would be written (${pathHits.join('; ')}); nothing was written to data/`);
   }
   if (args.writeData) {
+    // Per compiler (lib/vendor.mjs dataFileNames): clang-18 keeps the names the
+    // tracked data was first written under; any other --cc writes its own pair,
+    // so one compiler's run can never overwrite another's.
     mkdirSync(DATA, { recursive: true });
-    writeFileSync(join(DATA, 'r2-repair-rows.json'), rowsText, 'utf8');
-    writeFileSync(join(DATA, 'r2-repair-results.txt'), text, 'utf8');
+    writeFileSync(join(DATA, dataNames.rows), rowsText, 'utf8');
+    writeFileSync(join(DATA, dataNames.results), text, 'utf8');
   }
   process.stdout.write(text);
 
@@ -605,7 +691,10 @@ function renderResults({ args, ccName, ccVersion, pluginSha, pre, rows, authz, c
   L.push('repair-loop results (run-repair-loop.mjs)');
   L.push('');
   L.push(`compiler        ${ccName}  (${ccVersion})`);
+  L.push(`vendor          ${pre.vendor}: plugin ${pre.component}, loaded with ${pre.vendor === 'gcc' ? '-fplugin=' : '-fpass-plugin='}<so>`);
   L.push(`plugin sha256   ${pluginSha}`);
+  L.push(`_FORTIFY_SOURCE ${ALL_OPTS.map((o) => `${o} ${pre.fortify[o] === null ? '(not defined)' : pre.fortify[o] === '' ? '(defined, empty)' : pre.fortify[o]}`).join(', ')}`
+    + '  (predefined by the compiler with FLAGS; FLAGS does not set it)');
   L.push(`scope           ${args.scope}`);
   L.push(`dry run         ${args.dryRun}`);
   L.push(`target suffix   ${args.targetSuffix === null ? '(none)' : JSON.stringify(args.targetSuffix)}`);
@@ -662,8 +751,10 @@ function renderResults({ args, ccName, ccVersion, pluginSha, pre, rows, authz, c
   for (const o of opts) {
     const sub = er.filter((r) => r.opt === o);
     const nsub = none.filter((r) => r.opt === o);
+    const fb = sub.filter((r) => r.controlOnWVia === 'rep-stos-fallback').length + sub.filter((r) => r.controlOnWoVia === 'rep-stos-fallback').length;
     L.push(`  ${pad(o, 4)} w/on ${sub.filter((r) => r.controlOnW).length}/${sub.length}   wo/on ${sub.filter((r) => r.controlOnWo).length}/${sub.length}`
-      + `   no-wipe on ${nsub.filter((r) => r.controlOn).length}/${nsub.length}`);
+      + `   no-wipe on ${nsub.filter((r) => r.controlOn).length}/${nsub.length}`
+      + `   (w/on + wo/on read through the find step's rep-stos fallback: ${fb})`);
   }
   L.push('');
 
@@ -675,6 +766,8 @@ function renderResults({ args, ccName, ccVersion, pluginSha, pre, rows, authz, c
   L.push(`  noPinNoChange  wo    ${tri(er, 'noPinNoChangeWo')}`);
   L.push(`  noPinNoChange  none  ${tri(none, 'noPinNoChange')}`);
   L.push(`  controlUntouched none ${tri(none, 'controlUntouched')}`);
+  L.push(`  controlUntouched held only after renaming the unit-wide .L<n> labels (gcc): wipe cells ${er.filter((r) => r.controlUntouchedRenumberedOnly === true).length}, `
+    + `no-wipe ${none.filter((r) => r.controlUntouchedRenumberedOnly === true).length}`);
   for (const r of er) {
     for (const k of ['ablatedUnchanged', 'controlUntouched', 'noPinNoChangeW', 'noPinNoChangeWo']) {
       if (r[k] === false) L.push(`  VIOLATED ${k} ${r.id} ${r.opt}`);
@@ -727,10 +820,22 @@ function renderResults({ args, ccName, ccVersion, pluginSha, pre, rows, authz, c
   // corroboration: a second reading of the same w listings
   L.push('corroboration by the effect oracle (observeEffect on the target body, CONTROL_EFFECT; never changes an outcome)');
   for (const c of corroborationSummary(rows, opts)) {
-    L.push(`  ${pad(c.opt, 4)} RETAINED ${c.retained}: effect PRESENT in w/on ${c.onPresent}, in w/off ${c.offPresent}`);
-    for (const id of c.onNotPresent) L.push(`         w/on NOT PRESENT ${id}`);
+    L.push(`  ${pad(c.opt, 4)} RETAINED ${c.retained}: effect PRESENT in w/on ${c.onPresent}, in w/off ${c.offPresent}`
+      + `; of the w/on misses, rep stos in the body ${c.onRepStosOnly}`);
+    const rs = new Set(c.onRepStosOnlyIds);
+    for (const id of c.onNotPresent) L.push(`         w/on NOT PRESENT ${id}${rs.has(id) ? ' (rep stos in the body: the -Os zero fill the oracle does not know)' : ''}`);
   }
   L.push('  the w/off count is unreliable: any memset call or zero store in the body counts, so an array initialiser can read PRESENT although the wipe is gone.');
+  L.push('  the rep-stos reading is separate and never added to the oracle\'s count (observeEffect does not know rep stos; gcc uses it at -Os).');
+  L.push('');
+
+  // label names: gcc's unit-wide .L<n> counter
+  L.push('target bodies that differ only in .L<n> label names (gcc numbers them per unit; verdicts unchanged, see README)');
+  for (const c of labelRenumbering(rows, opts)) {
+    L.push(`  ${pad(c.opt, 4)} baseline w/off vs wo/off ${c.baselineLabelsOnly}; RETAINED whose w/on vs wo/on ${c.retainedLabelsOnly}`);
+    for (const id of c.baselineLabelsOnlyIds) L.push(`         BASELINE LABELS ONLY ${id}`);
+    for (const id of c.retainedLabelsOnlyIds) L.push(`         RETAINED LABELS ONLY ${id}`);
+  }
   L.push('');
 
   // listing provenance
@@ -770,7 +875,7 @@ function renderResults({ args, ccName, ccVersion, pluginSha, pre, rows, authz, c
     L.push(`    record valid ${c('recordOk', true)}/${cfg.length}, control PRESENT with the plugin ${c('controlOn', true)}/${cfg.length}`);
     for (const r of cfg.filter((x) => x.pluginLeftDefaultBodyUnchanged === false)) L.push(`    CHANGED ${r.id}: pinnedCount ${r.pinnedCount}`);
   }
-  L.push(`  ${unsupportedVendorLine(tracked, 'gcc-13')}`);
+  for (const line of otherVendorLines(tracked, ccName)) L.push(`  ${line}`);
   L.push(`  ${notAttemptedLine()}`);
   L.push('');
   return L.join('\n');

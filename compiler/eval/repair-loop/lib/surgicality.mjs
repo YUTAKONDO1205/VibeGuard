@@ -28,22 +28,78 @@ export function ablatedUnchanged({ asmWoOff, asmWoOn, fn, recordWo, bodyOf }) {
 }
 
 /**
- * In functions scope the positive control is not a selected function, so its
- * body must not move. Checked in both the wipe-kept and the wipe-deleted
- * translation unit. Not applicable in module scope, where the control's own
- * memset is a legitimate target.
+ * GCC's local code labels, `.L<n>`, are numbered by one counter for the whole
+ * translation unit, in emission order. A pin that gives the target function one
+ * label more or fewer renumbers every `.L<n>` in the functions emitted after it,
+ * with not one instruction changed there. Measured on gcc-13 (fable_N_token_r3,
+ * -O1/-O2): the control's body, which follows the target, differed only in
+ * `jne .L12` / `.L12:` against `jne .L13` / `.L13:`. clang names its labels per
+ * function (`.LBB<f>_<n>`, `.Ltmp<n>`, `.LCPI...`), none of which this pattern
+ * matches, so on clang this is the identity.
+ *
+ * Renames each `.L<digits>` in order of first appearance to `.L#0`, `.L#1`, ...
+ * Only names change: a branch that now goes somewhere else, or a label that moved,
+ * still shows, because the mapping is by position in this text.
  */
-export function controlUntouched({ scope, pairs, bodyOf, controlFn = 'vgctl_control' }) {
+export function canonicalLocalLabels(text) {
+  if (typeof text !== 'string') return text;
+  const m = new Map();
+  return text.replace(/\.L\d+\b/g, (s) => {
+    if (!m.has(s)) m.set(s, `.L#${m.size}`);
+    return m.get(s);
+  });
+}
+
+/**
+ * true when two bodies differ as text and are the same once canonicalLocalLabels
+ * has renamed their `.L<n>` labels; false when they are equal as text or still
+ * differ after it; null when either is missing. Reported, never used to change a
+ * verdict: the find step's verdictOf compares the text as it is.
+ */
+export function differsOnlyInLabels(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return null;
+  return a !== b && canonicalLocalLabels(a) === canonicalLocalLabels(b);
+}
+
+function controlPairs({ scope, pairs, bodyOf, controlFn }) {
   if (scope !== 'functions') return null;
-  let decided = 0;
+  const out = [];
   for (const [off, on] of pairs) {
     if (!off || !on) return null;
     const a = bodyOf(off, controlFn), b = bodyOf(on, controlFn);
     if (a === null || b === null) return null;
-    if (a !== b) return false;
-    decided++;
+    out.push([a, b]);
   }
-  return decided > 0 ? true : null;
+  return out.length ? out : null;
+}
+
+/**
+ * In functions scope the positive control is not a selected function, so its
+ * body must not move. Checked in both the wipe-kept and the wipe-deleted
+ * translation unit. Not applicable in module scope, where the control's own
+ * memset is a legitimate target.
+ *
+ * Compared after canonicalLocalLabels: on gcc a pin in the target renumbers the
+ * unit-wide `.L<n>` labels of the control, which follows it, and that is not the
+ * plugin touching the control. Where that renaming was needed for the check to
+ * hold, controlRenumberedOnly says so, and the runner counts it.
+ */
+export function controlUntouched({ scope, pairs, bodyOf, controlFn = 'vgctl_control' }) {
+  const ps = controlPairs({ scope, pairs, bodyOf, controlFn });
+  if (!ps) return null;
+  return ps.every(([a, b]) => canonicalLocalLabels(a) === canonicalLocalLabels(b));
+}
+
+/**
+ * true when controlUntouched held only because `.L<n>` labels were renamed (some
+ * pair differs as text); false when it held on the text as it is; null when it
+ * is not applicable or did not hold.
+ */
+export function controlRenumberedOnly({ scope, pairs, bodyOf, controlFn = 'vgctl_control' }) {
+  const ps = controlPairs({ scope, pairs, bodyOf, controlFn });
+  if (!ps) return null;
+  if (!ps.every(([a, b]) => canonicalLocalLabels(a) === canonicalLocalLabels(b))) return null;
+  return ps.some(([a, b]) => a !== b);
 }
 
 /**
