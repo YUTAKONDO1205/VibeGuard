@@ -139,16 +139,28 @@ The plugin seals the record as the other native components do (`interfaces.md`
 record edited after its compile is refused (`digest-mismatch`) rather than
 believed.
 
-`lib/pin-record.mjs` reads it strictly, and reads **`wipe-pin-v1` only**: v0 plus
-`pinned[].followedByUse` (`true`/`false`/`null`), `resolution[].exact`
-(`true`/`false`/`null`), `resolution[].linkage` (a string or `null`) and a
-top-level `toolchain` object with exactly `digest` (a string, possibly empty),
-`clang` (a string) and `packages` (an array of objects). `toolchain` is inside
-the digest. Unknown or missing fields, a count that is not a non-negative
-integer, a `module` that is a path rather than a basename, any other
-`schemaVersion`, a dry run with mutations, and a record whose optimisation pair,
-scope, module or request list does not match the compile that was supposed to
-write it — each is a refusal, and a refusal is `BROKEN_REPAIR`.
+`lib/pin-record.mjs` reads it strictly, and reads **`wipe-pin-v2` only** (a `v1`
+or `v0` record is refused like any other wrong shape). One reader serves both
+repair plugins: `component` is `WipePin` (the LLVM plugin) or `WipePinGcc` (the
+GCC plugin), and the caller says which one it loaded (`expect.component`; this
+runner drives clang and always passes `WipePin`) — a record from the other one
+is `wrong-compile`. The fields v1 added stay: `pinned[].followedByUse`
+(`true`/`false`/`null`), `resolution[].exact` (`true`/`false`/`null`),
+`resolution[].linkage` (a string or `null`). The top-level `toolchain` object
+is now read exactly: `digest`, `packages` and exactly one compiler key — `clang`
+for `WipePin`, `gcc` for `WipePinGcc` — whose value is the version the plugin
+was built against; `packages` is exactly `[{name: "llvm" | "gcc", version: <the
+same version>}]`; `digest` is the SHA-256 of the canonical serialisation of
+`{<compiler key>, packages}` and is re-derived (`toolchain-digest-mismatch`
+otherwise). `toolchain` is inside the record's own digest too. The optimisation
+pair is compared with the flag through the component's own table
+(`OPT_LEVELS[component]`; the `WipePinGcc` column is a copy of the LLVM one until
+the GCC plugin's measurement replaces it). Unknown or missing fields, a count
+that is not a non-negative integer, a `module` that is a path rather than a
+basename, any other `schemaVersion`, a dry run with mutations, and a record whose
+component, optimisation pair, scope, module or request list does not match the
+compile that was supposed to write it — each is a refusal, and a refusal is
+`BROKEN_REPAIR`.
 
 The counts are tied to the list exactly. `pinned` lists every eligible site (in a
 dry run too); a site that was already volatile is listed and in neither count.
@@ -533,7 +545,7 @@ A second, independent instrument agrees on the lane's hand-written fixture: see
 |---|---|
 | `run-repair-loop.mjs` | the runner: preflight, the four-compile cell, the per-span compiles, no-wipe files, configguard, results, manifest, pin plan |
 | `lib/outcome.mjs` | the outcome table and its precedence, and the red-control grading; pure |
-| `lib/pin-record.mjs` | strict reader for the plugin's `wipe-pin-v1` record |
+| `lib/pin-record.mjs` | strict reader for the `wipe-pin-v2` record, from either repair plugin (`WipePin` or `WipePinGcc`) |
 | `lib/spans.mjs` | the per-span plan, span entries, `hiddenElimination` / `hiddenRetained`; pure, verdicts injected |
 | `lib/summaries.mjs` | per-span counts, corroboration, listing-changed-without-loss, cross-vendor coverage, the pin plan; pure |
 | `lib/provenance.mjs` | listing digests, the rows-file label, the absolute-path scan |

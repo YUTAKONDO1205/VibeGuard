@@ -274,7 +274,7 @@ async function main() {
       pre.loadStderr = String(e.stderr || e.message || '').split('\n').slice(0, 6).join('\n');
     }
     if (!pre.loads) die(5, `the plugin did not load into ${ccName}; first lines of stderr:\n${pre.loadStderr}`);
-    const rA = readPinRecord(recA, { scope: 'module', dryRun: args.dryRun, opt: '-O2', module: basename(src) });
+    const rA = readPinRecord(recA, { component: 'WipePin', scope: 'module', dryRun: args.dryRun, opt: '-O2', module: basename(src) });
     pre.recordOnModuleScope = rA.ok ? 'valid' : rA.problems.join(', ');
     // Contract: WPIN_OUT set but no target -> no record.
     const envB = { ...BASE_ENV, WPIN_OUT: recB };
@@ -401,8 +401,8 @@ async function main() {
 
     const baseline = cell.verdictOf(aWoff, aWooff, meta.fn);
     const repaired = cell.verdictOf(aWon, aWoon, meta.fn);
-    const rW = readPinRecord(recW, { ...baseExpect, opt, module: basename(pW), requested });
-    const rWo = readPinRecord(recWo, { ...baseExpect, opt, module: basename(pWo), requested });
+    const rW = readPinRecord(recW, { component: 'WipePin', ...baseExpect, opt, module: basename(pW), requested });
+    const rWo = readPinRecord(recWo, { component: 'WipePin', ...baseExpect, opt, module: basename(pWo), requested });
     const ctlW = aWon ? cell.controlPresent(aWon) : { ok: false, via: 'COMPILE_ERROR' };
     const ctlWo = aWoon ? cell.controlPresent(aWoon) : { ok: false, via: 'COMPILE_ERROR' };
     const oc = outcomeOf(baseline, repaired, rW, rWo, ctlW.ok && ctlWo.ok);
@@ -419,7 +419,7 @@ async function main() {
       rmSync(recS, { force: true });
       const aSoff = await cell.compile(args.cc, [opt], pS, asmPath(meta.id, opt, side, 'off'));
       const aSon = await cell.compile(args.cc, [opt, pluginArg], pS, asmPath(meta.id, opt, side, 'on'), { env: pluginEnv(recS, requested) });
-      const rS = readPinRecord(recS, { ...baseExpect, opt, module: basename(pS), requested });
+      const rS = readPinRecord(recS, { component: 'WipePin', ...baseExpect, opt, module: basename(pS), requested });
       measured[p.index] = { off: cell.verdictOf(aWoff, aSoff, meta.fn), on: cell.verdictOf(aWon, aSon, meta.fn), recordOk: rS.ok };
     }
     const spans = spanRows(c.plan, { baseline, repaired, measured });
@@ -463,7 +463,7 @@ async function main() {
     rmSync(recW, { force: true });
     const aOff = await cell.compile(args.cc, [opt], pW, asmPath(meta.id, opt, 'w', 'off'));
     const aOn = await cell.compile(args.cc, [opt, pluginArg], pW, asmPath(meta.id, opt, 'w', 'on'), { env: pluginEnv(recW, requested) });
-    const rW = readPinRecord(recW, { ...baseExpect, opt, module: basename(pW), requested });
+    const rW = readPinRecord(recW, { component: 'WipePin', ...baseExpect, opt, module: basename(pW), requested });
     rows.push({
       id: meta.id, model: meta.model, framing: meta.framing, scen: meta.scen, fam: meta.fam, fn: meta.fn,
       kind: 'none', verdict: 'NO_WIPE_WRITTEN', cc: ccName, opt, scope: args.scope, dryRun: args.dryRun, targetSuffix: args.targetSuffix,
@@ -502,7 +502,7 @@ async function main() {
       const aOff = await cell.compile(args.cc, ['-O2'], p, asmPath(t.id, '-O2', 'default', 'off'));
       const aOn = await cell.compile(args.cc, ['-O2', pluginArg], p, asmPath(t.id, '-O2', 'default', 'on'), { env: pluginEnv(rec, [], 'module') });
       const aEn = await cell.compile(args.cc, ['-O2', ...t.macros.map((m) => `-D${m}=1`)], p, asmPath(t.id, '-O2', 'enabled', 'off'));
-      const rr = readPinRecord(rec, { scope: 'module', dryRun: args.dryRun, opt: '-O2', module: basename(p) });
+      const rr = readPinRecord(rec, { component: 'WipePin', scope: 'module', dryRun: args.dryRun, opt: '-O2', module: basename(p) });
       cfgRows.push(configguardRow(t, {
         bodyDefaultOff: aOff ? cell.bodyOf(aOff, t.fn) : null,
         bodyDefaultOn: aOn ? cell.bodyOf(aOn, t.fn) : null,

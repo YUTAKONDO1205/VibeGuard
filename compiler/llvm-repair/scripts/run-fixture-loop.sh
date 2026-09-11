@@ -34,9 +34,12 @@
 #   shapes  sources generated into <lab>/shapes/src, each built to show one
 #           reading of the record: an initialiser followed by a zeroing loop
 #           (followedByUse true and the "partial" line), a trailing memset
-#           (followedByUse false, no line), non-exact targets (C99 inline, C++
-#           inline), and stale records at WPIN_OUT, which must be gone after a
-#           refused compile and after one whose pass never ran.
+#           (followedByUse false, no line), an error-path memset + return inside
+#           a loop (false, through clang's cleanup dispatch) and its soundness
+#           guard, memset + break with a read after the loop (true), each at
+#           -O0/-O1/-O2, non-exact targets (C99 inline, C++ inline), and stale
+#           records at WPIN_OUT, which must be gone after a refused compile and
+#           after one whose pass never ran.
 #
 # The observer's -fpass-plugin comes FIRST on the command line and WipePin's
 # second. Both register at the pipeline-start extension point, callbacks run in
@@ -293,6 +296,60 @@ int handle(void) {
 }
 SHAPE_EOF
 
+# The error-path wipe inside a loop (the fable_N_token_r3.c shape): a memset
+# and a `return` inside the loop body, while the body also reads the buffer, and
+# a trailing memset after the loop. At -O1 and above the body's local `n` has a
+# cleanup, so the `return` goes through clang's cleanup dispatch, whose switch
+# has an edge back to the loop header; no execution takes it from the return
+# path. wipe-pin-v1 read that edge as a later use; wipe-pin-v2 must not.
+cat > "$SRC/loopreturn.c" <<'SHAPE_EOF'
+#include <string.h>
+#include <unistd.h>
+void derive(unsigned char *k);
+int handle(int fd) {
+  unsigned char key[32];
+  unsigned long total = 0;
+  derive(key);
+  while (total < sizeof key) {
+    long n = write(fd, key + total, sizeof key - total);
+    if (n < 0) {
+      memset(key, 0, sizeof key);
+      return -1;
+    }
+    total += (unsigned long)n;
+  }
+  memset(key, 0, sizeof key);
+  return 0;
+}
+SHAPE_EOF
+
+# The soundness guard for that refinement: the same loop, but the memset is
+# followed by `break`, and the buffer IS read after the loop. The break goes
+# through the same cleanup dispatch, and the edge its stored constant selects
+# leads to the read. followedByUse must stay true: a refinement that took the
+# wrong edge, or pruned an edge it could not prove infeasible, would hide it.
+cat > "$SRC/loopbreakuse.c" <<'SHAPE_EOF'
+#include <string.h>
+#include <unistd.h>
+void derive(unsigned char *k);
+void use(const unsigned char *k, unsigned n);
+int handle(int fd) {
+  unsigned char key[32];
+  unsigned long total = 0;
+  derive(key);
+  while (total < sizeof key) {
+    long n = write(fd, key + total, sizeof key - total);
+    if (n < 0) {
+      memset(key, 0, sizeof key);
+      break;
+    }
+    total += (unsigned long)n;
+  }
+  use(key, 32);
+  return 0;
+}
+SHAPE_EOF
+
 # A C99 inline definition (no extern declaration in this unit): emitted, when
 # optimising, as available_externally.
 cat > "$SRC/c99inline.c" <<'SHAPE_EOF'
@@ -323,13 +380,14 @@ extern "C" inline void wipe_cxx(void) {
 extern "C" void call_cxx(void) { wipe_cxx(); }
 SHAPE_EOF
 
-# shape <id> <source> <target>: -O2 -g, textual IR out, pin.sh's exit code kept.
+# shape <id> <source> <target> [opt]: -g at <opt> (default -O2), textual IR out,
+# pin.sh's exit code kept.
 shape() {
-  local id=$1 src=$2 target=$3
+  local id=$1 src=$2 target=$3 opt=${4:--O2}
   local rc
   rc=$(pinsh "$LAB/shapes" "$id" WPIN_TARGET_FNS="$target" -- \
-         -O2 -g -S -emit-llvm "$SRC/$src" -o "$LAB/shapes/$id.ll")
-  kv "$LAB/shapes/$id.kv" "cellId=$id" "source=$src" "target=$target" "opt=-O2" \
+         "$opt" -g -S -emit-llvm "$SRC/$src" -o "$LAB/shapes/$id.ll")
+  kv "$LAB/shapes/$id.kv" "cellId=$id" "source=$src" "target=$target" "opt=$opt" \
      "pinShRc=$rc" "wipepinSha256=$PIN_SHA"
   echo "$id"
 }
@@ -340,6 +398,14 @@ shape aliasinit  aliasinit.c   handle
 shape trailing   trailing.c    handle
 shape c99inline  c99inline.c   wipe_inline
 shape cxxinline  cxxinline.cpp wipe_cxx
+# The two loop shapes at -O2 like the rest, and also at -O0, where there is no
+# cleanup dispatch, and -O1, the first level that has it.
+shape loopreturn       loopreturn.c   handle
+shape loopreturn-O0    loopreturn.c   handle -O0
+shape loopreturn-O1    loopreturn.c   handle -O1
+shape loopbreakuse     loopbreakuse.c handle
+shape loopbreakuse-O0  loopbreakuse.c handle -O0
+shape loopbreakuse-O1  loopbreakuse.c handle -O1
 
 # ------------------------------------------------------------ stale records
 # clang directly, not pin.sh: pin.sh deletes its record path itself, which would

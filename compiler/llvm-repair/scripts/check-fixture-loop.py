@@ -10,7 +10,7 @@ the observer's verdict, taken from the same record shape the optimisation matrix
 grades, on the same fixture, with the same effect-symbol list.
 
 The shape and stale cells are about WipePin's own account of itself: what its
-wipe-pin-v1 record and its stderr say for a source whose answer is known, and
+wipe-pin-v2 record and its stderr say for a source whose answer is known, and
 whether a record from an earlier compile can outlive a compile that wrote none.
 
 The expectations below were written from what each cell is for, before the
@@ -31,7 +31,7 @@ import os
 import re
 import sys
 
-SCHEMA = "wipe-pin-v1"
+SCHEMA = "wipe-pin-v2"
 
 # --------------------------------------------------------------- expectations
 #
@@ -99,9 +99,29 @@ PINSH_ONLY = {
     "nollvmpasses-O2": {"pinShRc": 3, "stderrLine": None},
 }
 
-# The shapes, all -O2 -g, one target each. `sites` is followedByUse for each
-# recorded site in order; `partial` is (pinned, followed) for the one line the
-# plugin must print, or None where it must print none.
+# The shapes, all -g, one target each, at -O2 unless `opt` says otherwise.
+# `sites` is followedByUse for each recorded site in order; `partial` is
+# (pinned, followed) for the one line the plugin must print, or None where it
+# must print none.
+#
+# loopreturn* (added with wipe-pin-v2): the error-path memset inside the loop is
+# followed only by `return`, so it is false at every level -- at -O1 and -O2 the
+# CFG has an edge from it back into the loop, through clang's cleanup dispatch,
+# that no execution takes (wipe-pin-v1 read true there, and printed the partial
+# line). The trailing memset is false everywhere.
+# loopbreakuse*: the soundness guard. Same loop, `break` instead of `return`,
+# and the buffer is read after the loop: true at every level, partial line
+# included. The break reaches the read THROUGH the dispatch switch, on the edge
+# its own stored constant selects.
+LOOP_SHAPES = {}
+for _o, _sfx in (("-O2", ""), ("-O0", "-O0"), ("-O1", "-O1")):
+    LOOP_SHAPES["loopreturn" + _sfx] = {
+        "module": "loopreturn.c", "target": "handle", "opt": _o, "sites": [False, False],
+        "partial": None, "exact": True, "linkage": "external"}
+    LOOP_SHAPES["loopbreakuse" + _sfx] = {
+        "module": "loopbreakuse.c", "target": "handle", "opt": _o, "sites": [True],
+        "partial": (1, 1), "exact": True, "linkage": "external"}
+
 SHAPES = {
     "initloop": {"module": "initloop.c", "target": "handle", "sites": [True],
                  "partial": (1, 1), "exact": True, "linkage": "external"},
@@ -117,8 +137,11 @@ SHAPES = {
                   "partial": None, "exact": False, "linkage": "available_externally"},
     "cxxinline": {"module": "cxxinline.cpp", "target": "wipe_cxx", "sites": [False],
                   "partial": None, "exact": False, "linkage": "linkonce_odr"},
+    **LOOP_SHAPES,
 }
-SHAPE_ORDER = ["initloop", "inithelper", "initwipe", "aliasinit", "trailing", "c99inline", "cxxinline"]
+SHAPE_ORDER = ["initloop", "inithelper", "initwipe", "aliasinit", "trailing", "c99inline", "cxxinline",
+               "loopreturn-O0", "loopreturn-O1", "loopreturn",
+               "loopbreakuse-O0", "loopbreakuse-O1", "loopbreakuse"]
 
 # A file that is not this compile's record sits at WPIN_OUT before each compile.
 STALE = {
@@ -205,8 +228,8 @@ def absolute_paths(node, where="$"):
     return out
 
 
-def v1_problems(pin):
-    """What every wipe-pin-v1 record must be, whatever the cell asked of it."""
+def v2_problems(pin):
+    """What every wipe-pin-v2 record must be, whatever the cell asked of it."""
     bad = []
     if pin.get("schemaVersion") != SCHEMA:
         bad.append(f"schemaVersion {pin.get('schemaVersion')!r}, expected {SCHEMA!r}")
@@ -347,7 +370,7 @@ def grade(lab, registry_symbols):
                 if site.get("function") != "handle_request" or site.get("destKind") != "alloca" \
                         or site.get("lengthBytes") != 32 or site.get("followedByUse") is not False:
                     bad.append(f"WipePin pinned an unexpected site {site}")
-            bad += [f"WipePin {p}" for p in v1_problems(pin)]
+            bad += [f"WipePin {p}" for p in v2_problems(pin)]
 
             wl = wipepin_lines(stderr)
             if any(l.startswith("WipePin: partial:") for l in wl):
@@ -432,13 +455,16 @@ def grade_shapes(lab):
         except Incomplete as e:
             incomplete.append(f"{cell}: {e}")
             continue
-        bad = [f"record: {p}" for p in v1_problems(pin)]
+        bad = [f"record: {p}" for p in v2_problems(pin)]
         sites = pin.get("pinned") or []
         got_fbu = [s.get("followedByUse") for s in sites]
         res = pin.get("resolution") or []
         r0 = res[0] if len(res) == 1 else {}
         followed = sum(1 for v in exp["sites"] if v is True)
+        opt = exp.get("opt", "-O2")
         checks = [
+            ("opt (runner)", kv.get("opt"), opt),
+            ("optLevel.speedup", (pin.get("optLevel") or {}).get("speedup"), SPEEDUP[opt]),
             ("module", pin.get("module"), exp["module"]),
             ("requested", pin.get("requested"), [exp["target"]]),
             ("resolution", r0.get("resolution"), "resolved"),
@@ -473,7 +499,7 @@ def grade_shapes(lab):
         if extra:
             bad.append(f"unexpected WipePin lines {extra}")
 
-        rows.append((cell, kv.get("pinShRc"), str(pin.get("pinnedCount")),
+        rows.append((cell, opt, kv.get("pinShRc"), str(pin.get("pinnedCount")),
                      ",".join(str(v).lower() for v in got_fbu) or "-",
                      f"{r0.get('exact')}/{r0.get('linkage')}",
                      "yes" if any(l.startswith("WipePin: partial:") for l in wl) else "no",
@@ -517,7 +543,7 @@ def grade_stale(lab):
                 rec = None
                 bad.append(f"the compile's record is not JSON: {e}")
             if rec is not None:
-                bad += [f"record: {p}" for p in v1_problems(rec)]
+                bad += [f"record: {p}" for p in v2_problems(rec)]
                 if rec.get("module") != "trailing.c" or rec.get("pinnedCount") != 1:
                     bad.append(f"record module={rec.get('module')} pinnedCount={rec.get('pinnedCount')}")
         if cell == "stale-dir" and not os.path.isfile(os.path.join(out, "keep.txt")):
@@ -581,7 +607,7 @@ def main():
     print()
     table(("pin.sh alone", "rc", "clang rc", "record", ""), prow)
     print()
-    table(("shape (-O2 -g)", "pin.sh", "pinned", "followedByUse", "exact/linkage",
+    table(("shape (-g)", "opt", "pin.sh", "pinned", "followedByUse", "exact/linkage",
            "partial line", "non-exact line", ""), srow)
     print()
     table(("stale record", "before", "clang rc", "after", "WipePin stderr", ""), trow)
