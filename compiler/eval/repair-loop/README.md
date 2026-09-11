@@ -885,7 +885,7 @@ compile (`NOT_SCORED`).
 | `lib/stage-gate.mjs` | the out-of-reach families; pure |
 | `lib/corpus.mjs` | the selection: the corpus files, what each one is, the erasure family; imported by the runner and by `tools/fbu-levels.mjs`; pure |
 | `tools/lto-probe.mjs`, `tools/lib/lto.mjs`, `tools/LTO.md` | the LTO probe: the same cell judged on the assembly a full or thin LTO link writes; lab output only, never `data/` |
-| `tools/lto-probe-gcc.mjs`, `tools/lib/lto-gcc.mjs` | its gcc-13 twin: the same cell judged on the assembly lto1 writes for an `-flto -shared` link, WipePinGcc records read through `lib/pin-record.mjs`; lab output only (`tools/LTO.md`, *gcc-13*) |
+| `tools/lto-probe-gcc.mjs`, `tools/lib/lto-gcc.mjs` | its gcc-13 twin: the same cell judged on the assembly lto1 writes for an `-flto -shared` link, WipePinGcc records read through `lib/pin-record.mjs`, the compile-stage GIMPLE read back with `lto-dump-13`; lab output only (`tools/LTO.md`, *gcc-13*) |
 | `tools/fbu-levels.mjs`, `tools/lib/fbu.mjs` | `followedByUse` at `-O1`..`-Os` against `-O0`, site by site, both vendors; lab output only, never `data/` |
 | `test/*.test.mjs` | unit tests, no compiler |
 | `data/` | written only by `--write-data` after a full run: `r2-repair-rows.json` / `r2-repair-results.txt` for clang-18, `r2-repair-rows-gcc-13.json` / `r2-repair-results-gcc-13.txt` for gcc-13 |

@@ -444,7 +444,9 @@ export function selectIds(rows, { cc, opt, allRemovable = false }) {
  * `trackedDiff` lists the cells whose LTO baseline differs from the tracked,
  * non-LTO gcc-13 baseline for the same (id, level); `addedEliminations` the
  * ones among them that survived without LTO and are eliminated with it -- an
- * elimination the LTO link adds -- with their outcome.
+ * elimination the LTO build adds, in the compile or in the link (`stage` says
+ * which: whether w/off still carries the wipe into the link) -- with their
+ * outcome.
  */
 export function summarizeGccGroup(rows) {
   const n = (f) => rows.filter(f).length;

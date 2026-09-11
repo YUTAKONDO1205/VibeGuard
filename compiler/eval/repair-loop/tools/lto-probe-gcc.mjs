@@ -648,7 +648,7 @@ function render({ args, ccName, ccVersion, ldVersion, pluginSha, pre, groups, se
     L.push(`  differs from the tracked non-LTO ${ccName} row: ${s.trackedDiff.length}`);
     for (const d of s.trackedDiff) L.push(`    DIFF ${d.id}: tracked (no LTO) ${d.tracked}, LTO ${d.lto}; outcome ${d.outcome}`);
     if (args.allRemovable) {
-      L.push(`  eliminations the LTO link adds (tracked survived, LTO eliminated): ${s.addedEliminations.length}`);
+      L.push(`  eliminations the LTO build adds (tracked survived, LTO eliminated): ${s.addedEliminations.length}`);
       for (const a of s.addedEliminations) L.push(`    ADDED ${a.id}: ${a.outcome}`);
     }
     L.push('  (i) plugin at compile time, stock link');

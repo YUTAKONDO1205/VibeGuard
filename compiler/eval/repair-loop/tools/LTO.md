@@ -502,7 +502,8 @@ are compiled three times each:
 - **Against the tracked rows.** Each LTO baseline is compared with the tracked
   gcc-13 row's baseline for the same `(id, level)`, and every difference is
   listed by id; with `--all-removable`, a wipe the tracked row saw survive and
-  the LTO link removes is listed again as an added elimination. A difference is
+  the LTO build removes is listed again as an added elimination (whether in the
+  compile or in the link, the GIMPLE reading below says). A difference is
   allowed; it must be visible.
 - **Where the loss happens.** Where the clang probe reads the compile-stage
   bitcode with `llvm-dis-18`, this one reads the compile-stage GIMPLE — what
@@ -561,7 +562,7 @@ are compiled three times each:
 | what | measured |
 |---|---|
 | `-flto -c` | an ELF object whose section table, after the null entry, holds `.text`, `.data` and `.bss`, all of size 0 (a slim object: no machine code); the `.gnu.lto_` sections `.profile.<s>`, `.icf.<s>` and `.ipa_sra.<s>` (these two not at `-O1`), `.inline.<s>`, `.jmpfuncs.<s>`, `.pureconst.<s>`, `.ipa_modref.<s>`, `.lto.<s>`, one `.gnu.lto_<function>.<n>.<s>` per function, `.symbol_nodes.<s>`, `.refs.<s>`, `.decls.<s>`, `.symtab.<s>`, `.ext_symtab.<s>` and `.opts`; then `.comment`, `.note.GNU-stack`, `.symtab`, `.strtab`, `.shstrtab`. For the preflight unit: 25 entries at `-O2`, `-O3` and `-Os`, 23 at `-O1`, read with `readelf -SW` and, entry for entry the same, with the probe's `elfSections` |
-| the suffix `<s>` | 16 hex digits, one per object, carried by every suffixed name (15 of them for the preflight unit at `-O2`, 13 at `-O1`), and new in every compile: three `-O2` compiles of the preflight unit gave three suffixes and three objects of one size that are byte-identical once the suffix is replaced by a fixed string |
+| the suffix `<s>` | up to 16 hex digits, a 64-bit id printed without leading zeros (over the 11,330 suffixed objects of two runs of this probe, A and B: 16 digits in 10,632, 15 in 654, 14 in 42, 13 in 2), one per object, carried by every suffixed name (15 of them for the preflight unit at `-O2`, 13 at `-O1`), and new in every compile: three `-O2` compiles of the preflight unit gave three suffixes of the same length and three objects of one size that are byte-identical once the suffix is replaced by a fixed string |
 | `.gnu.lto_.opts` | for a compile at the default: `'-fno-openmp' '-fno-openacc' '-fPIC' '-mtune=generic' '-march=x86-64' '-O2' '-Wno-error=implicit-function-declaration' '-w' '-fcf-protection=none' '-flto' '-fasynchronous-unwind-tables' '-fstack-protector-strong' '-fstack-clash-protection'` — `-fPIC`, although no `-fPIC` was given and the default is `-fPIE` (`gcc-13 -v`: `--enable-default-pie`). With the plugin loaded, also `-fplugin=<path>` and, twice, `-iplugindir=<gcc's plugin directory>` |
 | `-flto -shared -save-temps`, one object | eleven files, all next to `-o`: `<o>` (the shared object), `<o>.lto_wrapper_args`, `<o>.ltrans.out`, `<o>.ltrans0.ltrans.args.0`, `<o>.ltrans0.ltrans.o`, `<o>.ltrans0.ltrans.s` (the assembly the probe reads), `<o>.ltrans0.ltrans_args`, `<o>.ltrans0.o`, `<o>.ltrans_args`, `<o>.res`, `<o>.wpa.args.0`; the same at `-O1`, `-O2`, `-O3` and `-Os` |
 | the working directory | with plain `-save-temps`, a link run in another directory wrote the same eleven next to `-o` and nothing in the working directory. `-save-temps=obj` run from another directory kept nine of them (no `.lto_wrapper_args`, no `.ltrans0.ltrans.o`). The probe uses plain `-save-temps` and runs each link in its object's directory |
@@ -642,8 +643,9 @@ from `compiler/gcc-repair/` with g++-13, sha256
 `a023b047abcafdbb824f627d227861e0ae0556072c9e4ba87e102b2c9747ba1b`, the build
 the tracked gcc-13 results quote; the GIMPLE read with `lto-dump-13`, which
 Ubuntu ships with gcc-13. The preflight passed at every level, and both runs
-exited 0: run A in 489 s, run B in 145 s, on 2 parallel cells while other work
-shared the machine.
+exited 0: run A in 521 s, run B in 154 s, on 2 parallel cells while other work
+shared the machine. An earlier pair of the same runs, with code identical but
+for the wording of one results line, wrote byte-identical rows files.
 
 | run | level | cells | eliminated without the plugin (LTO) | differs from the tracked non-LTO row | `RETAINED` | `ALREADY_SURVIVED` | other outcomes | dry run (iii) | (ii) links | (ii) refusals, each link | (ii) sentinel removed / record written | (ii) assembly / shared object equal to the stock link | (ii) graded | relink comparisons identical |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
