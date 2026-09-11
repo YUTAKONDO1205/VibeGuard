@@ -13,6 +13,11 @@
 // install leaves a build that succeeded and looks, in every other respect, like
 // one that was repaired -- which is the reading this component must never make
 // possible.
+//
+// The same goes for a record left behind by an earlier compile. Before anything
+// else is decided -- before any refusal -- whatever is at WPIN_OUT is removed
+// (clearStaleRecord), so that after this compile "there is a record" can only
+// mean "this compile wrote it".
 
 #ifndef WPIN_PINSELECTOR_H
 #define WPIN_PINSELECTOR_H
@@ -46,6 +51,20 @@ struct Config {
 
 /// Reads the WPIN_* environment. Never throws, never exits.
 Config loadConfig();
+
+/// If WPIN_OUT is set and non-empty, removes whatever record is there. Called
+/// when the plugin is loaded, before loadConfig(), so that it happens even in a
+/// compile that is then refused, and even in one whose pass never runs
+/// (`-Xclang -disable-llvm-passes`): in every such compile the answer to "is
+/// there a record?" is then "no", which is what the compile produced.
+///
+/// Returns false, with the reason in `Why`, when something is at WPIN_OUT and
+/// could not be removed -- a directory, a non-regular file, or an unlink that
+/// failed for any reason other than "it is not there". Nothing at WPIN_OUT is
+/// not a failure. The caller refuses to install on false: an old record that
+/// cannot be cleared would still be there after any compile whose pass then
+/// failed to write, looking like that compile's.
+bool clearStaleRecord(std::string &Why);
 
 enum class Resolution { Resolved, DeclarationOnly, NotInModule };
 

@@ -2,9 +2,12 @@
 
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Support/Errc.h"
+#include "llvm/Support/FileSystem.h"
 
 #include <algorithm>
 #include <cstdlib>
+#include <system_error>
 
 namespace wpin {
 
@@ -101,6 +104,38 @@ Config loadConfig() {
 
   C.Valid = true;
   return C;
+}
+
+bool clearStaleRecord(std::string &Why) {
+  const std::string Path = envOrEmpty("WPIN_OUT");
+  if (Path.empty()) return true;
+
+  // lstat, not stat: a symlink at WPIN_OUT is removed as a link, and what it
+  // points to is left alone.
+  llvm::sys::fs::file_status St;
+  if (const std::error_code EC = llvm::sys::fs::status(Path, St, /*follow=*/false)) {
+    if (EC == llvm::errc::no_such_file_or_directory) return true;
+    Why = "cannot inspect WPIN_OUT (" + EC.message() + ")";
+    return false;
+  }
+  const llvm::sys::fs::file_type T = St.type();
+  if (T == llvm::sys::fs::file_type::directory_file) {
+    Why = "WPIN_OUT is a directory";
+    return false;
+  }
+  if (T != llvm::sys::fs::file_type::regular_file &&
+      T != llvm::sys::fs::file_type::symlink_file) {
+    // /dev/null, a fifo, a socket: not something to delete, and not somewhere a
+    // record can be read back from either.
+    Why = "WPIN_OUT is not a regular file";
+    return false;
+  }
+  if (const std::error_code EC =
+          llvm::sys::fs::remove(Path, /*IgnoreNonExisting=*/true)) {
+    Why = "cannot remove the previous record at WPIN_OUT (" + EC.message() + ")";
+    return false;
+  }
+  return true;
 }
 
 const char *resolutionName(Resolution R) {

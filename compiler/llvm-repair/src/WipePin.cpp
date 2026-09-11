@@ -23,15 +23,30 @@
 //      saying one thing and an object saying another.
 //
 // Configuration and its refusals are in PinSelector.h.
+//
+// A pin is not a repair. A zero-fill memset is also what `= {0}` lowers to, and
+// what a model writes to clear a buffer BEFORE it fills it; pinning that one
+// leaves the real wipe -- often a loop of stores, which this pass cannot see --
+// exactly as removable as it was. So every recorded site carries
+// `followedByUse`: whether some other instruction touching the same stack
+// object can run after it. A pinned site with a later use is initialiser-like,
+// and stderr says so (the "partial" line), because a record that only counts
+// pins would read that compile as repaired.
 
 #include "PinSelector.h"
 #include "Record.h"
 
+#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Analysis/CFG.h"
+#include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugLoc.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/InstrTypes.h"
@@ -111,6 +126,123 @@ bool isZeroFill(const MemSetInst &MS) {
   return CI && CI->isZero();
 }
 
+/// `followedByUse`, as a tri-state: the record's true / false / null.
+enum class LaterUse { Yes, No, NotAlloca };
+
+/// Whether some instruction other than `MS` that uses the stack object `MS`
+/// writes can run after `MS`.
+///
+/// The object is getUnderlyingObject(dest). When that is not an AllocaInst --
+/// a parameter, a global, a pointer loaded from memory -- the question has no
+/// answer here (the buffer outlives the function, or its other uses are not in
+/// this function) and the result is NotAlloca, recorded as null.
+///
+/// Uses are followed from the alloca through GEP, bitcast and addrspacecast,
+/// and also through phi and select, which carry the same pointer on. Stores
+/// into stack slots are followed too: when the address is stored into a slot
+/// (`unsigned char *p = key;`), every load from that slot is treated as the
+/// address again -- and so on, for whatever those loads are stored into -- so
+/// `memset(key, ...); use(p);` is seen. That is all: an address stored anywhere
+/// else, or into a slot reached through a GEP, is not followed, and a use made
+/// through it is missed. (A slot that is later given another pointer makes its
+/// loads count all the same: that errs towards "yes".) llvm.lifetime.* and
+/// debug intrinsics are not uses, and neither is `MS` itself. Another memset
+/// into the same buffer is a use: it is an instruction touching the object, and
+/// the question is whether this site is the buffer's last word.
+///
+/// Reachability is llvm::isPotentiallyReachable, instruction to instruction,
+/// which answers "yes" when it cannot tell (it gives up after a bounded number
+/// of blocks). A "yes" that is really "don't know" makes the partial line
+/// appear where it may not be needed; it can never hide one.
+///
+/// Computed at pipeline start, on the IR as the front end wrote it, before this
+/// pass mutates anything.
+LaterUse laterUseOf(const MemSetInst &MS, const DominatorTree &DT,
+                    const LoopInfo &LI) {
+  const auto *AI = dyn_cast<AllocaInst>(getUnderlyingObject(MS.getDest()));
+  if (!AI) return LaterUse::NotAlloca;
+
+  SmallVector<const Value *, 16> Work;
+  SmallPtrSet<const Value *, 16> Seen;
+  Work.push_back(AI);
+  Seen.insert(AI);
+  while (!Work.empty()) {
+    const Value *V = Work.pop_back_val();
+    for (const User *U : V->users()) {
+      const auto *I = dyn_cast<Instruction>(U);
+      if (!I || I == &MS) continue;
+      if (isa<GetElementPtrInst>(I) || isa<BitCastInst>(I) ||
+          isa<AddrSpaceCastInst>(I) || isa<PHINode>(I) || isa<SelectInst>(I)) {
+        if (Seen.insert(I).second) Work.push_back(I);
+        continue;
+      }
+      if (const auto *II = dyn_cast<IntrinsicInst>(I))
+        if (II->isLifetimeStartOrEnd() || isa<DbgInfoIntrinsic>(II)) continue;
+      if (const auto *SI = dyn_cast<StoreInst>(I)) {
+        if (SI->getValueOperand() == V) {
+          if (const auto *Slot = dyn_cast<AllocaInst>(
+                  SI->getPointerOperand()->stripPointerCasts())) {
+            for (const User *SU : Slot->users())
+              if (const auto *Reload = dyn_cast<LoadInst>(SU))
+                if (Seen.insert(Reload).second) Work.push_back(Reload);
+          }
+        }
+        // The store itself is still a use, and is checked below like any
+        // other: storing the address after the memset hands the buffer on.
+      }
+      if (isPotentiallyReachable(&MS, I, nullptr, &DT, &LI))
+        return LaterUse::Yes;
+    }
+  }
+  return LaterUse::No;
+}
+
+/// LLVM's own spelling of a linkage, as it appears in textual IR. Hand-written
+/// because the table AsmWriter keeps is not exported.
+const char *linkageName(GlobalValue::LinkageTypes L) {
+  switch (L) {
+  case GlobalValue::ExternalLinkage: return "external";
+  case GlobalValue::AvailableExternallyLinkage: return "available_externally";
+  case GlobalValue::LinkOnceAnyLinkage: return "linkonce";
+  case GlobalValue::LinkOnceODRLinkage: return "linkonce_odr";
+  case GlobalValue::WeakAnyLinkage: return "weak";
+  case GlobalValue::WeakODRLinkage: return "weak_odr";
+  case GlobalValue::AppendingLinkage: return "appending";
+  case GlobalValue::InternalLinkage: return "internal";
+  case GlobalValue::PrivateLinkage: return "private";
+  case GlobalValue::ExternalWeakLinkage: return "extern_weak";
+  case GlobalValue::CommonLinkage: return "common";
+  }
+  return "unknown";
+}
+
+/// interfaces.md section 5 requires every record to carry, outside `context`,
+/// `toolchain: {digest, clang, packages}`. This is the block
+/// IrCheckpoints::toolchainJson (compiler/llvm-pass/src/IrCheckpoints.cpp)
+/// writes, built the same way from the same source: LLVM_VERSION_STRING of the
+/// headers the plugin was compiled against, a one-entry package list naming
+/// llvm, and a digest that is the SHA-256 of the canonical serialisation of
+/// {clang, packages}. Rewritten rather than shared because that one is a private
+/// member of a class in a file this component does not compile; the shape and
+/// the recipe are the same, and the fixture-loop checker re-derives the digest.
+Json toolchainJson() {
+  Json Pkgs = Json::array();
+  Pkgs.push(Json::object()
+                .set("name", Json::str("llvm"))
+                .set("version", Json::str(LLVM_VERSION_STRING)));
+  Json T = Json::object();
+  T.set("clang", Json::str(LLVM_VERSION_STRING));
+  T.set("packages", std::move(Pkgs));
+  Json ForDigest = Json::object();
+  ForDigest.set("clang", Json::str(LLVM_VERSION_STRING));
+  ForDigest.set("packages",
+                Json::array().push(Json::object()
+                                       .set("name", Json::str("llvm"))
+                                       .set("version", Json::str(LLVM_VERSION_STRING))));
+  T.set("digest", Json::str(irck::sha256Hex(ForDigest.serialise())));
+  return T;
+}
+
 struct Site {
   std::string Function;
   int64_t Index = 0;
@@ -120,6 +252,7 @@ struct Site {
   bool AlreadyVolatile = false;
   bool HaveLine = false;
   int64_t Line = 0;
+  LaterUse FollowedByUse = LaterUse::NotAlloca;
 };
 
 struct Unhandled {
@@ -188,18 +321,36 @@ public:
       for (const std::string &N : C.Requested) {
         RequestedJ.push(Json::str(N));
         const Resolution R = resolve(M, N);
-        ResolutionJ.push(Json::object()
-                             .set("name", Json::str(N))
-                             .set("resolution", Json::str(resolutionName(R))));
+        Json Entry = Json::object()
+                         .set("name", Json::str(N))
+                         .set("resolution", Json::str(resolutionName(R)));
         if (R == Resolution::Resolved) {
-          InScope.push_back(M.getFunction(N));
+          Function *F = M.getFunction(N);
+          // A definition that is not exact -- linkonce_odr (a C++ inline or
+          // template function), weak, available_externally (a C99 inline
+          // definition, emitted only when optimising) -- is one the linker or
+          // the optimiser may replace with another translation unit's copy, or
+          // drop. The pin is applied to this copy all the same; whether this
+          // copy is the one that runs is not something this unit can know.
+          const bool Exact = F->isDefinitionExact();
+          const char *Linkage = linkageName(F->getLinkage());
+          Entry.set("exact", Json::boolean(Exact));
+          Entry.set("linkage", Json::str(Linkage));
+          if (!Exact)
+            errs() << "WipePin: target " << N << " is not an exact definition ("
+                   << Linkage << "); the copy that runs may come from another "
+                                 "translation unit\n";
+          InScope.push_back(F);
         } else {
+          Entry.set("exact", Json::null());
+          Entry.set("linkage", Json::null());
           // The misspelt-name failure. A record is still written and is well
           // formed; nothing in it is a pin. Said on stderr as well as in the
           // record because a caller that reads neither must at least see it in
           // a build log.
           errs() << "WipePin: target " << N << " " << resolutionName(R) << "\n";
         }
+        ResolutionJ.push(std::move(Entry));
       }
     } else {
       for (Function &F : M)
@@ -211,8 +362,9 @@ public:
     for (const Function &F : M)
       if (!F.isDeclaration()) ZeroFillInModule += countZeroFillIn(F);
 
-    // --- the pin -------------------------------------------------------------
+    // --- the census: every site, read before anything is changed -------------
     std::vector<Site> Sites;
+    std::vector<MemSetInst *> ToPin;
     Unhandled U;
     int64_t ZeroFillInScope = 0;
     int64_t WouldPin = 0;
@@ -221,6 +373,11 @@ public:
 
     for (Function *F : InScope) {
       int64_t Ordinal = 0;
+      // Built on the unmodified function. Setting a volatile flag changes no
+      // block and no use, but nothing is changed until every site of every
+      // function in scope has been read, so that no answer depends on that.
+      const DominatorTree DT(*F);
+      const LoopInfo LI(DT);
       for (BasicBlock &BB : *F) {
         for (Instruction &I : BB) {
           // The atomic element-wise memset is a different intrinsic with a
@@ -246,6 +403,7 @@ public:
               }
             }
             S.DestKind = destKindOf(MS->getDest());
+            S.FollowedByUse = laterUseOf(*MS, DT, LI);
             if (const DebugLoc &DL = MS->getDebugLoc()) {
               S.HaveLine = true;
               S.Line = static_cast<int64_t>(DL.getLine());
@@ -254,10 +412,7 @@ public:
               S.AlreadyVolatile = true;
             } else {
               WouldPin++;
-              if (!C.DryRun) {
-                MS->setVolatile(ConstantInt::getTrue(Ctx));
-                Pinned++;
-              }
+              ToPin.push_back(MS);
             }
             Sites.push_back(std::move(S));
             continue;
@@ -276,6 +431,27 @@ public:
       }
     }
 
+    // --- the pin -------------------------------------------------------------
+    if (!C.DryRun) {
+      for (MemSetInst *MS : ToPin) {
+        MS->setVolatile(ConstantInt::getTrue(Ctx));
+        Pinned++;
+      }
+    }
+
+    const std::string UnhandledText =
+        "libcallMemset=" + std::to_string(U.LibcallMemset) +
+        " memsetChk=" + std::to_string(U.MemsetChk) +
+        " nonZeroFill=" + std::to_string(U.NonZeroFill) +
+        " atomicMemset=" + std::to_string(U.AtomicMemset) +
+        " inlineWrapperMemset=" + std::to_string(U.InlineWrapperMemset);
+    const bool AnyUnhandled = U.LibcallMemset > 0 || U.MemsetChk > 0 ||
+                              U.NonZeroFill > 0 || U.AtomicMemset > 0 ||
+                              U.InlineWrapperMemset > 0;
+    int64_t FollowedByUse = 0;
+    for (const Site &S : Sites)
+      if (S.FollowedByUse == LaterUse::Yes) FollowedByUse++;
+
     if (C.DryRun && WouldPin > 0)
       errs() << "WipePin: dry run: " << WouldPin
              << " zero-fill llvm.memset site(s) would be pinned; none was "
@@ -283,11 +459,19 @@ public:
     if (WouldPin == 0 && ZeroFillInScope == 0)
       errs() << "WipePin: nothing to pin in scope in " << ModuleName
              << " (zero-fill llvm.memset in scope: 0; unhandled in scope: "
-             << "libcallMemset=" << U.LibcallMemset
-             << " memsetChk=" << U.MemsetChk
-             << " nonZeroFill=" << U.NonZeroFill
-             << " atomicMemset=" << U.AtomicMemset
-             << " inlineWrapperMemset=" << U.InlineWrapperMemset << ")\n";
+             << UnhandledText << ")\n";
+    // The partial repair. Either a recorded site is followed by a later use of
+    // its buffer -- so it is an initialiser or a clear-before-fill, and pinning
+    // it says nothing about the wipe -- or something was pinned while a
+    // memset-shaped call in the same scope was left alone. In both cases the
+    // record's pinnedCount is positive and the compile looks repaired; this
+    // line is what keeps a build log from agreeing.
+    if (FollowedByUse > 0 || (Pinned > 0 && AnyUnhandled))
+      errs() << "WipePin: partial: pinned " << Pinned << " site(s) in "
+             << ModuleName << "; " << FollowedByUse
+             << " followed by a later use of the same buffer (initialiser-like, "
+                "not a wipe); unhandled in scope: "
+             << UnhandledText << "\n";
 
     emit(ModuleName, RequestedJ, ResolutionJ, Sites, Pinned, WouldPin,
          ZeroFillInScope, ZeroFillInModule, U);
@@ -302,9 +486,10 @@ private:
             const Unhandled &U) const {
     const Config &C = *Cfg;
     Json R = Json::object();
-    R.set("schemaVersion", Json::str("wipe-pin-v0"));
+    R.set("schemaVersion", Json::str("wipe-pin-v1"));
     R.set("component", Json::str("WipePin"));
     R.set("module", Json::str(ModuleName));
+    R.set("toolchain", toolchainJson());
     R.set("optLevel",
           Json::object()
               .set("speedup", Json::integer(Level.getSpeedupLevel()))
@@ -323,6 +508,10 @@ private:
                       S.HaveLength ? Json::integer(S.LengthBytes) : Json::null())
                  .set("destKind", Json::str(S.DestKind))
                  .set("alreadyVolatile", Json::boolean(S.AlreadyVolatile))
+                 .set("followedByUse",
+                      S.FollowedByUse == LaterUse::NotAlloca
+                          ? Json::null()
+                          : Json::boolean(S.FollowedByUse == LaterUse::Yes))
                  .set("line", S.HaveLine ? Json::integer(S.Line) : Json::null()));
     }
     R.set("pinned", std::move(P));
@@ -376,6 +565,17 @@ extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
 llvmGetPassPluginInfo() {
   return {LLVM_PLUGIN_API_VERSION, "WipePin", LLVM_VERSION_STRING,
           [](PassBuilder &PB) {
+            // First, before any refusal: clear what an earlier compile left at
+            // WPIN_OUT. This callback runs when clang loads the plugin, which
+            // it does even under -Xclang -disable-llvm-passes, where the pass
+            // itself never runs -- so in that compile, and in a refused one,
+            // "no record" is the truth about this compile rather than an old
+            // record standing in for it.
+            std::string Why;
+            if (!wpin::clearStaleRecord(Why)) {
+              errs() << "WipePin: refusing to install: " << Why << "\n";
+              return;
+            }
             wpin::Config Cfg = wpin::loadConfig();
             if (!Cfg.Valid) {
               // Loud, and not an error: failing the compile would only get the
