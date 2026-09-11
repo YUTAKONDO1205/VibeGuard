@@ -179,3 +179,7 @@ docs/*
 # Build scratch for the ai-generated eval lane. The lane recompiles 840 files at
 # five optimisation levels twice over; the assembly is regenerable and large.
 compiler/eval/ai-generated/_build/
+
+# Build scratch for the repair-loop eval lane: the same files compiled four
+# times per cell (with and without the wipe, with and without the repair plugin).
+compiler/eval/repair-loop/_build/
