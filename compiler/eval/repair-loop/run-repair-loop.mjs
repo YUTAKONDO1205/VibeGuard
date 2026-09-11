@@ -65,6 +65,7 @@ import {
 import { readPlan, planMismatch, planCompilerMismatch, planSummary, renderPlanSummary } from './lib/plan.mjs';
 import { sha256Text, absolutePathHits, rowsFileLabel } from './lib/provenance.mjs';
 import { preflightProblems } from './lib/preflight.mjs';
+import { corpusFiles, erasureFamily } from './lib/corpus.mjs';
 
 const run = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -373,14 +374,10 @@ async function main() {
   const res = args.files ? args.files.map(globToRe) : null;
   const selected = (f) => (!res || res.some((re) => re.test(f) || re.test(f.replace(/\.c$/, ''))))
     && (!planIn || planIn.has(f.replace(/\.c$/, '')));
-  const all = readdirSync(GEN).filter((f) => f.endsWith('.c')).sort();
-  const metaOf = (f) => {
-    const id = f.replace(/\.c$/, '');
-    const [model, framing, sc, rep] = id.split('_');
-    const m = scen[sc];
-    return m ? { id, model, framing, scen: sc, rep, fam: m.fam, fn: m.fn } : null;
-  };
-  const erasure = all.filter(selected).map((f) => ({ f, meta: metaOf(f) })).filter((x) => x.meta && x.meta.fam === 'erasure');
+  // The selection lives in lib/corpus.mjs so that tools measuring "the files
+  // this loop uses" import it instead of copying it.
+  const all = corpusFiles(readdirSync(GEN));
+  const erasure = erasureFamily(all.filter(selected), scen);
   const cfgIds = new Set(all.filter(selected).map((f) => f.replace(/\.c$/, '')));
 
   const trackedVerdict = new Map();
@@ -592,7 +589,7 @@ async function main() {
   // Every other compiler the tracked find-step rows know: its tracked repair rows,
   // if a --write-data run with that --cc left any. Read here, judged by the pure
   // functions; nothing is inferred when the file is absent.
-  const corpusErasureIds = all.map(metaOf).filter((m) => m && m.fam === 'erasure').map((m) => m.id);
+  const corpusErasureIds = erasureFamily(all, scen).map((x) => x.meta.id);
   const others = {};
   for (const cc of [...new Set(tracked.filter((r) => r.kind === 'erasure' && r.cc !== ccName).map((r) => r.cc))].sort()) {
     let names;

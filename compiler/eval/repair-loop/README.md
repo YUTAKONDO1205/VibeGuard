@@ -559,7 +559,20 @@ node compiler/eval/repair-loop/run-repair-loop.mjs --cc gcc-13 --plugin <gcc so>
 # find -> fix as a user runs it: pin only what the previous run's pin plan names
 node compiler/eval/repair-loop/run-repair-loop.mjs --plugin <so> --out <dir2> --plan <dir>/pin-plan.json
 node compiler/eval/repair-loop/run-repair-loop.mjs --plugin <so> --out <dir3> --plan <dir>/pin-plan.json --dry-run
+
+# followedByUse site by site across the levels, module scope, dry run (lab only, never data/)
+node compiler/eval/repair-loop/tools/fbu-levels.mjs --plugin <build>/llvm-repair/libWipePin.so --out <dir4>
+node compiler/eval/repair-loop/tools/fbu-levels.mjs --cc gcc-13 --plugin <build>/gcc-repair/libWipePinGcc.so --out <dir5>
 ```
+
+`tools/fbu-levels.mjs` compiles every erasure-family file at every level with
+the plugin in module scope as a dry run, joins each site to its `-O0` reading
+on (file, function, index) with the line as a second key, and lists every
+site whose `followedByUse` differs, by direction, and every site that does not
+join; it runs its own controls (`-O0` twice; every level again without the
+line flag). A plugin of an older schema is read with `--reader` naming the
+`lib/pin-record.mjs` of its own commit. The measurements are in
+`compiler/llvm-repair/README.md` and `compiler/gcc-repair/README.md`.
 
 `--write-data` writes `data/r2-repair-rows.json` and `data/r2-repair-results.txt`
 for `clang-18` — the names the tracked clang data has always had — and
@@ -850,7 +863,9 @@ compile (`NOT_SCORED`).
 | `lib/plan.mjs` | `--plan`: reading a pin plan, matching it to this tree and compiler, the plan-driven summary; pure |
 | `lib/surgicality.mjs` | the surgicality checks, and the `.L<n>` label canonicalisation they use; pure, `bodyOf` injected |
 | `lib/stage-gate.mjs` | the out-of-reach families; pure |
+| `lib/corpus.mjs` | the selection: the corpus files, what each one is, the erasure family; imported by the runner and by `tools/fbu-levels.mjs`; pure |
 | `tools/lto-probe.mjs`, `tools/lib/lto.mjs`, `tools/LTO.md` | the LTO probe: the same cell judged on the assembly a full or thin LTO link writes; lab output only, never `data/` |
+| `tools/fbu-levels.mjs`, `tools/lib/fbu.mjs` | `followedByUse` at `-O1`..`-Os` against `-O0`, site by site, both vendors; lab output only, never `data/` |
 | `test/*.test.mjs` | unit tests, no compiler |
 | `data/` | written only by `--write-data` after a full run: `r2-repair-rows.json` / `r2-repair-results.txt` for clang-18, `r2-repair-rows-gcc-13.json` / `r2-repair-results-gcc-13.txt` for gcc-13 |
 

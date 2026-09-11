@@ -207,7 +207,9 @@ tests.
   mentions the buffer or such a carrier, which is the GCC reading of WipePin's
   step through stack slots (the `aliasinit` shape needs it). `null` when the
   destination is not a local. There is no path feasibility at all: that can add
-  a partial line, never remove one.
+  a partial line, never remove one. No erasure-family site of the r2 corpus
+  reads a different `followedByUse` at `-O1`..`-Os` than at `-O0`
+  (*Measured*).
 - **`seen` / `unhandled`** keep their keys (`../schema/wipe-pin.md` §10).
   `atomicMemset` and `inlineWrapperMemset` name LLVM shapes GCC does not have
   and are always 0. Under glibc's fortifying headers — which Ubuntu's gcc-13
@@ -604,6 +606,37 @@ and both barriers name the buffer. The one barrier in the corpus with a
 `memory` clobber and no operand, `fable_S_premaster_r3.c:29`, follows a loop
 of stores through a `volatile unsigned char *`, not a memset, so no site is
 followed by it.
+
+**`followedByUse` reads the same at every level, site by site.** Measured
+2026-09-12 with `../eval/repair-loop/tools/fbu-levels.mjs`, plugin
+`a023b047…`: the 360 erasure-family files the repair loop measures, the find
+step's `FLAGS` plus `-g1`, module scope, dry run, `-O0`..`-Os`; 3960 compiles,
+every record accepted by `../eval/repair-loop/lib/pin-record.mjs`. `-g1` is
+GCC's line-tables level, passed so that both vendors run the same kind of
+compile and the same control; the line needs no flag here, and gcc-13
+refuses `-gline-tables-only` (`unrecognized debug output level`, rc 1). 250
+sites at each level; WipePin's 251 include one more, `haiku_E_pinpad_r1`'s
+`volatile char pin[7] = {0};`, a volatile `llvm.memset` on clang and an
+aggregate assignment here. At each of `-O1`..`-Os` all 250 join their `-O0`
+site on (file, function, index) with the same line — 0 unmatched, 0
+duplicate keys, 0 files not compared — and 0 of the 1000 joined (site, level)
+pairs read a different `followedByUse`, in any direction; the same 58 sites
+read `true` at every level. One other field does move with the level:
+`lengthBytes` of the three sites of `haiku_S_token_r3` (lines 18, 22 and 28)
+is `null` at `-O0` and 32 at `-O1`..`-Os`. Their length is `token_size`, a
+`const ssize_t` local initialised to 32; the `cfg` dump shows `memset (&token,
+0, token_size.1_5)` at `-O0` and `memset (&token, 0, 32)` at `-O1`: by the
+time the pass runs, the call carries the constant only when optimising.
+Those three read `followedByUse: false` at all five levels. Controls in the
+same run: `-O0` compiled twice, 0 differences and the same `evidenceDigest`
+in 360/360 files; every level compiled again without `-g1`, records equal on
+every field but `line` in 1800/1800, with a line on all 1250 (site, level)
+pairs either way. There is no older WipePinGcc to rerun as a positive
+control; the same tool finds WipePin v1's 16 known level-dependent sites
+(`../llvm-repair/README.md`), and the `lengthBytes` rows above are it finding
+a level-dependent field in WipePinGcc's own records. Not covered: `-O0` is
+the reference, not the truth, and a site read wrongly at every level alike
+does not show; one corpus, one gcc.
 
 **Corpus smoke** (`scripts/run-gcc-corpus-smoke.mjs`, exit 0). The first three
 ids, sorted, among the gcc-13 / `-O2` / `removable` / `WIPE_ELIMINATED` rows of

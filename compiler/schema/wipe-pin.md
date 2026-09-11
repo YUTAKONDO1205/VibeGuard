@@ -311,6 +311,12 @@ pointer-typed local (WipePinGcc) — a global, the heap, a struct field or array
 element, a callee's memory — is not followed, and a use made through it is
 missed. That direction can hide a partial line.
 
+On the r2 corpus neither writer's answer depends on the level: joined site by
+site to its `-O0` reading, each of WipePin's 251 and WipePinGcc's 250
+erasure-family sites reads the same `followedByUse` at `-O1`..`-Os`
+(`../eval/repair-loop/tools/fbu-levels.mjs`; the numbers and controls are in
+both READMEs).
+
 ## 9. `alreadyVolatile`
 
 `true` when the site was already pinned before this plugin looked at it. Such a

@@ -242,8 +242,8 @@ that is still the confirm step's question.
   exit. So the CFG has a path from the error-path wipe `memset(token, …);
   return -1;` (line 17) back to `write(fd, token + total, …)`, which no
   execution takes. v1 answered reachability with `isPotentiallyReachable` alone
-  and read that site `true` at `-O1` and above (`false` at `-O0`, which has no
-  dispatch), and printed the partial line for it.
+  and read that site `true` at `-O1` and above (`false` at `-O0`, where that
+  scope has no dispatch), and printed the partial line for it.
 
   v2 asks twice. First `isPotentiallyReachable`, exactly as v1; a `false` there
   is final. Only where it says `true`, a second search follows the CFG from the
@@ -294,7 +294,74 @@ that is still the confirm step's question.
     giving up past its bound: both answer `true` (how close any search in the
     corpus came to the bound was not measured).
 
-  Each of these can add a partial line; none can remove one.
+  Each of these can add a partial line; none can remove one. The repair loop's
+  results still call `followedByUse` "a hint that can over-approximate", and
+  after the measurement below that is still true in the sense that needs no
+  change of level: a flag tested before a use, a constant stored before the
+  memset into a slot the source itself switches on, and the search bounds can
+  make a site read `true` at `-O0` as well as above it. The items that concern
+  clang's own dispatch — its slot holding a constant stored before the memset,
+  another user of that slot, a switch whose load sits in another block — exist
+  only where the dispatch does: where lifetime markers give a scope its
+  cleanup, which is at `-O1` and above (and at `-O0` under a sanitizer that
+  writes the markers there, `-fsanitize=address` with its default
+  use-after-scope among them), and where a scope has a cleanup of another kind, at
+  every level (two items down). In this corpus none of them made any site read
+  differently from `-O0`, which says nothing about a front end, or a later
+  clang, that emits those shapes.
+- **Site by site, v2 reads at `-O1`..`-Os` what it reads at `-O0`.** The v1
+  against v2 table below shows the per-level counts agreeing; this is the claim
+  for each site. Measured 2026-09-12 with
+  `../eval/repair-loop/tools/fbu-levels.mjs`, plugin `db3298cf…73a4c8`, clang
+  18.1.3: the 360 erasure-family files the repair loop measures (its own
+  selection, `../eval/repair-loop/lib/corpus.mjs`), the find step's `FLAGS` plus
+  `-gline-tables-only` so that every site carries a line, module scope, dry
+  run, `-O0`..`-Os`; 3960 compiles, every record accepted by
+  `../eval/repair-loop/lib/pin-record.mjs`. 251 sites at each level. At each of
+  `-O1`, `-O2`, `-O3` and `-Os`, all 251 join their `-O0` site on (file,
+  function, index) with the same line: 0 sites on one side only, 0 lines
+  differing, 0 duplicate keys, 0 files not compared. Of the 1004 joined
+  (site, level) pairs, 0 read a different `followedByUse` — 0 `false` → `true`,
+  0 `true` → `false`, 0 into or out of `null` — and `lengthBytes`, `destKind`
+  and `alreadyVolatile` agree in all of them. Two controls in the same run:
+  `-O0` compiled twice gives 0 differences and the same `evidenceDigest` in
+  360/360 files; every level compiled again without `-gline-tables-only`
+  gives records equal on every field but `line` in 1800/1800 (a line on 1255
+  of 1255 (site, level) pairs with the flag, on none without). The v1 plugin
+  through the same tool — `aa7329c3…f0a66` again, rebuilt from
+  `git archive 1ae6438~1` of this directory and of `../llvm-pass/src`, which
+  its build compiles in, its records read by that commit's `pin-record.mjs`
+  because this tree's refuses `wipe-pin-v1` — gives exactly the 16 sites
+  listed below, the four error-path sites `false` at `-O0` and `true` at each
+  of `-O1`..`-Os`, and no other difference: the join finds the level
+  dependence it is there to find. What this does not cover: `-O0` is the
+  reference, not the truth, so a site the list above makes wrong at every
+  level alike does not show, nor would a reading through a dispatch that `-O0`
+  has as well (next item; this corpus has none); one corpus, one clang, x86-64.
+- **Where `-O0` has the dispatch too.** clang 18.1.3 writes no lifetime markers
+  at `-O0` in these compiles (it does under `-fsanitize=address`, below), so a
+  scope whose only cleanup would be its markers has no dispatch there; the
+  three files of v1's 16 sites are that case. A scope with a cleanup of another
+  kind has the dispatch at `-O0` as well, and a reading through it can then be
+  the same at every level, which a comparison with `-O0` cannot show. Measured
+  2026-09-12 with v1 `aa7329c3…` and v2 `db3298cf…` on three probes generated
+  into the lab, each an error-path wipe (`memset`, then `return -1`) inside a
+  loop whose body declares the buffer: front-end IR from the find step's
+  `FLAGS`, the level and `-emit-llvm -Xclang -disable-llvm-passes
+  -fno-discard-value-names`; records from the same `FLAGS` plus
+  `-gline-tables-only`, module scope, dry run, each read by the
+  `pin-record.mjs` of its own schema. With a VLA in that body, or a local
+  carrying `__attribute__((cleanup))`, the `-O0` IR already has a
+  `cleanup.dest.slot` and a switch on it, and v1 reads the wipe `true` at all
+  five levels; the same body with neither has no slot at `-O0`, and v1 reads it
+  `false` there and `true` at `-O1`..`-Os`. v2 reads all three `false` at all
+  five levels. With `-fsanitize=address` the plain probe has lifetime markers,
+  the slot and the switch at `-O0` too, and reads `true` on v1 there, `false`
+  on v2. The site-by-site measurement above does not meet this case: the `-O0`
+  IR of the 360 erasure-family files has no `cleanup.dest.slot`, no switch on
+  one, no `llvm.stacksave` and no lifetime marker in any file, while at each of
+  `-O1`..`-Os` 248 files have the slot, 39 a switch on it (the three files of
+  v1's 16 sites among them) and all 360 lifetime markers.
 - **It follows the address through stack slots, and nowhere else in memory.**
   When the buffer's address is stored into a stack slot (`unsigned char *p =
   key;`), loads from that slot count as the address again, and so on for any
