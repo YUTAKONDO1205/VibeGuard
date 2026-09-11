@@ -823,10 +823,10 @@ function renderResults({ args, ccName, ccVersion, pluginSha, pre, rows, authz, c
     L.push(`  ${pad(c.opt, 4)} RETAINED ${c.retained}: effect PRESENT in w/on ${c.onPresent}, in w/off ${c.offPresent}`
       + `; of the w/on misses, rep stos in the body ${c.onRepStosOnly}`);
     const rs = new Set(c.onRepStosOnlyIds);
-    for (const id of c.onNotPresent) L.push(`         w/on NOT PRESENT ${id}${rs.has(id) ? ' (rep stos in the body: the -Os zero fill the oracle does not know)' : ''}`);
+    for (const id of c.onNotPresent) L.push(`         w/on NOT PRESENT ${id}${rs.has(id) ? ' (rep stos in the body: a zero fill the oracle does not know)' : ''}`);
   }
   L.push('  the w/off count is unreliable: any memset call or zero store in the body counts, so an array initialiser can read PRESENT although the wipe is gone.');
-  L.push('  the rep-stos reading is separate and never added to the oracle\'s count (observeEffect does not know rep stos; gcc uses it at -Os).');
+  L.push('  the rep-stos reading is separate and never added to the oracle\'s count (observeEffect does not know rep stos; gcc emits it for zero fills at -Os, and at -O1 to -O3 for larger ones, e.g. the corpus\'s 256-byte seed buffers).');
   L.push('');
 
   // label names: gcc's unit-wide .L<n> counter

@@ -592,25 +592,30 @@ node --test compiler/eval/repair-loop/test/*.test.mjs
 
 ## Results
 
-These are the `clang-18` results, recorded before the gcc path existed. Their
-numbers stand; the two places below that say no plugin loads into gcc (the
-parenthesis under *Every clang-18 elimination…* and the *Cross-vendor coverage*
-line) describe that run's output, and are superseded by *Results, gcc-13*.
-
 `clang-18` 18.1.3 (Ubuntu), x86-64, the plugin built from `compiler/llvm-repair/`
-(`wipe-pin-v1`, `libWipePin.so` sha256 `aa7329c3…f0a66`, the same bytes from two
+(`wipe-pin-v2`, `libWipePin.so` sha256 `db3298cf…73a4c8`, the same bytes from two
 independent builds). Full functions-scope run over all five levels; the rows and
 the rendered table are `data/r2-repair-rows.json` and `data/r2-repair-results.txt`.
 The plan-driven run and the red controls are not tracked; their numbers below
 are from runs made with the same plugin bytes on the same tree.
+
+These rows were first recorded with the `wipe-pin-v1` plugin (`aa7329c3…f0a66`)
+and re-recorded with v2. Against the v1 rows (the file as it was at `main`
+`c7971ce`), all 1881 rows have the same outcome, baseline and repaired verdict,
+all 6810 listing digests are the same (v2 emits the same code), and the span
+verdicts are the same. What moved is `recordW.followedByUseCount` in 12 rows —
+`fable_N_token_r3`, `sonnet_N_token_r1` and `sonnet_S_pwverify_r1` at `-O1`
+to `-Os` — where v1 read the cleanup dispatch's infeasible edge as a later use
+(`compiler/llvm-repair/README.md`): per level 58/62/62/62/62 in v1, 58 at every
+level in v2.
 
 **The find step reproduces.** Plugin off, every wipe cell agrees with the tracked
 find-step row: 1605/1605, and the 195 no-wipe cells are `NO_WIPE_WRITTEN` there
 too.
 
 **Every clang-18 elimination the find step reported is reversed** — at the find
-step's own, cell-level granularity (gcc-13's 432 are out of reach: no plugin
-loads into gcc). The per-span view below finds eliminations that granularity
+step's own, cell-level granularity (gcc-13's 432 are reversed by WipePinGcc; see
+*Results, gcc-13*). The per-span view below finds eliminations that granularity
 hides, and the plugin retains those too.
 
 **find -> fix -> confirm, driven by the plan.** Replaying the full run's
@@ -663,12 +668,14 @@ holds it too.
   in the helper `secure_wipe`) writes through a pointer argument, so the plugin
   cannot say (`null`). The `-O1` 25 were not read one by
   one. None of these is a repair, and none is counted as one. Across the run the
-  plugin flags 311 pinned sites `followedByUse`; no record names a non-exact
-  target definition.
+  plugin flags 295 pinned sites `followedByUse` (311 with v1; the 16 are the four
+  error-path sites above at four levels); no record names a non-exact target
+  definition.
 - **Pin plan:** 132 files — the 113 whose cell is eliminated at some level plus
   the files with only a hidden elimination.
-- **Cross-vendor coverage:** eliminations reversed / found: clang-18 401/401,
-  gcc-13 0/432 (no plugin can load), total 401/833.
+- **Cross-vendor coverage:** eliminations reversed / found: clang-18 401/401
+  (this run), gcc-13 432/432 (read from the tracked gcc-13 rows), total
+  **833/833**.
 - **Positive control** `PRESENT` in every plugin-on compile that compiled:
   `w/on` 321/321 and no-wipe 39/39 at each level; `wo/on` 319/321 (the 2 files
   whose ablation does not compile).
@@ -695,17 +702,84 @@ A second, independent instrument agrees on the lane's hand-written fixture: see
 
 ### Results, gcc-13
 
-> **TODO-MAIN** — to be filled from the full `--cc gcc-13 --write-data` run
-> (`data/r2-repair-rows-gcc-13.json`, `data/r2-repair-results-gcc-13.txt`), its
-> red controls and its `--plan` replay, in the shape of the clang-18 section
-> above: gcc-13 version, WipePinGcc sha256 and schema, the baseline agreement,
-> the removable-idiom table per level, the per-span counts, corroboration
-> (oracle and rep-stos readings at `-Os`), the label-renumbering counts, the
-> static-helper exception count, surgicality, records, the plan replay, the red
-> controls, configguard at `-O2`, and the cross-vendor coverage line as the gcc
-> run prints it against the tracked clang-18 rows. Nothing here is a result
-> until that run has been made; the subset numbers quoted in the sections above
-> are from a 16-file development run and are not this section.
+`gcc-13` 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1), x86-64, the plugin built from
+`compiler/gcc-repair/` with g++-13 (`wipe-pin-v2`, component `WipePinGcc`,
+`libWipePinGcc.so` sha256 `954b5b58…c3425f025`, the same bytes from two
+independent builds). Full functions-scope run over all five levels; the rows and
+the rendered table are `data/r2-repair-rows-gcc-13.json` and
+`data/r2-repair-results-gcc-13.txt`. `_FORTIFY_SOURCE` as the run measured it:
+not defined at `-O0`, `3` at `-O1`..`-Os`. The plan-driven run and the red
+controls are not tracked; their numbers below are from runs made with the same
+plugin bytes on the same tree. The subset numbers quoted in the sections above
+come from a 16-file development run and are not this section.
+
+**The find step reproduces.** Plugin off, every wipe cell agrees with the tracked
+gcc-13 find-step row: 1605/1605, and the 195 no-wipe cells are
+`NO_WIPE_WRITTEN` there too.
+
+**Every gcc-13 elimination the find step reported is reversed**, at the find
+step's cell-level granularity:
+
+| removable idiom (133 files) | `-O0` | `-O1` | `-O2` | `-O3` | `-Os` |
+|---|---|---|---|---|---|
+| eliminated without the plugin | 0 | 108 | 108 | 108 | 108 |
+| `RETAINED` | 0 | **108** | **108** | **108** | **108** |
+| `ALREADY_SURVIVED` | 133 | 25 | 25 | 25 | 25 |
+| `PIN_INEFFECTIVE` / `PIN_NOT_APPLIED` / `BROKEN_REPAIR` / `REGRESSED` / `SURVIVED_WITHOUT_PIN` | 0 | 0 | 0 | 0 | 0 |
+
+The nonremovable (162 files) and `both` (26) idioms are `ALREADY_SURVIVED` in
+every cell, apart from the 2 nonremovable files whose ablated form does not
+compile (`NOT_SCORED`).
+
+- **find -> fix -> confirm, driven by the plan.** The full run's `pin-plan.json`
+  (131 files, 524 planned cells) replayed with `--plan`: the 432 cells planned
+  because the cell is eliminated are all `RETAINED`; the 92 planned because a
+  span is eliminated on its own all have that span retained; 0 failed to come
+  back. The same plan with `--dry-run`: 0 of 432 and 0 of 92 (red control
+  `HELD`).
+- **Per span:** in `RETAINED` cells every removable span also survives on its own
+  with the plugin, 146/146 at each of `-O1`..`-Os`. Cells scored
+  `WIPE_SURVIVED` in which a span is individually eliminated without the plugin:
+  0/23/23/23/23 at `-O0`..`-Os` (the same 23 files at every level, listed in the
+  results file), and the plugin retains all 92. Per-span plugin-on records valid
+  835/835.
+- **Corroboration** by the effect oracle, `RETAINED` cells with the effect
+  `PRESENT` in `w/on`: 96/108 at each of `-O1`..`-O3` and 25/108 at `-Os`. Every
+  miss has `rep stos` in the target body, which the oracle does not know: the 12
+  at `-O1`..`-O3` are the 256-byte seed buffers, the 83 at `-Os` are gcc's
+  `-Os` zero fill. That reading is printed beside the oracle's and never added to
+  it; the outcome does not depend on either (it is `verdictOf`'s differential
+  comparison).
+- **Labels.** gcc numbers its `.L<n>` labels across the whole unit, so a pin in
+  the target renumbers the positive control's labels: `controlUntouched` held in
+  1595 cells, 93 of them only after the labels were renamed in order of first
+  appearance (`lib/surgicality.mjs`). Target bodies that differ only in label
+  names: 0 at every level, baseline and `RETAINED` alike.
+- **Surgicality, 0 violations:** `ablatedUnchanged` 1595 held, `controlUntouched`
+  1595 held, `noPinNoChange` held for `w` 815, `wo` 1595, no-wipe 195.
+- **Records:** 3395/3405 valid; the 10 missing are the wipe-deleted compiles of
+  the 2 files whose ablation does not compile. 1240 sites pinned, `unhandled.*`
+  all 0, no no-wipe file pinned, 290 pinned sites flagged `followedByUse`, no
+  non-exact target. The static-helper exception was applied in 616 cells (at
+  `-O1`..`-Os` only: at `-O0` gcc still emits the uncalled `static` helper, and
+  the plugin resolves it).
+- **A pin changed a listing where the find step reported no loss:**
+  156/28/50/50/49 at `-O0`..`-Os`; with a hidden elimination 0/23/23/23/23.
+  None is counted as a repair.
+- **Red controls, both `HELD`** (`-O2`, functions scope): `--dry-run` gives
+  `RETAINED` 0 and `PIN_INEFFECTIVE` 108 with every `noPinNoChange` held and
+  `hiddenRetained` 0 of 23; `--target-suffix __absent` gives `BROKEN_REPAIR` in
+  every scorable cell.
+- **configguard, `-O2`:** the tracked `DEFAULT_DIFFERS` result re-observed in
+  83/83 files; with the plugin in module scope the default build equals the
+  all-macros build in **0/83**. It left the default target body unchanged in
+  81/83; in `opus_E_debugdump_r1` (2 pinned) and `opus_E_debugdump_r3` (4 pinned)
+  the body changes, still without becoming the enabled build's.
+- **Cross-vendor coverage:** gcc-13 432/432 (this run), clang-18 401/401 (read
+  from the tracked clang-18 rows, sha256 `562a2ac3…7cb658c`), total **833/833**.
+  Each results file names the other vendor's tracked rows by sha256; the rows are
+  deterministic (a second `--write-data` run of each vendor wrote the same bytes),
+  so the two files' references agree.
 
 ## What this does not claim
 

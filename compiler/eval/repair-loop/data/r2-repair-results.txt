@@ -1,7 +1,9 @@
 repair-loop results (run-repair-loop.mjs)
 
 compiler        clang-18  (Ubuntu clang version 18.1.3 (1ubuntu1))
-plugin sha256   aa7329c3d9ba002915f885624c17d6da1418aa39a2b762d1655e83786e6f0a66
+vendor          clang: plugin WipePin, loaded with -fpass-plugin=<so>
+plugin sha256   db3298cfb30d14200fe0822261eaa1c35aa51aed4aef869a0edd3151f073a4c8
+_FORTIFY_SOURCE -O0 (not defined), -O1 (not defined), -O2 (not defined), -O3 (not defined), -Os (not defined)  (predefined by the compiler with FLAGS; FLAGS does not set it)
 scope           functions
 dry run         false
 target suffix   (none)
@@ -58,11 +60,11 @@ outcomes -- idiom both
   total                     26    26    26    26    26
 
 positive control PRESENT in the plugin-on compiles
-  -O0  w/on 321/321   wo/on 319/321   no-wipe on 39/39
-  -O1  w/on 321/321   wo/on 319/321   no-wipe on 39/39
-  -O2  w/on 321/321   wo/on 319/321   no-wipe on 39/39
-  -O3  w/on 321/321   wo/on 319/321   no-wipe on 39/39
-  -Os  w/on 321/321   wo/on 319/321   no-wipe on 39/39
+  -O0  w/on 321/321   wo/on 319/321   no-wipe on 39/39   (w/on + wo/on read through the find step's rep-stos fallback: 0)
+  -O1  w/on 321/321   wo/on 319/321   no-wipe on 39/39   (w/on + wo/on read through the find step's rep-stos fallback: 0)
+  -O2  w/on 321/321   wo/on 319/321   no-wipe on 39/39   (w/on + wo/on read through the find step's rep-stos fallback: 0)
+  -O3  w/on 321/321   wo/on 319/321   no-wipe on 39/39   (w/on + wo/on read through the find step's rep-stos fallback: 0)
+  -Os  w/on 321/321   wo/on 319/321   no-wipe on 39/39   (w/on + wo/on read through the find step's rep-stos fallback: 0)
 
 surgicality (reported beside the outcome, never folded into it)
   ablatedUnchanged     held 1595, violated 0, n/a 10
@@ -71,6 +73,7 @@ surgicality (reported beside the outcome, never folded into it)
   noPinNoChange  wo    held 1595, violated 0, n/a 10
   noPinNoChange  none  held 195, violated 0, n/a 0
   controlUntouched none held 195, violated 0, n/a 0
+  controlUntouched held only after renaming the unit-wide .L<n> labels (gcc): wipe cells 0, no-wipe 0
 
 plugin records (plugin-on compiles)
   valid 3395/3405
@@ -86,7 +89,7 @@ plugin records (plugin-on compiles)
   unhandled.inlineWrapperMemset  0
   no-wipe files with pinnedCount > 0     0/195
   helper resolved in w, not-in-module in wo (its only call was the ablated wipe; tolerated, not broken): 770 cell(s)
-  pinned sites the plugin flags followedByUse (initialiser-like; a hint that can over-approximate): 311
+  pinned sites the plugin flags followedByUse (initialiser-like; a hint that can over-approximate): 295
   records naming a non-exact target definition: 0
 
 per-span view (each removable span of a multi-span cell ablated alone, same verdictOf; cell outcomes unchanged)
@@ -172,12 +175,20 @@ per-span view (each removable span of a multi-span cell ablated alone, same verd
   pinDelta is carried in the rows and is not attribution: where the wipe-deleted compile pins nothing it equals the wipe-kept pin count.
 
 corroboration by the effect oracle (observeEffect on the target body, CONTROL_EFFECT; never changes an outcome)
-  -O0  RETAINED 0: effect PRESENT in w/on 0, in w/off 0
-  -O1  RETAINED 62: effect PRESENT in w/on 62, in w/off 5
-  -O2  RETAINED 113: effect PRESENT in w/on 113, in w/off 32
-  -O3  RETAINED 113: effect PRESENT in w/on 113, in w/off 32
-  -Os  RETAINED 113: effect PRESENT in w/on 113, in w/off 32
+  -O0  RETAINED 0: effect PRESENT in w/on 0, in w/off 0; of the w/on misses, rep stos in the body 0
+  -O1  RETAINED 62: effect PRESENT in w/on 62, in w/off 5; of the w/on misses, rep stos in the body 0
+  -O2  RETAINED 113: effect PRESENT in w/on 113, in w/off 32; of the w/on misses, rep stos in the body 0
+  -O3  RETAINED 113: effect PRESENT in w/on 113, in w/off 32; of the w/on misses, rep stos in the body 0
+  -Os  RETAINED 113: effect PRESENT in w/on 113, in w/off 32; of the w/on misses, rep stos in the body 0
   the w/off count is unreliable: any memset call or zero store in the body counts, so an array initialiser can read PRESENT although the wipe is gone.
+  the rep-stos reading is separate and never added to the oracle's count (observeEffect does not know rep stos; gcc emits it for zero fills at -Os, and at -O1 to -O3 for larger ones, e.g. the corpus's 256-byte seed buffers).
+
+target bodies that differ only in .L<n> label names (gcc numbers them per unit; verdicts unchanged, see README)
+  -O0  baseline w/off vs wo/off 0; RETAINED whose w/on vs wo/on 0
+  -O1  baseline w/off vs wo/off 0; RETAINED whose w/on vs wo/on 0
+  -O2  baseline w/off vs wo/off 0; RETAINED whose w/on vs wo/on 0
+  -O3  baseline w/off vs wo/off 0; RETAINED whose w/on vs wo/on 0
+  -Os  baseline w/off vs wo/off 0; RETAINED whose w/on vs wo/on 0
 
 listing provenance
   listings hashed (sha256 of the full -S text as read): 6790
@@ -190,7 +201,7 @@ pin changed a listing where the find step reported no loss (ALREADY_SURVIVED, w 
   -Os  26: with a hidden elimination 19, without 7
 
 pin plan (pin-plan.json in the lab directory): 132 file(s)
-  eliminations reversed / found: clang-18 401/401, gcc-13 0/432 (no plugin can load), total 401/833
+  eliminations reversed / found: clang-18 401/401 (this run), gcc-13 432/432 (tracked repair rows compiler/eval/repair-loop/data/r2-repair-rows-gcc-13.json, sha256 cf016ae1bb4f218cfa5ee13abc779dfc5e6c61e1ac34804f8810bd3575dbe076, a full --write-data run), total 833/833
 
 baseline WIPE_ELIMINATED cells that are not RETAINED: 0
 
@@ -202,5 +213,5 @@ out of reach
     plugin made the default body equal the enabled body     yes 0, no 81, undecided 0
     record valid 81/81, control PRESENT with the plugin 81/81
     CHANGED opus_E_debugdump_r3: pinnedCount 4
-  gcc-13: UNSUPPORTED_VENDOR -- 1605 tracked erasure cell(s); an LLVM pass plugin cannot load into gcc, so this lane has no plugin-on compile to make for them
+  gcc-13: SEPARATE_RUN -- 1605 tracked erasure cell(s); its repair plugin is WipePinGcc (-fplugin=<so>), and its cells are measured by a run with --cc gcc-13, not by this one
   nullcheck, signedovf: NOT_ATTEMPTED -- not in the r2 corpus (scenarios.json has erasure, authz and configguard only), and the loss there is a folded comparison, not a removed store; pinning a memset does not touch it

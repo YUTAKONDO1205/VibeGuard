@@ -1,0 +1,366 @@
+repair-loop results (run-repair-loop.mjs)
+
+compiler        gcc-13  (gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0)
+vendor          gcc: plugin WipePinGcc, loaded with -fplugin=<so>
+plugin sha256   954b5b58d3e14028798fc48d6f7420fd77051d8d91233d048886959c3425f025
+_FORTIFY_SOURCE -O0 (not defined), -O1 3, -O2 3, -O3 3, -Os 3  (predefined by the compiler with FLAGS; FLAGS does not set it)
+scope           functions
+dry run         false
+target suffix   (none)
+opts            -O0 -O1 -O2 -O3 -Os
+file subset     (all erasure files)
+cells           1605 wipe, 195 no-wipe, 83 configguard
+
+preflight
+  plugin loads                          true
+  module-scope record                   valid
+  no record when no target is given     true
+  without WPIN_OUT (expect a refusal)   stderr-nonempty
+  refusal checks                        held
+
+baseline (plugin off) against the tracked find-step rows
+  wipe cells       1605/1605 agree
+  no-wipe cells    195/195 tracked as NO_WIPE_WRITTEN too
+  idiom label      1605/1605 agree
+
+outcomes -- idiom removable
+  outcome                  -O0   -O1   -O2   -O3   -Os
+  RETAINED                   0   108   108   108   108
+  ALREADY_SURVIVED         133    25    25    25    25
+  PIN_INEFFECTIVE            0     0     0     0     0
+  PIN_NOT_APPLIED            0     0     0     0     0
+  BROKEN_REPAIR              0     0     0     0     0
+  REGRESSED                  0     0     0     0     0
+  SURVIVED_WITHOUT_PIN       0     0     0     0     0
+  NOT_SCORED                 0     0     0     0     0
+  total                    133   133   133   133   133
+
+outcomes -- idiom nonremovable
+  outcome                  -O0   -O1   -O2   -O3   -Os
+  RETAINED                   0     0     0     0     0
+  ALREADY_SURVIVED         160   160   160   160   160
+  PIN_INEFFECTIVE            0     0     0     0     0
+  PIN_NOT_APPLIED            0     0     0     0     0
+  BROKEN_REPAIR              0     0     0     0     0
+  REGRESSED                  0     0     0     0     0
+  SURVIVED_WITHOUT_PIN       0     0     0     0     0
+  NOT_SCORED                 2     2     2     2     2
+  total                    162   162   162   162   162
+
+outcomes -- idiom both
+  outcome                  -O0   -O1   -O2   -O3   -Os
+  RETAINED                   0     0     0     0     0
+  ALREADY_SURVIVED          26    26    26    26    26
+  PIN_INEFFECTIVE            0     0     0     0     0
+  PIN_NOT_APPLIED            0     0     0     0     0
+  BROKEN_REPAIR              0     0     0     0     0
+  REGRESSED                  0     0     0     0     0
+  SURVIVED_WITHOUT_PIN       0     0     0     0     0
+  NOT_SCORED                 0     0     0     0     0
+  total                     26    26    26    26    26
+
+positive control PRESENT in the plugin-on compiles
+  -O0  w/on 321/321   wo/on 319/321   no-wipe on 39/39   (w/on + wo/on read through the find step's rep-stos fallback: 0)
+  -O1  w/on 321/321   wo/on 319/321   no-wipe on 39/39   (w/on + wo/on read through the find step's rep-stos fallback: 0)
+  -O2  w/on 321/321   wo/on 319/321   no-wipe on 39/39   (w/on + wo/on read through the find step's rep-stos fallback: 0)
+  -O3  w/on 321/321   wo/on 319/321   no-wipe on 39/39   (w/on + wo/on read through the find step's rep-stos fallback: 0)
+  -Os  w/on 321/321   wo/on 319/321   no-wipe on 39/39   (w/on + wo/on read through the find step's rep-stos fallback: 640)
+
+surgicality (reported beside the outcome, never folded into it)
+  ablatedUnchanged     held 1595, violated 0, n/a 10
+  controlUntouched     held 1595, violated 0, n/a 10   (functions scope only)
+  noPinNoChange  w     held 815, violated 0, n/a 790
+  noPinNoChange  wo    held 1595, violated 0, n/a 10
+  noPinNoChange  none  held 195, violated 0, n/a 0
+  controlUntouched none held 195, violated 0, n/a 0
+  controlUntouched held only after renaming the unit-wide .L<n> labels (gcc): wipe cells 93, no-wipe 0
+
+plugin records (plugin-on compiles)
+  valid 3395/3405
+  refused: 10 x record-missing
+  pinned sites (sum of pinnedCount)      1240
+  would-pin sites (sum of wouldPinCount) 1240
+  seen.zeroFillMemsetInScope    1251
+  seen.zeroFillMemsetInModule   4646
+  unhandled.libcallMemset        0
+  unhandled.memsetChk            0
+  unhandled.nonZeroFill          0
+  unhandled.atomicMemset         0
+  unhandled.inlineWrapperMemset  0
+  no-wipe files with pinnedCount > 0     0/195
+  helper resolved in w, not-in-module in wo (its only call was the ablated wipe; tolerated, not broken): 616 cell(s)
+  pinned sites the plugin flags followedByUse (initialiser-like; a hint that can over-approximate): 290
+  records naming a non-exact target definition: 0
+
+per-span view (each removable span of a multi-span cell ablated alone, same verdictOf; cell outcomes unchanged)
+  -O0  multi-span cells 155
+       RETAINED cells: removable spans that survive individually with the plugin: 0/0
+       cells the find step scored SURVIVED in which a span is individually eliminated without the plugin: 0 (retained with the plugin: 0)
+  -O1  multi-span cells 155
+       RETAINED cells: removable spans that survive individually with the plugin: 146/146
+       cells the find step scored SURVIVED in which a span is individually eliminated without the plugin: 23 (retained with the plugin: 23)
+         HIDDEN haiku_E_otpsecret_r2 retained
+         HIDDEN haiku_S_pwverify_r1 retained
+         HIDDEN opus_N_otpsecret_r2 retained
+         HIDDEN opus_N_pwverify_r1 retained
+         HIDDEN sonnet_E_dbpass_r1 retained
+         HIDDEN sonnet_E_dbpass_r2 retained
+         HIDDEN sonnet_E_dbpass_r3 retained
+         HIDDEN sonnet_N_dbpass_r1 retained
+         HIDDEN sonnet_N_dbpass_r2 retained
+         HIDDEN sonnet_N_dbpass_r3 retained
+         HIDDEN sonnet_N_pinpad_r1 retained
+         HIDDEN sonnet_N_pinpad_r2 retained
+         HIDDEN sonnet_S_dbpass_r1 retained
+         HIDDEN sonnet_S_dbpass_r2 retained
+         HIDDEN sonnet_S_dbpass_r3 retained
+         HIDDEN sonnet_S_pinpad_r1 retained
+         HIDDEN sonnet_S_pinpad_r2 retained
+         HIDDEN sonnet_S_pinpad_r3 retained
+         HIDDEN sonnet_S_privkey_r1 retained
+         HIDDEN sonnet_S_pwverify_r1 retained
+         HIDDEN sonnet_S_pwverify_r2 retained
+         HIDDEN sonnet_S_pwverify_r3 retained
+         HIDDEN sonnet_S_seedphrase_r1 retained
+  -O2  multi-span cells 155
+       RETAINED cells: removable spans that survive individually with the plugin: 146/146
+       cells the find step scored SURVIVED in which a span is individually eliminated without the plugin: 23 (retained with the plugin: 23)
+         HIDDEN haiku_E_otpsecret_r2 retained
+         HIDDEN haiku_S_pwverify_r1 retained
+         HIDDEN opus_N_otpsecret_r2 retained
+         HIDDEN opus_N_pwverify_r1 retained
+         HIDDEN sonnet_E_dbpass_r1 retained
+         HIDDEN sonnet_E_dbpass_r2 retained
+         HIDDEN sonnet_E_dbpass_r3 retained
+         HIDDEN sonnet_N_dbpass_r1 retained
+         HIDDEN sonnet_N_dbpass_r2 retained
+         HIDDEN sonnet_N_dbpass_r3 retained
+         HIDDEN sonnet_N_pinpad_r1 retained
+         HIDDEN sonnet_N_pinpad_r2 retained
+         HIDDEN sonnet_S_dbpass_r1 retained
+         HIDDEN sonnet_S_dbpass_r2 retained
+         HIDDEN sonnet_S_dbpass_r3 retained
+         HIDDEN sonnet_S_pinpad_r1 retained
+         HIDDEN sonnet_S_pinpad_r2 retained
+         HIDDEN sonnet_S_pinpad_r3 retained
+         HIDDEN sonnet_S_privkey_r1 retained
+         HIDDEN sonnet_S_pwverify_r1 retained
+         HIDDEN sonnet_S_pwverify_r2 retained
+         HIDDEN sonnet_S_pwverify_r3 retained
+         HIDDEN sonnet_S_seedphrase_r1 retained
+  -O3  multi-span cells 155
+       RETAINED cells: removable spans that survive individually with the plugin: 146/146
+       cells the find step scored SURVIVED in which a span is individually eliminated without the plugin: 23 (retained with the plugin: 23)
+         HIDDEN haiku_E_otpsecret_r2 retained
+         HIDDEN haiku_S_pwverify_r1 retained
+         HIDDEN opus_N_otpsecret_r2 retained
+         HIDDEN opus_N_pwverify_r1 retained
+         HIDDEN sonnet_E_dbpass_r1 retained
+         HIDDEN sonnet_E_dbpass_r2 retained
+         HIDDEN sonnet_E_dbpass_r3 retained
+         HIDDEN sonnet_N_dbpass_r1 retained
+         HIDDEN sonnet_N_dbpass_r2 retained
+         HIDDEN sonnet_N_dbpass_r3 retained
+         HIDDEN sonnet_N_pinpad_r1 retained
+         HIDDEN sonnet_N_pinpad_r2 retained
+         HIDDEN sonnet_S_dbpass_r1 retained
+         HIDDEN sonnet_S_dbpass_r2 retained
+         HIDDEN sonnet_S_dbpass_r3 retained
+         HIDDEN sonnet_S_pinpad_r1 retained
+         HIDDEN sonnet_S_pinpad_r2 retained
+         HIDDEN sonnet_S_pinpad_r3 retained
+         HIDDEN sonnet_S_privkey_r1 retained
+         HIDDEN sonnet_S_pwverify_r1 retained
+         HIDDEN sonnet_S_pwverify_r2 retained
+         HIDDEN sonnet_S_pwverify_r3 retained
+         HIDDEN sonnet_S_seedphrase_r1 retained
+  -Os  multi-span cells 155
+       RETAINED cells: removable spans that survive individually with the plugin: 146/146
+       cells the find step scored SURVIVED in which a span is individually eliminated without the plugin: 23 (retained with the plugin: 23)
+         HIDDEN haiku_E_otpsecret_r2 retained
+         HIDDEN haiku_S_pwverify_r1 retained
+         HIDDEN opus_N_otpsecret_r2 retained
+         HIDDEN opus_N_pwverify_r1 retained
+         HIDDEN sonnet_E_dbpass_r1 retained
+         HIDDEN sonnet_E_dbpass_r2 retained
+         HIDDEN sonnet_E_dbpass_r3 retained
+         HIDDEN sonnet_N_dbpass_r1 retained
+         HIDDEN sonnet_N_dbpass_r2 retained
+         HIDDEN sonnet_N_dbpass_r3 retained
+         HIDDEN sonnet_N_pinpad_r1 retained
+         HIDDEN sonnet_N_pinpad_r2 retained
+         HIDDEN sonnet_S_dbpass_r1 retained
+         HIDDEN sonnet_S_dbpass_r2 retained
+         HIDDEN sonnet_S_dbpass_r3 retained
+         HIDDEN sonnet_S_pinpad_r1 retained
+         HIDDEN sonnet_S_pinpad_r2 retained
+         HIDDEN sonnet_S_pinpad_r3 retained
+         HIDDEN sonnet_S_privkey_r1 retained
+         HIDDEN sonnet_S_pwverify_r1 retained
+         HIDDEN sonnet_S_pwverify_r2 retained
+         HIDDEN sonnet_S_pwverify_r3 retained
+         HIDDEN sonnet_S_seedphrase_r1 retained
+  per-span plugin-on records valid 835/835
+  pinDelta is carried in the rows and is not attribution: where the wipe-deleted compile pins nothing it equals the wipe-kept pin count.
+
+corroboration by the effect oracle (observeEffect on the target body, CONTROL_EFFECT; never changes an outcome)
+  -O0  RETAINED 0: effect PRESENT in w/on 0, in w/off 0; of the w/on misses, rep stos in the body 0
+  -O1  RETAINED 108: effect PRESENT in w/on 96, in w/off 26; of the w/on misses, rep stos in the body 12
+         w/on NOT PRESENT fable_N_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_E_seedphrase_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_E_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_seedphrase_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_seedphrase_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_S_seedphrase_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT opus_N_seedphrase_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT opus_N_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_seedphrase_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_seedphrase_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+  -O2  RETAINED 108: effect PRESENT in w/on 96, in w/off 26; of the w/on misses, rep stos in the body 12
+         w/on NOT PRESENT fable_N_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_E_seedphrase_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_E_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_seedphrase_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_seedphrase_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_S_seedphrase_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT opus_N_seedphrase_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT opus_N_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_seedphrase_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_seedphrase_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+  -O3  RETAINED 108: effect PRESENT in w/on 96, in w/off 26; of the w/on misses, rep stos in the body 12
+         w/on NOT PRESENT fable_N_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_E_seedphrase_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_E_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_seedphrase_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_seedphrase_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_S_seedphrase_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT opus_N_seedphrase_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT opus_N_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_seedphrase_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_seedphrase_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+  -Os  RETAINED 108: effect PRESENT in w/on 25, in w/off 25; of the w/on misses, rep stos in the body 83
+         w/on NOT PRESENT fable_N_aeskey_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT fable_N_aeskey_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT fable_N_dbpass_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT fable_N_hmackey_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT fable_N_hmackey_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT fable_N_hmackey_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT fable_N_otpsecret_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT fable_N_otpsecret_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT fable_N_otpsecret_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT fable_N_premaster_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT fable_N_privkey_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT fable_N_privkey_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT fable_N_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT fable_N_token_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_E_aeskey_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_E_aeskey_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_E_aeskey_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_E_hmackey_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_E_hmackey_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_E_hmackey_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_E_otpsecret_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_E_privkey_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_E_pwverify_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_E_seedphrase_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_E_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_E_token_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_aeskey_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_aeskey_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_aeskey_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_hmackey_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_hmackey_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_otpsecret_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_otpsecret_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_premaster_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_privkey_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_seedphrase_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_seedphrase_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_N_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_S_aeskey_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_S_aeskey_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_S_dbpass_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_S_otpsecret_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_S_otpsecret_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_S_otpsecret_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_S_premaster_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_S_privkey_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_S_privkey_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_S_seedphrase_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_S_token_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_S_token_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT haiku_S_token_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT opus_N_aeskey_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT opus_N_premaster_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT opus_N_seedphrase_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT opus_N_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT opus_N_token_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT opus_N_token_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_E_otpsecret_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_E_otpsecret_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_E_token_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_E_token_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_aeskey_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_hmackey_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_hmackey_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_hmackey_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_otpsecret_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_otpsecret_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_otpsecret_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_premaster_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_premaster_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_premaster_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_privkey_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_privkey_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_privkey_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_seedphrase_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_seedphrase_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_seedphrase_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_N_token_r1 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_S_hmackey_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_S_otpsecret_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_S_premaster_r3 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_S_token_r2 (rep stos in the body: a zero fill the oracle does not know)
+         w/on NOT PRESENT sonnet_S_token_r3 (rep stos in the body: a zero fill the oracle does not know)
+  the w/off count is unreliable: any memset call or zero store in the body counts, so an array initialiser can read PRESENT although the wipe is gone.
+  the rep-stos reading is separate and never added to the oracle's count (observeEffect does not know rep stos; gcc emits it for zero fills at -Os, and at -O1 to -O3 for larger ones, e.g. the corpus's 256-byte seed buffers).
+
+target bodies that differ only in .L<n> label names (gcc numbers them per unit; verdicts unchanged, see README)
+  -O0  baseline w/off vs wo/off 0; RETAINED whose w/on vs wo/on 0
+  -O1  baseline w/off vs wo/off 0; RETAINED whose w/on vs wo/on 0
+  -O2  baseline w/off vs wo/off 0; RETAINED whose w/on vs wo/on 0
+  -O3  baseline w/off vs wo/off 0; RETAINED whose w/on vs wo/on 0
+  -Os  baseline w/off vs wo/off 0; RETAINED whose w/on vs wo/on 0
+
+listing provenance
+  listings hashed (sha256 of the full -S text as read): 6790
+
+pin changed a listing where the find step reported no loss (ALREADY_SURVIVED, w pinned > 0, w/off and w/on digests differ)
+  -O0  156: with a hidden elimination 0, without 156
+  -O1  28: with a hidden elimination 23, without 5
+  -O2  50: with a hidden elimination 23, without 27
+  -O3  50: with a hidden elimination 23, without 27
+  -Os  49: with a hidden elimination 23, without 26
+
+pin plan (pin-plan.json in the lab directory): 131 file(s)
+  eliminations reversed / found: gcc-13 432/432 (this run), clang-18 401/401 (tracked repair rows compiler/eval/repair-loop/data/r2-repair-rows.json, sha256 562a2ac3357385d43b38e735db5d12baa25667a89bbfa546642c045ea7cb658c, a full --write-data run), total 833/833
+
+baseline WIPE_ELIMINATED cells that are not RETAINED: 0
+
+out of reach
+  authz: NO_LOSS_OBSERVED -- -DNDEBUG changed the target body in 0 of 712 compiling configurations (8 not compiling or not observed); no loss observed, nothing to repair
+  configguard: OUT_OF_REACH_PREPROCESS -- 83 of 83 tracked DEFAULT_DIFFERS file(s) selected at gcc-13 -O2, plugin in module scope
+    default differs from enabled, re-observed plugin off   yes 83, no 0, undecided 0
+    plugin left the default target body unchanged           yes 81, no 2, undecided 0
+    plugin made the default body equal the enabled body     yes 0, no 83, undecided 0
+    record valid 83/83, control PRESENT with the plugin 83/83
+    CHANGED opus_E_debugdump_r1: pinnedCount 2
+    CHANGED opus_E_debugdump_r3: pinnedCount 4
+  clang-18: SEPARATE_RUN -- 1605 tracked erasure cell(s); its repair plugin is WipePin (-fpass-plugin=<so>), and its cells are measured by a run with --cc clang-18, not by this one
+  nullcheck, signedovf: NOT_ATTEMPTED -- not in the r2 corpus (scenarios.json has erasure, authz and configguard only), and the loss there is a folded comparison, not a removed store; pinning a memset does not touch it
