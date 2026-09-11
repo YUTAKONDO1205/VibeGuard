@@ -24,13 +24,15 @@ output is an executable, which this script disassembles itself (objdump -d,
 read by ../../gcc-repair/scripts/objdump_fill.py, imported and not copied, the
 reader the WipePinGcc loop uses for the same cells). Which LTO a cell ran is
 read from its objects -- the block each -flto object's module summary is in,
-through llvm-bcanalyzer-18 -dump -- and from the executable, which linker from
-its .comment and which link from whether it still defines the helper, not from
-what the runner says it ran; so objdump and llvm-bcanalyzer-18 are required.
+through llvm-bcanalyzer-18 -dump, for the lto cells' objects as for the xtu
+cells' -- and from the executable, which linker from its .comment and which link
+from whether it still defines the helper, not from what the runner says it ran;
+so objdump and llvm-bcanalyzer-18 are required.
 
 The expectations below were written from what each cell is for, before the
-cells were first run. A cell that disagrees is printed as a disagreement and the
-run fails; the tables are never edited into agreement.
+cells were first run, with one exception that says so where it is defined:
+XTU_HELPER_DEFINED, which is measured. A cell that disagrees is printed as a
+disagreement and the run fails; the tables are never edited into agreement.
 
 Exit codes (compiler/schema/interfaces.md section 7):
     0  every expectation held
@@ -781,8 +783,11 @@ def on_disk_state(path):
     return "dir" if os.path.isdir(path) else ("file" if os.path.isfile(path) else "absent")
 
 
-def grade_lto(lab):
-    rows, problems, incomplete = [], [], []
+def grade_lto(lab, bcanalyzer=None):
+    """The lto / no-pipeline-start cells. Returns rows, problems, incomplete, and
+    the forms read from the -flto objects' module summaries as (cell, form)."""
+    bcanalyzer = bcanalyzer or BCANALYZER  # defined with the xtu grading, below
+    rows, problems, incomplete, forms = [], [], [], []
     d = os.path.join(lab, "lto")
     for cell in LTO_ORDER:
         exp = LTO[cell]
@@ -832,6 +837,20 @@ def grade_lto(lab):
         else:
             if not bitcode:
                 bad.append("the -flto compile did not leave a bitcode object")
+            else:
+                # The magic says bitcode for -flto and -flto=thin alike. The block
+                # the module summary is in says which the compile wrote, and so
+                # which LTO the link ran: lto-thin-linkline-O0 is the cell that
+                # shows a ThinLTO link at -O0, and with a full object it would show
+                # nothing about one (read as the xtu cells' objects are).
+                try:
+                    form = lto_form(os.path.join(d, cell + ".o"), bcanalyzer)
+                except RuntimeError as e:
+                    incomplete.append(f"{cell}.o: {e}")
+                    continue
+                forms.append((cell, form))
+                if form != exp["form"]:
+                    bad.append(f"the object's module summary is {form}, expected {exp['form']}")
             want_after_compile = "file"
             if kv.get("afterCompile") != want_after_compile:
                 bad.append(f"WPIN_OUT after the compile: {kv.get('afterCompile')}, expected {want_after_compile}")
@@ -871,7 +890,7 @@ def grade_lto(lab):
                      kv.get("beforeLink"), kv.get("pluginLinkRc"), f"{line_n} ({ending})" if line_n != "-" else "-",
                      after, same, "ok" if not bad else "DISAGREES"))
         problems += [f"{cell}: {b}" for b in bad]
-    return rows, problems, incomplete
+    return rows, problems, incomplete, forms
 
 
 def xtu_record_problems(rec, exp):
@@ -1131,7 +1150,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--lab", required=True, help="the directory run-fixture-loop.sh wrote into")
     ap.add_argument("--bcanalyzer", default=BCANALYZER,
-                    help=f"the llvm-bcanalyzer that reads the xtu objects' summaries (default {BCANALYZER})")
+                    help=f"the llvm-bcanalyzer that reads the -flto objects' summaries, lto and xtu cells (default {BCANALYZER})")
     args = ap.parse_args()
     lab = os.path.abspath(args.lab)
 
@@ -1147,7 +1166,7 @@ def main():
     prow, pprob, pinc = grade_pinsh_only(lab)
     srow, sprob, sinc = grade_shapes(lab)
     trow, tprob, tinc = grade_stale(lab)
-    lrow, lprob, linc = grade_lto(lab)
+    lrow, lprob, linc, lforms = grade_lto(lab, args.bcanalyzer)
     xrow, xprob, xinc = grade_xtu(lab, args.bcanalyzer)
     problems += pprob + sprob + tprob + lprob + xprob
     incomplete += pinc + sinc + tinc + linc + xinc
@@ -1165,6 +1184,8 @@ def main():
     print()
     table(("lto / no pipeline start", "form", "opt", "compile rc", "bitcode", "compile record",
            "WPIN_OUT before link", "link rc", "no-pipeline-start line", "WPIN_OUT after", "output==stock", ""), lrow)
+    print("lto: module summary of each -flto object (" + os.path.basename(args.bcanalyzer) + " -dump): "
+          + ", ".join(f"{c} {f}" for c, f in lforms))
     print()
     table(("xtu (-O2, executable)", "form", "mode", "rc", "objects", "summary", "linker", "secure_wipe",
            "wipe.c record", "inlined", "subject: handle", "control: wipe_kept", "==stock", ""), xrow)

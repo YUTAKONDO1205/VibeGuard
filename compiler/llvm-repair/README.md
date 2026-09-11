@@ -612,9 +612,15 @@ build left:
 
 The expectations written before the first run did not change; the first two
 checks expect what the cells were defined as, and the third is added beside
-them from the measurement. The lto group's two thin cells
-(`lto-thin-linkline`, `lto-thin-linkline-O0`) still read only the magic; they
-are graded as they were.
+them from the measurement. The lto group's `-flto` objects are now read the
+same way: each cell's object must hold its module summary in the block of the
+form the cell is named for (the checker prints the five after the lto table:
+full, full, thin, thin, full). Before, `lto-thin-linkline` and
+`lto-thin-linkline-O0` read only the magic, and with their objects replaced by
+a full one both still read as expected; now both disagree (`the object's module
+summary is full, expected thin`), exit 2. `lto-thin-linkline-O0` is the cell
+that shows a ThinLTO link at `-O0` running no extension point, so that is the
+check that keeps it a ThinLTO link.
 
 **The checker was shown to fail**, one corruption at a time on a copy of the
 lab: `xtu-full-pin`'s executable replaced by `xtu-full-stock`'s → exit 2

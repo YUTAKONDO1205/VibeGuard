@@ -435,9 +435,11 @@ jobs:
   # grades every cell against a fixed expectation table. Most expectations
   # were written from what the cell is for before it first ran; the ones taken
   # from a measurement say so beside them (check-gcc-fixture-loop.py's
-  # `chkconst`, and the level at which gcc-13 removes the stock wipe), and so
-  # does the one that changed after a first run (the xtu cells' control, which
-  # changed with the fixture; both checkers' xtu comments say why). Until
+  # `chkconst`, the level at which gcc-13 removes the stock wipe, and
+  # check-fixture-loop.py's XTU_HELPER_DEFINED, whether an xtu executable still
+  # defines the helper), and so does the one that changed after a first run (the
+  # xtu cells' control, which changed with the fixture; both checkers' xtu
+  # comments say why). Until
   # this job, those loops had only ever run on the machine that wrote them.
   #
   # It also builds the property observer (compiler/pass-instrumentation/observer)
