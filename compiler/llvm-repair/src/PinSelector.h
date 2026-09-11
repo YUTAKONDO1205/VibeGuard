@@ -64,7 +64,11 @@ Config loadConfig();
 /// not a failure. The caller refuses to install on false: an old record that
 /// cannot be cleared would still be there after any compile whose pass then
 /// failed to write, looking like that compile's.
-bool clearStaleRecord(std::string &Why);
+///
+/// `Removed` is set to true when a file (or a symlink) was actually removed, and
+/// left alone otherwise. It is what lets the link-time line say whether loading
+/// the plugin just deleted a record (see WipePin.cpp).
+bool clearStaleRecord(std::string &Why, bool &Removed);
 
 enum class Resolution { Resolved, DeclarationOnly, NotInModule };
 

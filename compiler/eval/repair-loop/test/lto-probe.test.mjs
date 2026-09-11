@@ -7,11 +7,16 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import {
   MODES, ltoCompileFlags, ltoLinkArgs, llcOptFor, objectKind, expectedOutputs, pickOutput, readRecordFields,
-  ltoOutcome, LTO_OUTCOMES, gradeDryRun, SENTINEL, linkPluginState, zeroMemsetsInFunctions, evenSample,
-  summarizeGroup, insideRepo,
+  ltoOutcome, LTO_OUTCOMES, gradeDryRun, SENTINEL, linkPluginState, LINK_LINE_REMOVED, linkLineStderr,
+  gradeLinkPlugin, zeroMemsetsInFunctions, evenSample, summarizeGroup, insideRepo,
 } from '../tools/lib/lto.mjs';
+
+const WIPEPIN_CPP = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'llvm-repair', 'src', 'WipePin.cpp');
 
 const E = 'WIPE_ELIMINATED';
 const S = 'WIPE_SURVIVED';
@@ -166,6 +171,56 @@ test('linkPluginState: sentinel kept, removed, a record, or something else', () 
   assert.equal(linkPluginState({ exists: true, text: '' }), 'other-file');
 });
 
+test('LINK_LINE_REMOVED is the line WipePin.cpp prints when its load removed a file at WPIN_OUT', () => {
+  // Rebuilt from the string literals of noPipelineStartLine in the plugin's
+  // source: every literal before the "removed" branch is the common prefix.
+  const src = readFileSync(WIPEPIN_CPP, 'utf8');
+  const m = /std::string noPipelineStartLine\(bool Removed\) \{([\s\S]*?)\n\}\n/.exec(src);
+  assert.ok(m, 'noPipelineStartLine not found in WipePin.cpp');
+  const lits = [...m[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((x) => x[1]);
+  const at = lits.findIndex((l) => l.includes('removed when the plugin loaded'));
+  assert.ok(at > 0, 'the removed branch is not a literal of its own');
+  assert.equal(lits.slice(0, at).join('') + lits[at], LINK_LINE_REMOVED);
+  assert.match(lits[at + 1], /^there was no file at WPIN_OUT/);
+});
+
+test('linkLineStderr: the line exactly once and nothing else; empty stderr is not it', () => {
+  assert.deepEqual(linkLineStderr(`${LINK_LINE_REMOVED}\n`), { count: 1, exactlyOnce: true, other: [] });
+  assert.equal(linkLineStderr(`${LINK_LINE_REMOVED}\r\n`).exactlyOnce, true);
+  // what the probe used to accept as the right answer
+  assert.deepEqual(linkLineStderr(''), { count: 0, exactlyOnce: false, other: [] });
+  assert.equal(linkLineStderr(null).exactlyOnce, false);
+  const twice = linkLineStderr(`${LINK_LINE_REMOVED}\n${LINK_LINE_REMOVED}\n`);
+  assert.deepEqual([twice.count, twice.exactlyOnce], [2, false]);
+  const extra = linkLineStderr(`${LINK_LINE_REMOVED}\nld.lld: warning: something\n`);
+  assert.deepEqual([extra.count, extra.exactlyOnce, extra.other], [1, false, ['ld.lld: warning: something']]);
+  // the other form (nothing was at WPIN_OUT) is not the one (ii) expects: the sentinel is always there
+  const none = LINK_LINE_REMOVED.replace('the file at WPIN_OUT was removed when the plugin loaded', 'there was no file at WPIN_OUT when the plugin loaded');
+  assert.deepEqual([linkLineStderr(none).count, linkLineStderr(none).exactlyOnce], [0, false]);
+  assert.equal(linkLineStderr(LINK_LINE_REMOVED.slice(0, -1)).count, 0);
+});
+
+test('gradeLinkPlugin: every (ii) link removed the sentinel, said the line once, and matched the stock assembly', () => {
+  const good = { state: 'removed', asmEqualsStock: true, stderrLineCount: 1, stderrExactlyLine: true };
+  const row = (id, w, wo = good, outcome = 'RETAINED') => ({ id, mode: 'full', opt: '-O2', outcome, linkPlugin: { w, wo } });
+  assert.deepEqual(gradeLinkPlugin([row('a', good), row('b', good)]), { held: true, links: 4, violations: [] });
+  // the pre-change plugin: silent link
+  const silent = gradeLinkPlugin([row('a', { ...good, stderrLineCount: 0, stderrExactlyLine: false })]);
+  assert.equal(silent.held, false);
+  assert.match(silent.violations[0], /^a full -O2 w: the linker's stderr carries the link-time line 0 time\(s\), expected exactly once/);
+  assert.match(gradeLinkPlugin([row('a', { ...good, stderrExactlyLine: false })]).violations[0], /among other text/);
+  assert.match(gradeLinkPlugin([row('a', { ...good, state: 'record-written' })]).violations[0], /record-written, expected removed/);
+  assert.match(gradeLinkPlugin([row('a', { ...good, state: 'sentinel-kept' })]).violations[0], /sentinel-kept/);
+  assert.match(gradeLinkPlugin([row('a', good, { ...good, asmEqualsStock: false })]).violations[0], /^a full -O2 wo: the assembly/);
+  assert.equal(gradeLinkPlugin([row('a', undefined)]).held, false);
+  // NOT_LTO cells are not graded here, and a grade over nothing is a failure
+  assert.deepEqual(gradeLinkPlugin([row('a', { state: 'x' }, { state: 'x' }, 'NOT_LTO'), row('b', good)]).links, 2);
+  const vac = gradeLinkPlugin([row('a', good, good, 'NOT_LTO')]);
+  assert.equal(vac.held, false);
+  assert.match(vac.violations[0], /vacuous/);
+  assert.equal(gradeLinkPlugin([]).held, false);
+});
+
 test('zeroMemsetsInFunctions: zero-fill memsets in the named functions only, split by the volatile operand', () => {
   const ll = [
     'define dso_local void @encrypt_blob(ptr noundef %0) local_unnamed_addr #0 {',
@@ -202,7 +257,7 @@ test('evenSample: spread, ordered, and the whole list when k does not cut it', (
 
 test('summarizeGroup: counts, the tracked-row differences by id, and the determinism pairs', () => {
   const ok = { ok: true, problems: [], pinnedCount: 0 };
-  const lpOk = { state: 'removed', asmEqualsStock: true, stderrEmpty: true };
+  const lpOk = { state: 'removed', asmEqualsStock: true, stderrLineCount: 1, stderrExactlyLine: true };
   const mk = (id, baseline, tracked, outcome, extra = {}) => ({
     id, mode: 'thin', opt: '-O2', baseline, tracked, outcome, dry: baseline, recDryW: ok, recDryWo: ok,
     linkPlugin: { verdict: baseline, w: lpOk, wo: lpOk },
@@ -225,6 +280,8 @@ test('summarizeGroup: counts, the tracked-row differences by id, and the determi
   assert.equal(s.linkPlugin.links, 6);
   assert.equal(s.linkPlugin.callbackRan, 6);
   assert.equal(s.linkPlugin.recordWritten, 0);
+  assert.equal(s.linkPlugin.stderrExactlyLine, 6);
+  assert.equal(s.linkPlugin.grade.held, true);
   assert.equal(s.linkPlugin.verdictEqualsBaseline, 3);
   // a pair that could not be compared (null) is not counted as identical
   assert.deepEqual(s.determinism, { pairs: 12, identical: 10 });

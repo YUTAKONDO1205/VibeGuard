@@ -12,6 +12,10 @@ grades, on the same fixture, with the same effect-symbol list.
 The shape and stale cells are about WipePin's own account of itself: what its
 wipe-pin-v2 record and its stderr say for a source whose answer is known, and
 whether a record from an earlier compile can outlive a compile that wrote none.
+The lto cells are about the one host where the pass cannot run at all: an LTO
+link with the plugin on its link line must say so, once, leave the linked
+output exactly as a stock link leaves it, and admit that the record its compile
+step wrote at the same WPIN_OUT was removed when the plugin loaded.
 
 The expectations below were written from what each cell is for, before the
 cells were first run. A cell that disagrees is printed as a disagreement and the
@@ -153,6 +157,34 @@ STALE = {
                   "stderrLine": "WipePin: refusing to install: WPIN_OUT is a directory"},
 }
 STALE_ORDER = ["stale-refused", "stale-nopasses", "stale-live", "stale-dir"]
+
+# The LTO cells, all on the trailing shape at -O2 with target `handle`.
+#
+# lto-full-compile   WipePin at -flto compile time. The compile builds a
+#                    pipeline with pipeline start, so the pass runs there: a
+#                    valid record (one site, followedByUse false, pinnedCount
+#                    1), a bitcode object, and no WipePin line at all -- in
+#                    particular not the link-time one.
+# lto-*-linkline     the same compile, then a link with WipePin on the link line
+#                    and the same WPIN_OUT / WPIN_TARGET_FNS. The link's
+#                    pipeline has no pipeline start, so the pass does not run:
+#                    link rc 0, exactly one WipePin line on the link's stderr and
+#                    it is LINK_LINE_REMOVED (the compile's record was at
+#                    WPIN_OUT and the plugin's load removed it), nothing at
+#                    WPIN_OUT afterwards (no record written), and the linked
+#                    shared object byte-identical to a stock link of the same
+#                    bitcode. The compile half is graded as lto-full-compile is.
+LINK_LINE_REMOVED = (
+    "WipePin: loaded into a pipeline built without the pipeline-start extension point "
+    "(an LTO link, or a compile under -disable-llvm-passes), where this pass does not run; "
+    "nothing was pinned in this process, and the file at WPIN_OUT was removed when the plugin loaded")
+LINK_LINE_PREFIX = "WipePin: loaded into a pipeline built without the pipeline-start extension point"
+LTO = {
+    "lto-full-compile": {"form": "full", "what": "compile"},
+    "lto-full-linkline": {"form": "full", "what": "linkline"},
+    "lto-thin-linkline": {"form": "thin", "what": "linkline"},
+}
+LTO_ORDER = ["lto-full-compile", "lto-full-linkline", "lto-thin-linkline"]
 
 NO_UNHANDLED = "libcallMemset=0 memsetChk=0 nonZeroFill=0 atomicMemset=0 inlineWrapperMemset=0"
 
@@ -554,6 +586,95 @@ def grade_stale(lab):
     return rows, problems, incomplete
 
 
+def is_bitcode(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read(4) == b"BC\xc0\xde"
+    except OSError:
+        return False
+
+
+def trailing_record_problems(rec):
+    """The trailing shape's record at -O2, as the shape table expects it."""
+    bad = [f"record: {p}" for p in v2_problems(rec)]
+    sites = rec.get("pinned") or []
+    checks = [
+        ("module", rec.get("module"), "trailing.c"),
+        ("requested", rec.get("requested"), ["handle"]),
+        ("pinnedCount", rec.get("pinnedCount"), 1),
+        ("dryRun", rec.get("dryRun"), False),
+        ("optLevel.speedup", (rec.get("optLevel") or {}).get("speedup"), 2),
+        ("followedByUse per site", [s.get("followedByUse") for s in sites], [False]),
+    ]
+    for name, got, want in checks:
+        if got != want:
+            bad.append(f"record {name} = {got!r}, expected {want!r}")
+    return bad
+
+
+def grade_lto(lab):
+    rows, problems, incomplete = [], [], []
+    d = os.path.join(lab, "lto")
+    for cell in LTO_ORDER:
+        exp = LTO[cell]
+        try:
+            kv = load_kv(os.path.join(d, cell + ".kv"))
+            cerr = load_lines(os.path.join(d, cell + ".compile.stderr.txt"))
+            if exp["what"] == "compile":
+                crec = load_json(os.path.join(d, cell + ".json"))
+                lerr = None
+            else:
+                crec = load_json(os.path.join(d, cell + ".compile.json"))
+                lerr = load_lines(os.path.join(d, cell + ".link.stderr.txt"))
+        except Incomplete as e:
+            incomplete.append(f"{cell}: {e}")
+            continue
+        bad = []
+        if kv.get("form") != exp["form"] or kv.get("what") != exp["what"]:
+            bad.append(f"runner ran form={kv.get('form')} what={kv.get('what')}")
+        if kv.get("compileRc") != "0":
+            bad.append(f"compile rc {kv.get('compileRc')}, expected 0")
+        if not is_bitcode(os.path.join(d, cell + ".o")):
+            bad.append("the -flto compile did not leave a bitcode object")
+        if kv.get("afterCompile") != "file":
+            bad.append(f"WPIN_OUT after the compile: {kv.get('afterCompile')}, expected file")
+        bad += [f"compile {p}" for p in trailing_record_problems(crec)]
+        cwl = wipepin_lines(cerr)
+        if cwl:
+            bad.append(f"the compile printed {cwl}, expected nothing")
+
+        line_n, after, same = "-", kv.get("afterLink"), "-"
+        if exp["what"] == "linkline":
+            if kv.get("stockLinkRc") != "0":
+                bad.append(f"stock link rc {kv.get('stockLinkRc')}, expected 0")
+            if kv.get("pluginLinkRc") != "0":
+                bad.append(f"link with WipePin on the link line rc {kv.get('pluginLinkRc')}, expected 0")
+            lwl = wipepin_lines(lerr)
+            line_n = str(sum(1 for l in lwl if l == LINK_LINE_REMOVED))
+            if lwl != [LINK_LINE_REMOVED]:
+                bad.append(f"link stderr WipePin lines {lwl}, expected exactly [{LINK_LINE_REMOVED!r}]")
+            out = os.path.join(d, cell + ".json")
+            on_disk = "dir" if os.path.isdir(out) else ("file" if os.path.isfile(out) else "absent")
+            if after != "absent" or on_disk != "absent":
+                bad.append(f"WPIN_OUT after the link: {after} (runner), {on_disk} (now), expected absent")
+            s_stock = sha_file(os.path.join(d, cell + ".stock.so"))
+            s_plug = sha_file(os.path.join(d, cell + ".plugin.so"))
+            same = "?" if s_stock is None or s_plug is None else ("yes" if s_stock == s_plug else "NO")
+            if same != "yes":
+                bad.append(f"linked output byte-identical to the stock link: {same}")
+        else:
+            # A compile runs pipeline start: its record stays, and it never says
+            # the link-time line.
+            if any(l.startswith(LINK_LINE_PREFIX) for l in cwl):
+                bad.append("the compile printed the link-time line")
+
+        rows.append((cell, exp["form"], kv.get("compileRc"), "yes" if is_bitcode(os.path.join(d, cell + ".o")) else "no",
+                     f"{crec.get('schemaVersion')}/{crec.get('pinnedCount')}",
+                     kv.get("pluginLinkRc"), line_n, after, same, "ok" if not bad else "DISAGREES"))
+        problems += [f"{cell}: {b}" for b in bad]
+    return rows, problems, incomplete
+
+
 def digest_check_can_fail(lab):
     """A digest check that cannot fail checks nothing: alter a real record and
     confirm the re-derivation notices."""
@@ -598,8 +719,9 @@ def main():
     prow, pprob, pinc = grade_pinsh_only(lab)
     srow, sprob, sinc = grade_shapes(lab)
     trow, tprob, tinc = grade_stale(lab)
-    problems += pprob + sprob + tprob
-    incomplete += pinc + sinc + tinc
+    lrow, lprob, linc = grade_lto(lab)
+    problems += pprob + sprob + tprob + lprob
+    incomplete += pinc + sinc + tinc + linc
 
     table(("cell", "opt", "WipePin", "verdict", "effect pre->post", "firstZero", "ctl held",
            "volatile@post", "pinned/would/mode/res", "followedByUse", "obj!=base", "pin.sh", ""), rows)
@@ -611,6 +733,9 @@ def main():
            "partial line", "non-exact line", ""), srow)
     print()
     table(("stale record", "before", "clang rc", "after", "WipePin stderr", ""), trow)
+    print()
+    table(("lto (-O2)", "form", "compile rc", "bitcode", "compile record", "link rc",
+           "link-time line", "WPIN_OUT after link", "output==stock", ""), lrow)
 
     if incomplete:
         print("\nINCOMPLETE -- these cells could not be graded:")
@@ -632,7 +757,7 @@ def main():
         for p in problems:
             print("  " + p)
         return 2
-    n = len(rows) + len(prow) + len(srow) + len(trow)
+    n = len(rows) + len(prow) + len(srow) + len(trow) + len(lrow)
     print(f"\nall {n} cells as expected")
     return 0
 

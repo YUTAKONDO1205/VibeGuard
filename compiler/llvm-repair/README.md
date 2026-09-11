@@ -37,6 +37,12 @@ refusal, and whether or not the pass later runs — whatever is at `WPIN_OUT` is
 removed. "No record" after a compile therefore always means "no record from
 this compile".
 
+An LTO link that loads the plugin (`-Wl,--load-pass-plugin=`) removes it too,
+and there the file may be the record the compile step wrote. The link's
+pipeline never runs pipeline start, so the pass never runs there; the plugin
+says so on stderr, once, and says whether its load removed a file (see *The
+silent failures* and *The link-time line* under *Measured*).
+
 Pipeline start is the only place this can work. It runs before SROA,
 InstCombine and DSE ever see the memset; a pass placed after them would find
 nothing left to pin in exactly the cases it exists for. `isRequired()` keeps it
@@ -201,7 +207,8 @@ succeeded and looks repaired. Each one is turned into something audible.
 |---|---|
 | not installed: `WPIN_OUT` unset, no target, or `WPIN_DRY_RUN` neither `0` nor `1` | stderr `WipePin: refusing to install: <reason>`; no record, so `pin.sh` exits **3**. clang's rc is unaffected. |
 | a record from an earlier compile at `WPIN_OUT` | removed when the plugin loads, before any refusal — so a refused compile and a compile whose pass never ran leave **no** record, not the old one (measured: `stale-refused`, `stale-nopasses` below). If it cannot be removed (a directory, a non-regular file, an unlink error other than "not there"): `WipePin: refusing to install: <reason>`, and the IR is not touched. |
-| installed, but the pass never ran (`-Xclang -disable-llvm-passes` — measured here: rc 0, no record; a plugin on an LTO link line, where pipeline start does not fire, per `../docs/toolchain-probes.md` §2, was not re-measured) | no record → `pin.sh` exits **3** |
+| installed, but the pass never ran: a compile under `-Xclang -disable-llvm-passes` | no record → `pin.sh` exits **3**. On stderr it depends on the output: with `-c` or `-S` nothing (rc 0, 0 bytes — clang runs no pass-manager pass at all, so nothing the plugin hooks fires; a direct clang user sees nothing); with `-emit-llvm` the link-time line below, because the bitcode writer or IR printer still runs as a pass (measured). The bitcode step of `-save-temps` is this case: clang runs it with `-disable-llvm-passes` and the line appears (`there was no file …`), and the next step builds the whole pipeline from the `.bc`, where WipePin runs and writes the record (`module` `t.bc`, measured). |
+| installed, but the pass never ran: **WipePin on an LTO link line** (`-Wl,--load-pass-plugin=<so>`, full or thin LTO) with `WPIN_OUT` / `WPIN_TARGET_FNS` in the link's environment — a build that exports them to every step | An LTO link's pipeline never runs pipeline start, so the pass is never added. The load-time callback still removes the file at `WPIN_OUT`, which here is the record the compile step wrote. Until this change that link exited 0 with 0 bytes on stderr and the record gone (measured again below, full and thin, `-O0`..`-Os`). Now the first pass the link runs makes the plugin print, once per process, `WipePin: loaded into a pipeline built without the pipeline-start extension point (an LTO link, or a compile under -disable-llvm-passes), where this pass does not run; nothing was pinned in this process, and the file at WPIN_OUT was removed when the plugin loaded` (or `… and there was no file at WPIN_OUT when the plugin loaded`). The removal is kept (why: *The link-time line*). `pin.sh` does not link and is not involved; the fixture loop's `lto-*-linkline` cells and the LTO probe's configuration (ii) grade the line. |
 | a misspelt name | `resolution: not-in-module` in the record **and** `WipePin: target <name> not-in-module` on stderr; `pin.sh` exits **4** |
 | the right name, nothing eligible in it | stderr `WipePin: nothing to pin in scope …` with the `unhandled` counts; `pin.sh` exits **4** |
 | **something was pinned, but not the wipe** — an `= {0}` initialiser or a clear-before-fill memset pinned while the wipe is a zeroing loop or sits in a helper | the site's `followedByUse: true`, and one stderr line, `WipePin: partial: pinned <P> site(s) in <module>; <K> followed by a later use of the same buffer (initialiser-like, not a wipe); unhandled in scope: libcallMemset=.. memsetChk=.. nonZeroFill=.. atomicMemset=.. inlineWrapperMemset=..`. `pin.sh` still exits **0** (something was pinned) and writes `followedByUseCount` to its manifest. |
@@ -343,6 +350,7 @@ record.
 | `WipePin: partial: pinned <P> site(s) in <module>; <K> followed by a later use of the same buffer (initialiser-like, not a wipe); unhandled in scope: libcallMemset=.. memsetChk=.. nonZeroFill=.. atomicMemset=.. inlineWrapperMemset=..` | some site in `pinned[]` has `followedByUse: true` (K > 0), or `pinnedCount` > 0 while an in-scope `unhandled` counter is > 0. One line. In a dry run P is 0. |
 | `WipePin: cannot write the record to WPIN_OUT (…); the IR was changed/not changed and nothing records it` | the record could not be opened |
 | `WipePin: a second module (…) reached this pass in one process; …` | a host handed the pass two modules |
+| `WipePin: loaded into a pipeline built without the pipeline-start extension point (an LTO link, or a compile under -disable-llvm-passes), where this pass does not run; nothing was pinned in this process, and the file at WPIN_OUT was removed when the plugin loaded` | the plugin installed, and a pass ran in this process through a pipeline that was built without the pipeline-start extension point: an LTO link (full or thin, any level), or a `-disable-llvm-passes` compile that writes IR. Once per process. The ending is `… and there was no file at WPIN_OUT when the plugin loaded` when the load-time callback found nothing to remove. |
 | notes about `WPIN_TARGET_FNS` / `WPIN_SCOPE` / duplicates | configuration notes, printed at load |
 
 A compile whose record has only exact targets, a `followedByUse: false` site
@@ -361,7 +369,7 @@ Every observer+WipePin cell is also compiled through `pin.sh` with the same
 `WPIN_*` settings and WipePin alone, so the exit code a `pin.sh` caller would
 see is graded per cell, and the two WipePin records (with and without the
 observer loaded first) must have the same `evidenceDigest`. Two more cells run
-`pin.sh` alone where it must exit 3. Then two groups that do not involve the
+`pin.sh` alone where it must exit 3. Then three groups that do not involve the
 observer, generated into the lab:
 
 - **shapes**: small sources, each compiled `-g` through `pin.sh` at `-O2`,
@@ -379,7 +387,14 @@ observer, generated into the lab:
 - **stale records**: clang run directly (not `pin.sh`, which deletes the path
   itself) with a file that is not this compile's record already at `WPIN_OUT`:
   a refused compile, a `-Xclang -disable-llvm-passes` compile, a normal compile,
-  and a directory at `WPIN_OUT`.
+  and a directory at `WPIN_OUT`;
+- **lto**: the `trailing` shape at `-O2` compiled `-flto` with WipePin
+  (`lto-full-compile`: a valid record, a bitcode object, no WipePin line), and
+  the same compile followed by a link with WipePin on the link line and the
+  same `WPIN_OUT`, full and thin (`lto-full-linkline`, `lto-thin-linkline`:
+  link rc 0, the link-time line exactly once in its "removed" form, nothing at
+  `WPIN_OUT` afterwards, and the linked shared object byte-identical to a stock
+  link of the same bitcode).
 
 ```sh
 cmake -S compiler/llvm-pass -B ~/vg-build/llvm-pass -G Ninja \
@@ -398,6 +413,100 @@ tree. There are no default lab or build paths in either script.
 
 clang 18.1.3, Ubuntu 24.04 (WSL), plugin built with g++ 13.3.0, 2026-09-11.
 Every number below was copied from a run, not from reasoning.
+
+### The link-time line
+
+Measured 2026-09-12, same toolchain, `ld.lld` 18.1.3. The record is still
+`wipe-pin-v2`, byte for byte (below); what changed is one stderr line and the
+code that decides when to print it.
+
+**How it decides.** The plugin cannot tell at load time whether it is in a
+compile or an LTO link; both call the same registration callback with the same
+environment. The pipelines differ. With a probe plugin that puts a pass on each
+of the six module-level extension points (built in the lab, not in this tree):
+every compile, `-O0`..`-Os`, plain, `-flto` and `-flto=thin`, ran
+pipeline start first, then early-simplification, optimizer-early and
+optimizer-last; a full-LTO link ran only the two
+full-link-time ones, at every level; a ThinLTO link ran early-simplification,
+optimizer-early and optimizer-last at `-O1`..`-O3` and **none at all** at
+`-O0`; a `-disable-llvm-passes` compile ran none. So a pass on the link-time
+extension points would miss a ThinLTO link at `-O0`. The plugin instead sets a
+flag when its pipeline-start callback is invoked (at pipeline *build* time) and
+registers a pass-instrumentation callback that, at the first pass the process
+runs with that flag unset, prints the line once. A second probe measured the
+first instrumented pass: in every compile tried (`-O0`, `-O2`, plain and
+`-flto=thin`) the pipeline-start callback had already been invoked, and in every
+link (full and thin, `-O0` and `-O2`) the first pass, `VerifierPass`, ran with it
+never invoked. The callback reads three flags and prints; it is handed the IR
+and does not look at it.
+
+**Why the load-time removal is kept.** It is the only thing that makes "no
+record" mean "no record from this compile" in a compile that builds no pipeline
+(`-disable-llvm-passes`): no pass and no extension point runs there, so a
+removal deferred until the plugin knows it is a compile would never happen, and
+the old record would stand in for this one (the `stale-nopasses` cell). The
+only later hook such a compile has is process exit, and a guarantee that
+depends on static destructors is weaker than one that runs at load: clang did
+run the probe's static destructor, lld did not (in no link did it print), and a
+crash runs neither. Moving the file aside at load and putting it back once a
+link-time pipeline is seen was considered and not built: a second path next to
+`WPIN_OUT` to own, and in a multi-module ThinLTO link, one registration per
+backend thread racing the restores. So the link still removes the file, and the
+line says whether it did.
+
+**Build.** `-Wall -Wextra`: 0 warnings. `libWipePin.so` sha256
+`db3298cfb30d14200fe0822261eaa1c35aa51aed4aef869a0edd3151f073a4c8`, the same
+bytes from two builds into separate directories. "Before" below is the
+`wipe-pin-v2` build from the parent commit, `e89e07fd…cbad6`.
+
+**Where the line appears** (`trailing` shape, target `handle`; for each link, the
+compile step first wrote its record at the same `WPIN_OUT`; "nofile" deletes it
+before the link):
+
+| host | before | after |
+|---|---|---|
+| compile, `-O0` `-O1` `-O2` `-O3` `-Os`, plain / `-flto` / `-flto=thin`, functions and module scope (30) | 0 bytes on stderr, record written | the same: 0 bytes, record written, in 30/30 |
+| full-LTO link, WipePin on the link line, `-O0`..`-Os` (5) | rc 0, 0 bytes, the compile's record gone | rc 0, the "removed" line exactly once and nothing else, record gone, linked `.so` byte-identical to a stock link, 5/5 |
+| ThinLTO link, `--thinlto-jobs=1`, `-O0`..`-Os` (5) | the same as full | the same as full, 5/5 |
+| ThinLTO link, default jobs, `-O0`..`-Os` (5) | the same as full | the same as full, 5/5 |
+| each link above with nothing at `WPIN_OUT` first (15) | rc 0, 0 bytes | the "there was no file" line exactly once, 15/15 |
+| `-O2 -Xclang -disable-llvm-passes`, `-c` and `-S`, stale file first | rc 0, 0 bytes, file gone | the same |
+| the same with `-c -emit-llvm` and `-S -emit-llvm` | rc 0, 0 bytes, file gone | the "removed" line once, file gone |
+| `-O2 -save-temps -c` | 0 bytes, record written (`module` `t.bc`) | the "there was no file" line once (the bitcode step), record written |
+
+**Same code, same record.** With the before and after plugins loaded into the
+same compile of the same file at the same path, `-S` at `-O0`, `-O1`, `-O2`,
+`-O3` and `-Os`: the erasure fixture's three WipePin configurations (pin, dry
+run, misspelt name), the nine shape sources at `-g` with their targets, and
+`fable_N_token_r3`, `sonnet_S_pinpad_r1` and `fable_N_aeskey_r3` with the find
+step's `FLAGS` in functions scope (their targets) and in module scope — 90
+(configuration, level) pairs: `-S` output byte-identical 90/90, stderr
+byte-identical 90/90, records equal once `context` is dropped 90/90 (so
+`evidenceDigest` too). The objects of the fixture loop run with each plugin:
+18/18 byte-identical.
+
+**Fixture loop** (`run-fixture-loop.sh` + `check-fixture-loop.py`, exit 0, "all
+32 cells as expected"; every cell above the new group reads exactly as in the
+`wipe-pin-v2` table below):
+
+```
+lto (-O2)          form  compile rc  bitcode  compile record  link rc  link-time line  WPIN_OUT after link  output==stock
+lto-full-compile   full  0           yes      wipe-pin-v2/1   not-run  -               not-run              -              ok
+lto-full-linkline  full  0           yes      wipe-pin-v2/1   0        1               absent               yes            ok
+lto-thin-linkline  thin  0           yes      wipe-pin-v2/1   0        1               absent               yes            ok
+```
+
+The before plugin through the same loop: exit 2, and the only disagreements are
+the two `linkline` cells, `link stderr WipePin lines [], expected exactly
+['WipePin: loaded into a pipeline built without …']`.
+
+**LTO probe** (`../eval/repair-loop/tools/lto-probe.mjs`, all 113 files, `-O2`,
+full and thin, exit 0): configuration (ii) now reads the linker's stderr as
+exactly the "removed" line once in 452/452 links, with the sentinel removed, no
+record and the assembly equal to the stock link in all; `RETAINED` 113/113 under
+both forms, dry run `HELD`, 904/904 relinks byte-identical. The before plugin on
+3 files: exit 2, (ii) `FAILED` with the line 0 times in each of its 12 links.
+Details in `../eval/repair-loop/tools/LTO.md`.
 
 ### `wipe-pin-v2`
 
@@ -661,5 +770,27 @@ and changing nothing, the plugin changes nothing (re-measured with v1: the
 loop's `obj!=base` column).
 
 **Other forms.** `-flto` and `-flto=thin` compiles: a record is written and the
-bitcode carries the volatile memset (what the LTO backend then does was not
-measured). `-g`: `line` 19, the memset's source line.
+bitcode carries the volatile memset; what the LTO backend then does is measured
+by `../eval/repair-loop/tools/lto-probe.mjs` (`LTO.md` there). `-g`: `line` 19,
+the memset's source line.
+
+Measured with the current plugin (*The link-time line*, above):
+
+- **On an LTO link line** (`-Wl,--load-pass-plugin=`), full or thin, any
+  level: the pass does not run, nothing is pinned, the linked output is the
+  stock link's, and the file at `WPIN_OUT` is removed at load. The link prints
+  the link-time line once. Load WipePin at compile time; if the build exports
+  `WPIN_*` to every step, keep the plugin off the link line, or give the link a
+  different `WPIN_OUT`.
+- **`-Xclang -disable-llvm-passes`**: no record. Silent with `-c`/`-S`; the
+  link-time line with `-emit-llvm`.
+- **`-save-temps`**: the record is written by the step that compiles the `.bc`
+  (`module` is `<name>.bc`, not `<name>.c`), after the bitcode step, which runs
+  under `-disable-llvm-passes`, has printed the "there was no file" form of the
+  link-time line.
+- **A refused link** (the link's environment has `WPIN_OUT` but no target;
+  measured, full and thin, `-O2`): rc 0, `WipePin: refusing to install: no
+  target` and the hint line, and the compile's record at `WPIN_OUT` is gone —
+  removed at load, before the refusal, as in a compile. The link-time line does
+  not appear (nothing was installed), and the refusal line does not say a file
+  was removed. Not changed here.

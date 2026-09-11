@@ -20,10 +20,12 @@
 #                                        pin.sh cells that compile them
 #          <lab>/stale/                  compiles that start with a stale record
 #                                        at WPIN_OUT
+#          <lab>/lto/                    -flto compiles with WipePin, and links
+#                                        with WipePin on the link line
 # Decides: nothing. check-fixture-loop.py grades, so the code that produces a
 #          number is not the code that says whether it is the right one.
 #
-# Three groups of cells:
+# Four groups of cells:
 #
 #   loop    observer, or observer + WipePin, on the erasure fixture. Every
 #           observer+pin cell is also run through pin.sh with the same WPIN_*
@@ -40,6 +42,14 @@
 #           -O0/-O1/-O2, non-exact targets (C99 inline, C++ inline), and stale
 #           records at WPIN_OUT, which must be gone after a refused compile and
 #           after one whose pass never ran.
+#   lto     the trailing shape compiled -O2 -flto with WipePin (its record must
+#           be written, and no link-time line printed), and, for full and thin
+#           LTO, the same compile followed by a link that loads WipePin on the
+#           link line with the SAME WPIN_OUT -- a build that exports WPIN_* to
+#           every step. The link never runs pipeline start, so WipePin cannot
+#           run there; what it must do is say so, once, and that the compile's
+#           record was removed when it loaded. Each such link is paired with a
+#           stock link of the same bitcode, whose output it must equal.
 #
 # The observer's -fpass-plugin comes FIRST on the command line and WipePin's
 # second. Both register at the pipeline-start extension point, callbacks run in
@@ -100,8 +110,8 @@ IRCK_LAB="$LAB" bash "$COMPILER/llvm-pass/tools/make-fixtures.sh" >/dev/null
 FX="$LAB/fixtures/erasure"
 [ -f "$FX/target.c" ] || { echo "run-fixture-loop.sh: fixture generation failed" >&2; exit 3; }
 
-rm -rf "$LAB/pinsh" "$LAB/shapes" "$LAB/stale"
-mkdir -p "$LAB/wipepin" "$LAB/cells" "$LAB/stderr" "$LAB/pinsh" "$LAB/shapes/src" "$LAB/stale"
+rm -rf "$LAB/pinsh" "$LAB/shapes" "$LAB/stale" "$LAB/lto"
+mkdir -p "$LAB/wipepin" "$LAB/cells" "$LAB/stderr" "$LAB/pinsh" "$LAB/shapes/src" "$LAB/stale" "$LAB/lto"
 OBS_SHA=$(sha256sum "$OBSERVER" | cut -d' ' -f1)
 PIN_SHA=$(sha256sum "$WIPEPIN" | cut -d' ' -f1)
 
@@ -442,6 +452,60 @@ stale stale-nopasses file WPIN_TARGET_FNS=handle -- \
       -O2 -Xclang -disable-llvm-passes -c "$SRC/trailing.c" -o "$LAB/stale/stale-nopasses.o"
 stale stale-live     file WPIN_TARGET_FNS=handle -- -O2 -c "$SRC/trailing.c" -o "$LAB/stale/stale-live.o"
 stale stale-dir      dir  WPIN_TARGET_FNS=handle -- -O2 -c "$SRC/trailing.c" -o "$LAB/stale/stale-dir.o"
+
+# ------------------------------------------------------------ LTO
+# lto <id> <full|thin> <compile|linkline>
+#   compile   trailing.c at -O2 -flto[=thin] with WipePin, record at
+#             <lab>/lto/<id>.json, object <id>.o, stderr <id>.compile.stderr.txt
+#   linkline  the same compile; a copy of whatever it left at WPIN_OUT is kept
+#             as <id>.compile.json; then a stock link of the object
+#             (<id>.stock.so) and a link of the same object with WipePin on the
+#             link line and the same WPIN_OUT / WPIN_TARGET_FNS in its
+#             environment (<id>.plugin.so, stderr <id>.link.stderr.txt).
+# Written down, not judged: rc's and what is at WPIN_OUT after each step.
+LTOD="$LAB/lto"
+lto() {
+  local id=$1 form=$2 what=$3
+  local cflag
+  local lflags=()
+  if [ "$form" = full ]; then
+    cflag=-flto; lflags=(-flto)
+  else
+    cflag=-flto=thin; lflags=(-flto=thin -Wl,--thinlto-jobs=1)
+  fi
+  local out="$LTOD/$id.json" obj="$LTOD/$id.o"
+  env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN \
+      WPIN_OUT="$out" WPIN_TARGET_FNS=handle \
+      "$CC" -O2 "$cflag" -fpass-plugin="$WIPEPIN" -c "$SRC/trailing.c" -o "$obj" \
+      > /dev/null 2> "$LTOD/$id.compile.stderr.txt"
+  local crc=$?
+  local cstate=absent
+  [ -f "$out" ] && cstate=file
+  local src_rc=not-run lrc=not-run lstate=not-run
+  if [ "$what" = linkline ]; then
+    [ -f "$out" ] && cp "$out" "$LTOD/$id.compile.json"
+    env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN \
+        "$CC" -O2 "${lflags[@]}" -fuse-ld=lld -shared "$obj" -o "$LTOD/$id.stock.so" \
+        > /dev/null 2> "$LTOD/$id.stock.stderr.txt"
+    src_rc=$?
+    env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN \
+        WPIN_OUT="$out" WPIN_TARGET_FNS=handle \
+        "$CC" -O2 "${lflags[@]}" -fuse-ld=lld -shared -Wl,--load-pass-plugin="$WIPEPIN" \
+        "$obj" -o "$LTOD/$id.plugin.so" \
+        > /dev/null 2> "$LTOD/$id.link.stderr.txt"
+    lrc=$?
+    lstate=absent
+    [ -d "$out" ] && lstate=dir
+    [ -f "$out" ] && lstate=file
+  fi
+  kv "$LTOD/$id.kv" "cellId=$id" "form=$form" "what=$what" "compileRc=$crc" \
+     "afterCompile=$cstate" "stockLinkRc=$src_rc" "pluginLinkRc=$lrc" "afterLink=$lstate" \
+     "wipepinSha256=$PIN_SHA"
+  echo "$id"
+}
+lto lto-full-compile  full compile
+lto lto-full-linkline full linkline
+lto lto-thin-linkline thin linkline
 
 if [ $failed -ne 0 ]; then
   echo "run-fixture-loop.sh: at least one cell did not produce its records" >&2

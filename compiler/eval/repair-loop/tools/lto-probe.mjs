@@ -21,7 +21,8 @@
  *
  *   (i)   plugin at compile time (-fpass-plugin), stock link    the measurement
  *   (ii)  plugin only on the link line (-Wl,--load-pass-plugin) WipePin registers
- *         at pipeline start, which an LTO link does not run: measured, not assumed
+ *         at pipeline start, which an LTO link does not run: its pass must not
+ *         run, and the plugin must say so, exactly once (LINK_LINE_REMOVED)
  *   (iii) plugin at compile time in dry-run mode, stock link    the red control
  *   and   the same object linked twice                          determinism
  *
@@ -36,8 +37,9 @@
  *   node lto-probe.mjs --plugin <libWipePin.so> --out <lab dir> [options]
  *
  * Exit codes: 0 run complete and every integrity check held; 2 run complete but
- * a cell was NOT_LTO, a link was not deterministic, or the dry-run red control
- * did not hold; 3 nothing selected; 4 bad arguments; 5 a tool, the plugin or the
+ * a cell was NOT_LTO, a link was not deterministic, the dry-run red control
+ * did not hold, or configuration (ii) did not read as graded (gradeLinkPlugin);
+ * 3 nothing selected; 4 bad arguments; 5 a tool, the plugin or the
  * shared verdict module could not be used, the preflight found no way to read
  * post-LTO assembly, or a text about to be written carried an absolute path.
  */
@@ -49,8 +51,8 @@ import { dirname, resolve, join, basename, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   ELIMINATED, MODES, ltoCompileFlags, ltoLinkArgs, llcOptFor, objectKind, expectedOutputs, pickOutput,
-  readRecordFields, ltoOutcome, LTO_OUTCOMES, SENTINEL, linkPluginState, zeroMemsetsInFunctions, evenSample,
-  summarizeGroup, insideRepo,
+  readRecordFields, ltoOutcome, LTO_OUTCOMES, SENTINEL, linkPluginState, linkLineStderr, zeroMemsetsInFunctions,
+  evenSample, summarizeGroup, insideRepo,
 } from './lib/lto.mjs';
 import { sha256Text, absolutePathHits } from '../lib/provenance.mjs';
 
@@ -254,17 +256,18 @@ async function main() {
     const fresh = readdirSync(dir).filter((n) => !before.has(n));
     const stderrEmpty = r.stderr.trim() === '';
     const stderrFlags = { wipePin: /WipePin:/.test(r.stderr), failedToLoad: /Failed to load passes/.test(r.stderr) };
-    if (r.rc !== 0) return { asm: null, problem: `link rc ${r.rc}`, layout: null, stderrEmpty, stderrFlags };
+    const linkLine = linkLineStderr(r.stderr);
+    if (r.rc !== 0) return { asm: null, problem: `link rc ${r.rc}`, layout: null, stderrEmpty, stderrFlags, linkLine };
     const pick = pickOutput(fresh, expectedOutputs({ mode, emit, outBase, objStem: basename(input).replace(/\.o$/, '') }));
-    if (!pick.ok) return { asm: null, problem: pick.problem, layout: pick.problem, stderrEmpty, stderrFlags };
-    if (emit === 'asm') return { asm: readFileSync(join(dir, pick.name), 'utf8'), problem: null, layout: null, stderrEmpty, stderrFlags };
+    if (!pick.ok) return { asm: null, problem: pick.problem, layout: pick.problem, stderrEmpty, stderrFlags, linkLine };
+    if (emit === 'asm') return { asm: readFileSync(join(dir, pick.name), 'utf8'), problem: null, layout: null, stderrEmpty, stderrFlags, linkLine };
     // fallback: the module after the LTO optimisation pipeline, through llc at the matching level
     const bc = join(dir, pick.name);
-    if (objectKind(readOrNull(bc)) !== 'bitcode') return { asm: null, problem: 'precodegen output is not bitcode', layout: 'precodegen output is not bitcode', stderrEmpty, stderrFlags };
+    if (objectKind(readOrNull(bc)) !== 'bitcode') return { asm: null, problem: 'precodegen output is not bitcode', layout: 'precodegen output is not bitcode', stderrEmpty, stderrFlags, linkLine };
     const sOut = join(dir, `${tag}.llc.s`);
     const l = await tool(args.llc, [llcOptFor(opt), '-relocation-model=pic', '-o', sOut, bc], BASE_ENV);
-    if (l.rc !== 0) return { asm: null, problem: `llc rc ${l.rc}`, layout: null, stderrEmpty, stderrFlags };
-    return { asm: readFileSync(sOut, 'utf8'), problem: null, layout: null, stderrEmpty, stderrFlags };
+    if (l.rc !== 0) return { asm: null, problem: `llc rc ${l.rc}`, layout: null, stderrEmpty, stderrFlags, linkLine };
+    return { asm: readFileSync(sOut, 'utf8'), problem: null, layout: null, stderrEmpty, stderrFlags, linkLine };
   }
 
   // ---- preflight: can post-LTO assembly be cut, and does the plugin run under -flto? ----
@@ -397,7 +400,7 @@ async function main() {
     const asm = {};
     const links = {};
     const doLink = async (k, tag, opts2) => {
-      if (kinds[k] !== 'bitcode') return { asm: null, problem: `no bitcode object (${kinds[k]})`, layout: null, stderrEmpty: null, stderrFlags: null };
+      if (kinds[k] !== 'bitcode') return { asm: null, problem: `no bitcode object (${kinds[k]})`, layout: null, stderrEmpty: null, stderrFlags: null, linkLine: null };
       const l = await linkAsm(objs[k], tag, mode, opt, emit, opts2);
       if (l.layout) notLto.push(`${k} ${tag}: ${l.layout}`);
       return l;
@@ -423,7 +426,8 @@ async function main() {
       lp[side] = {
         state: linkPluginState({ exists: buf !== null, text: buf ? buf.toString('utf8') : null }),
         asmEqualsStock: l.asm !== null && asm[k] !== null ? l.asm === asm[k] : null,
-        stderrEmpty: l.stderrEmpty, stderrWipePin: l.stderrFlags ? l.stderrFlags.wipePin : null,
+        stderrLineCount: l.linkLine ? l.linkLine.count : null,
+        stderrExactlyLine: l.linkLine ? l.linkLine.exactlyOnce : null,
         stderrFailedToLoad: l.stderrFlags ? l.stderrFlags.failedToLoad : null,
         asm: l.asm,
       };
@@ -473,8 +477,8 @@ async function main() {
       linkProblems: Object.fromEntries(Object.entries(links).filter(([, l]) => l.problem).map(([k, l]) => [k, l.problem])),
       linkPlugin: {
         verdict: lpVerdict.verdict,
-        w: { state: lp.w.state, asmEqualsStock: lp.w.asmEqualsStock, stderrEmpty: lp.w.stderrEmpty, stderrWipePin: lp.w.stderrWipePin, stderrFailedToLoad: lp.w.stderrFailedToLoad },
-        wo: { state: lp.wo.state, asmEqualsStock: lp.wo.asmEqualsStock, stderrEmpty: lp.wo.stderrEmpty, stderrWipePin: lp.wo.stderrWipePin, stderrFailedToLoad: lp.wo.stderrFailedToLoad },
+        w: { state: lp.w.state, asmEqualsStock: lp.w.asmEqualsStock, stderrLineCount: lp.w.stderrLineCount, stderrExactlyLine: lp.w.stderrExactlyLine, stderrFailedToLoad: lp.w.stderrFailedToLoad },
+        wo: { state: lp.wo.state, asmEqualsStock: lp.wo.asmEqualsStock, stderrLineCount: lp.wo.stderrLineCount, stderrExactlyLine: lp.wo.stderrExactlyLine, stderrFailedToLoad: lp.wo.stderrFailedToLoad },
       },
       deterministic,
       dryObjectEqualsOff: { w: eqObj('w.dry', 'w.off'), wo: eqObj('wo.dry', 'wo.off') },
@@ -515,7 +519,7 @@ async function main() {
   if (hits.length) die(5, `an absolute path was written into the lab texts (${hits.join('; ')})`);
 
   const broken = groups.some(({ s }) => s.outcomes.NOT_LTO > 0 || s.determinism.identical !== s.determinism.pairs
-    || (s.baselineEliminated > 0 && !s.dry.held));
+    || (s.baselineEliminated > 0 && !s.dry.held) || !s.linkPlugin.grade.held);
   process.exit(broken ? 2 : 0);
 }
 
@@ -557,7 +561,10 @@ function render({ args, ccName, ccVersion, lldVersion, pluginSha, pre, groups, u
     L.push(`    dry-run object byte-identical to plugin-off ${s.dryObjectEqualsOff.equal}/${s.dryObjectEqualsOff.of}; post-LTO assembly identical ${s.dryAsmEqualsOff.equal}/${s.dryAsmEqualsOff.of}`);
     const lp = s.linkPlugin;
     L.push(`  (ii) plugin on the link line only (${lp.links} links): record written ${lp.recordWritten}; load-time callback ran (sentinel at WPIN_OUT removed) ${lp.callbackRan}; sentinel kept ${lp.sentinelKept}`);
-    L.push(`    assembly byte-identical to the stock link of the same object ${lp.asmEqualsStock}/${lp.links}; linker stderr empty ${lp.stderrEmpty}/${lp.links}; verdict equals the baseline ${lp.verdictEqualsBaseline}/${lp.cells}`);
+    L.push(`    assembly byte-identical to the stock link of the same object ${lp.asmEqualsStock}/${lp.links}; linker stderr exactly the WipePin link-time line, once ${lp.stderrExactlyLine}/${lp.links}; verdict equals the baseline ${lp.verdictEqualsBaseline}/${lp.cells}`);
+    L.push(`    graded: ${lp.grade.held ? 'HELD' : 'FAILED'} (${lp.grade.links} links: sentinel removed, no record, the line exactly once and nothing else, assembly equal to the stock link)`);
+    for (const v of lp.grade.violations.slice(0, 20)) L.push(`    VIOLATION ${v}`);
+    if (lp.grade.violations.length > 20) L.push(`    ... ${lp.grade.violations.length - 20} more`);
     L.push(`  determinism: the same object linked twice, byte-identical assembly ${s.determinism.identical}/${s.determinism.pairs}`);
     if (haveDis) {
       const st = s.stage;
