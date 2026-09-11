@@ -82,6 +82,21 @@ denominators rather than counted as "no change".
 | S "securely" | 40 | 64 | 15 | 1 | 45.8% |
 | E property named | 24 | 80 | 11 | 5 | 29.2% |
 
+The table is `wipeSpans`' labelling, which counts every zero-fill `memset` in
+the target function as a wipe, including one that initialises a buffer before
+it is filled. Read with `initialiserLike` (below) over every removable span, 26
+of these files wrote no removable wipe: in 24 of the 26 `both` files and in 2
+`memset` files (`opus_N_pinpad_r2`, `sonnet_S_privkey_r3`) every removable span
+zero-fills a buffer that is used afterwards, and WipePin's `followedByUse` at
+`-O0` says the same of all 31 of their removable spans. The 24 `both` files
+zero-fill the buffer, fill it, and wipe it with a non-removable idiom. With the
+26 moved out of the removable columns, *chose removable* would read **56.7% /
+33.3% / 20.8%** (N / S / E): the gap between the neutral framing and the other
+two is wider than the table shows, 23.4 points to S instead of 11.7 and 35.9 to
+E instead of 28.3. A post-hoc reading beside the table, which stays as
+measured; `test/initialiser-reading.test.mjs` recomputes it from the corpus and
+the tracked rows.
+
 **20 of 720 generations** call `explicit_bzero`, `memset_s` or
 `SecureZeroMemory`, and 18 of those 20 do it inside a portability ladder
 (`#if defined(__STDC_LIB_EXT1__)` and friends) with a hand-rolled fallback for
@@ -104,10 +119,14 @@ Judged one wipe span at a time as well, with the same `verdictOf`, the
 cells scored `WIPE_SURVIVED` in which a removable span, ablated on its own, is
 `WIPE_ELIMINATED`. That is a second count beside the table, which stays the
 protocol's cell-level criterion; see *Per-span supplement* below and
-`data/r2-span-results.txt`.
+`data/r2-span-results.txt`. Moving the two `memset` files that wrote no
+removable wipe (above) out of the row leaves every numerator as it is — both
+read `WIPE_SURVIVED` at every level on both vendors — and the denominator at
+262: 221/262 at `-O2`.
 
-The `both` row is 26 generations that wrote a removable wipe *and* a
-non-removable one. Ablation deletes every wipe in the target function at once,
+The `both` row is 26 generations that `wipeSpans` labels as writing a removable
+wipe *and* a non-removable one; in 24 of them the removable one is an
+initialising `memset` (above). Ablation deletes every wipe in the target function at once,
 so a surviving `volatile` write keeps the body different and the cell reads
 SURVIVED — correctly, since the secret does get erased, but it says nothing
 about the `memset` those files also contain. Do not fold that row into either
@@ -332,6 +351,16 @@ an asm barrier: in `opus_N_token_r3` the trailing `memset` is followed only by
 as a later instruction touching the buffer and the label does not count as a
 use, because it is the idiom that keeps the wipe, not a fill.
 
+Over every span of every wipe file, not only the two named above, the label
+finds 26 files whose every removable span is initialiser-like: those two, which
+`wipeSpans` labels `removable`, and 24 of the 26 it labels `both`
+(`test/initialiser-reading.test.mjs` recomputes the list from the corpus;
+`label-check.mjs` prints it). The plugin agrees on every one of their 31
+removable spans: `followedByUse` true for 31, false for 0, null for 0 (a
+`label-check.mjs` run with `db3298cf…73a4c8`, lab only). What that does to the
+idiom table is under *Results*, beside it; no verdict and no tracked number
+moves.
+
 ## What this changed in the product
 
 Two independent defects in `VG-MEM-006`, both found by running the shipped rule
@@ -452,7 +481,7 @@ design is auditable even though the sampling is not repeatable.
 | `lib/ablation-cell.mjs` | one ablation cell as an importable module with no side effects — wipe finding, ablation, compile, `verdictOf`, and `spanPlan` for the per-span view — so another lane reaches its verdict through the same code; `test/ablation-cell.test.mjs` covers it without a compiler |
 | `lib/build-spans.mjs` | the per-span supplement: each removable span of a multi-span file ablated alone, both vendors, five levels, with the repair-rows cross-check for every vendor that has repair rows |
 | `lib/span-summary.mjs` | the supplement's rows, integrity checks, cross-check, hidden-elimination counts; pure, `test/span-summary.test.mjs` |
-| `lib/span-label.mjs` | the lexical `initialiserLike` label; pure, `test/span-label.test.mjs` |
+| `lib/span-label.mjs` | the lexical `initialiserLike` label and `initialiserOnly`; pure, `test/span-label.test.mjs`, `test/initialiser-reading.test.mjs` |
 | `lib/label-check.mjs` | `initialiserLike` against the repair plugin's `followedByUse` at `-O0`; lab output only |
 | `lib/fortify-check.mjs` | every erasure verdict with the default flags and with `-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0`, against the tracked rows; lab output only; pure parts in `test/fortify-check.test.mjs` |
 | `lib/compare-rows.mjs` | `<a.json> <b.json>`: compares two build-row files as multisets of rows (runs are in pool completion order), exit 0 iff equal |

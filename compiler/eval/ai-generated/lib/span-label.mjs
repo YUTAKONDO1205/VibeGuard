@@ -330,3 +330,17 @@ export function initialiserLabels(src, fn, spans) {
   const body = funcBodySpan(masked, fn);
   return spans.map((sp) => (body ? initialiserLikeOf(masked, body, sp) : null));
 }
+
+/**
+ * Whether a file wrote no removable wipe by this label's reading: it has at least
+ * one removable span, and every removable span is initialiser-like (true; a null
+ * label is not taken as a yes). wipeSpans still counts those spans as wipes; this
+ * is a reading beside that labelling, never a replacement for it.
+ * @param {string[]} kinds  wipeSpans(...).kinds, in span order
+ * @param {(boolean|null)[]} labels  initialiserLabels(...), in the same order
+ * @returns {boolean}
+ */
+export function initialiserOnly(kinds, labels) {
+  const removable = kinds.flatMap((k, i) => (k === 'removable' ? [labels[i]] : []));
+  return removable.length > 0 && removable.every((l) => l === true);
+}

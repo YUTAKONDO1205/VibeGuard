@@ -409,7 +409,10 @@ loops, so the initialising memset is the only span. Both are labelled `removable
 with one span, both read `WIPE_SURVIVED` at every level, and in both that verdict
 is about the initialiser. Being one-span cells, the per-span view cannot separate
 them; they show up, if anywhere, among the cells where a pin changed a listing
-without a reported loss.
+without a reported loss. The same labelling puts 24 of the 26 `both` files in
+that idiom for an initialising `memset` beside a non-removable wipe
+(`../ai-generated/README.md`, *initialiserLike*); their cells read
+`ALREADY_SURVIVED` in this lane either way.
 
 ## Red controls
 

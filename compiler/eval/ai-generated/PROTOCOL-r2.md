@@ -108,3 +108,6 @@ gcc-13 は -Os で対照の消去を `xorl %eax,%eax` + `rep stosl` として出
   （`lib/build-spans.mjs` → `data/r2-span-rows.json`）と字句ラベル `initialiserLike` を別測定・別データとして追加。
   採点済みのセル判定と集計値は一つも変更しない（README「Per-span supplement」）
 - 2026-09-12 per-span 補足の結果テキストも追跡する（`data/r2-span-results.txt`。行データと同じ `--write-data` の全体実行が書く）。判定と集計値は変更しない
+- 2026-09-12 事後追加（結果を見た後）: `initialiserLike` を全ファイルの全 removable スパンに当てた読み
+  （26 ファイルは removable な消去を書いていない: `memset` 2・`both` 24）を README の表の横に追加。
+  idiom 表・生存表・セル判定は一つも変更しない（`test/initialiser-reading.test.mjs` がコーパスと追跡データから再計算する）

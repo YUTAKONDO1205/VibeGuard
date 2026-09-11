@@ -44,7 +44,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, existsSync
 import { dirname, resolve, join, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { CONTROL, wipeSpans, compile, pool } from './ablation-cell.mjs';
-import { initialiserLabels } from './span-label.mjs';
+import { initialiserLabels, initialiserOnly } from './span-label.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
@@ -169,6 +169,19 @@ async function main() {
   L.push('named initialiser-only files');
   for (const id of NAMED) {
     for (const s of spans.filter((x) => x.id === id)) L.push(`  ${id} span ${s.index}: lexical ${s.lexical}, plugin ${s.followedByUse} (${s.match})`);
+  }
+  // Every file, not only the named ones: those whose every removable span is
+  // initialiser-like by the label, grouped by the idiom wipeSpans' kinds give
+  // them, with the plugin's reading of the same spans beside it.
+  const onlyInit = jobs.filter((j) => initialiserOnly(j.ws.kinds, j.labels));
+  const idiomOf = (kinds) => (kinds.includes('removable') ? (kinds.includes('nonremovable') ? 'both' : 'removable') : 'nonremovable');
+  const remSpans = spans.filter((s) => s.kind === 'removable' && onlyInit.some((j) => j.id === s.id));
+  L.push(`files whose every removable span is initialiser-like (lexical): ${onlyInit.length}, `
+    + `with ${remSpans.length} removable span(s); the plugin says followedByUse true for ${remSpans.filter((s) => s.followedByUse === true).length}, `
+    + `false for ${remSpans.filter((s) => s.followedByUse === false).length}, null or no site for ${remSpans.filter((s) => s.followedByUse === null).length}`);
+  for (const idiom of ['removable', 'both']) {
+    const ids = onlyInit.filter((j) => idiomOf(j.ws.kinds) === idiom).map((j) => j.id);
+    L.push(`  idiom ${idiom} ${ids.length}${ids.length ? `: ${ids.join(', ')}` : ''}`);
   }
   L.push(`record problems ${problems.length}`);
   for (const p of problems) L.push(`  ${p}`);
