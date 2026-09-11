@@ -19,8 +19,20 @@ export const ELIMINATED = 'WIPE_ELIMINATED';
 export const SURVIVED = 'WIPE_SURVIVED';
 export const ALL_OPTS = Object.freeze(['-O0', '-O1', '-O2', '-O3', '-Os']);
 export const VENDORS = Object.freeze(['clang-18', 'gcc-13']);
-/** The only vendor the repair loop's rows exist for, and so the only one cross-checked. */
-export const CROSS_CHECK_CC = 'clang-18';
+/**
+ * Where the repair loop keeps its tracked rows for each vendor, relative to this
+ * directory (lib/). Every vendor whose file exists is cross-checked; a vendor
+ * whose file does not is reported as not cross-checked.
+ *
+ * Named here rather than imported: this lane imports no code from the repair
+ * loop. The names follow ../../repair-loop/lib/vendor.mjs dataFileNames
+ * (clang-18 keeps r2-repair-rows.json, any other compiler gets
+ * r2-repair-rows-<cc>.json); a change to that naming has to be made here too.
+ */
+export const REPAIR_ROWS_FILES = Object.freeze({
+  'clang-18': '../../repair-loop/data/r2-repair-rows.json',
+  'gcc-13': '../../repair-loop/data/r2-repair-rows-gcc-13.json',
+});
 
 const verdictWord = (v) => (v && typeof v === 'object' ? v.verdict ?? null : v ?? null);
 
@@ -58,7 +70,7 @@ export function trackedVerdicts(trackedRows) {
  * span, ablated on its own, is WIPE_ELIMINATED. The same predicate as the repair
  * loop's hiddenElimination (../../repair-loop/lib/spans.mjs), read here against
  * the tracked cell verdict; the cross-check below compares the two on every
- * clang-18 cell they share, so the two cannot drift apart unnoticed.
+ * cell they share, per vendor, so the two cannot drift apart unnoticed.
  */
 export function hiddenOf(cellVerdict, spans) {
   return verdictWord(cellVerdict) === SURVIVED
@@ -113,28 +125,30 @@ export function integrityProblems(rows) {
 }
 
 /**
- * The cross-check against the repair loop's per-span rows.
+ * The cross-check against the repair loop's per-span rows, for one vendor.
  *
- * For every clang-18 row here and every span measured on its own here, the repair
- * rows' entry for the same (id, opt, span index) is compared where the repair
+ * For every `cc` row here and every span measured on its own here, the repair
+ * rows' entry for the same (cc, id, opt, span index) is compared where the repair
  * loop also measured that span on its own (its `source` is 'span') -- the plugin-
  * off verdict, `off`, must be the same word. Where both rows exist, the
  * hiddenElimination flags must agree too. A span that the repair rows do not
- * measure alone is counted as not compared, never as agreeing.
+ * measure alone is counted as not compared, never as agreeing. Rows of any other
+ * vendor, on either side, never enter.
  *
- * @returns {{compared: number, agreed: number, notCompared: number, mismatches: object[],
+ * @returns {{cc: string, compared: number, agreed: number, notCompared: number, mismatches: object[],
  *            hiddenCompared: number, hiddenMismatches: object[], ids: string[]}}
  */
-export function crossCheckRepairRows(rows, repairRows) {
+export function crossCheckRepairRows(rows, repairRows, cc) {
+  if (!VENDORS.includes(cc)) throw new Error(`crossCheckRepairRows: ${JSON.stringify(cc)} is not one of ${VENDORS.join(' ')}`);
   const theirs = new Map();
   for (const r of repairRows) {
-    if (r.kind === 'erasure' && r.cc === CROSS_CHECK_CC) theirs.set(`${r.id}|${r.opt}`, r);
+    if (r.kind === 'erasure' && r.cc === cc) theirs.set(`${r.id}|${r.opt}`, r);
   }
   let compared = 0, agreed = 0, notCompared = 0, hiddenCompared = 0;
   const mismatches = [];
   const hiddenMismatches = [];
   for (const r of rows) {
-    if (r.cc !== CROSS_CHECK_CC || !r.measured) continue;
+    if (r.cc !== cc || !r.measured) continue;
     const t = theirs.get(`${r.id}|${r.opt}`);
     for (const s of r.spans) {
       if (s.source !== 'span') continue;
@@ -150,7 +164,63 @@ export function crossCheckRepairRows(rows, repairRows) {
     }
   }
   const ids = [...new Set([...mismatches, ...hiddenMismatches].map((m) => m.id))].sort();
-  return { compared, agreed, notCompared, mismatches, hiddenCompared, hiddenMismatches, ids };
+  return { cc, compared, agreed, notCompared, mismatches, hiddenCompared, hiddenMismatches, ids };
+}
+
+/**
+ * `--repair-rows <cc>=<path>[,<cc>=<path>]`: the repair rows to read for a
+ * vendor instead of its default file. A bare path is refused -- with two
+ * vendors it would not say whose rows it is.
+ *
+ * @returns {{given: Object<string, string>, problems: string[]}}
+ */
+export function parseRepairRowsArg(text) {
+  const given = {};
+  const problems = [];
+  for (const part of String(text).split(',').map((s) => s.trim()).filter(Boolean)) {
+    const eq = part.indexOf('=');
+    const cc = eq > 0 ? part.slice(0, eq) : null;
+    const path = eq > 0 ? part.slice(eq + 1) : '';
+    if (cc === null || !path) { problems.push(`${part}: expected <cc>=<path>`); continue; }
+    if (!VENDORS.includes(cc)) { problems.push(`${cc} is not one of ${VENDORS.join(' ')}`); continue; }
+    if (cc in given) { problems.push(`${cc} given twice`); continue; }
+    given[cc] = path;
+  }
+  if (!Object.keys(given).length && !problems.length) problems.push('no <cc>=<path> given');
+  return { given, problems };
+}
+
+/** Spans measured on their own for `cc` in these rows (what a cross-check of `cc` could compare). */
+export function spansMeasuredAlone(rows, cc) {
+  return rows.filter((r) => r.cc === cc && r.measured).reduce((n, r) => n + r.spans.filter((s) => s.source === 'span').length, 0);
+}
+
+/**
+ * The cross-check over every vendor of a run.
+ *
+ * @param perVendor  cc -> crossCheckRepairRows(rows, repairRows, cc) for a vendor
+ *                   whose repair rows were read, or null when that vendor has no
+ *                   repair rows file
+ * @param measured   cc -> spansMeasuredAlone(rows, cc)
+ * @returns {{vendors: {cc: string, status: 'held'|'failed'|'not-cross-checked', vacuous: boolean, cross: object|null}[],
+ *            held: string[], failed: string[], notChecked: string[]}}
+ *   A vendor is `held` only when its repair rows were read, nothing disagreed,
+ *   and -- where it measured any span alone -- at least one span was compared
+ *   (none compared is `vacuous`, and fails). A vendor without repair rows is
+ *   `not-cross-checked`: never held, never failed.
+ */
+export function crossCheckSummary(perVendor, measured) {
+  const vendors = [];
+  for (const cc of VENDORS) {
+    if (!(cc in perVendor)) continue;
+    const cross = perVendor[cc];
+    if (cross === null) { vendors.push({ cc, status: 'not-cross-checked', vacuous: false, cross: null }); continue; }
+    const vacuous = (measured[cc] || 0) > 0 && cross.compared === 0;
+    const failed = vacuous || cross.mismatches.length > 0 || cross.hiddenMismatches.length > 0;
+    vendors.push({ cc, status: failed ? 'failed' : 'held', vacuous, cross });
+  }
+  const of = (s) => vendors.filter((v) => v.status === s).map((v) => v.cc);
+  return { vendors, held: of('held'), failed: of('failed'), notChecked: of('not-cross-checked') };
 }
 
 /**
@@ -231,7 +301,9 @@ export function labelSummary(files) {
 /**
  * Why a run may not be written to data/: the tracked per-span file is the full
  * run -- every multi-span file, both vendors, all five levels, the default
- * tracked rows and repair rows -- and a run whose integrity held.
+ * tracked rows and repair rows -- and a run whose integrity held and whose
+ * cross-check held for every vendor. `crossCheck` is crossCheckSummary's result,
+ * or null before the run.
  */
 export function writeDataProblems({ files, vendors, opts, rowsIsDefault, repairRowsIsDefault, integrity, crossCheck }) {
   const why = [];
@@ -241,7 +313,8 @@ export function writeDataProblems({ files, vendors, opts, rowsIsDefault, repairR
   if (!rowsIsDefault) why.push('--rows');
   if (!repairRowsIsDefault) why.push('--repair-rows');
   if (integrity.length) why.push(`${integrity.length} integrity problem(s)`);
-  if (crossCheck && (crossCheck.mismatches.length || crossCheck.hiddenMismatches.length)) why.push('a failed cross-check');
+  if (crossCheck && crossCheck.failed.length) why.push(`a failed cross-check (${crossCheck.failed.join(', ')})`);
+  if (crossCheck && crossCheck.notChecked.length) why.push(`no repair rows to cross-check ${crossCheck.notChecked.join(', ')}`);
   return why;
 }
 

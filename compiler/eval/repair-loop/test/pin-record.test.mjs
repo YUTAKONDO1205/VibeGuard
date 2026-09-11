@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { validatePinRecord, readPinRecord, unresolvedNames, OPT_LEVELS, COMPONENTS } from '../lib/pin-record.mjs';
+import { validatePinRecord, readPinRecord, unresolvedNames, followedByUseCounts, OPT_LEVELS, COMPONENTS } from '../lib/pin-record.mjs';
 import { evidenceDigest, canonicalJsonRaw, sha256Hex } from '../../../evidence/canon.mjs';
 
 /**
@@ -445,4 +445,27 @@ test('unresolvedNames lists what did not resolve, and nothing in module scope', 
   assert.deepEqual(unresolvedNames(rec), ['wipe:not-in-module']);
   assert.deepEqual(unresolvedNames(good({ scope: 'module', requested: [], resolution: [] })), []);
   assert.deepEqual(unresolvedNames(null), []);
+});
+
+test('followedByUseCounts: a listed site already volatile, or listed in a dry run, is not a pinned one', () => {
+  // haiku_E_pinpad_r1's shape: one site, already volatile in the source, followed by a use; nothing pinned
+  const alreadyVolatile = good({
+    pinned: [site({ alreadyVolatile: true, followedByUse: true })], pinnedCount: 0, wouldPinCount: 0,
+  });
+  assert.equal(validatePinRecord(alreadyVolatile, EXPECT).ok, true);
+  assert.deepEqual(followedByUseCounts(alreadyVolatile), { listed: 1, pinned: 0 });
+  // two pinned sites (one initialiser-like) and one already-volatile initialiser-like site
+  const mixed = good({
+    pinned: [site({ followedByUse: true }), site({ index: 1, followedByUse: false }),
+      site({ index: 2, alreadyVolatile: true, followedByUse: true }), site({ index: 3, destKind: 'argument', followedByUse: null })],
+    pinnedCount: 3, wouldPinCount: 3, seen: { zeroFillMemsetInScope: 4, zeroFillMemsetInModule: 4 },
+  });
+  assert.equal(validatePinRecord(mixed, EXPECT).ok, true);
+  assert.deepEqual(followedByUseCounts(mixed), { listed: 2, pinned: 1 });
+  // a dry run changes nothing: every site is listed, none is pinned
+  const dry = good({ dryRun: true, pinned: [site({ followedByUse: true })], pinnedCount: 0, wouldPinCount: 1 });
+  assert.equal(validatePinRecord(dry, { ...EXPECT, dryRun: true }).ok, true);
+  assert.deepEqual(followedByUseCounts(dry), { listed: 1, pinned: 0 });
+  assert.deepEqual(followedByUseCounts(good()), { listed: 0, pinned: 0 });
+  assert.deepEqual(followedByUseCounts(null), { listed: 0, pinned: 0 });
 });

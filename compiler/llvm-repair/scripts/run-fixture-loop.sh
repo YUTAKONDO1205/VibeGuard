@@ -49,7 +49,14 @@
 #           every step. The link never runs pipeline start, so WipePin cannot
 #           run there; what it must do is say so, once, and that the compile's
 #           record was removed when it loaded. Each such link is paired with a
-#           stock link of the same bitcode, whose output it must equal.
+#           stock link of the same bitcode, whose output it must equal. Also:
+#           the thin form compiled and linked at -O0 (a ThinLTO link at -O0
+#           invokes no extension point at all, which is why WipePin speaks from
+#           a pass-instrumentation callback); a full-LTO link started with
+#           nothing at WPIN_OUT (the compile's record moved aside first), whose
+#           line must say there was no file; and a compile, not a link, under
+#           -Xclang -disable-llvm-passes -S -emit-llvm, which builds no
+#           pipeline but still runs the IR printer as a pass.
 #
 # The observer's -fpass-plugin comes FIRST on the command line and WipePin's
 # second. Both register at the pipeline-start extension point, callbacks run in
@@ -454,58 +461,92 @@ stale stale-live     file WPIN_TARGET_FNS=handle -- -O2 -c "$SRC/trailing.c" -o 
 stale stale-dir      dir  WPIN_TARGET_FNS=handle -- -O2 -c "$SRC/trailing.c" -o "$LAB/stale/stale-dir.o"
 
 # ------------------------------------------------------------ LTO
-# lto <id> <full|thin> <compile|linkline>
-#   compile   trailing.c at -O2 -flto[=thin] with WipePin, record at
-#             <lab>/lto/<id>.json, object <id>.o, stderr <id>.compile.stderr.txt
-#   linkline  the same compile; a copy of whatever it left at WPIN_OUT is kept
-#             as <id>.compile.json; then a stock link of the object
-#             (<id>.stock.so) and a link of the same object with WipePin on the
-#             link line and the same WPIN_OUT / WPIN_TARGET_FNS in its
-#             environment (<id>.plugin.so, stderr <id>.link.stderr.txt).
-# Written down, not judged: rc's and what is at WPIN_OUT after each step.
+# lto <id> <full|thin|none> <compile|linkline|linkline-nofile|nopasses-ir> <opt>
+#   compile          trailing.c at <opt> -flto[=thin] with WipePin, record at
+#                    <lab>/lto/<id>.json, object <id>.o, stderr
+#                    <id>.compile.stderr.txt
+#   linkline         the same compile; a copy of whatever it left at WPIN_OUT is
+#                    kept as <id>.compile.json; then a stock link of the object
+#                    at <opt> (<id>.stock.so) and a link of the same object at
+#                    <opt> with WipePin on the link line and the same WPIN_OUT /
+#                    WPIN_TARGET_FNS in its environment (<id>.plugin.so, stderr
+#                    <id>.link.stderr.txt)
+#   linkline-nofile  as linkline, but the compile's record is moved to
+#                    <id>.compile.json, so nothing is at WPIN_OUT when the link
+#                    loads the plugin
+#   nopasses-ir      form none: trailing.c at <opt> -Xclang -disable-llvm-passes
+#                    -S -emit-llvm with WipePin (<id>.ll), nothing at WPIN_OUT
+#                    beforehand; no link
+# Written down, not judged: rc's and what is at WPIN_OUT before and after each
+# step.
 LTOD="$LAB/lto"
 lto() {
-  local id=$1 form=$2 what=$3
-  local cflag
+  local id=$1 form=$2 what=$3 opt=$4
+  local cflag=
   local lflags=()
-  if [ "$form" = full ]; then
-    cflag=-flto; lflags=(-flto)
-  else
-    cflag=-flto=thin; lflags=(-flto=thin -Wl,--thinlto-jobs=1)
-  fi
+  case "$form" in
+    full) cflag=-flto; lflags=(-flto) ;;
+    thin) cflag=-flto=thin; lflags=(-flto=thin -Wl,--thinlto-jobs=1) ;;
+    none) ;;
+    *) echo "run-fixture-loop.sh: lto: unknown form $form" >&2; exit 3 ;;
+  esac
   local out="$LTOD/$id.json" obj="$LTOD/$id.o"
-  env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN \
-      WPIN_OUT="$out" WPIN_TARGET_FNS=handle \
-      "$CC" -O2 "$cflag" -fpass-plugin="$WIPEPIN" -c "$SRC/trailing.c" -o "$obj" \
-      > /dev/null 2> "$LTOD/$id.compile.stderr.txt"
-  local crc=$?
-  local cstate=absent
-  [ -f "$out" ] && cstate=file
-  local src_rc=not-run lrc=not-run lstate=not-run
-  if [ "$what" = linkline ]; then
-    [ -f "$out" ] && cp "$out" "$LTOD/$id.compile.json"
-    env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN \
-        "$CC" -O2 "${lflags[@]}" -fuse-ld=lld -shared "$obj" -o "$LTOD/$id.stock.so" \
-        > /dev/null 2> "$LTOD/$id.stock.stderr.txt"
-    src_rc=$?
+  rm -rf "$out"
+  local cstate_before=absent
+  if [ "$what" = nopasses-ir ]; then
+    obj="$LTOD/$id.ll"
     env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN \
         WPIN_OUT="$out" WPIN_TARGET_FNS=handle \
-        "$CC" -O2 "${lflags[@]}" -fuse-ld=lld -shared -Wl,--load-pass-plugin="$WIPEPIN" \
-        "$obj" -o "$LTOD/$id.plugin.so" \
-        > /dev/null 2> "$LTOD/$id.link.stderr.txt"
-    lrc=$?
-    lstate=absent
-    [ -d "$out" ] && lstate=dir
-    [ -f "$out" ] && lstate=file
+        "$CC" "$opt" -Xclang -disable-llvm-passes -fpass-plugin="$WIPEPIN" \
+        -S -emit-llvm "$SRC/trailing.c" -o "$obj" \
+        > /dev/null 2> "$LTOD/$id.compile.stderr.txt"
+  else
+    env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN \
+        WPIN_OUT="$out" WPIN_TARGET_FNS=handle \
+        "$CC" "$opt" "$cflag" -fpass-plugin="$WIPEPIN" -c "$SRC/trailing.c" -o "$obj" \
+        > /dev/null 2> "$LTOD/$id.compile.stderr.txt"
   fi
-  kv "$LTOD/$id.kv" "cellId=$id" "form=$form" "what=$what" "compileRc=$crc" \
-     "afterCompile=$cstate" "stockLinkRc=$src_rc" "pluginLinkRc=$lrc" "afterLink=$lstate" \
-     "wipepinSha256=$PIN_SHA"
+  local crc=$?
+  local cstate=absent
+  [ -d "$out" ] && cstate=dir
+  [ -f "$out" ] && cstate=file
+  local src_rc=not-run lrc=not-run lstate=not-run bstate=not-run
+  case "$what" in
+    linkline|linkline-nofile)
+      if [ "$what" = linkline-nofile ]; then
+        [ -f "$out" ] && mv "$out" "$LTOD/$id.compile.json"
+      else
+        [ -f "$out" ] && cp "$out" "$LTOD/$id.compile.json"
+      fi
+      bstate=absent
+      [ -d "$out" ] && bstate=dir
+      [ -f "$out" ] && bstate=file
+      env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN \
+          "$CC" "$opt" "${lflags[@]}" -fuse-ld=lld -shared "$obj" -o "$LTOD/$id.stock.so" \
+          > /dev/null 2> "$LTOD/$id.stock.stderr.txt"
+      src_rc=$?
+      env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN \
+          WPIN_OUT="$out" WPIN_TARGET_FNS=handle \
+          "$CC" "$opt" "${lflags[@]}" -fuse-ld=lld -shared -Wl,--load-pass-plugin="$WIPEPIN" \
+          "$obj" -o "$LTOD/$id.plugin.so" \
+          > /dev/null 2> "$LTOD/$id.link.stderr.txt"
+      lrc=$?
+      lstate=absent
+      [ -d "$out" ] && lstate=dir
+      [ -f "$out" ] && lstate=file
+      ;;
+  esac
+  kv "$LTOD/$id.kv" "cellId=$id" "form=$form" "what=$what" "opt=$opt" "beforeCompile=$cstate_before" \
+     "compileRc=$crc" "afterCompile=$cstate" "beforeLink=$bstate" "stockLinkRc=$src_rc" \
+     "pluginLinkRc=$lrc" "afterLink=$lstate" "wipepinSha256=$PIN_SHA"
   echo "$id"
 }
-lto lto-full-compile  full compile
-lto lto-full-linkline full linkline
-lto lto-thin-linkline thin linkline
+lto lto-full-compile         full compile         -O2
+lto lto-full-linkline        full linkline        -O2
+lto lto-thin-linkline        thin linkline        -O2
+lto lto-thin-linkline-O0     thin linkline        -O0
+lto lto-full-linkline-nofile full linkline-nofile -O2
+lto nopasses-ir-O2           none nopasses-ir     -O2
 
 if [ $failed -ne 0 ]; then
   echo "run-fixture-loop.sh: at least one cell did not produce its records" >&2

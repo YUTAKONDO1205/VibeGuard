@@ -432,9 +432,11 @@ jobs:
   # it builds the IR observer (compiler/llvm-pass), the LLVM repair plugin
   # WipePin (compiler/llvm-repair) and the GCC repair plugin WipePinGcc
   # (compiler/gcc-repair), and runs each plugin's fixture loop, whose checker
-  # grades every cell against an expectation written before the cells were
-  # first run. Until this job, those loops had only ever run on the machine
-  # that wrote them.
+  # grades every cell against a fixed expectation table. Most expectations
+  # were written from what the cell is for before it first ran; the ones taken
+  # from a measurement say so beside them (check-gcc-fixture-loop.py's
+  # `chkconst`, and the level at which gcc-13 removes the stock wipe). Until
+  # this job, those loops had only ever run on the machine that wrote them.
   #
   # PINNED TO ubuntu-24.04, not ubuntu-latest, on purpose. The fixture loops'
   # expectations are measurements of clang 18.1.3 and gcc 13.3.0 as the 24.04
@@ -446,8 +448,9 @@ jobs:
   # only into the GCC it was built against.
   #
   # lld-18 is for the WipePin fixture loop's link-time cells (lto-full-linkline,
-  # lto-thin-linkline): they link LTO bitcode with -fuse-ld=lld and grade the
-  # one stderr line WipePin prints when an LTO link loads it.
+  # lto-thin-linkline, lto-thin-linkline-O0, lto-full-linkline-nofile): they
+  # link LTO bitcode with -fuse-ld=lld and grade the one stderr line WipePin
+  # prints when an LTO link loads it.
   #
   # Every build goes to $RUNNER_TEMP, never into the checkout, so nothing a
   # build writes can show up as an untracked file or be picked up by a later
@@ -552,13 +555,21 @@ jobs:
           "$RUNNER_TEMP/build/gcc-repair/canon-vectors" compiler/evidence/testdata/digest-vectors.json
 
       # Run as files: the directory name is not a Python package name, so
-      # `python3 -m unittest` cannot address them. unittest exits non-zero
-      # when a file holds no test, so an emptied file cannot pass here.
+      # `python3 -m unittest` cannot address them. A 0-byte file would run as
+      # a script that does nothing and exit 0, and a file that no longer calls
+      # unittest.main() would too, so each file must be non-empty AND its run
+      # must print unittest's "Ran N tests" with N > 0 and exit 0. An emptied
+      # file, or one that runs no test, fails here.
       - name: WipePinGcc Python tests
         run: |
           set -u
           for t in compiler/gcc-repair/test/test_wpin_gcc_record.py compiler/gcc-repair/test/test_check_gcc_fixture_loop.py; do
-            [ -f "$t" ] || { echo "::error::no test file at $t"; exit 1; }
+            [ -s "$t" ] || { echo "::error::no test file, or an empty one, at $t"; exit 1; }
             echo "--- $t"
-            python3 "$t"
+            if out=$(python3 "$t" 2>&1); then rc=0; else rc=$?; fi
+            printf '%s\n' "$out"
+            [ "$rc" -eq 0 ] || { echo "::error::$t exited $rc"; exit 1; }
+            ran=$(printf '%s\n' "$out" | sed -n 's/^Ran \([0-9][0-9]*\) tests\{0,1\} in .*/\1/p' | tail -n 1)
+            [ -n "$ran" ] && [ "$ran" -gt 0 ] || { echo "::error::$t ran no test (no \"Ran N tests\" with N > 0)"; exit 1; }
+            echo "$t: $ran test(s) ran"
           done

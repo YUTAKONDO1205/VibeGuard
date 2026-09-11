@@ -406,6 +406,27 @@ export function readPinRecord(file, expect = {}) {
   return validatePinRecord(parsed, expect);
 }
 
+/**
+ * How many sites carry followedByUse true, counted two ways.
+ *
+ * `pinned[]` lists every zero-fill memset site the plugin saw in scope, the ones
+ * already volatile in the source included, and a dry run lists sites it did not
+ * change. So:
+ *   listed  sites in pinned[] with followedByUse true (what the list says)
+ *   pinned  of those, the ones this compile actually made volatile: not
+ *           alreadyVolatile, and not a dry run (a dry run changes nothing)
+ * For a valid record outside a dry run the pinned set is exactly the listed
+ * sites that are not already volatile (pinnedCount counts them).
+ *
+ * @returns {{listed: number, pinned: number}}
+ */
+export function followedByUseCounts(rec) {
+  const sites = rec && Array.isArray(rec.pinned) ? rec.pinned : [];
+  const listed = sites.filter((p) => p && p.followedByUse === true);
+  const pinned = rec && rec.dryRun === false ? listed.filter((p) => p.alreadyVolatile === false) : [];
+  return { listed: listed.length, pinned: pinned.length };
+}
+
 /** Names the record did not resolve, as "name:resolution". Empty for module scope. */
 export function unresolvedNames(rec) {
   if (!rec || rec.scope !== 'functions') return [];

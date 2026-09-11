@@ -206,11 +206,15 @@ absolute path.
 ## Results
 
 `clang-18` 18.1.3 (Ubuntu), `Ubuntu LLD 18.1.3`, WSL Ubuntu 24.04, x86-64;
-`libWipePin.so` built from `compiler/llvm-repair/` in this tree, sha256
-`aa7329c3d9ba002915f885624c17d6da1418aa39a2b762d1655e83786e6f0a66` (the bytes
-the repair loop's results quote). Post-LTO code read through `--lto-emit-asm` in
-runs A–C: the preflight passed in every form and level, so the fallback was not
-needed. All four runs exited 0.
+`libWipePin.so` built from `compiler/llvm-repair/`. Runs A–D were made with the
+`wipe-pin-v1` build, sha256
+`aa7329c3d9ba002915f885624c17d6da1418aa39a2b762d1655e83786e6f0a66`, which emits
+the same code as v2 (`compiler/llvm-repair/README.md`, *`wipe-pin-v2`*,
+"Same code as `v1`");
+run E, below, with `db3298cfb30d14200fe0822261eaa1c35aa51aed4aef869a0edd3151f073a4c8`,
+the build the repair loop's tracked results now quote. Post-LTO code read
+through `--lto-emit-asm` in runs A–C: the preflight passed in every form and
+level, so the fallback was not needed. All four runs exited 0.
 
 | run | form | level | cells | eliminated without the plugin (LTO) | differs from the tracked non-LTO row | `RETAINED` | `ALREADY_SURVIVED` | `BROKEN_REPAIR` / `PIN_INEFFECTIVE` / other | dry run (iii) |
 |---|---|---|---|---|---|---|---|---|---|

@@ -12,10 +12,12 @@ grades, on the same fixture, with the same effect-symbol list.
 The shape and stale cells are about WipePin's own account of itself: what its
 wipe-pin-v2 record and its stderr say for a source whose answer is known, and
 whether a record from an earlier compile can outlive a compile that wrote none.
-The lto cells are about the one host where the pass cannot run at all: an LTO
-link with the plugin on its link line must say so, once, leave the linked
-output exactly as a stock link leaves it, and admit that the record its compile
-step wrote at the same WPIN_OUT was removed when the plugin loaded.
+The lto cells are about the hosts where the pass cannot run at all: an LTO
+link with the plugin on its link line (full and thin, -O2 and thin at -O0) must
+say so, once, leave the linked output exactly as a stock link leaves it, and
+say whether a file was at WPIN_OUT when the plugin loaded -- the record its
+compile step wrote there, removed, or nothing; a compile under
+-disable-llvm-passes that writes IR must say the same line and write no record.
 
 The expectations below were written from what each cell is for, before the
 cells were first run. A cell that disagrees is printed as a disagreement and the
@@ -158,7 +160,8 @@ STALE = {
 }
 STALE_ORDER = ["stale-refused", "stale-nopasses", "stale-live", "stale-dir"]
 
-# The LTO cells, all on the trailing shape at -O2 with target `handle`.
+# The LTO cells, and the one compile that builds no pipeline, all on the
+# trailing shape with target `handle`, at -O2 unless `opt` says otherwise.
 #
 # lto-full-compile   WipePin at -flto compile time. The compile builds a
 #                    pipeline with pipeline start, so the pass runs there: a
@@ -174,17 +177,44 @@ STALE_ORDER = ["stale-refused", "stale-nopasses", "stale-live", "stale-dir"]
 #                    WPIN_OUT afterwards (no record written), and the linked
 #                    shared object byte-identical to a stock link of the same
 #                    bitcode. The compile half is graded as lto-full-compile is.
-LINK_LINE_REMOVED = (
+# lto-thin-linkline-O0
+#                    the thin form with the compile and both links at -O0. A
+#                    ThinLTO link at -O0 invokes no extension point at all
+#                    (src/WipePin.cpp, "the pipeline without pipeline start"),
+#                    which is why the line comes from a pass-instrumentation
+#                    callback rather than a pass; this is the cell that shows
+#                    it. Graded as the -O2 linkline cells are, the compile's
+#                    record at optLevel.speedup 0.
+# lto-full-linkline-nofile
+#                    a full-LTO linkline whose compile record was moved aside
+#                    before the link, so nothing is at WPIN_OUT when the plugin
+#                    loads: exactly one line, and it is LINK_LINE_NOFILE.
+#                    Otherwise graded as lto-full-linkline.
+# nopasses-ir-O2     no LTO: a compile under -Xclang -disable-llvm-passes -S
+#                    -emit-llvm with WipePin and nothing at WPIN_OUT. clang
+#                    builds no optimisation pipeline, but runs the IR printer as
+#                    a pass, so the same callback speaks: rc 0, exactly one
+#                    WipePin line and it is LINK_LINE_NOFILE, no record at
+#                    WPIN_OUT afterwards, and the IR it wrote still holds the
+#                    trailing llvm.memset with none of them volatile.
+NO_START_PREFIX = (
     "WipePin: loaded into a pipeline built without the pipeline-start extension point "
     "(an LTO link, or a compile under -disable-llvm-passes), where this pass does not run; "
-    "nothing was pinned in this process, and the file at WPIN_OUT was removed when the plugin loaded")
+    "nothing was pinned in this process, and ")
+LINK_LINE_REMOVED = NO_START_PREFIX + "the file at WPIN_OUT was removed when the plugin loaded"
+LINK_LINE_NOFILE = NO_START_PREFIX + "there was no file at WPIN_OUT when the plugin loaded"
 LINK_LINE_PREFIX = "WipePin: loaded into a pipeline built without the pipeline-start extension point"
 LTO = {
-    "lto-full-compile": {"form": "full", "what": "compile"},
-    "lto-full-linkline": {"form": "full", "what": "linkline"},
-    "lto-thin-linkline": {"form": "thin", "what": "linkline"},
+    "lto-full-compile": {"form": "full", "what": "compile", "opt": "-O2"},
+    "lto-full-linkline": {"form": "full", "what": "linkline", "opt": "-O2", "line": LINK_LINE_REMOVED},
+    "lto-thin-linkline": {"form": "thin", "what": "linkline", "opt": "-O2", "line": LINK_LINE_REMOVED},
+    "lto-thin-linkline-O0": {"form": "thin", "what": "linkline", "opt": "-O0", "line": LINK_LINE_REMOVED},
+    "lto-full-linkline-nofile": {"form": "full", "what": "linkline-nofile", "opt": "-O2",
+                                 "line": LINK_LINE_NOFILE},
+    "nopasses-ir-O2": {"form": "none", "what": "nopasses-ir", "opt": "-O2", "line": LINK_LINE_NOFILE},
 }
-LTO_ORDER = ["lto-full-compile", "lto-full-linkline", "lto-thin-linkline"]
+LTO_ORDER = ["lto-full-compile", "lto-full-linkline", "lto-thin-linkline", "lto-thin-linkline-O0",
+             "lto-full-linkline-nofile", "nopasses-ir-O2"]
 
 NO_UNHANDLED = "libcallMemset=0 memsetChk=0 nonZeroFill=0 atomicMemset=0 inlineWrapperMemset=0"
 
@@ -594,8 +624,8 @@ def is_bitcode(path):
         return False
 
 
-def trailing_record_problems(rec):
-    """The trailing shape's record at -O2, as the shape table expects it."""
+def trailing_record_problems(rec, opt="-O2"):
+    """The trailing shape's record at `opt`, as the shape table expects it."""
     bad = [f"record: {p}" for p in v2_problems(rec)]
     sites = rec.get("pinned") or []
     checks = [
@@ -603,7 +633,7 @@ def trailing_record_problems(rec):
         ("requested", rec.get("requested"), ["handle"]),
         ("pinnedCount", rec.get("pinnedCount"), 1),
         ("dryRun", rec.get("dryRun"), False),
-        ("optLevel.speedup", (rec.get("optLevel") or {}).get("speedup"), 2),
+        ("optLevel.speedup", (rec.get("optLevel") or {}).get("speedup"), SPEEDUP[opt]),
         ("followedByUse per site", [s.get("followedByUse") for s in sites], [False]),
     ]
     for name, got, want in checks:
@@ -612,65 +642,99 @@ def trailing_record_problems(rec):
     return bad
 
 
+def on_disk_state(path):
+    return "dir" if os.path.isdir(path) else ("file" if os.path.isfile(path) else "absent")
+
+
 def grade_lto(lab):
     rows, problems, incomplete = [], [], []
     d = os.path.join(lab, "lto")
     for cell in LTO_ORDER:
         exp = LTO[cell]
+        linking = exp["what"] in ("linkline", "linkline-nofile")
         try:
             kv = load_kv(os.path.join(d, cell + ".kv"))
             cerr = load_lines(os.path.join(d, cell + ".compile.stderr.txt"))
+            crec, lerr, ir = None, None, None
             if exp["what"] == "compile":
                 crec = load_json(os.path.join(d, cell + ".json"))
-                lerr = None
-            else:
+            elif linking:
                 crec = load_json(os.path.join(d, cell + ".compile.json"))
                 lerr = load_lines(os.path.join(d, cell + ".link.stderr.txt"))
+            else:
+                ir = load_lines(os.path.join(d, cell + ".ll"))
         except Incomplete as e:
             incomplete.append(f"{cell}: {e}")
             continue
         bad = []
-        if kv.get("form") != exp["form"] or kv.get("what") != exp["what"]:
-            bad.append(f"runner ran form={kv.get('form')} what={kv.get('what')}")
+        out = os.path.join(d, cell + ".json")
+        if kv.get("form") != exp["form"] or kv.get("what") != exp["what"] or kv.get("opt") != exp["opt"]:
+            bad.append(f"runner ran form={kv.get('form')} what={kv.get('what')} opt={kv.get('opt')}")
+        if kv.get("beforeCompile") != "absent":
+            bad.append(f"WPIN_OUT before the compile: {kv.get('beforeCompile')}, expected absent")
         if kv.get("compileRc") != "0":
             bad.append(f"compile rc {kv.get('compileRc')}, expected 0")
-        if not is_bitcode(os.path.join(d, cell + ".o")):
-            bad.append("the -flto compile did not leave a bitcode object")
-        if kv.get("afterCompile") != "file":
-            bad.append(f"WPIN_OUT after the compile: {kv.get('afterCompile')}, expected file")
-        bad += [f"compile {p}" for p in trailing_record_problems(crec)]
         cwl = wipepin_lines(cerr)
-        if cwl:
-            bad.append(f"the compile printed {cwl}, expected nothing")
+        bitcode = is_bitcode(os.path.join(d, cell + ".o"))
 
         line_n, after, same = "-", kv.get("afterLink"), "-"
-        if exp["what"] == "linkline":
+        if exp["what"] == "nopasses-ir":
+            # No pipeline is built, so no record, and the no-pipeline-start line
+            # comes from the compile itself -- once, with the no-file ending.
+            line_n = str(sum(1 for l in cwl if l == exp["line"]))
+            if cwl != [exp["line"]]:
+                bad.append(f"compile stderr WipePin lines {cwl}, expected exactly [{exp['line']!r}]")
+            after = kv.get("afterCompile")
+            if after != "absent" or on_disk_state(out) != "absent":
+                bad.append(f"WPIN_OUT after the compile: {after} (runner), {on_disk_state(out)} (now), expected absent")
+            memsets = [l for l in ir if "call void @llvm.memset" in l]
+            if not ir or not ir[0].startswith("; ModuleID"):
+                bad.append("the compile did not write textual IR")
+            if not memsets:
+                bad.append("the IR holds no llvm.memset (the trailing wipe should still be there, unpinned)")
+            if any("i1 true)" in l for l in memsets):
+                bad.append("the IR holds a volatile llvm.memset: something was pinned in a compile that ran no pass")
+        else:
+            if not bitcode:
+                bad.append("the -flto compile did not leave a bitcode object")
+            want_after_compile = "file"
+            if kv.get("afterCompile") != want_after_compile:
+                bad.append(f"WPIN_OUT after the compile: {kv.get('afterCompile')}, expected {want_after_compile}")
+            bad += [f"compile {p}" for p in trailing_record_problems(crec, exp["opt"])]
+            if cwl:
+                bad.append(f"the compile printed {cwl}, expected nothing")
+
+        if linking:
+            want_before = "absent" if exp["what"] == "linkline-nofile" else "file"
+            if kv.get("beforeLink") != want_before:
+                bad.append(f"WPIN_OUT before the link: {kv.get('beforeLink')}, expected {want_before}")
             if kv.get("stockLinkRc") != "0":
                 bad.append(f"stock link rc {kv.get('stockLinkRc')}, expected 0")
             if kv.get("pluginLinkRc") != "0":
                 bad.append(f"link with WipePin on the link line rc {kv.get('pluginLinkRc')}, expected 0")
             lwl = wipepin_lines(lerr)
-            line_n = str(sum(1 for l in lwl if l == LINK_LINE_REMOVED))
-            if lwl != [LINK_LINE_REMOVED]:
-                bad.append(f"link stderr WipePin lines {lwl}, expected exactly [{LINK_LINE_REMOVED!r}]")
-            out = os.path.join(d, cell + ".json")
-            on_disk = "dir" if os.path.isdir(out) else ("file" if os.path.isfile(out) else "absent")
-            if after != "absent" or on_disk != "absent":
-                bad.append(f"WPIN_OUT after the link: {after} (runner), {on_disk} (now), expected absent")
+            line_n = str(sum(1 for l in lwl if l == exp["line"]))
+            if lwl != [exp["line"]]:
+                bad.append(f"link stderr WipePin lines {lwl}, expected exactly [{exp['line']!r}]")
+            if after != "absent" or on_disk_state(out) != "absent":
+                bad.append(f"WPIN_OUT after the link: {after} (runner), {on_disk_state(out)} (now), expected absent")
             s_stock = sha_file(os.path.join(d, cell + ".stock.so"))
             s_plug = sha_file(os.path.join(d, cell + ".plugin.so"))
             same = "?" if s_stock is None or s_plug is None else ("yes" if s_stock == s_plug else "NO")
             if same != "yes":
                 bad.append(f"linked output byte-identical to the stock link: {same}")
-        else:
+        elif exp["what"] == "compile":
             # A compile runs pipeline start: its record stays, and it never says
             # the link-time line.
             if any(l.startswith(LINK_LINE_PREFIX) for l in cwl):
                 bad.append("the compile printed the link-time line")
 
-        rows.append((cell, exp["form"], kv.get("compileRc"), "yes" if is_bitcode(os.path.join(d, cell + ".o")) else "no",
-                     f"{crec.get('schemaVersion')}/{crec.get('pinnedCount')}",
-                     kv.get("pluginLinkRc"), line_n, after, same, "ok" if not bad else "DISAGREES"))
+        ending = "-" if "line" not in exp else ("removed" if exp["line"] == LINK_LINE_REMOVED else "no file")
+        rows.append((cell, exp["form"], exp["opt"], kv.get("compileRc"),
+                     "-" if exp["what"] == "nopasses-ir" else ("yes" if bitcode else "no"),
+                     f"{crec.get('schemaVersion')}/{crec.get('pinnedCount')}" if crec is not None else "-",
+                     kv.get("beforeLink"), kv.get("pluginLinkRc"), f"{line_n} ({ending})" if line_n != "-" else "-",
+                     after, same, "ok" if not bad else "DISAGREES"))
         problems += [f"{cell}: {b}" for b in bad]
     return rows, problems, incomplete
 
@@ -734,8 +798,8 @@ def main():
     print()
     table(("stale record", "before", "clang rc", "after", "WipePin stderr", ""), trow)
     print()
-    table(("lto (-O2)", "form", "compile rc", "bitcode", "compile record", "link rc",
-           "link-time line", "WPIN_OUT after link", "output==stock", ""), lrow)
+    table(("lto / no pipeline start", "form", "opt", "compile rc", "bitcode", "compile record",
+           "WPIN_OUT before link", "link rc", "no-pipeline-start line", "WPIN_OUT after", "output==stock", ""), lrow)
 
     if incomplete:
         print("\nINCOMPLETE -- these cells could not be graded:")
