@@ -527,7 +527,9 @@ export function brokenReasons(groups) {
   for (const { opt, s } of groups) {
     if (s.outcomes.NOT_LTO > 0) why.push(`${opt}: ${s.outcomes.NOT_LTO} NOT_LTO cell(s)`);
     if (s.determinism.identical !== s.determinism.pairs) why.push(`${opt}: ${s.determinism.pairs - s.determinism.identical} relink(s) not byte-identical`);
-    if (s.baselineEliminated > 0 && !s.dry.held) why.push(`${opt}: the dry-run red control did not hold`);
+    // A control with nothing to control is vacuous, not a pass (../../README.md,
+    // *Red controls*), and gradeDryRun already says so.
+    if (!s.dry.held) why.push(`${opt}: the dry-run red control ${s.dry.considered ? 'did not hold' : 'was vacuous: no cell had an eliminated baseline'}`);
     if (!s.linkPlugin.grade.held) why.push(`${opt}: configuration (ii) FAILED`);
     if (s.stockLinks.withWipePinGccLine > 0) why.push(`${opt}: WipePinGcc printed on ${s.stockLinks.withWipePinGccLine} stock link(s)`);
   }

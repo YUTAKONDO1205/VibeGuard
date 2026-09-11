@@ -738,18 +738,29 @@ aggregate assignment here. At each of `-O1`..`-Os` all 250 join their `-O0`
 site on (file, function, index) with the same line — 0 unmatched, 0
 duplicate keys, 0 files not compared — and 0 of the 1000 joined (site, level)
 pairs read a different `followedByUse`, in any direction; the same 58 sites
-read `true` at every level. One other field does move with the level:
+read `true` at every level. One other field of the joined sites does move with
+the level:
 `lengthBytes` of the three sites of `haiku_S_token_r3` (lines 18, 22 and 28)
 is `null` at `-O0` and 32 at `-O1`..`-Os`. Their length is `token_size`, a
 `const ssize_t` local initialised to 32; the `cfg` dump shows `memset (&token,
 0, token_size.1_5)` at `-O0` and `memset (&token, 0, 32)` at `-O1`: by the
 time the pass runs, the call carries the constant only when optimising.
-Those three read `followedByUse: false` at all five levels. Controls in the
+Those three read `followedByUse: false` at all five levels. The join compares
+sites; record-level counters move as well, and one does here: `unhandled.memsetChk`
+is 0 at `-O0` and non-zero at `-O2` in 209 of the 360 files (measured 2026-09-12
+with the same compiles), because the fortifying headers make a source `memset` a
+`__builtin___memset_chk` whenever gcc optimises — so the `partial` line this
+plugin prints reads differently at `-O0` and above for a reason that has nothing
+to do with `followedByUse`. No other `seen` or `unhandled` counter differs in any
+file. Controls in the
 same run: `-O0` compiled twice, 0 differences and the same `evidenceDigest`
 in 360/360 files; every level compiled again without `-g1`, records equal on
-every field but `line` in 1800/1800, with a line on all 1250 (site, level)
-pairs either way. There is no older WipePinGcc to rerun as a positive
-control; the same tool finds WipePin v1's 16 known level-dependent sites
+every field but `pinned[].line` in 1800/1800 — `context` and `evidenceDigest`
+dropped before the comparison — with a line on all 1250 (site, level)
+pairs either way. The older WipePinGcc build (`954b5b58…`, before the barrier
+rule of *What counts as already pinned*) is no positive control here: what
+changed in it is which sites count as already pinned, not how `followedByUse`
+is answered. The same tool finds WipePin v1's 16 known level-dependent sites
 (`../llvm-repair/README.md`), and the `lengthBytes` rows above are it finding
 a level-dependent field in WipePinGcc's own records. Not covered: `-O0` is
 the reference, not the truth, and a site read wrongly at every level alike

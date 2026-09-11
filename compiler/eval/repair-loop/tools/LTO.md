@@ -206,10 +206,16 @@ node --test compiler/eval/repair-loop/test/lto-probe.test.mjs
 
 Exit codes: `0` complete and every integrity check held · `2` complete, but a
 cell was `NOT_LTO`, a relink was not byte-identical, the dry-run red control
-did not hold, or configuration (ii) was `FAILED` · `3` nothing selected · `4` bad arguments, `--out` inside the
+did not hold or was vacuous (no cell with an eliminated baseline, so nothing to
+control), or configuration (ii) was `FAILED` · `3` nothing selected · `4` bad arguments, `--out` inside the
 repository, or `--write-data` · `5` a tool, the plugin or the shared verdict
 module could not be used, the preflight failed, or a lab text carried an
-absolute path.
+absolute path. A cell's own `BROKEN_REPAIR` or `REGRESSED` is an outcome, not an
+integrity failure: it is counted in the table and does not change the exit code,
+as in the repair loop. What the run proves is read from the counts, not from the
+exit code. The `--out` guard compares the resolved paths as strings, so a
+symlink into the repository, or a path that differs only in case where the file
+system does not, is not caught.
 
 ## Results
 
@@ -220,7 +226,9 @@ absolute path.
 the same code as v2 (`compiler/llvm-repair/README.md`, *`wipe-pin-v2`*,
 "Same code as `v1`");
 run E, below, with `db3298cfb30d14200fe0822261eaa1c35aa51aed4aef869a0edd3151f073a4c8`,
-the build the repair loop's tracked results now quote. Post-LTO code read
+the build the repair loop's tracked results now quote, and so do runs F and G.
+Run G re-measures B and C with that build, and C over every file rather than a
+sample. Post-LTO code read
 through `--lto-emit-asm` in runs A–C: the preflight passed in every form and
 level, so the fallback was not needed. All four runs exited 0.
 
@@ -234,6 +242,25 @@ level, so the fallback was not needed. All four runs exited 0.
 | C | thin | `-O3` | 10 | 10 | 0 | **10** | 0 | 0 | `HELD` 10/10 |
 | C | full | `-Os` | 10 | 10 | 0 | **10** | 0 | 0 | `HELD` 10/10 |
 | C | thin | `-Os` | 10 | 10 | 0 | **10** | 0 | 0 | `HELD` 10/10 |
+
+**Run G: B and C again with `wipe-pin-v2`, C over every file** (2026-09-12,
+plugin `db3298cf…73a4c8`, `--opts -O1,-O3,-Os`, both forms, all 113 files, exit
+0, about 5.5 minutes). Every count of B and C holds with the v2 build, and
+`-O3`/`-Os` are no longer a sample of 10:
+
+| run | form | level | cells | eliminated without the plugin (LTO) | differs from the tracked non-LTO row | `RETAINED` | `ALREADY_SURVIVED` | dry run (iii) | (ii) graded | relinks identical |
+|---|---|---|---|---|---|---|---|---|---|---|
+| G | full | `-O1` | 113 | 62 | 0 | **62** | 51 | `HELD` 62/62 | `HELD`, 226 links | 452/452 |
+| G | thin | `-O1` | 113 | 62 | 0 | **62** | 51 | `HELD` 62/62 | `HELD`, 226 links | 452/452 |
+| G | full | `-O3` | 113 | 113 | 0 | **113** | 0 | `HELD` 113/113 | `HELD`, 226 links | 452/452 |
+| G | thin | `-O3` | 113 | 113 | 0 | **113** | 0 | `HELD` 113/113 | `HELD`, 226 links | 452/452 |
+| G | full | `-Os` | 113 | 113 | 0 | **113** | 0 | `HELD` 113/113 | `HELD`, 226 links | 452/452 |
+| G | thin | `-Os` | 113 | 113 | 0 | **113** | 0 | `HELD` 113/113 | `HELD`, 226 links | 452/452 |
+
+The `-O1` reading below holds with v2 as well: in all 62 eliminated cells per
+form the `w/off` compile-stage bitcode still holds the plain zero-fill memset
+and the `w/on` bitcode a volatile one, and at `-O3` and `-Os` neither holds one
+in any of the 113.
 
 - **The find step's verdict does not move under LTO** in anything run here: in
   every cell the LTO baseline equals the tracked non-LTO verdict for the same
@@ -379,9 +406,14 @@ Each through a compiler wrapper generated into the lab (not in this tree):
 ## What this does not claim
 
 - **One translation unit per link.** Each object is linked alone, so there is no
-  cross-unit inlining: a wipe helper defined in another unit and inlined at link
-  time, or a target inlined into a caller from another unit, is not measured. The
-  wipe and its target are always in the same module here.
+  cross-unit inlining here: a wipe helper defined in another unit and inlined at
+  link time, or a target inlined into a caller from another unit, is not measured
+  by this probe. The wipe and its target are always in the same module here. The
+  first of those cases is measured on a generated fixture instead, by the `xtu`
+  cells of both fixture loops (`../../llvm-repair/README.md`, *A wipe helper in
+  another translation unit*; `../../gcc-repair/README.md`, the xtu cells): the
+  LTO link inlines the helper and the fill is a dead store, and the pin made at
+  the helper's compile keeps it.
 - **`-shared`, and nothing after the LTO backend.** Exported symbols stay
   exported, so the target function is never internalized or deleted as unused.
   An executable link (which internalizes everything but what is exported) or
@@ -628,7 +660,8 @@ node --test compiler/eval/repair-loop/test/lto-probe-gcc.test.mjs
 
 Exit codes: `0` complete and every integrity check held · `2` complete, but a
 cell was `NOT_LTO`, a relink was not byte-identical, the dry-run red control
-did not hold, configuration (ii) was `FAILED`, or WipePinGcc printed on a stock
+did not hold or was vacuous, configuration (ii) was `FAILED`, or WipePinGcc
+printed on a stock
 link · `3` nothing selected · `4` bad arguments, a `--cc` that is not gcc,
 `--out` inside the repository, or `--write-data` · `5` a tool, the plugin, the
 tracked rows or the shared verdict module could not be used (a tracked row
@@ -740,10 +773,13 @@ this tree), 2 files (`--sample 2`), `-O2`:
 ### What this does not claim, gcc
 
 - **One translation unit per link, `-shared`.** As for clang: no cross-unit
-  inlining, and exported symbols stay exported; an executable link,
+  inlining in this probe, and exported symbols stay exported; an executable link,
   `-fvisibility=hidden` or `-fwhole-program` could inline or drop the target and
   is not measured. Unlike the clang probe, the link runs to the end and the
-  shared object is compared too; nothing about loading or running it is.
+  shared object is compared too; nothing about loading or running it is. The
+  helper-in-another-unit case is measured on a generated fixture by the gcc
+  fixture loop's `xtu` cells (`../../gcc-repair/README.md`), in an executable
+  link.
 - **One compiler, one version, one linker.** `gcc-13` 13.3.0 (Ubuntu) with GNU
   ld 2.42 through gcc's linker plugin, on x86-64. Not gold, not lld or mold under
   gcc, not another gcc, not `-ffat-lto-objects`, not `-flto=<n>` or
@@ -754,13 +790,15 @@ this tree), 2 files (`--sample 2`), `-O2`:
   under LTO: in a cell that still reads `WIPE_SURVIVED` after the link, a
   memset the link removed beside one it kept would not show (3 of run B's 25
   survived cells carry two or three memsets into the link).
-- **Not the pin against an elimination the LTO link performs.** Every stock
-  wipe the LTO build loses here is gone before the link, and every wipe that
-  reaches the link still reads `WIPE_SURVIVED` after it, so no cell tests the
-  barrier against an elimination lto1 makes; clang's `-O1` cells are that test
-  for the volatile memset, and there is none for gcc here. Whether gcc's link
-  would remove a wipe it receives — one that reaches it as a call it inlines
-  only at link time, say — is not measured.
+- **Not the pin against an elimination the LTO link performs, over this corpus.**
+  Every stock wipe the LTO build loses here is gone before the link, and every
+  wipe that reaches the link still reads `WIPE_SURVIVED` after it, so no corpus
+  cell tests the barrier against an elimination lto1 makes; clang's `-O1` cells
+  are that test for the volatile memset. For gcc that test is the fixture loop's
+  `xtu` cells (`../../gcc-repair/README.md`) rather than a corpus cell: there the
+  link inlines a helper from another unit, the stock build loses the fill, and
+  the barrier made at the helper's compile keeps it. Over this corpus, whether
+  gcc's link would remove a wipe it receives is not measured.
 - **Only files of the `removable` idiom.** The eliminated files are all of that
   idiom; the nonremovable and `both` idioms were not linked, at any level.
 - **Not that the code is secure**, and not that a link-time pin is the right fix:

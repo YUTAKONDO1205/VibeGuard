@@ -508,9 +508,12 @@ Within the erasure family, what WipePin (clang) does not pin, by construction:
   start it is still a loop;
 - anything after the translation unit. The observation is the `-S` listing of one
   unit; linking is not in the loop. Link-time optimisation is measured beside it,
-  by `tools/lto-probe.mjs` (`tools/LTO.md`), for clang only: the pin made at
-  compile time holds through a full and a thin LTO link of one object, and
-  WipePin loaded only on the link line never runs its pass there.
+  by `tools/lto-probe.mjs` (`tools/LTO.md`): the pin made at compile time holds
+  through a full and a thin LTO link of one object, and WipePin loaded only on
+  the link line never runs its pass there. A wipe helper in another unit, which
+  only an LTO link can inline, is measured on a generated fixture rather than on
+  this corpus, by the `xtu` cells of the fixture loop
+  (`compiler/llvm-repair/README.md`).
 
 What WipePinGcc (gcc) does not pin — `compiler/gcc-repair/README.md`, *What it
 does not handle*, measured on its fixture loop; what matters here:
@@ -642,7 +645,8 @@ node --test compiler/eval/repair-loop/test/*.test.mjs
 independent builds). Full functions-scope run over all five levels; the rows and
 the rendered table are `data/r2-repair-rows.json` and `data/r2-repair-results.txt`.
 The plan-driven run and the red controls are not tracked; their numbers below
-are from runs made with the same plugin bytes on the same tree.
+are from runs made with the same plugin bytes on the same tree, and were run
+again on 2026-09-12 with those bytes, giving the same numbers.
 
 These rows were first recorded with the `wipe-pin-v1` plugin (`aa7329c3…f0a66`)
 and re-recorded with v2. Against the v1 rows (the file as it was at `main`
@@ -762,7 +766,8 @@ the rendered table are `data/r2-repair-rows-gcc-13.json` and
 `data/r2-repair-results-gcc-13.txt`. `_FORTIFY_SOURCE` as the run measured it:
 not defined at `-O0`, `3` at `-O1`..`-Os`. The plan-driven run and the red
 controls are not tracked; their numbers below are from runs made with the same
-plugin bytes on the same tree. The subset numbers quoted in the sections above
+plugin bytes on the same tree, and were run again on 2026-09-12 with those
+bytes, giving the same numbers. The subset numbers quoted in the sections above
 come from a 16-file development run and are not this section.
 
 **The find step reproduces.** Plugin off, every wipe cell agrees with the tracked
@@ -856,10 +861,12 @@ compile (`NOT_SCORED`).
   `_FORTIFY_SOURCE`, so the gcc cells are built with glibc's fortifying headers
   at `-O1` and above and the clang cells are not. The two repairs are different
   mechanisms (a volatile `llvm.memset` against a volatile `asm` barrier), and a
-  number for one is not a number for the other. Link-time optimisation only as
-  far as `tools/LTO.md` measured it: one object per link, `-shared`, with lld 18
-  for clang and with GNU ld 2.42 through gcc's linker plugin, at gcc's default
-  partitioning, for gcc-13.
+  number for one is not a number for the other. Link-time optimisation over this
+  corpus only as far as `tools/LTO.md` measured it: one object per link,
+  `-shared`, with lld 18 for clang and with GNU ld 2.42 through gcc's linker
+  plugin, at gcc's default partitioning, for gcc-13; the helper-in-another-unit
+  case, which only a link can create, on one generated fixture per vendor in the
+  fixture loops' `xtu` cells.
 - **Not a statement about code in general.** The corpus is the find step's: one
   model family, synthetic scenarios, one-shot generation. Every caveat in
   `../ai-generated/README.md` carries over unchanged.

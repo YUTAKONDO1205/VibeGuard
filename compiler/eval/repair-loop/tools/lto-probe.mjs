@@ -522,8 +522,11 @@ async function main() {
   process.stdout.write(text);
   if (hits.length) die(5, `an absolute path was written into the lab texts (${hits.join('; ')})`);
 
+  // A dry run with no eliminated baseline is vacuous, and gradeDryRun says so:
+  // a control that never ran looks exactly like one that held (../README.md,
+  // *Red controls*), so it fails the run as a control that did not hold does.
   const broken = groups.some(({ s }) => s.outcomes.NOT_LTO > 0 || s.determinism.identical !== s.determinism.pairs
-    || (s.baselineEliminated > 0 && !s.dry.held) || !s.linkPlugin.grade.held);
+    || !s.dry.held || !s.linkPlugin.grade.held);
   process.exit(broken ? 2 : 0);
 }
 

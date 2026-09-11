@@ -327,8 +327,10 @@ that is still the confirm step's question.
   and `alreadyVolatile` agree in all of them. Two controls in the same run:
   `-O0` compiled twice gives 0 differences and the same `evidenceDigest` in
   360/360 files; every level compiled again without `-gline-tables-only`
-  gives records equal on every field but `line` in 1800/1800 (a line on 1255
-  of 1255 (site, level) pairs with the flag, on none without). The v1 plugin
+  gives records equal on every field but `pinned[].line` in 1800/1800 — with
+  `context` (a clock) and `evidenceDigest` (which covers the line) dropped
+  before the comparison — and a line on 1255 of 1255 (site, level) pairs with
+  the flag, on none without. The v1 plugin
   through the same tool — `aa7329c3…f0a66` again, rebuilt from
   `git archive 1ae6438~1` of this directory and of `../llvm-pass/src`, which
   its build compiles in, its records read by that commit's `pin-record.mjs`
