@@ -721,7 +721,7 @@ A second, independent instrument agrees on the lane's hand-written fixture: see
 
 `gcc-13` 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1), x86-64, the plugin built from
 `compiler/gcc-repair/` with g++-13 (`wipe-pin-v2`, component `WipePinGcc`,
-`libWipePinGcc.so` sha256 `954b5b58…c3425f025`, the same bytes from two
+`libWipePinGcc.so` sha256 `a023b047…47ba1b`, the same bytes from two
 independent builds). Full functions-scope run over all five levels; the rows and
 the rendered table are `data/r2-repair-rows-gcc-13.json` and
 `data/r2-repair-results-gcc-13.txt`. `_FORTIFY_SOURCE` as the run measured it:
@@ -795,7 +795,7 @@ compile (`NOT_SCORED`).
   81/83; in `opus_E_debugdump_r1` (2 pinned) and `opus_E_debugdump_r3` (4 pinned)
   the body changes, still without becoming the enabled build's.
 - **Cross-vendor coverage:** gcc-13 432/432 (this run), clang-18 401/401 (read
-  from the tracked clang-18 rows, sha256 `562a2ac3…7cb658c`), total **833/833**.
+  from the tracked clang-18 rows, sha256 `05d1240e…912ce96`), total **833/833**.
   Each results file names the other vendor's tracked rows by sha256; the rows are
   deterministic (a second `--write-data` run of each vendor wrote the same bytes),
   so the two files' references agree.
