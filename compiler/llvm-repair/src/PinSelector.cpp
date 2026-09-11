@@ -106,7 +106,7 @@ Config loadConfig() {
   return C;
 }
 
-bool clearStaleRecord(std::string &Why) {
+bool clearStaleRecord(std::string &Why, bool &Removed) {
   const std::string Path = envOrEmpty("WPIN_OUT");
   if (Path.empty()) return true;
 
@@ -135,6 +135,7 @@ bool clearStaleRecord(std::string &Why) {
     Why = "cannot remove the previous record at WPIN_OUT (" + EC.message() + ")";
     return false;
   }
+  Removed = true;
   return true;
 }
 

@@ -12,6 +12,9 @@ loaded at compile time — 113/113 at `-O2` under full and under thin LTO, 62/62
 `-O1` under both, 10/10 at `-O3` and at `-Os` under both on a sample of 10 files.
 Loaded only on the link line, WipePin is loaded but its pass never runs: no
 record, and the assembly is byte-identical to the stock link, in every link.
+Since the plugin change described under *What changed in (ii)* below, it also
+says so on the link's stderr, once. Before that change it was silent, and its
+load had deleted whatever was at `WPIN_OUT`.
 
 ## What is measured
 
@@ -54,8 +57,13 @@ linkline = verdictOf(w/off + plugin on the link line, wo/off + same, fn)   # (ii
   file is put at `WPIN_OUT`; afterwards the probe records whether a record was
   written, whether the sentinel is gone (WipePin removes whatever is at
   `WPIN_OUT` in its load-time callback, before anything else, so "gone" means the
-  plugin was loaded and its callback ran), whether the linker's stderr was empty,
-  and whether the assembly is byte-identical to the stock link of the same object.
+  plugin was loaded and its callback ran), how often the linker's stderr carries
+  WipePin's link-time line (`LINK_LINE_REMOVED` in `lib/lto.mjs`) and whether it
+  carries anything else, and whether the assembly is byte-identical to the stock
+  link of the same object. Graded (`gradeLinkPlugin`): `HELD` when every such
+  link removed the sentinel, wrote no record, printed exactly that line once and
+  nothing else, and produced the stock link's assembly; otherwise `FAILED`, and
+  the run exits 2.
 - **(iii) dry run.** Every cell whose LTO baseline is `WIPE_ELIMINATED` must still
   read `WIPE_ELIMINATED`, and both dry-run records must say `dryRun: true`,
   `pinnedCount: 0`. Graded `HELD`/`FAILED`; a control with no eliminated baseline
@@ -141,7 +149,7 @@ Build the plugin from this tree, outside it:
 ```sh
 cmake -S compiler/llvm-repair -B ~/vg-build/lane-e-wipepin -G Ninja \
       -DLLVM_DIR=$(llvm-config-18 --cmakedir)
-ninja -C ~/vg-build/lane-e-wipepin      # libWipePin.so, sha256 aa7329c3…f0a66
+ninja -C ~/vg-build/lane-e-wipepin      # libWipePin.so; runs A–D: sha256 aa7329c3…f0a66, run E: db3298cf…73a4c8
 ```
 
 What one cell runs (`<d>` is the object's own directory under the lab):
@@ -189,8 +197,8 @@ node --test compiler/eval/repair-loop/test/lto-probe.test.mjs
 ```
 
 Exit codes: `0` complete and every integrity check held · `2` complete, but a
-cell was `NOT_LTO`, a relink was not byte-identical, or the dry-run red control
-did not hold · `3` nothing selected · `4` bad arguments, `--out` inside the
+cell was `NOT_LTO`, a relink was not byte-identical, the dry-run red control
+did not hold, or configuration (ii) was `FAILED` · `3` nothing selected · `4` bad arguments, `--out` inside the
 repository, or `--write-data` · `5` a tool, the plugin or the shared verdict
 module could not be used, the preflight failed, or a lab text carried an
 absolute path.
@@ -226,7 +234,9 @@ needed. All four runs exited 0.
   plugin was loaded and its load-time callback ran — the linker's stderr was
   empty, and the assembly was byte-identical to the stock link of the same
   object; the (ii) verdict equals the baseline in every cell. WipePin on an LTO
-  link line is loaded, silent, and does nothing.
+  link line was loaded, silent, and did nothing. That silence is what the change
+  in *What changed in (ii)* removes; the probe as it is now grades a silent
+  link `FAILED` (measured with the pre-change `wipe-pin-v2` plugin, below).
 - **(iii) dry run**: `HELD` everywhere. Every dry-run object is byte-identical to
   the plugin-off object (452/452 in A), and so is its post-LTO assembly.
 - **Determinism**: 904/904 relinks byte-identical in A, 904/904 in B, 160/160 in C.
@@ -266,6 +276,47 @@ that is false. This is the load-time stale-record removal
 (`compiler/llvm-repair/README.md`) doing what it was written to do, in a host it
 was not written for.
 
+### What changed in (ii)
+
+The plugin now says it. `compiler/llvm-repair/src/WipePin.cpp` sets a flag when
+its pipeline-start callback is invoked, which happens when a pipeline is built,
+and registers a pass-instrumentation callback. The first pass a process runs
+while that flag is unset makes it print, once per process:
+
+```
+WipePin: loaded into a pipeline built without the pipeline-start extension point (an LTO link, or a compile under -disable-llvm-passes), where this pass does not run; nothing was pinned in this process, and the file at WPIN_OUT was removed when the plugin loaded
+```
+
+(`… and there was no file at WPIN_OUT when the plugin loaded` when its load
+found nothing to remove). The removal itself is kept, and the line says it
+happened; the README gives the reason (*The link-time line*). The record schema
+and the code the plugin emits in a compile are unchanged (measured there).
+
+So the probe changed with it. Before, (ii) counted "linker stderr empty", and
+an empty stderr was the right answer: it is also what hid the deletion. Now (ii)
+expects that line, in its "removed" form (the probe always puts the sentinel at
+`WPIN_OUT` first), exactly once and nothing else on the linker's stderr. An
+empty stderr, the line twice, the line plus a linker diagnostic, or the
+"there was no file" form are all violations. (ii) is graded `HELD`/`FAILED` as
+the dry run is (`gradeLinkPlugin` in `lib/lto.mjs`), and a `FAILED` (ii) makes
+the run exit 2; before, (ii) was reported and never graded. The line's text is
+pinned in `lib/lto.mjs` as `LINK_LINE_REMOVED`, and a unit test rebuilds it from
+the plugin's C++ string literals so that the two cannot drift apart silently.
+
+**Run E** (plugin `db3298cfb30d14200fe0822261eaa1c35aa51aed4aef869a0edd3151f073a4c8`,
+built from `compiler/llvm-repair/` at this change; all 113 files, `-O2`, full and
+thin, `--conc 4`, exit 0, about 1.8 minutes):
+
+| form | level | cells | eliminated without the plugin (LTO) | differs from the tracked non-LTO row | `RETAINED` | dry run (iii) | (ii) links | (ii) stderr exactly the line, once | (ii) sentinel removed / record written | (ii) assembly equal to the stock link | (ii) graded | relinks identical |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| full | `-O2` | 113 | 113 | 0 | **113** | `HELD` 113/113 | 226 | **226/226** | 226 / 0 | 226/226 | `HELD` | 452/452 |
+| thin | `-O2` | 113 | 113 | 0 | **113** | `HELD` 113/113 | 226 | **226/226** | 226 / 0 | 226/226 | `HELD` | 452/452 |
+
+Everything outside (ii) reads as in run A: dry-run objects byte-identical to
+plugin-off 226/226 per form, and in every eliminated cell the compile-stage
+bitcode of `w/off` holds no zero-fill memset while `w/on` holds a volatile one
+(113/113 per form).
+
 ### Shown to fail
 
 Each through a compiler wrapper generated into the lab (not in this tree):
@@ -279,7 +330,15 @@ Each through a compiler wrapper generated into the lab (not in this tree):
   dry-run records are refused (`dryRun-false-expected-true`), red control
   `FAILED`, exit **2**;
 - `--out` inside the repository: exit **4**, nothing created; `--write-data`:
-  exit **4**.
+  exit **4**;
+- the `wipe-pin-v2` plugin from before the link-time line
+  (`e89e07fd54c397058d9a9ee28eb1faa2b879d27b060dc7a251231bccb11cbad6`), 3 files
+  (`--sample 3`), full and thin, `-O2`: (ii) `FAILED` under both forms, 12
+  violations, every one `the linker's stderr carries the link-time line 0
+  time(s), expected exactly once and nothing else`, with the sentinel removed,
+  no record and the assembly equal to the stock link in all 12 links, and
+  everything else as in run E (`RETAINED` 3/3, dry run `HELD`, 12/12 relinks
+  identical, per form); exit **2**.
 
 ## What this does not claim
 
@@ -317,6 +376,6 @@ Each through a compiler wrapper generated into the lab (not in this tree):
 | path | what |
 |---|---|
 | `lto-probe.mjs` | the runner: preflight, the cells, configurations (i)–(iii), determinism, results; lab output only |
-| `lib/lto.mjs` | the pure parts: flags, link lines, object kind, lld's output names, the three-field record reader, the outcome, the dry-run grade, the sentinel reading, the IR memset count, the summary |
+| `lib/lto.mjs` | the pure parts: flags, link lines, object kind, lld's output names, the three-field record reader, the outcome, the dry-run grade, the sentinel reading, the link-time line and the (ii) grade, the IR memset count, the summary |
 | `../test/lto-probe.test.mjs` | unit tests for `lib/lto.mjs`, no compiler |
 | `LTO.md` | this file |

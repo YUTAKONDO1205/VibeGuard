@@ -34,10 +34,21 @@
 // pins would read that compile as repaired. wipe-pin-v2 changes only how that
 // question is answered: an edge of clang's cleanup dispatch that the path being
 // followed cannot take no longer counts (CleanupDispatch, below).
+//
+// Loaded into a pipeline that never runs pipeline start -- an LTO link's, full
+// or thin, at any level -- the pass is never added, so it never runs, never
+// writes a record, and pins nothing; but the load-time callback has already
+// removed whatever was at WPIN_OUT, which in a build that exports WPIN_* to
+// every step is the record its compile step wrote. That used to happen with rc
+// 0 and nothing on stderr. Now the first pass such a pipeline runs makes the
+// plugin say so, once per process (sayIfNoPipelineStart, below). It is a pass
+// instrumentation callback, not a pass: it reads three flags and prints; it
+// never sees or touches the IR, and it writes no record.
 
 #include "PinSelector.h"
 #include "Record.h"
 
+#include "llvm/ADT/Any.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -57,6 +68,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/PassInstrumentation.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Passes/OptimizationLevel.h"
 #include "llvm/Passes/PassBuilder.h"
@@ -65,6 +77,7 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
@@ -457,6 +470,68 @@ int64_t countZeroFillIn(const Function &F) {
   return N;
 }
 
+// --- the pipeline without pipeline start -------------------------------------
+//
+// The plugin cannot tell, when it loads, whether it was loaded into a compile or
+// into an LTO link: both call the same registration callback, and both carry the
+// same WPIN_* environment in a build that exports it. What differs is the
+// pipeline each then builds. A compile builds one with a pipeline-start
+// extension point, at every level, -flto and -flto=thin compiles included; an
+// LTO link's pipeline (lld 18: full LTO and ThinLTO, -O0 to -O3, one backend
+// job or several) never has one. Measured with a lab probe plugin at -O0 and
+// -O2: in every compile the pipeline-start callback had been invoked before the
+// first pass ran, and in every link the first pass (VerifierPass) ran with it
+// never invoked; and with this plugin at -O0, -O1, -O2, -O3 and -Os (README).
+// clang builds its whole pipeline before it runs any of it, and so does the LTO
+// backend.
+//
+// So: PipelineStartBuilt is set when the pipeline-start callback is invoked --
+// at pipeline BUILD time, before any pass runs -- and the first pass this
+// process runs with it still unset is the moment to speak. That is a pass
+// instrumentation callback rather than a pass on a link-time extension point
+// because a ThinLTO link at -O0 invokes no extension point at all (measured:
+// none of the six module-level ones), and a pass there could not run.
+//
+// The same test also speaks in a compile under `-Xclang -disable-llvm-passes`
+// that writes IR (`-emit-llvm`): clang builds no optimisation pipeline there,
+// but still runs the bitcode writer or IR printer as a pass, and WipePin did not
+// run in that process either. That includes the bitcode step of `-save-temps`,
+// which clang runs with -disable-llvm-passes; its next step builds the whole
+// pipeline from the .bc, and WipePin runs and writes the record there
+// (measured). Not covered: a process that runs no pass through the
+// instrumentation at all (`-disable-llvm-passes` with `-c` or `-S`, where code
+// generation is not a new-pass-manager pipeline), and a host whose PassBuilder
+// has no instrumentation callbacks (clang 18 and lld 18 both have them).
+
+/// Set when the pipeline-start callback is invoked, i.e. when a pipeline that
+/// will run WipePinPass is built.
+std::atomic<bool> PipelineStartBuilt{false};
+/// Set when the load-time callback removed a file at WPIN_OUT, in any of this
+/// process's loads (a multi-module ThinLTO link registers once per backend).
+std::atomic<bool> RemovedAtLoad{false};
+/// The line is printed once per process, however many modules or backend
+/// threads reach the callback.
+std::atomic<bool> NoPipelineStartSaid{false};
+
+/// The line, exactly. check-fixture-loop.py and the LTO probe
+/// (compiler/eval/repair-loop/tools/lib/lto.mjs) match it character for character.
+std::string noPipelineStartLine(bool Removed) {
+  return std::string("WipePin: loaded into a pipeline built without the "
+                     "pipeline-start extension point (an LTO link, or a compile "
+                     "under -disable-llvm-passes), where this pass does not "
+                     "run; nothing was pinned in this process, and ") +
+         (Removed ? "the file at WPIN_OUT was removed when the plugin loaded"
+                  : "there was no file at WPIN_OUT when the plugin loaded") +
+         "\n";
+}
+
+void sayIfNoPipelineStart() {
+  if (PipelineStartBuilt.load()) return;
+  if (NoPipelineStartSaid.exchange(true)) return;
+  // One write of the whole line: ThinLTO backends run on several threads.
+  errs() << noPipelineStartLine(RemovedAtLoad.load());
+}
+
 } // namespace
 
 class WipePinPass : public PassInfoMixin<WipePinPass> {
@@ -740,11 +815,20 @@ llvmGetPassPluginInfo() {
             // itself never runs -- so in that compile, and in a refused one,
             // "no record" is the truth about this compile rather than an old
             // record standing in for it.
+            //
+            // It also runs when an LTO link loads the plugin, and there the
+            // file it removes may be the record the compile step wrote. That
+            // is kept, on purpose: whether this is a link is only known once a
+            // pipeline has been built, and a compile that builds none
+            // (-disable-llvm-passes) would then keep a stale record. Instead
+            // the link says what happened (sayIfNoPipelineStart).
             std::string Why;
-            if (!wpin::clearStaleRecord(Why)) {
+            bool Removed = false;
+            if (!wpin::clearStaleRecord(Why, Removed)) {
               errs() << "WipePin: refusing to install: " << Why << "\n";
               return;
             }
+            if (Removed) wpin::RemovedAtLoad.store(true);
             wpin::Config Cfg = wpin::loadConfig();
             if (!Cfg.Valid) {
               // Loud, and not an error: failing the compile would only get the
@@ -759,7 +843,14 @@ llvmGetPassPluginInfo() {
             auto Shared = std::make_shared<const wpin::Config>(std::move(Cfg));
             PB.registerPipelineStartEPCallback(
                 [Shared](ModulePassManager &MPM, OptimizationLevel L) {
+                  wpin::PipelineStartBuilt.store(true);
                   MPM.addPass(wpin::WipePinPass(Shared, L));
                 });
+            // Read-only: the callback gets the pass's name and IR unit and
+            // looks at neither.
+            if (PassInstrumentationCallbacks *PIC =
+                    PB.getPassInstrumentationCallbacks())
+              PIC->registerBeforeNonSkippedPassCallback(
+                  [](StringRef, Any) { wpin::sayIfNoPipelineStart(); });
           }};
 }

@@ -261,12 +261,73 @@ export function gradeDryRun(rows) {
 export const SENTINEL = 'lto-probe sentinel: not a WipePin record\n';
 
 /**
+ * The line WipePin prints, once per process, when it is loaded into a pipeline
+ * built without the pipeline-start extension point -- an LTO link -- and its
+ * load-time callback removed a file at WPIN_OUT (compiler/llvm-repair/README.md,
+ * "Everything WipePin prints on stderr"). In configuration (ii) the probe
+ * always puts SENTINEL at WPIN_OUT first, so this "removed" form is the one
+ * expected; the other form ("there was no file at WPIN_OUT ...") would mean the
+ * sentinel was not there when the plugin loaded.
+ *
+ * Before this line existed, (ii) was graded by "the linker's stderr is empty",
+ * and an empty stderr is exactly what hid the record the load had just deleted.
+ */
+export const LINK_LINE_REMOVED = 'WipePin: loaded into a pipeline built without the pipeline-start extension point '
+  + '(an LTO link, or a compile under -disable-llvm-passes), where this pass does not run; '
+  + 'nothing was pinned in this process, and the file at WPIN_OUT was removed when the plugin loaded';
+
+/**
+ * The linker's stderr in configuration (ii), read against LINK_LINE_REMOVED:
+ * how many lines are exactly that line, and whether the stderr is that line
+ * once and nothing else (no other WipePin line, no linker diagnostic).
+ * `stderr` is the text the link printed (null when there was no link).
+ */
+export function linkLineStderr(stderr) {
+  if (typeof stderr !== 'string') return { count: 0, exactlyOnce: false, other: [] };
+  const lines = stderr.split('\n').map((l) => l.replace(/\r$/, '')).filter((l) => l !== '');
+  const count = lines.filter((l) => l === LINK_LINE_REMOVED).length;
+  const other = lines.filter((l) => l !== LINK_LINE_REMOVED);
+  return { count, exactlyOnce: count === 1 && other.length === 0, other };
+}
+
+/**
+ * Configuration (ii), graded. For every link with WipePin on the link line only
+ * (both units of every cell that is not NOT_LTO): the sentinel at WPIN_OUT was
+ * removed and no record written (`state` 'removed'), the linker's stderr is
+ * exactly LINK_LINE_REMOVED once, and the assembly is byte-identical to the
+ * stock link of the same object. FAILED as vacuous when no such link exists.
+ *
+ * rows: [{id, mode, opt, outcome, linkPlugin: {w, wo}}], each side
+ * {state, asmEqualsStock, stderrLineCount, stderrExactlyLine}.
+ */
+export function gradeLinkPlugin(rows) {
+  const considered = rows.filter((r) => r.outcome !== 'NOT_LTO' && r.linkPlugin);
+  const violations = [];
+  for (const r of considered) {
+    for (const side of ['w', 'wo']) {
+      const x = r.linkPlugin[side];
+      const at = `${r.id} ${r.mode} ${r.opt} ${side}`;
+      if (!x) { violations.push(`${at}: no link with the plugin on the link line`); continue; }
+      if (x.state !== 'removed') violations.push(`${at}: WPIN_OUT after the link is ${x.state}, expected removed`);
+      if (x.stderrExactlyLine !== true) {
+        violations.push(`${at}: the linker's stderr carries the link-time line ${x.stderrLineCount ?? 0} time(s)`
+          + `${x.stderrLineCount === 1 ? ' among other text' : ''}, expected exactly once and nothing else`);
+      }
+      if (x.asmEqualsStock !== true) violations.push(`${at}: the assembly is not byte-identical to the stock link`);
+    }
+  }
+  if (!considered.length) return { held: false, links: 0, violations: ['vacuous: no link with the plugin on the link line'] };
+  return { held: violations.length === 0, links: considered.length * 2, violations };
+}
+
+/**
  * What was at WPIN_OUT after a link with the plugin on the link line
  * (configuration ii). The probe puts SENTINEL there before the link.
  *
  *   'sentinel-kept'   the plugin's load-time callback did not run (it removes
  *                     whatever is at WPIN_OUT before anything else)
- *   'removed'         the callback ran and the pass never wrote a record
+ *   'removed'         the callback ran and the pass never wrote a record (the
+ *                     plugin says so on stderr: LINK_LINE_REMOVED)
  *   'record-written'  a WipePin record: the pass ran at link time
  *   'other-file'      something else is there
  */
@@ -343,9 +404,10 @@ export function summarizeGroup(rows) {
       callbackRan: lpLinks.filter((x) => x && (x.state === 'removed' || x.state === 'record-written')).length,
       sentinelKept: lpLinks.filter((x) => x && x.state === 'sentinel-kept').length,
       asmEqualsStock: lpLinks.filter((x) => x && x.asmEqualsStock === true).length,
-      stderrEmpty: lpLinks.filter((x) => x && x.stderrEmpty === true).length,
+      stderrExactlyLine: lpLinks.filter((x) => x && x.stderrExactlyLine === true).length,
       cells: n((r) => !!r.linkPlugin),
       verdictEqualsBaseline: n((r) => r.linkPlugin && r.linkPlugin.verdict === r.baseline),
+      grade: gradeLinkPlugin(rows),
     },
     determinism: { pairs: detPairs.length, identical: detPairs.filter((x) => x === true).length },
     dryObjectEqualsOff: { of: dryObj.length, equal: dryObj.filter((x) => x === true).length },
