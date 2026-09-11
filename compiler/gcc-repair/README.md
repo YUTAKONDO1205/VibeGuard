@@ -256,8 +256,10 @@ it is kept under its own name with the measured reading.
   `pin-gcc.sh` exits 4, and the wipe is gone from the listing. If the same
   function also had a pinnable memset, only that one would be pinned and the
   `bzero` wipe would go unmentioned unless the pinned site reads
-  `followedByUse: true`. 18 files of the r2 corpus mention `bzero`; how many of
-  their wipes are cells like this was not measured here.
+  `followedByUse: true`. The r2 corpus has no such cell: 18 of its files contain
+  the letters `bzero`, but the only such spellings followed by `(` are
+  `explicit_bzero(` (8 occurrences) and `secure_bzero(` (5, a helper a model
+  wrote and defined); a plain `bzero(` occurs 0 times.
 - A memset that a later pass creates (loop distribution turning a zeroing loop
   into a memset).
 - A wipe inside a helper the target calls. Pin the helper by name. The target
