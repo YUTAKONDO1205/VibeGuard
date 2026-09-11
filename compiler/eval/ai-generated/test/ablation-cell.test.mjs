@@ -45,7 +45,7 @@ const tgtWithoutNoisy = fnAsm(TARGET, ['.cfi_startproc', '.loc 1 12 3', 'call\ta
 
 test('exports the names other lanes code against', () => {
   const fns = ['maskNonCode', 'stmtEnd', 'volatileFnPtrs', 'wipeHelpers', 'funcBodySpan', 'wipeSpans',
-    'controlPresent', 'ablateSpans', 'bodyOf', 'compile', 'pool', 'verdictOf'];
+    'spanPlan', 'controlPresent', 'ablateSpans', 'bodyOf', 'compile', 'pool', 'verdictOf'];
   for (const f of fns) assert.equal(typeof cell[f], 'function', `${f} must be an exported function`);
   assert.ok(Array.isArray(cell.FLAGS));
   assert.deepEqual(cell.FLAGS, ['-S', '-std=gnu11', '-w', '-Wno-error=implicit-function-declaration', '-fcf-protection=none']);
@@ -224,6 +224,30 @@ test('maskNonCode keeps offsets: masked text is the same length as the source', 
   assert.equal(m.length, src.length);
   assert.ok(!m.includes('memset'));
   assert.ok(m.includes('int b;'));
+});
+
+// ---------------------------------------------------------------- spanPlan ---
+
+test('spanPlan: one span is the cell; with more, removable spans are measured alone and nonremovable ones listed', () => {
+  assert.deepEqual(cell.spanPlan(['removable']), [{ index: 0, kind: 'removable', source: 'cell' }]);
+  assert.deepEqual(cell.spanPlan(['removable', 'nonremovable', 'removable']), [
+    { index: 0, kind: 'removable', source: 'span' },
+    { index: 1, kind: 'nonremovable', source: 'not-measured' },
+    { index: 2, kind: 'removable', source: 'span' },
+  ]);
+  assert.deepEqual(cell.spanPlan([]), []);
+  assert.deepEqual(cell.spanPlan(undefined), []);
+  // aligned with wipeSpans: one plan entry per span, in span order
+  const src = lines(
+    'int encrypt_blob(void) {',
+    '  unsigned char key[32];',
+    '  memset(key, 0, sizeof key);',
+    '  fill(key);',
+    '  volatile unsigned char *p = key;',
+    '  for (int i = 0; i < 32; i++) p[i] = 0;',
+    '}');
+  const ws = wipeSpans(src, TARGET);
+  assert.deepEqual(cell.spanPlan(ws.kinds).map((p) => [p.index, p.source]), [[0, 'span'], [1, 'not-measured'], [2, 'not-measured']]);
 });
 
 // -------------------------------------------------------------- ablateSpans ---
