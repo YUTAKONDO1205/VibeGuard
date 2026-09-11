@@ -240,6 +240,33 @@ export function wipeSpans(src, fn) {
 }
 
 /**
+ * Which wipe spans get an ablation of their own, for the per-span view.
+ *
+ * The cell verdict ablates every span at once; that is the find step's criterion
+ * and nothing here changes it. The per-span view ablates one span at a time and
+ * judges it with the same verdictOf. A cell with one span needs no second
+ * compile: ablating its only span IS the cell's ablation, so the span verdict is
+ * the cell verdict (source 'cell'). With two or more spans, each span of kind
+ * `removable` is ablated alone (source 'span'); a `nonremovable` one is listed
+ * but not ablated (source 'not-measured') -- it is a volatile store, a
+ * volatile-pointer declaration or a call the compiler may not delete, and a
+ * volatile-pointer declaration deleted without its loop does not compile. The
+ * indices stay aligned with wipeSpans' spans.
+ *
+ * Lives here, beside wipeSpans, because two lanes plan their per-span compiles
+ * with it: the stock per-span supplement (build-spans.mjs) and the repair loop
+ * (../../repair-loop/lib/spans.mjs re-exports it). One plan, not two copies.
+ *
+ * @param {string[]} kinds  wipeSpans(...).kinds, one per span, in span order
+ * @returns {{index: number, kind: string, source: 'cell'|'span'|'not-measured'}[]}
+ */
+export function spanPlan(kinds) {
+  if (!Array.isArray(kinds) || kinds.length === 0) return [];
+  if (kinds.length === 1) return [{ index: 0, kind: kinds[0], source: 'cell' }];
+  return kinds.map((kind, index) => ({ index, kind, source: kind === 'removable' ? 'span' : 'not-measured' }));
+}
+
+/**
  * Is the positive control's wipe visible?
  *
  * observeEffect is the repository's oracle and is used first. It does not know

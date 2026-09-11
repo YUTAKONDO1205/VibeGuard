@@ -23,22 +23,33 @@
  * spans.
  *
  * Pure: verdicts are handed in. Nothing here compiles or reads a file.
+ *
+ * spanPlan itself -- which spans get a compile of their own -- is the find
+ * step's, imported from ../../ai-generated/lib/ablation-cell.mjs and re-exported
+ * here, because the stock per-span supplement in that lane plans its compiles
+ * with the same function. The dependency runs one way, repair-loop ->
+ * ai-generated, as it does for verdictOf.
+ *
+ * The import is dynamic and its failure is swallowed on purpose. The runner
+ * checks that ablation-cell.mjs exists and exits 5 when it does not (README,
+ * "The four-compile cell"); a static import here would crash the runner at load
+ * time with a module-not-found trace before that check could run. So when the
+ * module is missing, spanPlan is a stub that throws, and the runner's own check
+ * is what the user sees. When it is present, spanPlan IS the find step's
+ * function (the same object; test/spans.test.mjs pins that).
  */
 import { ELIMINATED, SURVIVED, verdictWord } from './outcome.mjs';
 
-export const SPAN_SOURCES = Object.freeze(['cell', 'span', 'not-measured']);
+let findStepSpanPlan = null;
+try {
+  ({ spanPlan: findStepSpanPlan } = await import('../../ai-generated/lib/ablation-cell.mjs'));
+} catch { /* reported by the runner as exit 5; see above */ }
 
-/**
- * Which spans get a compile of their own.
- *
- * @param {string[]} kinds  wipeSpans(...).kinds, one per span, in span order
- * @returns {{index: number, kind: string, source: 'cell'|'span'|'not-measured'}[]}
- */
-export function spanPlan(kinds) {
-  if (!Array.isArray(kinds) || kinds.length === 0) return [];
-  if (kinds.length === 1) return [{ index: 0, kind: kinds[0], source: 'cell' }];
-  return kinds.map((kind, index) => ({ index, kind, source: kind === 'removable' ? 'span' : 'not-measured' }));
-}
+export const spanPlan = typeof findStepSpanPlan === 'function' ? findStepSpanPlan : () => {
+  throw new Error('spanPlan: ../../ai-generated/lib/ablation-cell.mjs could not be imported; there is no private copy');
+};
+
+export const SPAN_SOURCES = Object.freeze(['cell', 'span', 'not-measured']);
 
 /** 'cell' when the only span is the cell's own ablation, 'span' otherwise, null without spans. */
 export function spanSourceOf(plan) {

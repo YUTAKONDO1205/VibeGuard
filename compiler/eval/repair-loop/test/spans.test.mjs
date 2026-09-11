@@ -8,10 +8,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spanPlan, spanSourceOf, spanRows, hiddenFlags, SPAN_SOURCES } from '../lib/spans.mjs';
 import { gradeRedControl } from '../lib/outcome.mjs';
+import * as findStep from '../../ai-generated/lib/ablation-cell.mjs';
 
 const E = 'WIPE_ELIMINATED';
 const S = 'WIPE_SURVIVED';
 const v = (verdict) => ({ verdict, control: 'PRESENT', control_via: 'oracle' });
+
+test('spanPlan is the find step\'s own function, re-exported, not a copy', () => {
+  assert.equal(typeof findStep.spanPlan, 'function');
+  assert.equal(spanPlan, findStep.spanPlan);
+});
 
 test('spanPlan: one span is the cell itself, and is never recompiled', () => {
   assert.deepEqual(spanPlan(['removable']), [{ index: 0, kind: 'removable', source: 'cell' }]);
