@@ -445,9 +445,9 @@ jobs:
   # reason that has nothing to do with the plugins; worse, a GCC plugin loads
   # only into the GCC it was built against.
   #
-  # lld-18 is installed although no step below links with it today: the
-  # fixture loop of compiler/llvm-repair is growing link-time cells, and those
-  # need it. Installing it now keeps that change from also being a CI change.
+  # lld-18 is for the WipePin fixture loop's link-time cells (lto-full-linkline,
+  # lto-thin-linkline): they link LTO bitcode with -fuse-ld=lld and grade the
+  # one stderr line WipePin prints when an LTO link loads it.
   #
   # Every build goes to $RUNNER_TEMP, never into the checkout, so nothing a
   # build writes can show up as an untracked file or be picked up by a later
