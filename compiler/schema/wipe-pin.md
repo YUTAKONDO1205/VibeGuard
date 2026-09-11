@@ -115,12 +115,12 @@ stand when the plugin loads, after the driver has decoded `-O`.
 | `-O2` | `{2,0}` | `{2,0}` | yes, both |
 | `-O3` | `{3,0}` | `{3,0}` | yes, both |
 | `-Os` | `{2,1}` | `{2,1}` | yes, both |
-| `-Oz` | not measured (§13) | `{2,2}` | yes, both, as `{2,2}` |
+| `-Oz` | `{2,2}` | `{2,2}` | yes, both |
 | `-Ofast` | — | `{3,0}` | no |
 | `-Og` | — | `{1,0}` | no |
 
-Every value in the table was measured from the plugin's own record except the
-one marked. The reader compares `optLevel` with the flag the caller passed,
+Every value in the table was measured from the plugin's own record (WipePin's
+`-Oz` later than the rest, §13). The reader compares `optLevel` with the flag the caller passed,
 through the column of the component the caller says it loaded; a flag with no
 row there (`-Ofast`, `-Og`) is refused as "no known optimisation pair" rather
 than matched to a level whose pair it shares.
