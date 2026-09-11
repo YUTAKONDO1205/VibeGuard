@@ -78,3 +78,21 @@ test('readLab reads every listing, with its sha256', () => {
     rmSync(lab, { recursive: true, force: true });
   }
 });
+
+test('readLab reads another subdirectory, and a missing control reads as null', () => {
+  const lab = mkdtempSync(join(tmpdir(), 'wpg-asm-'));
+  try {
+    mkdirSync(join(lab, 'shapes'));
+    writeFileSync(join(lab, 'shapes', 'clobonly.s'),
+      fnAsm('handle', ['call\tconsume@PLT', 'movq\t$0, (%rsp)', 'ret']));
+    writeFileSync(join(lab, 'shapes', 'clobonly-stock.s'), fnAsm('handle', ['call\tconsume@PLT', 'ret']));
+    const cells = readLab(lab, 'handle', null, 'shapes');
+    // Sorted by file name: '-' sorts before '.'.
+    assert.deepEqual(Object.keys(cells), ['clobonly-stock', 'clobonly']);
+    assert.equal(cells.clobonly.subject.verdict, 'PRESENT');
+    assert.equal(cells['clobonly-stock'].subject.verdict, 'ABSENT');
+    assert.equal(cells.clobonly.control, null);
+  } finally {
+    rmSync(lab, { recursive: true, force: true });
+  }
+});

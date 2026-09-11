@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Read a WipePinGcc record strictly, to the `wipe-pin-v2` contract.
+"""Read a WipePinGcc record strictly, as compiler/schema/wipe-pin.md describes
+the `wipe-pin-v2` record.
 
     python3 wpin_gcc_record.py <record.json>
 
@@ -16,8 +17,9 @@ is given.
 Strict for the reason compiler/eval/repair-loop/lib/pin-record.mjs gives: a
 tolerant reader that skipped a field it did not recognise would let a plugin
 that silently changed what it reports keep being believed. The authoritative
-reader for the repair loop is that JS file (lane A's); this one exists so that
-pin-gcc.sh does not need node, and it checks the same contract.
+reader for the repair loop is that JS file; this one exists so that pin-gcc.sh
+does not need node. It checks the same rules and a few more
+(compiler/schema/wipe-pin.md sections 11 and 13).
 
 The digests are re-derived here with a canonical serialiser written from the
 rules in compiler/schema/interfaces.md section 5 -- sharing no code with the
@@ -45,11 +47,12 @@ UNHANDLED_KEYS = {"libcallMemset", "memsetChk", "nonZeroFill", "atomicMemset", "
 CONTEXT_KEYS = {"generatedAt", "timeSource", "sourceDateEpoch"}
 RESOLUTIONS = ("resolved", "declaration-only", "not-in-module")
 DEST_KINDS = ("alloca", "argument", "global", "other")
-# The contract's section 6: LLVM's spelling, restricted to the five words the
-# GCC mapping can produce.
+# compiler/schema/wipe-pin.md section 5: LLVM's spelling, restricted to the
+# five words the GCC mapping can produce.
 GCC_LINKAGES = ("internal", "weak", "linkonce_odr", "available_externally", "external")
 EXACT_LINKAGES = ("external", "internal")
-# Shapes GCC does not have (contract section 8): always 0 on a WipePinGcc record.
+# Shapes GCC does not have (compiler/schema/wipe-pin.md section 10): always 0
+# on a WipePinGcc record.
 ALWAYS_ZERO = ("atomicMemset", "inlineWrapperMemset")
 
 SAFE_MAX = 2 ** 53 - 1

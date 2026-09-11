@@ -51,11 +51,22 @@ LLVM development headers. No LLVM source is vendored here; the headers and
 libraries come from a locally installed toolchain. The root `NOTICE` states the
 per-directory terms.
 
+One component is built against GCC instead: `gcc-repair/` (WipePinGcc)
+compiles against GCC's plugin headers, installed by `gcc-13-plugin-dev`, which
+are distributed under the GNU GPL, version 3 or any later version. That is a
+build-time dependency of `gcc-repair/` only. GCC loads a plugin only if it
+declares `plugin_is_GPL_compatible`, and WipePinGcc does; the FSF's licence
+list names the Apache License 2.0 as compatible with GPL version 3. No GCC
+source is vendored here. The root `NOTICE` quotes the package's copyright file.
+None of this is legal advice.
+
 ## Building
 
 Not built by `npm run build`, by design. It needs a local LLVM development
 install (`llvm-<N>-dev`, `libclang-<N>-dev`, `cmake`, `ninja`) and is built out
-of band. Pin the toolchain rather than assuming the distribution's current
+of band. `gcc-repair/` needs `gcc-13`, `g++-13` and `gcc-13-plugin-dev`
+instead (plus `cmake` and `ninja`): a GCC plugin must be built by the GCC it
+loads into, against that GCC's plugin headers. Pin the toolchain rather than assuming the distribution's current
 version: two builds of "the same version" are not necessarily the same bytes,
 which is why the pin records package versions *and* per-package digests.
 

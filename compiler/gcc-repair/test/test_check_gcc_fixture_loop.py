@@ -53,6 +53,19 @@ class Tables(unittest.TestCase):
                 self.assertEqual(len(partial), 1, name)
                 self.assertIn(f"; {followed} followed by", partial[0], name)
 
+    def test_the_barrier_shapes_are_graded_from_the_listings(self):
+        # A barrier that is not a pin: the plugin must pin, and the store must
+        # be back in the listing where the stock listing lost it.
+        for name in ("clobonly", "otherbar"):
+            exp = chk.SHAPES[name]
+            self.assertEqual(exp["volatile"], [False], name)
+            self.assertEqual(exp["pinned"], 1, name)
+            self.assertEqual(exp["pinShRc"], 0, name)
+            self.assertEqual(exp["store"], ("PRESENT", "ABSENT"), name)
+        # The source's own pin: left alone, and the store is there either way.
+        self.assertEqual(chk.SHAPES["srcbarrier"]["volatile"], [True])
+        self.assertEqual(chk.SHAPES["srcbarrier"]["store"], ("PRESENT", "PRESENT"))
+
     def test_opt_levels_are_the_measured_pairs(self):
         self.assertEqual(chk.OPT_LEVELS, {"-O0": (0, 0), "-O1": (1, 0), "-O2": (2, 0),
                                           "-O3": (3, 0), "-Os": (2, 1)})
@@ -79,6 +92,64 @@ class Lines(unittest.TestCase):
 
     def test_only_plugin_lines_are_compared(self):
         self.assertEqual(chk.plugin_lines(["cc1: note", "WipePinGcc: x", ""]), ["WipePinGcc: x"])
+
+
+# `objdump -d --no-show-raw-insn` of `handle` in the stock -flto -shared links,
+# copied from a measured run (README.md, the lto cells).
+PINNED_LINK = """
+0000000000001160 <handle>:
+    1160:\tendbr64
+    1164:\tpush   %rbx
+    1165:\tsub    $0x30,%rsp
+    1169:\tmov    %fs:0x28,%rax
+    1172:\tmov    %rax,0x28(%rsp)
+    1177:\txor    %eax,%eax
+    1179:\tmov    %rsp,%rbx
+    117c:\tmov    %rbx,%rdi
+    117f:\tcall   1090 <derive@plt>
+    1184:\tmov    $0x20,%esi
+    1189:\tmov    %rbx,%rdi
+    118c:\tcall   1080 <use@plt>
+    1191:\tpxor   %xmm0,%xmm0
+    1195:\tmovaps %xmm0,(%rsp)
+    1199:\tmovaps %xmm0,0x10(%rsp)
+    119e:\tmov    0x28(%rsp),%rax
+    11a3:\tsub    %fs:0x28,%rax
+    11ac:\tjne    11b6 <handle+0x56>
+    11ae:\tadd    $0x30,%rsp
+    11b2:\txor    %eax,%eax
+    11b4:\tpop    %rbx
+    11b5:\tret
+    11b6:\tcall   1070 <__stack_chk_fail@plt>
+
+0000000000001200 <other>:
+    1200:\tmovq   $0x0,(%rsp)
+"""
+UNPINNED_LINK = PINNED_LINK.replace(
+    "    1191:\tpxor   %xmm0,%xmm0\n    1195:\tmovaps %xmm0,(%rsp)\n    1199:\tmovaps %xmm0,0x10(%rsp)\n", "")
+
+
+class ObjdumpZeroStores(unittest.TestCase):
+    def test_the_pinned_link_holds_the_whole_fill(self):
+        z = chk.objdump_zero_stores(PINNED_LINK, "handle")
+        self.assertEqual((z["stores"], z["bytes"], z["calls"]), (2, 32, 0))
+
+    def test_the_unpinned_link_holds_none_and_the_next_function_is_not_read(self):
+        z = chk.objdump_zero_stores(UNPINNED_LINK, "handle")
+        self.assertEqual((z["stores"], z["bytes"], z["calls"]), (0, 0, 0))
+        self.assertEqual(chk.objdump_zero_stores(PINNED_LINK, "other")["bytes"], 8)
+
+    def test_a_register_reloaded_after_the_xor_is_not_zero(self):
+        text = PINNED_LINK.replace("    1195:\tmovaps %xmm0,(%rsp)\n",
+                                   "    1193:\tmovdqa (%rax),%xmm0\n    1195:\tmovaps %xmm0,(%rsp)\n")
+        z = chk.objdump_zero_stores(text, "handle")
+        self.assertEqual(z["stores"], 0)
+
+    def test_only_stores_to_memory_count_and_a_missing_function_is_none(self):
+        # `xor %eax,%eax` zeroes a register, not memory.
+        self.assertEqual(chk.objdump_zero_stores(PINNED_LINK, "handle")["lines"],
+                         ["movaps %xmm0,(%rsp)", "movaps %xmm0,0x10(%rsp)"])
+        self.assertIsNone(chk.objdump_zero_stores(PINNED_LINK, "nosuch"))
 
 
 class RecordProblems(unittest.TestCase):

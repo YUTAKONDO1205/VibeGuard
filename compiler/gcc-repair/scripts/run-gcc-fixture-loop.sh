@@ -16,12 +16,12 @@
 #          <lab>/pinsh/<cell>.*        the -c compile, run through pin-gcc.sh
 #          <lab>/cells/<cell>.kv       what ran, with the plugin's sha256
 #          <lab>/stderr/<cell>.*.txt   the compiler's stderr
-#          <lab>/alone/  <lab>/shapes/  <lab>/stale/
+#          <lab>/alone/  <lab>/shapes/  <lab>/stale/  <lab>/lto/
 # Decides: nothing. check-gcc-fixture-loop.py grades, and it compiles nothing,
 #          so the code that produces a listing is not the code that says what
 #          the listing shows.
 #
-# Four groups of cells:
+# Five groups of cells:
 #
 #   loop    the erasure fixture's target.c at -O0 -O1 -O2 -O3 -Os, five ways:
 #             base       no plugin
@@ -38,10 +38,17 @@
 #           WPIN_DRY_RUN that is neither 0 nor 1), and two source files on one
 #           line, where the last one's record is the one left.
 #   shapes  small sources, -O2 -g (loopreturn at every level), each with a
-#           known reading of the record: see the comments above each one.
+#           known reading of the record: see the comments above each one. The
+#           barrier shapes (srcbarrier, clobonly, otherbar) are also compiled
+#           without the plugin, into <lab>/shapes/<id>-stock.s, so that the
+#           zero store can be read from both listings.
 #   stale   the compiler run directly (not pin-gcc.sh, which deletes the path
 #           itself) with something that is not this compile's record already at
 #           WPIN_OUT.
+#   lto     the trailing shape at -O2: an -flto compile with the plugin, a link
+#           of that object with the plugin on the link line and the same
+#           WPIN_OUT, and stock -flto links of the pinned and of an unpinned
+#           object, disassembled with objdump into <lab>/lto/*.objdump.txt.
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -76,9 +83,9 @@ FX="$LAB/fixtures/erasure"
   echo "run-gcc-fixture-loop.sh: fixture generation failed" >&2; exit 3; }
 
 rm -rf "$LAB/asm" "$LAB/obj" "$LAB/records" "$LAB/pinsh" "$LAB/cells" "$LAB/stderr" \
-       "$LAB/alone" "$LAB/shapes" "$LAB/stale"
+       "$LAB/alone" "$LAB/shapes" "$LAB/stale" "$LAB/lto"
 mkdir -p "$LAB/asm" "$LAB/obj" "$LAB/records" "$LAB/pinsh" "$LAB/cells" "$LAB/stderr" \
-         "$LAB/alone" "$LAB/shapes/src" "$LAB/stale"
+         "$LAB/alone" "$LAB/shapes/src" "$LAB/stale" "$LAB/lto"
 PIN_SHA=$(sha256sum "$PLUGIN" | cut -d' ' -f1)
 CC_VERSION=$("$CC" --version | head -n1)
 LEVELS="-O0 -O1 -O2 -O3 -Os"
@@ -279,9 +286,12 @@ int handle(int fd) {
 SHAPE_EOF
 
 # A wipe the source already pinned, with a barrier of its own directly after
-# it. Recorded as alreadyVolatile and left alone, so nothing is pinned. The
-# barrier names the buffer, and the contract counts any later statement that
-# names it as a use: followedByUse is true, and the partial line says so.
+# it: volatile, a "memory" clobber, and the buffer as an input operand -- the
+# form of the plugin's own pin. Recorded as alreadyVolatile and left alone, so
+# nothing is pinned. The barrier names the buffer, and any later statement that
+# names it is a use (compiler/schema/wipe-pin.md section 8): followedByUse is
+# true, and the partial line says so. The zero store is in the listing with
+# and without the plugin: the source's barrier keeps it.
 cat > "$SRC/srcbarrier.c" <<'SHAPE_EOF'
 #include <string.h>
 void derive(unsigned char *k);
@@ -292,6 +302,43 @@ int handle(void) {
   use(key, 32);
   memset(key, 0, sizeof key);
   __asm__ __volatile__("" : : "r"(key) : "memory");
+  return 0;
+}
+SHAPE_EOF
+
+# A barrier that is not a pin: volatile, a "memory" clobber, and no operand at
+# all. The local's address never leaves the function, so the clobber does not
+# make the zero store observable, and gcc-13 -O2 deletes it (the stock
+# listing). The plugin must pin this site: alreadyVolatile false, one pin, and
+# the zero store back in the listing.
+cat > "$SRC/clobonly.c" <<'SHAPE_EOF'
+#include <string.h>
+#include <stdint.h>
+uint64_t get(void);
+void consume(uint64_t);
+int handle(void) {
+  uint64_t k = get();
+  consume(k);
+  memset(&k, 0, sizeof k);
+  __asm__ __volatile__("" ::: "memory");
+  return 0;
+}
+SHAPE_EOF
+
+# The same, with a barrier that names a different local: its input operand is
+# not the memset's destination, so it is not a pin of this site either.
+cat > "$SRC/otherbar.c" <<'SHAPE_EOF'
+#include <string.h>
+#include <stdint.h>
+uint64_t get(void);
+void consume(uint64_t);
+int handle(void) {
+  uint64_t k = get();
+  uint64_t other = get();
+  consume(k);
+  consume(other);
+  memset(&k, 0, sizeof k);
+  __asm__ __volatile__("" : : "g"(&other) : "memory");
   return 0;
 }
 SHAPE_EOF
@@ -387,6 +434,14 @@ shape() {
      "flags=$*" "pinShRc=$rc" "pluginSha256=$PIN_SHA"
   echo "$id"
 }
+# stock <id> <source> <opt>: the same -g -S compile without the plugin, into
+# <lab>/shapes/<id>-stock.s.
+stock() {
+  local id=$1 src=$2 opt=$3
+  "${CLEAN[@]}" "$CC" "$opt" -g -S "$SRC/$src" -o "$LAB/shapes/$id-stock.s" \
+      2> "$LAB/shapes/$id-stock.stderr.txt" \
+    || { echo "run-gcc-fixture-loop.sh: $id-stock: rc $?" >&2; failed=1; }
+}
 shape initloop   initloop.c    handle      -O2
 shape inithelper inithelper.c  handle      -O2
 shape initwipe   initwipe.c    handle      -O2
@@ -396,6 +451,11 @@ for O in $LEVELS; do
   shape "loopreturn$O" loopreturn.c handle "$O"
 done
 shape srcbarrier srcbarrier.c  handle      -O2
+stock srcbarrier srcbarrier.c  -O2
+shape clobonly   clobonly.c    handle      -O2
+stock clobonly   clobonly.c    -O2
+shape otherbar   otherbar.c    handle      -O2
+stock otherbar   otherbar.c    -O2
 shape c99inline  c99inline.c   wipe_inline -O2
 shape cxxinline  cxxinline.cpp wipe_cxx    -O2
 shape nobuiltin  nobuiltin.c   handle      -O2 -fno-builtin
@@ -432,6 +492,66 @@ stale stale-refused    file -- -O2 -c "$SRC/trailing.c" -o "$LAB/stale/stale-ref
 stale stale-syntaxonly file WPIN_TARGET_FNS=handle -- -O2 -fsyntax-only "$SRC/trailing.c"
 stale stale-live       file WPIN_TARGET_FNS=handle -- -O2 -c "$SRC/trailing.c" -o "$LAB/stale/stale-live.o"
 stale stale-dir        dir  WPIN_TARGET_FNS=handle -- -O2 -c "$SRC/trailing.c" -o "$LAB/stale/stale-dir.o"
+
+# ------------------------------------------------------------ lto
+# The trailing shape at -O2, target handle. Every step is the compiler run
+# directly, each rc written down; the checker grades what they left.
+#
+#   lto-compile    -flto -c with the plugin: the object carries GIMPLE that
+#                  holds the pin, and cc1 writes the record (copied to
+#                  compile-record.json before the next step can remove it).
+#   lto-linkline   that object linked -flto -shared with the plugin on the link
+#                  line and the SAME WPIN_OUT, as a build that exports WPIN_* to
+#                  every step would do. lto1 loads the plugin, which removes the
+#                  compile's record (the stale-record rule runs before any
+#                  refusal) and then refuses.
+#   lto-stock      stock -flto -shared links of the pinned object and of an
+#                  object compiled -flto without the plugin, and objdump -d of
+#                  each: whether the zero fill survived the link-time
+#                  optimisation, read from the linked code.
+LTO="$LAB/lto"
+LREC="$LTO/wpin-out.json"
+"${CLEAN[@]}" WPIN_OUT="$LREC" WPIN_TARGET_FNS=handle \
+    "$CC" -fplugin="$PLUGIN" -O2 -flto -c "$SRC/trailing.c" -o "$LTO/pinned.o" \
+    2> "$LTO/compile.stderr.txt"
+rc_compile=$?
+rec_after_compile=absent
+[ -f "$LREC" ] && rec_after_compile=file && cp "$LREC" "$LTO/compile-record.json"
+"${CLEAN[@]}" "$CC" -O2 -flto -c "$SRC/trailing.c" -o "$LTO/unpinned.o" \
+    2> "$LTO/unpinned.stderr.txt"
+rc_unpinned=$?
+kv "$LTO/lto-compile.kv" "cellId=lto-compile" "rc=$rc_compile" "unpinnedRc=$rc_unpinned" \
+   "wpinOutAfter=$rec_after_compile" "pluginSha256=$PIN_SHA" "ccVersion=$CC_VERSION"
+echo lto-compile
+
+rec_before_link=absent
+[ -f "$LREC" ] && rec_before_link=file
+"${CLEAN[@]}" WPIN_OUT="$LREC" WPIN_TARGET_FNS=handle \
+    "$CC" -fplugin="$PLUGIN" -O2 -flto -shared "$LTO/pinned.o" -o "$LTO/linkline.so" \
+    2> "$LTO/linkline.stderr.txt"
+rc_link=$?
+rec_after_link=absent
+[ -d "$LREC" ] && rec_after_link=dir
+[ -f "$LREC" ] && rec_after_link=file
+kv "$LTO/lto-linkline.kv" "cellId=lto-linkline" "rc=$rc_link" "wpinOutBefore=$rec_before_link" \
+   "wpinOutAfter=$rec_after_link" "pluginSha256=$PIN_SHA" "ccVersion=$CC_VERSION"
+echo lto-linkline
+
+"${CLEAN[@]}" "$CC" -O2 -flto -shared "$LTO/pinned.o" -o "$LTO/stock-pinned.so" \
+    2> "$LTO/stock-pinned.stderr.txt"
+rc_sp=$?
+"${CLEAN[@]}" "$CC" -O2 -flto -shared "$LTO/unpinned.o" -o "$LTO/stock-unpinned.so" \
+    2> "$LTO/stock-unpinned.stderr.txt"
+rc_su=$?
+for so in linkline stock-pinned stock-unpinned; do
+  if [ -f "$LTO/$so.so" ]; then
+    objdump -d --no-show-raw-insn "$LTO/$so.so" > "$LTO/$so.objdump.txt" 2> /dev/null \
+      || rm -f "$LTO/$so.objdump.txt"
+  fi
+done
+kv "$LTO/lto-stock.kv" "cellId=lto-stock" "pinnedRc=$rc_sp" "unpinnedRc=$rc_su" \
+   "objdump=$(objdump --version | head -n1)" "ccVersion=$CC_VERSION"
+echo lto-stock
 
 if [ $failed -ne 0 ]; then
   echo "run-gcc-fixture-loop.sh: at least one cell did not compile" >&2
