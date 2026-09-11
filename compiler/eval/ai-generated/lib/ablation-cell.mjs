@@ -235,8 +235,14 @@ export function wipeSpans(src, fn) {
       loopRe.lastIndex = end;
     }
   }
-  spans.sort((a, b) => a[0] - b[0]);
-  return { spans, kinds, helpers, namedSecret, scoped: !!fspan };
+  // Calls are pushed first and volatile loops after them, so sorting the spans
+  // alone would leave kinds[i] naming another span's kind wherever a loop comes
+  // before a call in the source: the volatile declaration read `removable` and the
+  // memset `nonremovable`, and the per-span plan would ablate the declaration and
+  // never the memset. They are sorted as pairs. No r2 file has that order
+  // (measured: the kinds of all 321 wipe files are the same either way).
+  const order = spans.map((_, i) => i).sort((a, b) => spans[a][0] - spans[b][0]);
+  return { spans: order.map((i) => spans[i]), kinds: order.map((i) => kinds[i]), helpers, namedSecret, scoped: !!fspan };
 }
 
 /**

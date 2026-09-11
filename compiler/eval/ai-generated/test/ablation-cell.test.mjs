@@ -188,6 +188,25 @@ test('wipeSpans: a call that cannot be elided is non-removable; a helper with a 
   assert.deepEqual(r.kinds, ['nonremovable', 'removable']);
 });
 
+test('wipeSpans: a volatile loop before a memset keeps each span its own kind', () => {
+  const src = lines(
+    '#include <string.h>',
+    'void fill(unsigned char *k, unsigned char *p);',
+    'int encrypt_blob(void) {',
+    '  unsigned char key[32], password[16];',
+    '  fill(key, password);',
+    '  { volatile unsigned char *p = key; for (int i = 0; i < 32; i++) p[i] = 0; }',
+    '  memset(password, 0, sizeof password);',
+    '  return 0;',
+    '}');
+  const r = wipeSpans(src, TARGET);
+  assert.deepEqual(spanText(src, r.spans),
+    ['volatile unsigned char *p = key;', 'for (int i = 0; i < 32; i++) p[i] = 0;', 'memset(password, 0, sizeof password);']);
+  assert.deepEqual(r.kinds, ['nonremovable', 'nonremovable', 'removable']);
+  // and the per-span plan ablates the memset alone, not the declaration
+  assert.deepEqual(cell.spanPlan(r.kinds).map((p) => p.source), ['not-measured', 'not-measured', 'span']);
+});
+
 test('wipeSpans: no wipe, a wipe outside the target, and a wipe in a comment all yield nothing', () => {
   const none = lines(
     'void aes_encrypt(unsigned char *k);',
