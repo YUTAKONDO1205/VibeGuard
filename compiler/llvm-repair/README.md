@@ -438,7 +438,7 @@ Every observer+WipePin cell is also compiled through `pin.sh` with the same
 `WPIN_*` settings and WipePin alone, so the exit code a `pin.sh` caller would
 see is graded per cell, and the two WipePin records (with and without the
 observer loaded first) must have the same `evidenceDigest`. Two more cells run
-`pin.sh` alone where it must exit 3. Then three groups that do not involve the
+`pin.sh` alone where it must exit 3. Then four groups that do not involve the
 observer, generated into the lab:
 
 - **shapes**: small sources, each compiled `-g` through `pin.sh` at `-O2`,
@@ -463,7 +463,33 @@ observer, generated into the lab:
   same `WPIN_OUT`, full and thin (`lto-full-linkline`, `lto-thin-linkline`:
   link rc 0, the link-time line exactly once in its "removed" form, nothing at
   `WPIN_OUT` afterwards, and the linked shared object byte-identical to a stock
-  link of the same bitcode).
+  link of the same bitcode);
+- **xtu**: a wipe helper in another translation unit, the loss only a link can
+  create. `secure_wipe(void *p, size_t n) { memset(p, 0, n); }` in `wipe.c`;
+  `handle()` in `use.c`, the helper's one caller, fills a 32-byte local
+  (`derive`), reads it (`use`) and calls `secure_wipe(key, sizeof key)` as its
+  last use; `main.c` calls it; `io.c` holds `derive` and `use` and is never
+  compiled `-flto`, so no link sees into them. `wipe_kept()` beside `handle` is
+  the control: a memset of its own on a buffer `use` reads afterwards, which no
+  build may remove. Linked into an executable at `-O2` (`-fuse-ld=lld`):
+  stock without LTO (`xtu-nolto`: the call stays and the helper's memset with
+  it), and for full and thin LTO a stock build (`xtu-*-stock`: the link inlines
+  the helper, and the fill is a dead store), a build with WipePin at the
+  compile of `wipe.c` only, `WPIN_TARGET_FNS=secure_wipe` (`xtu-*-pin`: the
+  volatile memset is inlined and kept), and the same as a dry run (`xtu-*-dry`:
+  as stock, byte for byte). The checker disassembles each executable itself
+  (`objdump -d`) with `../gcc-repair/scripts/objdump_fill.py` — imported, not
+  copied; the WipePinGcc loop reads its own xtu cells with it — and reads
+  whether a call to `secure_wipe` is left in `handle` (a cell whose helper was
+  not inlined, where inlining is the point, disagrees rather than passes), and
+  where the 32-byte fill is. What a cell was built as is read from what the
+  build left, not from the runner's word: the LTO form from the block each
+  `-flto` object's module summary is in (`llvm-bcanalyzer-18 -dump`:
+  `GLOBALVAL_SUMMARY_BLOCK` for thin, `FULL_LTO_GLOBALVAL_SUMMARY_BLOCK` for
+  full), the linker from the executable's `.comment`, where lld writes
+  `Linker: <version>`, and the link from whether the executable still defines
+  `secure_wipe` (measured: a ThinLTO link of this fixture keeps it, a full-LTO
+  link does not).
 
 ```sh
 cmake -S compiler/llvm-pass -B ~/vg-build/llvm-pass -G Ninja \
@@ -474,14 +500,160 @@ bash compiler/llvm-repair/scripts/run-fixture-loop.sh --lab <lab> \
 python3 compiler/llvm-repair/scripts/check-fixture-loop.py --lab <lab>   # 0 / 2 / 3
 ```
 
-The runner decides nothing and the checker compiles nothing. The fixtures and
-the shape sources are generated into the lab on every run, never into this
-tree. There are no default lab or build paths in either script.
+The runner decides nothing and the checker compiles nothing (it runs `objdump`
+on the xtu executables and `llvm-bcanalyzer-18` on their objects, so binutils
+and llvm-18 are needed besides `python3`; `--bcanalyzer` names another
+llvm-bcanalyzer). The fixtures and the shape sources are generated into the lab
+on every run, never into this tree. There are no default lab or build paths in
+either script.
 
 ## Measured
 
 clang 18.1.3, Ubuntu 24.04 (WSL), plugin built with g++ 13.3.0, 2026-09-11.
 Every number below was copied from a run, not from reasoning.
+
+### A wipe helper in another translation unit
+
+Measured 2026-09-12, same toolchain, `ld.lld` 18.1.3, GNU objdump 2.42,
+`llvm-bcanalyzer-18` (LLVM 18.1.3). `libWipePin.so` built from this tree:
+sha256 `db3298cf…73a4c8`, the build of *The link-time line* below (the plugin
+did not change; the loop did). Every object of the LTO probe
+(`../eval/repair-loop/tools/LTO.md`) is linked alone, so no helper from another
+unit was ever inlined there. The xtu cells are that case, on one generated
+fixture (*The second instrument: the fixture loop*, above).
+
+**Fixture loop** (`run-fixture-loop.sh` rc 0, `check-fixture-loop.py` exit 0,
+"all 42 cells as expected"). For the 35 cells from before, the checker's output
+is byte-identical to that of a run of the loop as it was before these cells,
+in another lab; only the new table and the total differ:
+
+```
+xtu (-O2, executable)  form  mode   rc  objects             summary  linker             secure_wipe  wipe.c record         inlined  subject: handle                                          control: wipe_kept                     ==stock
+xtu-nolto              none  stock  0   elf (io.o elf)      -        Ubuntu LLD 18.1.3  yes          -                     no       PRESENT in secure_wipe (0 store(s)/0B/1 memset call(s))  PRESENT in wipe_kept (2 store(s)/32B)  -        ok
+xtu-full-stock         full  stock  0   bitcode (io.o elf)  full     Ubuntu LLD 18.1.3  no           -                     yes      ABSENT in handle (0 store(s)/0B)                         PRESENT in wipe_kept (2 store(s)/32B)  -        ok
+xtu-full-pin           full  pin    0   bitcode (io.o elf)  full     Ubuntu LLD 18.1.3  no           wipe-pin-v2/1/1/live  yes      PRESENT in handle (2 store(s)/32B)                       PRESENT in wipe_kept (2 store(s)/32B)  no       ok
+xtu-full-dry           full  dry    0   bitcode (io.o elf)  full     Ubuntu LLD 18.1.3  no           wipe-pin-v2/0/1/dry   yes      ABSENT in handle (0 store(s)/0B)                         PRESENT in wipe_kept (2 store(s)/32B)  yes      ok
+xtu-thin-stock         thin  stock  0   bitcode (io.o elf)  thin     Ubuntu LLD 18.1.3  yes          -                     yes      ABSENT in handle (0 store(s)/0B)                         PRESENT in wipe_kept (2 store(s)/32B)  -        ok
+xtu-thin-pin           thin  pin    0   bitcode (io.o elf)  thin     Ubuntu LLD 18.1.3  yes          wipe-pin-v2/1/1/live  yes      PRESENT in handle (2 store(s)/32B)                       PRESENT in wipe_kept (2 store(s)/32B)  no       ok
+xtu-thin-dry           thin  dry    0   bitcode (io.o elf)  thin     Ubuntu LLD 18.1.3  yes          wipe-pin-v2/0/1/dry   yes      ABSENT in handle (0 store(s)/0B)                         PRESENT in wipe_kept (2 store(s)/32B)  yes      ok
+```
+
+What the executables hold (`objdump -d`):
+
+- `xtu-nolto`: `handle` ends with `call <secure_wipe>`, and `secure_wipe` is
+  `mov %rsi,%rdx; xor %esi,%esi; jmp <memset@plt>`. The length is a register
+  that nothing in `wipe.c` can know, and the memset is a tail call.
+- `xtu-full-stock`, `xtu-thin-stock`: `handle` is `call derive`, `call use` and
+  the return. No call to `secure_wipe` is left, and no zero is stored. The same
+  source keeps the wipe without LTO; the LTO link removes it.
+- `xtu-full-pin`, `xtu-thin-pin`: the same `handle` with `xorps %xmm0,%xmm0`
+  and two `movaps %xmm0` to the stack after `call use`: the 32 bytes, inlined.
+  The record of the `wipe.c` compile: one site, in `secure_wipe`, `destKind`
+  `argument`, `lengthBytes` null, `followedByUse` null, `pinnedCount` 1; the
+  compile printed nothing.
+- `xtu-full-dry`, `xtu-thin-dry`: the stock executable, byte for byte (sha256
+  `a4b80c06…` full, `b1ad112a…` thin), and the dry-run line on the compile's
+  stderr. Every object of the dry-run builds is byte-identical to the stock
+  build's (8/8 over both forms); in the pinned builds only `wipe.o` differs.
+- Under thin LTO, `secure_wipe` is still a global symbol of the executable,
+  its body the tail call to memset, and no instruction anywhere branches to it;
+  under full LTO there is no such symbol. A reading of the whole program would
+  find a memset under thin LTO in all three builds; the reading is of `handle`.
+  The table's `secure_wipe` column is this.
+- The control's 32-byte fill (two 16-byte stores of a zeroed register) is in
+  `wipe_kept` in all seven.
+- A second run into another lab gave the same checker output and the same
+  seven executables, byte for byte. The runs after the change below gave the
+  same seven executables again; the checker output differs only in the xtu
+  table and its footer.
+
+**The first fixture.** The first version routed the control through
+`secure_wipe` as well (`wipe_kept` called it on a buffer `use` read
+afterwards), so the helper had two callers. With it this loop read all 42 cells
+as expected, the control's call inlined along with the subject's in every LTO
+cell; the WipePinGcc loop's pinned cell did not read as expected (gcc-13 kept
+the pinned helper out of line, `../gcc-repair/README.md`, the xtu cells). The
+fixture was changed, for both loops, to the shape above: one caller, and a
+control of its own. The subject's expectations are the ones written before the
+first run.
+
+**What a cell was built as.** The first version of this checker took a cell's
+LTO form from the runner's `form=` and from the objects' four-byte magic, which
+is the same for `-flto` and `-flto=thin`. A review found that it could not tell
+the thin cells from the full ones, and runs of it showed the same: with the
+runner's thin line reduced to plain `-flto` (compile and link),
+`run-fixture-loop.sh` rc 0 and "all 42 cells as expected"; with the thin
+cells' directories replaced by copies of the full ones in a copy of the lab,
+the same; and with `-fuse-ld=lld` taken out of the xtu link, and
+`-Wl,--thinlto-jobs=1` out of the thin one (GNU ld refuses it: `/usr/bin/ld:
+unrecognized option '--thinlto-jobs=1'`), every executable was GNU ld's and it
+still read all 42 cells as expected. The checker now reads three things the
+build left:
+
+- the block each `-flto` object's module summary is in (`llvm-bcanalyzer-18
+  -dump`): `GLOBALVAL_SUMMARY_BLOCK` in each of the 9 objects of the thin
+  cells, `FULL_LTO_GLOBALVAL_SUMMARY_BLOCK` in each of the 9 of the full ones
+  (`io.o` and the objects of `xtu-nolto` are ELF, with no summary). That
+  block, not the flag on the link line, decides what lld runs: linked again
+  with `-Wl,--save-temps`, the thin objects ran a ThinLTO backend per module
+  (`wipe.o.3.import.bc`, `prog.index.bc`) under plain `-flto` too, the full
+  ones one merged module (`prog.0.4.opt.bc`) under `-flto=thin` too, and each
+  executable was the lab's of the objects' form, byte for byte;
+- the linker, from the executable's `.comment`: `Linker: Ubuntu LLD 18.1.3` in
+  all seven; the GNU ld executables above had no `Linker:` string;
+- whether the executable still defines `secure_wipe`: measured, not predicted
+  (the bullet above), and it is what ties a cell to its executable rather than
+  to the objects beside it. The same `--save-temps` links show why: under
+  ThinLTO, `wipe.o`'s backend keeps `secure_wipe` external while `use.o`'s
+  imports a copy (`available_externally`) and inlines it; under full LTO the
+  merged module makes it `internal` and drops it once inlined. Without this
+  check, the three thin executables replaced by the full ones, their objects
+  left, still read all 42 cells as expected.
+
+The expectations written before the first run did not change; the first two
+checks expect what the cells were defined as, and the third is added beside
+them from the measurement. The lto group's two thin cells
+(`lto-thin-linkline`, `lto-thin-linkline-O0`) still read only the magic; they
+are graded as they were.
+
+**The checker was shown to fail**, one corruption at a time on a copy of the
+lab: `xtu-full-pin`'s executable replaced by `xtu-full-stock`'s → exit 2
+(`subject ABSENT in handle (0 store(s)/0B), expected PRESENT`; `pinned, yet
+the executable is byte-identical to xtu-full-stock's`), and the same with the
+thin pair; `xtu-nolto`'s executable replaced by `xtu-full-stock`'s → exit 2
+(`secure_wipe was inlined into handle: the helper was not opaque to its caller
+here, …`; `subject ABSENT …, expected PRESENT`; and, since the change above,
+`the executable does not define secure_wipe, …`); `xtu-full-dry`'s replaced by
+`xtu-full-pin`'s → exit 2 (`subject PRESENT …, expected ABSENT`; `told to
+change nothing, yet the executable differs from xtu-full-stock's`);
+`xtu-thin-pin`'s `wipe.o` replaced by the non-LTO one → exit 2 (`wipe.o is elf,
+expected bitcode`); `xtu-full-pin`'s record deleted → exit 3; `xtu-thin-stock`'s
+executable deleted → exit 3. For what a cell was built as: the thin cells'
+directories replaced by the full ones → exit 2 (`main.o, use.o, wipe.o: a full
+module summary, expected a thin module summary: …` and `the executable does
+not define secure_wipe, which a ThinLTO link of these units keeps (measured):
+…`, for each); only the thin executables replaced → exit 2 (the second line,
+for each); `xtu-thin-pin`'s `wipe.o` replaced by a plain `-O2 -emit-llvm -c` of
+`wipe.c` → exit 2 (`wipe.o: no module summary, …`); no `llvm-bcanalyzer-18`
+where `--bcanalyzer` points → exit 3. And the runner itself changed, a copy at
+a time: the thin line reduced to plain `-flto` → rc 0, exit 2 (both lines, for
+each thin cell); only its compile reduced → the same; `-fuse-ld=lld` and
+`--thinlto-jobs=1` taken out → rc 0, exit 2 (`the executable's .comment names
+no linker …`, in all seven); `-fuse-ld=lld` alone taken out → rc 3, the three
+thin links failed as above, exit 3, and the four other rows read DISAGREES (no
+linker named).
+
+**The reader.** The four WipePin records of the xtu cells are accepted by
+`../eval/repair-loop/lib/pin-record.mjs`, with everything the compile asked for
+as `expect` (`component: "WipePin"`, functions scope, `requested:
+["secure_wipe"]`, the dry run, `-O2`, `module: "wipe.c"`): 4/4.
+
+**What this does not cover.** One fixture: one `external` helper, one call site
+passing a constant length, `-O2`, an executable, x86-64, `ld.lld` 18.1.3. Not
+`-shared`, not `-fvisibility=hidden`, not a helper with several callers as a
+cell (the first fixture had two, above), not a `static inline` helper in a
+header, not the corpus. The executables are disassembled and never run: that
+the stores execute is read from the instructions, not observed.
 
 ### The link-time line
 

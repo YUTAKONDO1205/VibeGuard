@@ -435,7 +435,9 @@ jobs:
   # grades every cell against a fixed expectation table. Most expectations
   # were written from what the cell is for before it first ran; the ones taken
   # from a measurement say so beside them (check-gcc-fixture-loop.py's
-  # `chkconst`, and the level at which gcc-13 removes the stock wipe). Until
+  # `chkconst`, and the level at which gcc-13 removes the stock wipe), and so
+  # does the one that changed after a first run (the xtu cells' control, which
+  # changed with the fixture; both checkers' xtu comments say why). Until
   # this job, those loops had only ever run on the machine that wrote them.
   #
   # It also builds the property observer (compiler/pass-instrumentation/observer)
@@ -452,9 +454,9 @@ jobs:
   # skipped-pass callback fires, at least one skipped-pass record (NI-06); that
   # clang-18, opt and libLLVM.so.1 have the same sha256 after the run as before
   # it (NI-07); and that ldd lists the plugin's libraries and none of them is a
-  # libLLVM of its own (NI-08; an ldd that lists nothing fails it). The step takes its
-  # verdict from the harness's JSON report as well as its exit code, and the
-  # report has to name the .so this job built.
+  # libLLVM of its own (NI-08; an ldd that lists nothing fails it). The step
+  # takes its verdict from the harness's JSON report as well as its exit code,
+  # and the report has to name the .so this job built.
   #
   # The other four C++ components under compiler/ are built here too, and
   # only built: the AST gate (compiler/clang-plugin, IntentGate, which is why
@@ -477,7 +479,17 @@ jobs:
   # lld-18 is for the WipePin fixture loop's link-time cells (lto-full-linkline,
   # lto-thin-linkline, lto-thin-linkline-O0, lto-full-linkline-nofile): they
   # link LTO bitcode with -fuse-ld=lld and grade the one stderr line WipePin
-  # prints when an LTO link loads it.
+  # prints when an LTO link loads it. The same loop's xtu cells (xtu-nolto,
+  # xtu-full-*, xtu-thin-*) link executables from four units with it: a wipe
+  # helper in another unit, which only the LTO link can inline.
+  #
+  # objdump comes from binutils, which gcc-13 depends on. Both loops' checkers
+  # run it on their xtu executables (compiler/gcc-repair/scripts/objdump_fill.py
+  # reads its output), and the WipePinGcc runner uses it for its lto group.
+  # llvm-bcanalyzer-18 comes from llvm-18, which llvm-18-dev depends on. The
+  # WipePin loop's checker runs it on the xtu cells' -flto objects: the block
+  # each module summary is in says whether a cell was built thin or full, which
+  # the bitcode magic alone does not.
   #
   # Every build goes to $RUNNER_TEMP, never into the checkout, so nothing a
   # build writes can show up as an untracked file or be picked up by a later

@@ -16,12 +16,12 @@
 #          <lab>/pinsh/<cell>.*        the -c compile, run through pin-gcc.sh
 #          <lab>/cells/<cell>.kv       what ran, with the plugin's sha256
 #          <lab>/stderr/<cell>.*.txt   the compiler's stderr
-#          <lab>/alone/  <lab>/shapes/  <lab>/stale/  <lab>/lto/
+#          <lab>/alone/  <lab>/shapes/  <lab>/stale/  <lab>/lto/  <lab>/xtu/
 # Decides: nothing. check-gcc-fixture-loop.py grades, and it compiles nothing,
 #          so the code that produces a listing is not the code that says what
 #          the listing shows.
 #
-# Five groups of cells:
+# Six groups of cells:
 #
 #   loop    the erasure fixture's target.c at -O0 -O1 -O2 -O3 -Os, five ways:
 #             base       no plugin
@@ -49,6 +49,14 @@
 #           of that object with the plugin on the link line and the same
 #           WPIN_OUT, and stock -flto links of the pinned and of an unpinned
 #           object, disassembled with objdump into <lab>/lto/*.objdump.txt.
+#   xtu     a wipe helper in another translation unit: secure_wipe(p, n) in
+#           wipe.c, called on a local buffer's last use by handle() in use.c,
+#           with main.c and io.c (the producer and consumer, never compiled
+#           -flto), linked into an executable at -O2 -- stock without LTO, and
+#           with -flto a stock build, a build with the plugin at the compile of
+#           wipe.c only, and the same as a dry run. The loss here is one only
+#           the LTO link can create, by inlining the helper; the checker reads
+#           the executable itself. The same four sources as the WipePin loop's.
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -83,9 +91,9 @@ FX="$LAB/fixtures/erasure"
   echo "run-gcc-fixture-loop.sh: fixture generation failed" >&2; exit 3; }
 
 rm -rf "$LAB/asm" "$LAB/obj" "$LAB/records" "$LAB/pinsh" "$LAB/cells" "$LAB/stderr" \
-       "$LAB/alone" "$LAB/shapes" "$LAB/stale" "$LAB/lto"
+       "$LAB/alone" "$LAB/shapes" "$LAB/stale" "$LAB/lto" "$LAB/xtu"
 mkdir -p "$LAB/asm" "$LAB/obj" "$LAB/records" "$LAB/pinsh" "$LAB/cells" "$LAB/stderr" \
-         "$LAB/alone" "$LAB/shapes/src" "$LAB/stale" "$LAB/lto"
+         "$LAB/alone" "$LAB/shapes/src" "$LAB/stale" "$LAB/lto" "$LAB/xtu/src"
 PIN_SHA=$(sha256sum "$PLUGIN" | cut -d' ' -f1)
 CC_VERSION=$("$CC" --version | head -n1)
 LEVELS="-O0 -O1 -O2 -O3 -Os"
@@ -552,6 +560,137 @@ done
 kv "$LTO/lto-stock.kv" "cellId=lto-stock" "pinnedRc=$rc_sp" "unpinnedRc=$rc_su" \
    "objdump=$(objdump --version | head -n1)" "ccVersion=$CC_VERSION"
 echo lto-stock
+
+# ------------------------------------------------------------ xtu
+# A wipe helper in another translation unit. Without LTO, use.c sees only
+# secure_wipe's declaration, so the call stays, and the helper's memset -- on a
+# length the helper does not know -- stays with it. An LTO link sees the
+# helper's body and can inline it into handle, where the fill is a store to a
+# local that dies right after it. The four units are written here on every run,
+# never into the repository, byte for byte as the WipePin loop writes them.
+XSRC="$LAB/xtu/src"
+
+# The helper, external. The memset is on line 3, which the record carries.
+cat > "$XSRC/wipe.c" <<'XTU_EOF'
+#include <string.h>
+void secure_wipe(void *p, size_t n) {
+  memset(p, 0, n);
+}
+XTU_EOF
+
+# The subject, handle(): the helper's one caller, and the helper is the buffer's
+# last use. The control, wipe_kept(): a memset of its own on a buffer that use()
+# reads afterwards, so its fill is observable in every build and cannot be
+# removed, read from the same executable by the same reader. (A first version
+# routed the control through secure_wipe as well; with two callers, gcc-13 kept
+# the pinned helper out of line, and xtu-lto-pin could not show an inlining --
+# check-gcc-fixture-loop.py, the xtu expectations.) Both noinline, so that the
+# function a fill ends up in is the same function in every link, whatever LTO
+# does with main.
+cat > "$XSRC/use.c" <<'XTU_EOF'
+#include <string.h>
+void secure_wipe(void *p, size_t n);
+void derive(unsigned char *k);
+void use(const unsigned char *k, unsigned long n);
+__attribute__((noinline)) void handle(void) {
+  unsigned char key[32];
+  derive(key);
+  use(key, sizeof key);
+  secure_wipe(key, sizeof key);
+}
+__attribute__((noinline)) void wipe_kept(void) {
+  unsigned char buf[32];
+  derive(buf);
+  memset(buf, 0, sizeof buf);
+  use(buf, sizeof buf);
+}
+XTU_EOF
+
+cat > "$XSRC/main.c" <<'XTU_EOF'
+void handle(void);
+void wipe_kept(void);
+int main(void) {
+  handle();
+  wipe_kept();
+  return 0;
+}
+XTU_EOF
+
+# The producer and the consumer, compiled without -flto in every cell: no link
+# can see into them, so the buffers must exist in memory, and the read of the
+# control's fill cannot be folded away.
+cat > "$XSRC/io.c" <<'XTU_EOF'
+volatile unsigned char sink;
+void derive(unsigned char *k) {
+  for (unsigned i = 0; i < 32; i++) k[i] = (unsigned char)(i * 7u + 1u);
+}
+void use(const unsigned char *k, unsigned long n) {
+  for (unsigned long i = 0; i < n; i++) sink ^= k[i];
+}
+XTU_EOF
+
+# xtu <id> <none|lto> <stock|pin|dry>
+#   main.c, use.c  stock, -O2, plus -flto for the lto form
+#   wipe.c         the same; for pin and dry with the plugin loaded,
+#                  WPIN_TARGET_FNS=secure_wipe, WPIN_OUT=<cell>/wipe.record.json,
+#                  and WPIN_DRY_RUN=1 for dry
+#   io.c           stock, -O2, never -flto
+#   link           stock: -O2, and -flto for the lto form, the executable
+#                  <cell>/prog
+# Written down, not judged: each step's rc, and whether the record is there.
+xtu() {
+  local id=$1 form=$2 mode=$3
+  local d="$LAB/xtu/$id"
+  rm -rf "$d"
+  mkdir -p "$d"
+  local lto=()
+  case "$form" in
+    none) ;;
+    lto) lto=(-flto) ;;
+    *) echo "run-gcc-fixture-loop.sh: xtu: unknown form $form" >&2; exit 3 ;;
+  esac
+  local rec="$d/wipe.record.json"
+  local pinenv=() pinflags=()
+  case "$mode" in
+    stock) ;;
+    pin) pinenv=(WPIN_OUT="$rec" WPIN_TARGET_FNS=secure_wipe); pinflags=(-fplugin="$PLUGIN") ;;
+    dry) pinenv=(WPIN_OUT="$rec" WPIN_TARGET_FNS=secure_wipe WPIN_DRY_RUN=1); pinflags=(-fplugin="$PLUGIN") ;;
+    *) echo "run-gcc-fixture-loop.sh: xtu: unknown mode $mode" >&2; exit 3 ;;
+  esac
+  local u rcs=()
+  for u in main use; do
+    "${CLEAN[@]}" "$CC" -O2 "${lto[@]+"${lto[@]}"}" -c "$XSRC/$u.c" -o "$d/$u.o" 2> "$d/$u.stderr.txt"
+    rcs+=("${u}Rc=$?")
+  done
+  "${CLEAN[@]}" "${pinenv[@]+"${pinenv[@]}"}" \
+      "$CC" "${pinflags[@]+"${pinflags[@]}"}" -O2 "${lto[@]+"${lto[@]}"}" \
+      -c "$XSRC/wipe.c" -o "$d/wipe.o" 2> "$d/wipe.stderr.txt"
+  rcs+=("wipeRc=$?")
+  "${CLEAN[@]}" "$CC" -O2 -c "$XSRC/io.c" -o "$d/io.o" 2> "$d/io.stderr.txt"
+  rcs+=("ioRc=$?")
+  "${CLEAN[@]}" "$CC" -O2 "${lto[@]+"${lto[@]}"}" \
+      "$d/main.o" "$d/use.o" "$d/wipe.o" "$d/io.o" -o "$d/prog" 2> "$d/link.stderr.txt"
+  rcs+=("linkRc=$?")
+  local recstate=not-loaded sha=not-loaded
+  if [ "$mode" != stock ]; then
+    recstate=absent
+    [ -f "$rec" ] && recstate=file
+    sha=$PIN_SHA
+  fi
+  kv "$LAB/xtu/$id.kv" "cellId=$id" "form=$form" "mode=$mode" "${rcs[@]}" "record=$recstate" \
+     "pluginSha256=$sha" "ccVersion=$CC_VERSION"
+  local r
+  for r in "${rcs[@]}"; do
+    [ "${r#*=}" = 0 ] || { echo "run-gcc-fixture-loop.sh: $id: $r" >&2; failed=1; }
+  done
+  [ -f "$d/prog" ] || { echo "run-gcc-fixture-loop.sh: $id: no executable" >&2; failed=1; }
+  [ "$recstate" != absent ] || { echo "run-gcc-fixture-loop.sh: $id: the plugin wrote no record" >&2; failed=1; }
+  echo "$id"
+}
+xtu xtu-nolto     none stock
+xtu xtu-lto-stock lto  stock
+xtu xtu-lto-pin   lto  pin
+xtu xtu-lto-dry   lto  dry
 
 if [ $failed -ne 0 ]; then
   echo "run-gcc-fixture-loop.sh: at least one cell did not compile" >&2

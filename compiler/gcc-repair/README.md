@@ -400,24 +400,46 @@ for byte.
 
 The `lto` group's output is a linked shared object, not a listing. Its zero
 fill is read from `objdump -d --no-show-raw-insn` of `handle` by
-`objdump_zero_stores` in the checker: the oracle's two inline idioms in
-objdump's spelling (a vector register zeroed against itself and then stored to
-memory, 16 bytes per `%xmm` store; an immediate `$0x0` stored to memory, by
-suffix), plus calls to `memset` / `__memset_chk`, with a vector register that
-anything else writes no longer counting as zeroed.
+`objdump_zero_stores` in `scripts/objdump_fill.py`: the oracle's two inline
+idioms in objdump's spelling (a vector register zeroed against itself and then
+stored to memory, 16 bytes per `%xmm` store; an immediate `$0x0` stored to
+memory, by suffix), plus calls to `memset` / `__memset_chk`, with a vector
+register that anything else writes no longer counting as zeroed.
+
+The `xtu` group is a wipe helper in another translation unit, the loss only a
+link can create. `secure_wipe(void *p, size_t n) { memset(p, 0, n); }` in
+`wipe.c`; `handle()` in `use.c`, the helper's one caller, fills a 32-byte local
+(`derive`), reads it (`use`) and calls `secure_wipe(key, sizeof key)` as its
+last use; `main.c` calls it; `io.c` holds `derive` and `use` and is never
+compiled `-flto`, so no link sees into them; `wipe_kept()` is the control, a
+memset of its own on a buffer `use` reads afterwards, which no build may
+remove. The same four sources as the WipePin loop's xtu cells, linked into an
+executable at `-O2`: stock without LTO (`xtu-nolto`), and with `-flto` a stock
+build (`xtu-lto-stock`), a build with the plugin at the compile of `wipe.c`
+only, `WPIN_TARGET_FNS=secure_wipe` (`xtu-lto-pin`), and the same as a dry run
+(`xtu-lto-dry`). The checker disassembles each executable itself, with the same
+`objdump_fill.py` (which the WipePin loop's checker imports too), and reads
+whether a call to `secure_wipe`, or to a renamed copy of it such as an IPA-CP
+clone, is left in `handle` — a cell whose helper was not inlined, where
+inlining is the point, disagrees rather than passes — and where the 32-byte
+fill is: in `handle` when the helper was inlined, in the function `handle`
+calls when it was not (a call or tail call to `memset` there counts).
 
 Tests: `node --test compiler/gcc-repair/test/asm-presence.test.mjs
 compiler/gcc-repair/test/corpus-smoke.test.mjs`, and, as files (the directory
 name is not a Python package name), `python3
 compiler/gcc-repair/test/test_wpin_gcc_record.py` and `python3
-compiler/gcc-repair/test/test_check_gcc_fixture_loop.py`.
+compiler/gcc-repair/test/test_check_gcc_fixture_loop.py` (which also tests
+`objdump_fill.py`, holds both loops' xtu tables to the same design, and tests
+how the WipePin loop's checker reads what its xtu cells were built as: the LTO
+form, the linker and the link).
 
 ## Measured
 
 gcc-13 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1), Ubuntu 24.04 under WSL, plugin
-built with g++-13 13.3.0, 2026-09-11, and again 2026-09-12 for the barrier rule
-and the `lto` cells. Every number below was copied from a run, not from
-reasoning.
+built with g++-13 13.3.0, 2026-09-11, and again 2026-09-12 for the barrier rule,
+the `lto` cells and the `xtu` cells. Every number below was copied from a run,
+not from reasoning.
 
 **Build.** `-Wall -Wextra`: 0 warnings. `libWipePinGcc.so` sha256
 `a023b047abcafdbb824f627d227861e0ae0556072c9e4ba87e102b2c9747ba1b`, the same
@@ -588,6 +610,100 @@ otherbar: manifest status = '4', expected '0'
 otherbar: zero store in the listing with the plugin = 'ABSENT', expected 'PRESENT'
 ```
 
+**The xtu cells** (2026-09-12, the same plugin, `a023b047…`; GNU ld and
+objdump 2.42). `run-gcc-fixture-loop.sh` rc 0, `check-gcc-fixture-loop.py`
+exit 0, "all 59 cells as expected". For the 55 cells above, the checker's
+output is byte-identical to that of a run of the loop as it was before these
+cells, in another lab; only the new table and the total differ:
+
+```
+xtu (-O2, executable)  form  mode   rc  objects             wipe.c record         inlined  subject: handle                                          control: wipe_kept                     ==stock
+xtu-nolto              none  stock  0   elf (io.o elf)      -                     no       PRESENT in secure_wipe (0 store(s)/0B/1 memset call(s))  PRESENT in wipe_kept (2 store(s)/32B)  -        ok
+xtu-lto-stock          lto   stock  0   gcc-lto (io.o elf)  -                     yes      ABSENT in handle (0 store(s)/0B)                         PRESENT in wipe_kept (2 store(s)/32B)  -        ok
+xtu-lto-pin            lto   pin    0   gcc-lto (io.o elf)  wipe-pin-v2/1/1/live  yes      PRESENT in handle (2 store(s)/32B)                       PRESENT in wipe_kept (2 store(s)/32B)  no       ok
+xtu-lto-dry            lto   dry    0   gcc-lto (io.o elf)  wipe-pin-v2/0/1/dry   yes      ABSENT in handle (0 store(s)/0B)                         PRESENT in wipe_kept (2 store(s)/32B)  yes      ok
+```
+
+- `xtu-nolto`: `handle` calls `secure_wipe`, which is `endbr64; mov %rsi,%rdx;
+  xor %esi,%esi; jmp <memset@plt>`: a length nothing in `wipe.c` can know, and
+  a tail call.
+- `xtu-lto-stock`: `handle` is `call derive`, `call use` and the stack-protector
+  epilogue; the link inlined the helper and deleted the fill. `xtu-lto-dry` is
+  that executable byte for byte (sha256 `0613216b…`), and its compile printed
+  the dry-run line.
+- `xtu-lto-pin`: the same `handle` with three more instructions after `call
+  use`, `pxor %xmm0,%xmm0` and two `movaps %xmm0` to the stack. The barrier
+  travelled in `wipe.o`'s GIMPLE and came with the inlined body; it emits no
+  instruction. The record: one site, in `secure_wipe`, `destKind` `argument`,
+  `lengthBytes` null, `followedByUse` null, `line` 3, `pinnedCount` 1; the
+  compile printed nothing.
+- The pinned and dry-run `wipe.o` record `-fplugin=<the plugin's path>` in their
+  `.gnu.lto_.opts` section (the stock one does not); the stock link loaded
+  nothing from it, and printed no WipePinGcc line (the checker requires none).
+  GCC's `-flto` objects are not byte-comparable between compiles: `main.o`,
+  compiled the same way in all three LTO cells, has three different sha256. The
+  byte comparison is therefore of the executables.
+- The control's 32-byte fill (two 16-byte stores of a zeroed register) is in
+  `wipe_kept` in all four.
+- A second run into another lab gave the same checker output and the same
+  four executables, byte for byte.
+
+**The first xtu fixture, and why it was replaced.** The expectations were
+written before the first run, for a fixture whose control called `secure_wipe`
+too (`wipe_kept` called it on a buffer `use` read afterwards), so the helper
+had two callers. That run: `xtu-nolto`, `xtu-lto-stock` and `xtu-lto-dry` as
+expected (in the two LTO builds the control's call inlined along with the
+subject's), and:
+
+```
+xtu-lto-pin: secure_wipe was not inlined into handle (['call   1170 <secure_wipe.constprop.0>'] left): this cell cannot show a loss that inlining creates, nor a pin that survives one
+xtu-lto-pin: control: secure_wipe not inlined into wipe_kept, where the subject's call is expected inlined
+```
+
+What happened, from the link's own reports on copies of those objects
+(`-fopt-info-inline-all`, `-fdump-ipa-inline-details`): IPA-CP made a clone,
+`secure_wipe.constprop.0`, with the length 32 propagated. In the stock build the
+WPA inliner put the clone into both callers because that was estimated to grow
+nothing (`overall growth 0`; `Inlining secure_wipe.constprop/29 size 12.` twice;
+`Inlined 2 calls, eliminated 1 functions`), and in `handle` the inlined fill was
+then deleted. With the barrier the clone's estimated size is one more (`self
+size` 12 → 13, `estimated growth:1`), inlining it everywhere was no longer
+free, and the small-function heuristic refused both calls (`call is unlikely and
+code size would grow`; `Inlined 0 calls, eliminated 0 functions`). `handle` and
+`wipe_kept` called the clone, which held the 32-byte fill (`pxor` and two
+`movups` through `%rdi`). The wipe survived, out of line, and the cell, which is
+about a pin surviving an inlining, could not show one: the plugin had changed
+an inlining decision, not only a store. The fixture was changed, for both
+loops, to the shape these cells are for: `secure_wipe`'s one caller is
+`handle`, and the control is a memset of its own in `wipe_kept`. With one
+caller the pinned helper is inlined (the table above). The subject's
+expectations are the ones written before the first run; only the control's
+changed, with its design.
+
+**The checker was shown to fail** on the xtu cells, one corruption at a time on
+a copy of the lab: `xtu-lto-pin`'s executable replaced by `xtu-lto-stock`'s →
+exit 2 (`subject ABSENT in handle (0 store(s)/0B), expected PRESENT`; `pinned,
+yet the executable is byte-identical to xtu-lto-stock's`); `xtu-nolto`'s
+replaced by `xtu-lto-stock`'s → exit 2 (`secure_wipe was inlined into handle:
+the helper was not opaque to its caller here, …`); `xtu-lto-dry`'s replaced by
+`xtu-lto-pin`'s → exit 2 (`subject PRESENT …, expected ABSENT`; `told to change
+nothing, yet the executable differs from xtu-lto-stock's`); `xtu-lto-pin`'s
+`wipe.o` replaced by the non-LTO one → exit 2 (`wipe.o is elf, expected
+gcc-lto`); the dry run's compile stderr emptied → exit 2 (`stderr lacks
+'WipePinGcc: dry run: …'`); `xtu-lto-dry`'s record deleted → exit 3. Both
+records are accepted by `../eval/repair-loop/lib/pin-record.mjs` with
+everything the compile asked for as `expect` (`component: "WipePinGcc"`,
+functions scope, `requested: ["secure_wipe"]`, the dry run, `-O2`, `module:
+"wipe.c"`), 2/2; the same `xtu-lto-pin` record is refused when read as
+WipePin's or as a dry run.
+
+What the xtu cells do not cover: one fixture (one `external` helper, one call
+site passing a constant length, `-O2`, an executable, x86-64), gcc-13's own LTO
+through GNU ld's linker plugin, and nothing else — not `-shared`, not a helper
+with several callers as a cell (the first fixture had two, above), not a
+`static inline` helper in a header, not the corpus. The executables are
+disassembled and never run.
+
 **The barrier rule changes nothing in the r2 corpus.** Every file of
 `../eval/ai-generated/generated-corpus/r2/` (720), with the find step's `FLAGS`
 (`ablation-cell.mjs`: `-S -std=gnu11 -w -Wno-error=implicit-function-declaration
@@ -670,7 +786,10 @@ hand, with the previous plugin; the whole corpus is run by
   different `WPIN_OUT`. By hand, with the previous plugin: linking the erasure
   fixture's pinned `target.c` with its other two units under `-flto -O2`,
   without the plugin, gave an executable whose `main` (everything is inlined
-  into it) holds two zero fills where the stock link holds one.
+  into it) holds two zero fills where the stock link holds one. A wipe helper
+  in another unit, which only the link can inline, is graded by the `xtu`
+  cells (above): the stock `-flto` link loses its fill, and the plugin at the
+  compile of the helper's unit alone keeps it.
 - C++: `WPIN_TARGET_FNS=_Z5wipe2i` resolves a non-`extern "C"` function and
   pins it (exit 0); `WPIN_TARGET_FNS=wipe2` reads `not-in-module` (exit 4).
 
