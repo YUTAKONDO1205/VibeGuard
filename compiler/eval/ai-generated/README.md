@@ -194,26 +194,41 @@ data. Any disagreement, or a `clang-18` run in which no span could be compared,
 exits 2 and lists the ids. The check was shown to fail on a lab copy of the
 repair rows with every span index shifted by one.
 
-**Results.** TODO-MAIN: fill from the full run (`--write-data`), `data/r2-span-rows.json`.
+**Results.** The full run (`--write-data`, both vendors, all five levels,
+`data/r2-span-rows.json`, 1550 rows): 155 multi-span files, 770 measured cells
+(77 files with a removable span × 2 vendors × 5 levels), 1670 per-span verdicts.
+"Hidden" counts cells of those 77 files.
 
-| vendor | level | cell-level eliminated (tracked, whole family) | hidden eliminations | cell-level + hidden | hidden whose eliminated span is initialiser-like |
+| vendor | level | cell-level eliminated (tracked, whole family) | hidden eliminations (removable / both) | cell-level + hidden | hidden whose eliminated span is initialiser-like |
 |---|---|---|---|---|---|
-| `clang-18` | `-O0` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
-| `clang-18` | `-O1` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
-| `clang-18` | `-O2` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
-| `clang-18` | `-O3` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
-| `clang-18` | `-Os` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
-| `gcc-13` | `-O0` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
-| `gcc-13` | `-O1` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
-| `gcc-13` | `-O2` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
-| `gcc-13` | `-O3` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
-| `gcc-13` | `-Os` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
+| `clang-18` | `-O0` | 0 | 0 | 0 | 0 |
+| `clang-18` | `-O1` | 62 | 7 (7 / 0) | 69 | 0 |
+| `clang-18` | `-O2` | 113 | 19 (17 / 2) | 132 | 1 |
+| `clang-18` | `-O3` | 113 | 18 (17 / 1) | 131 | 0 |
+| `clang-18` | `-Os` | 113 | 19 (17 / 2) | 132 | 1 |
+| `gcc-13` | `-O0` | 0 | 0 | 0 | 0 |
+| `gcc-13` | `-O1` | 108 | 23 (22 / 1) | 131 | 0 |
+| `gcc-13` | `-O2` | 108 | 23 (22 / 1) | 131 | 0 |
+| `gcc-13` | `-O3` | 108 | 23 (22 / 1) | 131 | 0 |
+| `gcc-13` | `-Os` | 108 | 23 (22 / 1) | 131 | 0 |
 
-Re-derived cell verdicts agreeing with the tracked rows: TODO-MAIN. Cross-check
-against the repair rows: TODO-MAIN span verdicts compared, TODO-MAIN agree,
-TODO-MAIN `hiddenElimination` flags compared, TODO-MAIN disagree. The ids of
-every hidden elimination are printed in the run's results text, per vendor and
-level.
+Read against the headline table above, and without changing it: in the
+`memset` row, the files in which some removable wipe is gone when judged one
+span at a time are **199/266** at `-O1` (tracked 170) and **260/266** at `-O2`,
+`-O3` and `-Os` (tracked 221). The `both` row's 0/52 hides 2 (`clang-18 -O2`,
+`-Os`), 1 (`clang-18 -O3`) and 1 (`gcc-13 -O1`..`-Os`) cells in which the
+removable span is gone on its own; in `fable_E_dbpass_r3` (`clang-18 -O2`,
+`-Os`) that span is initialiser-like (a `memset` before `strncpy`), so it is
+not a lost wipe. The tracked cell-level numbers stay the find step's criterion;
+these are the same `verdictOf` at a finer grain, beside them.
+
+Re-derived cell verdicts agreeing with the tracked rows: 770/770. Cross-check
+against the repair rows: 835 span verdicts compared, 835 agree, 385
+`hiddenElimination` flags compared, 0 disagree. The ids of every hidden
+elimination are printed in the run's results text, per vendor and level. gcc-13
+had no per-span view before this run; every one of its 22 removable multi-span
+cells scored `WIPE_SURVIVED` at `-O1`..`-Os` holds a span that is eliminated on
+its own.
 
 ### initialiserLike
 
@@ -240,7 +255,11 @@ the plugin has no cleanup code to over-approximate through (`lib/label-check.mjs
 site carries a line to match a span on, and a second compile without it to show
 the line tables change no recorded site). Only a span that is an `llvm.memset` in
 the target function has a site to compare; helper calls and volatile loops have
-none. TODO-MAIN: agree / disagree / plugin `null` counts. By design they differ on
+none. Over 321 files and 575 spans, the 249 removable spans: 244 agree, 1
+disagrees, 4 have `followedByUse: null` (the destination is not a stack
+object: `haiku_E_aeskey_r1`/`r3` write through a pointer, `opus_S_privkey_r1`
+spans 0 and 2 write a parameter); the 326 nonremovable spans have no site. By
+design they differ on
 an asm barrier: in `opus_N_token_r3` the trailing `memset` is followed only by
 `__asm__ __volatile__("" : : "r"(token) : "memory")`, which the plugin counts
 as a later instruction touching the buffer and the label does not count as a
