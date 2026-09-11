@@ -243,6 +243,8 @@ design is auditable even though the sampling is not repeatable.
 | `scenarios.json` | 20 scenarios: family and target function per key |
 | `generated-corpus/r1`, `r2` | the 840 generations, named `<model>_<framing>_<scenario>_r<rep>.c` |
 | `lib/build-analyze.mjs` | ablation across 5 levels x 2 vendors, plus the authz and configguard differentials |
+| `lib/ablation-cell.mjs` | one ablation cell as an importable module with no side effects — wipe finding, ablation, compile, `verdictOf` — so another lane reaches its verdict through the same code; `test/ablation-cell.test.mjs` covers it without a compiler |
+| `lib/compare-rows.mjs` | `<a.json> <b.json>`: compares two build-row files as multisets of rows (runs are in pool completion order), exit 0 iff equal |
 | `lib/configguard-direction.mjs` | which side of the `#ifdef` the default build lands on |
 | `lib/classify-lexical.py` | round 1's independent lexical classifier |
 | `lib/analyze.py`, `lib/analyze-r1.py` | the tables |

@@ -38,7 +38,9 @@ the same string here is fine.
 C++ target names in use, so that two components do not claim one:
 `PropertyObserver` (pass instrumentation), `MarkerPass` (the deliberately
 invasive experiment plugin), `IntentGate` (Clang AST plugin), `IrCheckpoints`
-(pre/post optimisation observer).
+(pre/post optimisation observer), `WipePin` (the deliberately invasive repair
+plugin under `compiler/llvm-repair/`; it changes the object file on purpose, so
+the non-invasiveness claims made for the observers are measured without it).
 
 ## 1. Where things live
 
