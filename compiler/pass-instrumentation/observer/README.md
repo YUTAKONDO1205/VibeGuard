@@ -251,6 +251,71 @@ same compilation and the object file is *required* to differ, because if nothing
 in the harness can change those bytes then "they did not change" is not
 information.
 
+### In CI
+
+`scripts/noninvasive.mjs` runs in the `native-plugins` job of
+`.github/workflows/ci.yml` (ubuntu-24.04, `clang-18` from the 24.04 archive).
+Before that job it had only been run by hand. The job builds this directory
+with the cmake line under [Building](#building), into `$RUNNER_TEMP` rather
+than `~/vg-build`, and then runs, from the repository root:
+
+```sh
+OBS_LAB="$RUNNER_TEMP/lab/pass-observer" \
+  bash compiler/pass-instrumentation/observer/tools/make-fixtures.sh
+OBS_LAB="$RUNNER_TEMP/lab/pass-observer" \
+OBS_PLUGIN="$RUNNER_TEMP/build/pass-observer/libPropertyObserver.so" \
+  node compiler/pass-instrumentation/observer/scripts/noninvasive.mjs
+```
+
+`OBS_LAB` defaults to `~/vg-lab/pass-observer` and `OBS_PLUGIN` to
+`~/vg-build/pass-observer/libPropertyObserver.so`, so a run by hand with
+neither set measures what it measured before `OBS_PLUGIN` existed.
+
+The step fails unless the harness exits 0 **and** its report,
+`<lab>/rq2/results/noninvasive.json`, holds exactly these 21 checks, every one
+passing, with a `pluginSha256` equal to the sha256 of the `.so` the job built:
+
+| Check | At | Passes when |
+|---|---|---|
+| NI-01 | each of -O0..-O3 | two plugin-free compiles of every unit give the same object |
+| NI-02 | each of -O0..-O3 | every object is byte-identical with and without the plugin, and `target.c` has `EV` records |
+| NI-03 | each of -O0..-O3 | the linked executable is byte-identical, and `target.c` has `EV` records |
+| NI-03b | each of -O0..-O3 | at least one unit's identity is backed by `EV` records |
+| NI-04 | -O2 | `-opt-bisect-limit=40` changes the `target.c` object (the negative control) |
+| NI-05 | -O2 | under that limit the object is still byte-identical, and still observed |
+| NI-06 | -O2 | the skipped-pass callback fired under that limit: at least one skipped-pass record |
+| NI-07 | — | `clang-18`, `opt` and `libLLVM.so.1` under `/usr/lib/llvm-18` have the same sha256 after the run as before it |
+| NI-08 | — | `ldd` exits 0 and lists the plugin's libraries, and none is libLLVM or libclang (an empty listing fails) |
+
+The count, the ids and the digest are read from the report and not only from
+the exit code, so a harness that exits 0 and writes no report, a report
+measured on another plugin, and a check that stopped running each fail the
+step. So does the harness pointed at a plugin that does change the object:
+with `OBS_PLUGIN` set to `libWipePin.so`, `WPIN_SCOPE=module` and `WPIN_OUT`
+set, the `target.c` object differed at all four levels and the run ended
+7/21 (measured locally, not in CI).
+
+What the CI run does **not** cover:
+
+* one toolchain: `clang-18` as the Ubuntu 24.04 archive ships it (the job
+  prints the version it got) on an x86-64 runner;
+* one fixture: the erasure fixture's three translation units at `-O0`..`-O3`,
+  plus `target.c` at `-O2` under `-opt-bisect-limit=40`; no `-Os` or `-Oz`, no
+  LTO;
+* NI-07 digests three files, in the same job, before and after the run. On a
+  runner that exists for one job, that says this run did not change them, and
+  nothing about any other file of the toolchain;
+* the job builds with no `CMAKE_BUILD_TYPE`, as the cmake line under
+  [Building](#building) does; `scripts/run-all.sh` builds `Release`. Those are
+  two different `.so` files with two different sha256s. Built from the same
+  sources against LLVM 18.1.3 with g++ 13.3.0, both ran 21/21 locally; a CI
+  report and a `run-all.sh` report of the same sources therefore carry
+  different `pluginSha256` values;
+* the other four harnesses `scripts/run-all.sh` runs (`rq2/rq2.mjs`,
+  `rq2/modes.mjs`, `rq2/broken-controls.mjs`, `scripts/crosscheck.mjs`) are not
+  in CI, and `tools/check-subject-resolution.mjs` is still called by nothing
+  automatic (see above).
+
 ## Measurement harness
 
 Sources here are tracked; builds and measurements are not, and live on the Linux
@@ -259,7 +324,7 @@ filesystem (`interfaces.md` §1):
 ```
 ~/vg-build/pass-observer/          the plugin
 ~/vg-lab/pass-observer/            logs, fixtures, run-log.txt
-~/vg-lab/pass-observer/noninvasive.mjs   the byte-identity measurement
+~/vg-lab/pass-observer/rq2/results/ the reports; scripts/noninvasive.mjs writes noninvasive.json
 ~/vg-lab/pass-observer/rq2/        the ground-truth harness
 ```
 
