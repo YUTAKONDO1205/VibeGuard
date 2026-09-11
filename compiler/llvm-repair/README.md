@@ -488,19 +488,29 @@ byte-identical 90/90, records equal once `context` is dropped 90/90 (so
 18/18 byte-identical.
 
 **Fixture loop** (`run-fixture-loop.sh` + `check-fixture-loop.py`, exit 0, "all
-32 cells as expected"; every cell above the new group reads exactly as in the
-`wipe-pin-v2` table below):
+35 cells as expected"; every cell above the new group reads exactly as in the
+`wipe-pin-v2` table below). The group was first three cells at `-O2`; three
+were added after a review pointed out that the case the design rests on — a
+ThinLTO link at `-O0`, where no extension point runs at all — and the "there was
+no file" ending were exercised nowhere:
 
 ```
-lto (-O2)          form  compile rc  bitcode  compile record  link rc  link-time line  WPIN_OUT after link  output==stock
-lto-full-compile   full  0           yes      wipe-pin-v2/1   not-run  -               not-run              -              ok
-lto-full-linkline  full  0           yes      wipe-pin-v2/1   0        1               absent               yes            ok
-lto-thin-linkline  thin  0           yes      wipe-pin-v2/1   0        1               absent               yes            ok
+lto / no pipeline start   form  opt  compile rc  bitcode  compile record  WPIN_OUT before link  link rc  no-pipeline-start line  WPIN_OUT after  output==stock
+lto-full-compile          full  -O2  0           yes      wipe-pin-v2/1   not-run               not-run  -                       not-run         -              ok
+lto-full-linkline         full  -O2  0           yes      wipe-pin-v2/1   file                  0        1 (removed)             absent          yes            ok
+lto-thin-linkline         thin  -O2  0           yes      wipe-pin-v2/1   file                  0        1 (removed)             absent          yes            ok
+lto-thin-linkline-O0      thin  -O0  0           yes      wipe-pin-v2/1   file                  0        1 (removed)             absent          yes            ok
+lto-full-linkline-nofile  full  -O2  0           yes      wipe-pin-v2/1   absent                0        1 (no file)             absent          yes            ok
+nopasses-ir-O2            none  -O2  0           -        -               not-run               not-run  1 (no file)             absent          -              ok
 ```
 
-The before plugin through the same loop: exit 2, and the only disagreements are
-the two `linkline` cells, `link stderr WipePin lines [], expected exactly
-['WipePin: loaded into a pipeline built without …']`.
+`nopasses-ir-O2` is a `-Xclang -disable-llvm-passes -S -emit-llvm` compile: no
+record, the line once, and the unoptimised IR still holds the non-volatile
+`llvm.memset`.
+
+The before plugin through the first three cells of this group: exit 2, and the
+only disagreements are the two `linkline` cells, `link stderr WipePin lines [],
+expected exactly ['WipePin: loaded into a pipeline built without …']`.
 
 **LTO probe** (`../eval/repair-loop/tools/lto-probe.mjs`, all 113 files, `-O2`,
 full and thin, exit 0): configuration (ii) now reads the linker's stderr as

@@ -440,32 +440,35 @@ component's README.
 
 ## 13. Where the sources disagree
 
-Reported here rather than resolved:
+Reported here rather than resolved, apart from the first, which is resolved and
+kept so the history is readable:
 
-1. **The reader is weaker than the writers.** Several properties both writers
-   hold, and `wpin_gcc_record.py` checks for WipePinGcc records, are not
-   checked by `pin-record.mjs`: `seen.zeroFillMemsetInScope` equal to the length
-   of `pinned[]` (it checks only ≤); `destKind` being one of the four words
-   (any non-empty string passes); `followedByUse` being `null` exactly when
-   `destKind` is not `alloca`; `exact` and `linkage` being `null` for an
-   unresolved name; a vocabulary for `linkage` (any string passes, for both
-   components); `unhandled.atomicMemset` and `inlineWrapperMemset` being 0 on a
-   WipePinGcc record; `resolution` in the order of `requested`, and
-   `requested`/`resolution` empty in module scope; the keys of `context` (any
-   object passes).
+1. **Resolved: the reader was weaker than the writers.** `pin-record.mjs` now
+   holds both components to what both writers do: `seen.zeroFillMemsetInScope`
+   equal to the length of `pinned[]`; `destKind` one of the four words;
+   `followedByUse` `null` exactly when `destKind` is not `alloca`; `exact` and
+   `linkage` `null` for an unresolved name, and for a resolved one a `linkage`
+   from LLVM's vocabulary with `exact` true exactly for `external`, `internal`
+   and `private`; `unhandled.atomicMemset` and `inlineWrapperMemset` 0 on a
+   WipePinGcc record; `resolution` in the order of `requested`, both empty in
+   module scope. No real record breaks them: every `wipe-pin-v2` record in the
+   lab directories of this work, 78,855 files (39,185 WipePin, 39,670
+   WipePinGcc; 22,360 distinct evidence digests) from full repair-loop runs of
+   both vendors, their red controls and plan replays, fixture loops and
+   module-scope corpus sweeps, passes the reader with none of these rules
+   broken. The keys of `context` are still not checked by it; see the next
+   item.
 2. **`context` is narrower in the Python reader than in `interfaces.md`.**
    `interfaces.md` §5 allows `context` to hold `host` and repository provenance
    as well; both writers write only the three keys of §2, and
    `wpin_gcc_record.py` refuses any other, while `pin-record.mjs` accepts any
    object.
-3. **WipePin at `-Oz`.** `pin-record.mjs` holds `{2,2}` for WipePin at `-Oz`,
-   but its own comment and the LLVM README give measured values only for
-   `-O0`..`-Os`.
-4. **`pin-record.mjs` points at a document that is not in the repository.** Its
-   header says that what v2 is, field by field, is "the contract the two plugins
-   were written against"; this file is the public description of that record.
-   It also says `followedByUse` is "as in v1", which holds for the values it may
-   take, not for how WipePin computes it (§8).
+3. **Resolved: WipePin at `-Oz`.** `pin-record.mjs` held `{2,2}` for WipePin at
+   `-Oz` without a measurement; measured since with the plugin (clang-18,
+   module scope): `-O0`..`-Oz` give `{0,0} {1,0} {2,0} {3,0} {2,1} {2,2}`.
+4. **Resolved: `pin-record.mjs` pointed at a document that is not in the
+   repository.** Its header now points here, and says what v2 changed about
+   `followedByUse` (how WipePin computes it, §8) as well as what it may hold.
 5. **What "already pinned" means differs by vendor by construction** (§9): a
    volatile flag on LLVM, a barrier of a specific form on GCC. A GCC site
    followed by a barrier of another form is pinned a second time, which is

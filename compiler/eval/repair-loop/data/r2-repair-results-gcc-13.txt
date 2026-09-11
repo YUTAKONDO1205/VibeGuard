@@ -2,7 +2,7 @@ repair-loop results (run-repair-loop.mjs)
 
 compiler        gcc-13  (gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0)
 vendor          gcc: plugin WipePinGcc, loaded with -fplugin=<so>
-plugin sha256   954b5b58d3e14028798fc48d6f7420fd77051d8d91233d048886959c3425f025
+plugin sha256   a023b047abcafdbb824f627d227861e0ae0556072c9e4ba87e102b2c9747ba1b
 _FORTIFY_SOURCE -O0 (not defined), -O1 3, -O2 3, -O3 3, -Os 3  (predefined by the compiler with FLAGS; FLAGS does not set it)
 scope           functions
 dry run         false
@@ -89,7 +89,8 @@ plugin records (plugin-on compiles)
   unhandled.inlineWrapperMemset  0
   no-wipe files with pinnedCount > 0     0/195
   helper resolved in w, not-in-module in wo (its only call was the ablated wipe; tolerated, not broken): 616 cell(s)
-  pinned sites the plugin flags followedByUse (initialiser-like; a hint that can over-approximate): 290
+  listed sites (pinned[], already-volatile included) the plugin flags followedByUse (initialiser-like; a hint that can over-approximate): 290
+    of them actually pinned (not already volatile, not a dry run): 285
   records naming a non-exact target definition: 0
 
 per-span view (each removable span of a multi-span cell ablated alone, same verdictOf; cell outcomes unchanged)
@@ -349,7 +350,7 @@ pin changed a listing where the find step reported no loss (ALREADY_SURVIVED, w 
   -Os  49: with a hidden elimination 23, without 26
 
 pin plan (pin-plan.json in the lab directory): 131 file(s)
-  eliminations reversed / found: gcc-13 432/432 (this run), clang-18 401/401 (tracked repair rows compiler/eval/repair-loop/data/r2-repair-rows.json, sha256 562a2ac3357385d43b38e735db5d12baa25667a89bbfa546642c045ea7cb658c, a full --write-data run), total 833/833
+  eliminations reversed / found: gcc-13 432/432 (this run), clang-18 401/401 (tracked repair rows compiler/eval/repair-loop/data/r2-repair-rows.json, sha256 05d1240efd7322543625e83158139739429f65eeb5c7c1d4f57e7d87c912ce96, a full --write-data run), total 833/833
 
 baseline WIPE_ELIMINATED cells that are not RETAINED: 0
 

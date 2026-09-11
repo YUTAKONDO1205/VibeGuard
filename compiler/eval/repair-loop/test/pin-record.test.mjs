@@ -1,7 +1,7 @@
 /**
  * pin-record.mjs is the only thing between the plugin's own account of itself and
  * the outcome table. These tests show it refuses each way a record can be wrong,
- * and accepts the one shape the contract describes. No compiler, no lab: every
+ * and accepts the one shape compiler/schema/wipe-pin.md describes. No compiler, no lab: every
  * record is built here.
  */
 import test from 'node:test';
@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { validatePinRecord, readPinRecord, unresolvedNames, followedByUseCounts, OPT_LEVELS, COMPONENTS } from '../lib/pin-record.mjs';
+import { validatePinRecord, readPinRecord, unresolvedNames, followedByUseCounts, OPT_LEVELS, COMPONENTS, LINKAGES } from '../lib/pin-record.mjs';
 import { evidenceDigest, canonicalJsonRaw, sha256Hex } from '../../../evidence/canon.mjs';
 
 /**
@@ -26,7 +26,7 @@ function good(over = {}) {
   return rec;
 }
 /**
- * The toolchain block as the contract builds it, with the digest taken by
+ * The toolchain block as wipe-pin.md defines it, with the digest taken by
  * canon.mjs (not by the reader under test): {<key>: v, packages: [{name, version: v}],
  * digest: sha256(canonical {<key>, packages})}.
  */
@@ -100,7 +100,7 @@ const refused = (rec, expect, re) => {
   return r;
 };
 
-test('the contract shape is accepted, and the record comes back unchanged', () => {
+test('the wipe-pin.md shape is accepted, and the record comes back unchanged', () => {
   const rec = good();
   const r = validatePinRecord(rec, EXPECT);
   assert.deepEqual(r.problems, []);
@@ -121,7 +121,11 @@ test('a dry-run record with nothing pinned and something that would be is accept
 test('null is admitted for lengthBytes, line, followedByUse, exact and linkage, and nowhere else', () => {
   const pinned = [site({ lengthBytes: null, destKind: 'argument', line: null, followedByUse: null })];
   assert.equal(validatePinRecord(good({ pinned }), EXPECT).ok, true);
-  assert.equal(validatePinRecord(good({ resolution: [res('encrypt_blob', 'resolved', { exact: null, linkage: null })] }), EXPECT).ok, true);
+  // exact and linkage are null for a name that did not resolve, and only then
+  const unresolved = good({ resolution: [res('encrypt_blob', 'not-in-module')], pinned: [], pinnedCount: 0, wouldPinCount: 0,
+    seen: { zeroFillMemsetInScope: 0, zeroFillMemsetInModule: 2 } });
+  assert.equal(validatePinRecord(unresolved, EXPECT).ok, true, JSON.stringify(validatePinRecord(unresolved, EXPECT).problems));
+  refused(good({ resolution: [res('encrypt_blob', 'resolved', { exact: null, linkage: null })] }), EXPECT, /bad-linkage: resolution\[0\]\.linkage null/);
   refused(good({ pinnedCount: null }), EXPECT, /not-a-count: pinnedCount/);
   refused(good({ pinned: [{ ...pinned[0], index: null }] }), EXPECT, /pinned\[0\]\.index/);
   refused(good({ pinned: [{ ...pinned[0], alreadyVolatile: null }] }), EXPECT, /pinned\[0\]\.alreadyVolatile/);
@@ -246,7 +250,8 @@ test('v1 fields: followedByUse, exact and linkage are typed', () => {
   }
   for (const f of [true, false]) {
     assert.equal(validatePinRecord(good({ pinned: [site({ followedByUse: f })] }), EXPECT).ok, true, `followedByUse ${f}`);
-    assert.equal(validatePinRecord(good({ resolution: [res('encrypt_blob', 'resolved', { exact: f })] }), EXPECT).ok, true, `exact ${f}`);
+    const linkage = f ? 'external' : 'linkonce_odr';
+    assert.equal(validatePinRecord(good({ resolution: [res('encrypt_blob', 'resolved', { exact: f, linkage })] }), EXPECT).ok, true, `exact ${f}`);
   }
   for (const bad of [0, true, {}, []]) {
     refused(good({ resolution: [res('encrypt_blob', 'resolved', { linkage: bad })] }), EXPECT, /resolution\[0\]\.linkage must be a string or null/);
@@ -349,11 +354,12 @@ test('counts that contradict the lists they count are refused', () => {
 
 const two = [site(), site({ index: 1, lengthBytes: 16, line: 44 })];
 const seen2 = { zeroFillMemsetInScope: 2, zeroFillMemsetInModule: 3 };
+const seen0 = { zeroFillMemsetInScope: 0, zeroFillMemsetInModule: 3 };
 
 test('outside a dry run: pinnedCount === wouldPinCount === listed sites not already volatile', () => {
   assert.equal(validatePinRecord(good({ pinned: two, pinnedCount: 2, wouldPinCount: 2, seen: seen2 }), EXPECT).ok, true);
   // nothing listed, nothing counted
-  assert.equal(validatePinRecord(good({ pinned: [], pinnedCount: 0, wouldPinCount: 0 }), EXPECT).ok, true);
+  assert.equal(validatePinRecord(good({ pinned: [], pinnedCount: 0, wouldPinCount: 0, seen: seen0 }), EXPECT).ok, true);
   // an already-volatile site is listed and counted in neither
   const oneVol = [site(), site({ index: 1, alreadyVolatile: true })];
   assert.equal(validatePinRecord(good({ pinned: oneVol, pinnedCount: 1, wouldPinCount: 1, seen: seen2 }), EXPECT).ok, true);
@@ -370,7 +376,7 @@ test('outside a dry run: pinnedCount === wouldPinCount === listed sites not alre
 test('in a dry run: pinnedCount 0, and wouldPinCount === listed sites not already volatile', () => {
   const D = { ...EXPECT, dryRun: true };
   assert.equal(validatePinRecord(good({ dryRun: true, pinned: two, pinnedCount: 0, wouldPinCount: 2, seen: seen2 }), D).ok, true);
-  assert.equal(validatePinRecord(good({ dryRun: true, pinned: [], pinnedCount: 0, wouldPinCount: 0 }), D).ok, true);
+  assert.equal(validatePinRecord(good({ dryRun: true, pinned: [], pinnedCount: 0, wouldPinCount: 0, seen: seen0 }), D).ok, true);
   const oneVol = [site(), site({ index: 1, alreadyVolatile: true })];
   assert.equal(validatePinRecord(good({ dryRun: true, pinned: oneVol, pinnedCount: 0, wouldPinCount: 1, seen: seen2 }), D).ok, true);
   refused(good({ dryRun: true, pinned: oneVol, pinnedCount: 0, wouldPinCount: 2, seen: seen2 }), D, /dry run with wouldPinCount 2, but 1 listed site/);
@@ -418,6 +424,63 @@ test('the optimisation pairs are the ones LLVM reports, per component', () => {
       { component: 'WipePinGcc', opt: o }).ok, true, `gcc ${o}`);
   }
   refused(good({ component: 'WipePinGcc', toolchain: GCC_TC }), { ...EXPECT_GCC, opt: '-O3' }, /optLevel \{2,0\} does not match -O3/);
+});
+
+// ---- structural rules both writers hold (wipe-pin.md §5-§11); 78,855 real
+// records (22,360 distinct evidence digests) break none of them ----
+
+test('seen.zeroFillMemsetInScope is the number of sites pinned[] lists', () => {
+  refused(good({ seen: { zeroFillMemsetInScope: 2, zeroFillMemsetInModule: 2 }, wouldPinCount: 1 }), EXPECT,
+    /seen\.zeroFillMemsetInScope 2, but pinned\[\] lists 1 site/);
+  const oneVol = [site(), site({ index: 1, alreadyVolatile: true })];
+  assert.equal(validatePinRecord(good({ pinned: oneVol, pinnedCount: 1, wouldPinCount: 1, seen: seen2 }), EXPECT).ok, true,
+    'an already-volatile site is listed, so it is in the in-scope count');
+});
+
+test('destKind is one of the observer words, and followedByUse is null exactly when it is not alloca', () => {
+  for (const d of ['stack', 'heap', 'Alloca', 'param']) {
+    refused(good({ pinned: [site({ destKind: d, followedByUse: null })] }), EXPECT, /bad-destKind/);
+  }
+  for (const d of ['argument', 'global', 'other']) {
+    assert.equal(validatePinRecord(good({ pinned: [site({ destKind: d, followedByUse: null })] }), EXPECT).ok, true, d);
+    refused(good({ pinned: [site({ destKind: d, followedByUse: false })] }), EXPECT, /null exactly when destKind is not alloca/);
+  }
+  refused(good({ pinned: [site({ destKind: 'alloca', followedByUse: null })] }), EXPECT, /destKind alloca and followedByUse null/);
+});
+
+test('a resolved name carries an LLVM linkage word, and exact says whether it is external, internal or private', () => {
+  refused(good({ resolution: [res('encrypt_blob', 'resolved', { linkage: 'public' })] }), EXPECT, /bad-linkage/);
+  refused(good({ resolution: [res('encrypt_blob', 'resolved', { exact: false, linkage: 'external' })] }), EXPECT,
+    /linkage external and exact false/);
+  refused(good({ resolution: [res('encrypt_blob', 'resolved', { exact: true, linkage: 'weak' })] }), EXPECT,
+    /linkage weak and exact true/);
+  for (const [linkage, exact] of [['internal', true], ['private', true], ['available_externally', false], ['weak_odr', false]]) {
+    assert.equal(validatePinRecord(good({ resolution: [res('encrypt_blob', 'resolved', { exact, linkage })] }), EXPECT).ok, true, linkage);
+  }
+  const bare = { pinned: [], pinnedCount: 0, wouldPinCount: 0, seen: { zeroFillMemsetInScope: 0, zeroFillMemsetInModule: 2 } };
+  refused(good({ ...bare, resolution: [res('encrypt_blob', 'not-in-module', { exact: false })] }), EXPECT, /did not resolve but carries/);
+  refused(good({ ...bare, resolution: [res('encrypt_blob', 'declaration-only', { linkage: 'external' })] }), EXPECT, /did not resolve but carries/);
+  assert.deepEqual([...LINKAGES].slice(0, 2), ['external', 'internal']);
+});
+
+test('a WipePinGcc record has no atomic or inline-wrapper memsets to count', () => {
+  const U = { libcallMemset: 0, memsetChk: 0, nonZeroFill: 0, atomicMemset: 0, inlineWrapperMemset: 0 };
+  for (const k of ['atomicMemset', 'inlineWrapperMemset']) {
+    refused(good({ component: 'WipePinGcc', toolchain: GCC_TC, unhandled: { ...U, [k]: 1 } }), EXPECT_GCC,
+      new RegExp(`unhandled\\.${k} is 1 on a WipePinGcc record`));
+    assert.equal(validatePinRecord(good({ unhandled: { ...U, [k]: 1 } }), EXPECT).ok, true, `WipePin may count ${k}`);
+  }
+});
+
+test('module scope names no functions, and in functions scope resolution[] follows requested[]', () => {
+  refused(good({ scope: 'module', requested: ['encrypt_blob'], resolution: [res('encrypt_blob')] }), { scope: 'module', opt: '-O2' },
+    /a module-scope record names requested functions/);
+  const pinned2 = [site(), site({ function: 'secure_wipe', index: 0 })];
+  const base = { pinned: pinned2, pinnedCount: 2, wouldPinCount: 2, seen: seen2 };
+  assert.equal(validatePinRecord(good({ ...base, requested: ['encrypt_blob', 'secure_wipe'],
+    resolution: [res('encrypt_blob'), res('secure_wipe')] }), {}).ok, true);
+  refused(good({ ...base, requested: ['encrypt_blob', 'secure_wipe'], resolution: [res('secure_wipe'), res('encrypt_blob')] }), {},
+    /resolution\[\] is not in the order of requested\[\]/);
 });
 
 test('problem strings never carry a path, even for an unreadable or missing file', () => {

@@ -89,7 +89,8 @@ plugin records (plugin-on compiles)
   unhandled.inlineWrapperMemset  0
   no-wipe files with pinnedCount > 0     0/195
   helper resolved in w, not-in-module in wo (its only call was the ablated wipe; tolerated, not broken): 770 cell(s)
-  pinned sites the plugin flags followedByUse (initialiser-like; a hint that can over-approximate): 295
+  listed sites (pinned[], already-volatile included) the plugin flags followedByUse (initialiser-like; a hint that can over-approximate): 295
+    of them actually pinned (not already volatile, not a dry run): 290
   records naming a non-exact target definition: 0
 
 per-span view (each removable span of a multi-span cell ablated alone, same verdictOf; cell outcomes unchanged)
@@ -201,7 +202,7 @@ pin changed a listing where the find step reported no loss (ALREADY_SURVIVED, w 
   -Os  26: with a hidden elimination 19, without 7
 
 pin plan (pin-plan.json in the lab directory): 132 file(s)
-  eliminations reversed / found: clang-18 401/401 (this run), gcc-13 432/432 (tracked repair rows compiler/eval/repair-loop/data/r2-repair-rows-gcc-13.json, sha256 cf016ae1bb4f218cfa5ee13abc779dfc5e6c61e1ac34804f8810bd3575dbe076, a full --write-data run), total 833/833
+  eliminations reversed / found: clang-18 401/401 (this run), gcc-13 432/432 (tracked repair rows compiler/eval/repair-loop/data/r2-repair-rows-gcc-13.json, sha256 cd999c151a27599e200c32be6152bfb13df7edb4b5649e198f1d5e8d6748ba9e, a full --write-data run), total 833/833
 
 baseline WIPE_ELIMINATED cells that are not RETAINED: 0
 
