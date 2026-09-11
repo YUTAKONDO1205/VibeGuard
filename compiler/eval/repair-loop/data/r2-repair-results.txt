@@ -86,6 +86,8 @@ plugin records (plugin-on compiles)
   unhandled.inlineWrapperMemset  0
   no-wipe files with pinnedCount > 0     0/195
   helper resolved in w, not-in-module in wo (its only call was the ablated wipe; tolerated, not broken): 770 cell(s)
+  pinned sites the plugin flags followedByUse (initialiser-like; a hint that can over-approximate): 311
+  records naming a non-exact target definition: 0
 
 per-span view (each removable span of a multi-span cell ablated alone, same verdictOf; cell outcomes unchanged)
   -O0  multi-span cells 155

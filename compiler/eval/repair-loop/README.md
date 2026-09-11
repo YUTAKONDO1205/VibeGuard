@@ -368,7 +368,17 @@ node compiler/eval/repair-loop/run-repair-loop.mjs --plugin <so> --out <dir> --t
 
 # the tracked data: only a full functions-scope run over all five levels is accepted
 node compiler/eval/repair-loop/run-repair-loop.mjs --plugin <so> --out <dir> --write-data
+
+# find -> fix as a user runs it: pin only what the previous run's pin plan names
+node compiler/eval/repair-loop/run-repair-loop.mjs --plugin <so> --out <dir2> --plan <dir>/pin-plan.json
+node compiler/eval/repair-loop/run-repair-loop.mjs --plugin <so> --out <dir3> --plan <dir>/pin-plan.json --dry-run
 ```
+
+`--plan` compiles only the (file, level) cells the plan names, each with exactly
+the names it lists, and refuses a plan whose names no longer match this tree's
+find step (exit 5). A planned cell whose loss does not reproduce plugin-off
+(`STALE`) or does not come back with the plugin (`NOT REPAIRED`) makes the run
+exit 2. It is refused with `--write-data` and in module scope.
 
 Options: `--cc` (default `clang-18`), `--scope functions|module`, `--opts`
 (comma list, default all five), `--files` (comma list of basenames or globs),
@@ -399,17 +409,25 @@ node --test compiler/eval/repair-loop/test/*.test.mjs
 (`wipe-pin-v1`, `libWipePin.so` sha256 `aa7329c3…f0a66`, the same bytes from two
 independent builds). Full functions-scope run over all five levels; the rows and
 the rendered table are `data/r2-repair-rows.json` and `data/r2-repair-results.txt`.
-Only the module-scope line below comes from an earlier run with the `wipe-pin-v0`
-plugin; v1 changes what the record says, not what the plugin emits (identical
-`-S` output on the files and levels compared when v1 was written).
+The plan-driven run and the red controls are not tracked; their numbers below
+are from runs made with the same plugin bytes on the same tree.
 
 **The find step reproduces.** Plugin off, every wipe cell agrees with the tracked
 find-step row: 1605/1605, and the 195 no-wipe cells are `NO_WIPE_WRITTEN` there
 too.
 
-**Every elimination the find step reported is reversed** — at the find step's
-own, cell-level granularity. The per-span view below finds eliminations that
-granularity hides, and the plugin retains those too.
+**Every clang-18 elimination the find step reported is reversed** — at the find
+step's own, cell-level granularity (gcc-13's 432 are out of reach: no plugin
+loads into gcc). The per-span view below finds eliminations that granularity
+hides, and the plugin retains those too.
+
+**find -> fix -> confirm, driven by the plan.** Replaying the full run's
+`pin-plan.json` with `--plan` — 132 files, 464 planned cells, the plugin loaded
+nowhere else: the 401 cells planned because the cell is eliminated are all
+`RETAINED`; the 63 planned because a span is eliminated on its own all have that
+span retained; 0 planned cells failed to reproduce their loss plugin-off, 0 failed
+to come back. The same plan with `--dry-run`: 0 of 401 and 0 of 63 (red control
+`HELD`). A plan with one function name changed is refused (exit 5).
 
 | removable idiom (133 files) | `-O0` | `-O1` | `-O2` | `-O3` | `-Os` |
 |---|---|---|---|---|---|
@@ -447,10 +465,14 @@ holds it too.
   158/32/26/25/26 at `-O0`..`-Os`. With a hidden elimination: 0/7/19/18/19;
   without: 158/25/7/7/7. At `-O0` that is the pin turning a `memset` call into
   inline stores (see `compiler/llvm-repair/README.md`). The 7 at `-O2` were read
-  record by record: every site pinned in them is one the plugin marks
+  record by record: 11 of the 12 sites pinned in them are ones the plugin marks
   `followedByUse` (initialiser-like; that hint can over-approximate, see the
-  plugin README), `opus_N_pinpad_r2` among them. The `-O1` 25 were not read one
-  by one. None of these is a repair, and none is counted as one.
+  plugin README), `opus_N_pinpad_r2` among them; the 12th (`opus_E_pwverify_r2`,
+  in the helper `secure_wipe`) writes through a pointer argument, so the plugin
+  cannot say (`null`). The `-O1` 25 were not read one by
+  one. None of these is a repair, and none is counted as one. Across the run the
+  plugin flags 311 pinned sites `followedByUse`; no record names a non-exact
+  target definition.
 - **Pin plan:** 132 files — the 113 whose cell is eliminated at some level plus
   the files with only a hidden elimination.
 - **Cross-vendor coverage:** eliminations reversed / found: clang-18 401/401,
@@ -468,9 +490,6 @@ holds it too.
   `--target-suffix X` gives `BROKEN_REPAIR` in every scorable cell. In the dry
   run the 19 `-O2` hidden eliminations are all still eliminated
   (`hiddenRetained` 0 of 19).
-- **Module scope** (`wipe-pin-v0`, all five levels, not tracked): `RETAINED` 62/113/113/113 at
-  `-O1`..`-Os`, 0 eliminated cells left unrepaired. It carries no surgicality
-  evidence, as explained above.
 - **configguard, `-O2`:** the tracked `DEFAULT_DIFFERS` result re-observed in
   81/81 files; with the plugin loaded in module scope the default build equals
   the all-macros build in **0/81** — the plugin does not bring back a defence the
@@ -519,6 +538,7 @@ A second, independent instrument agrees on the lane's hand-written fixture: see
 | `lib/summaries.mjs` | per-span counts, corroboration, listing-changed-without-loss, cross-vendor coverage, the pin plan; pure |
 | `lib/provenance.mjs` | listing digests, the rows-file label, the absolute-path scan |
 | `lib/preflight.mjs` | the preflight's refusal checks; pure |
+| `lib/plan.mjs` | `--plan`: reading a pin plan, matching it to this tree, the plan-driven summary; pure |
 | `lib/surgicality.mjs` | the surgicality checks; pure, `bodyOf` injected |
 | `lib/stage-gate.mjs` | the out-of-reach families; pure |
 | `test/*.test.mjs` | unit tests, no compiler |

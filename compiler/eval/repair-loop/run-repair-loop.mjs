@@ -48,6 +48,7 @@ import { ablatedUnchanged, controlUntouched, noPinNoChange, pinDelta } from './l
 import { authzSummary, configguardTargets, configguardRow, unsupportedVendorLine, notAttemptedLine } from './lib/stage-gate.mjs';
 import { spanPlan, spanSourceOf, spanRows, hiddenFlags } from './lib/spans.mjs';
 import { spanSummary, effectVerdict, corroborationSummary, listingChangedWithoutLoss, crossVendorCoverage, buildPinPlan } from './lib/summaries.mjs';
+import { readPlan, planMismatch, planSummary, renderPlanSummary } from './lib/plan.mjs';
 import { sha256Text, absolutePathHits, rowsFileLabel } from './lib/provenance.mjs';
 import { preflightProblems } from './lib/preflight.mjs';
 
@@ -80,6 +81,9 @@ const USAGE = `usage: node run-repair-loop.mjs --plugin <so> --out <dir> [option
   --files <list>         comma list of basenames or globs (* ?), with or without .c
   --rows <path>          tracked baseline rows (default: the ai-generated lane's r2-build-rows.json)
   --conc <n>             parallel compiles (default 8)
+  --plan <pin-plan.json> find -> fix as a user would run it: pin ONLY the (file, level) cells a
+                         previous run's pin plan names, with the names it lists, and confirm each
+                         with the same verdict (functions scope; refused with --write-data)
   --write-data           also write data/r2-repair-rows.json and data/r2-repair-results.txt
                          (refused for red controls and partial runs)
 `;
@@ -92,7 +96,7 @@ function die(code, msg) {
 // ---------------------------------------------------------------- arguments --
 function parseArgs(argv) {
   const a = { cc: 'clang-18', scope: 'functions', opts: [...ALL_OPTS], dryRun: false, targetSuffix: null,
-    files: null, rows: DEFAULT_ROWS, conc: 8, writeData: false, plugin: null, out: null };
+    files: null, rows: DEFAULT_ROWS, conc: 8, writeData: false, plugin: null, out: null, plan: null };
   const need = (i, flag) => { if (i + 1 >= argv.length || argv[i + 1].startsWith('--')) die(4, `${flag} needs a value`); return argv[i + 1]; };
   for (let i = 0; i < argv.length; i++) {
     const f = argv[i];
@@ -108,6 +112,7 @@ function parseArgs(argv) {
       case '--rows': a.rows = need(i, f); i++; break;
       case '--conc': a.conc = Number(need(i, f)); i++; break;
       case '--write-data': a.writeData = true; break;
+      case '--plan': a.plan = need(i, f); i++; break;
       case '-h': case '--help': process.stdout.write(USAGE); process.exit(0); break;
       default: die(4, `unknown argument ${f}\n${USAGE}`);
     }
@@ -133,14 +138,17 @@ function parseArgs(argv) {
     if (a.files) why.push('--files');
     if (a.scope !== 'functions') why.push('--scope module');
     if (a.opts.length !== ALL_OPTS.length) why.push('a partial --opts');
+    if (a.plan) why.push('--plan');
     if (why.length) {
       die(4, `--write-data refused with ${why.join(', ')}: the tracked data file is the full functions-scope `
         + 'run over every level. A red control or a subset written there would be read as the result.');
     }
   }
+  if (a.plan && a.scope !== 'functions') die(4, '--plan names functions to pin; it means nothing in module scope');
   a.plugin = resolve(a.plugin);
   a.out = resolve(a.out);
   a.rows = resolve(a.rows);
+  if (a.plan) a.plan = resolve(a.plan);
   return a;
 }
 
@@ -171,6 +179,11 @@ function summarizeRecord(rr) {
     pinnedCount: r.pinnedCount,
     wouldPinCount: r.wouldPinCount,
     unresolved: unresolvedNames(r),
+    // Carried so the tracked rows, not only the lab records, can show which pins
+    // the plugin itself flags as initialiser-like, and which targets were not
+    // exact definitions.
+    followedByUseCount: r.pinned.filter((p) => p.followedByUse === true).length,
+    nonExact: r.resolution.filter((x) => x.exact === false).map((x) => x.name),
     seen: { ...r.seen },
     unhandled: { ...r.unhandled },
   };
@@ -220,6 +233,17 @@ async function main() {
   let tracked;
   try { tracked = JSON.parse(readFileSync(args.rows, 'utf8')); }
   catch { die(5, 'the --rows file could not be read as JSON'); }
+
+  let planIn = null;
+  let planSha = null;
+  if (args.plan) {
+    let obj;
+    try { obj = JSON.parse(readFileSync(args.plan, 'utf8')); } catch { die(5, 'the --plan file could not be read as JSON'); }
+    const p = readPlan(obj, { allOpts: ALL_OPTS });
+    if (!p.ok) die(5, `the --plan file was refused: ${p.problems.slice(0, 5).join('; ')}`);
+    planIn = p.entries;
+    planSha = sha256(args.plan);
+  }
 
   mkdirSync(BUILD, { recursive: true });
   mkdirSync(join(args.out, 'records'), { recursive: true });
@@ -288,7 +312,8 @@ async function main() {
 
   // ---- select files -----------------------------------------------------------
   const res = args.files ? args.files.map(globToRe) : null;
-  const selected = (f) => !res || res.some((re) => re.test(f) || re.test(f.replace(/\.c$/, '')));
+  const selected = (f) => (!res || res.some((re) => re.test(f) || re.test(f.replace(/\.c$/, ''))))
+    && (!planIn || planIn.has(f.replace(/\.c$/, '')));
   const all = readdirSync(GEN).filter((f) => f.endsWith('.c')).sort();
   const metaOf = (f) => {
     const id = f.replace(/\.c$/, '');
@@ -317,6 +342,12 @@ async function main() {
     writeFileSync(pW, src + cell.CONTROL, 'utf8');
     const baseNames = [...new Set([meta.fn, ...ws.helpers])];
     const requested = args.scope === 'functions' ? baseNames.map((n) => n + (args.targetSuffix ?? '')) : [];
+    const entry = planIn ? planIn.get(meta.id) : null;
+    if (entry) {
+      const why = !ws.spans.length ? 'the plan names a wipe this tree\'s find step no longer sees'
+        : planMismatch(entry, { fn: meta.fn, helpers: ws.helpers });
+      if (why) die(5, `--plan does not describe this tree for ${meta.id}: ${why}`);
+    }
     if (!ws.spans.length) {
       for (const opt of args.opts) noneCells.push({ meta, opt, pW, requested });
       continue;
@@ -335,6 +366,7 @@ async function main() {
     }
     const idiom = idiomOf(ws.kinds);
     for (const opt of args.opts) {
+      if (entry && !entry.opts.has(opt)) continue;
       cells.push({ meta, opt, pW, pWo, requested, idiom, nSpans: ws.spans.length, helpers: [...ws.helpers], plan, pWoSpan });
     }
   }
@@ -453,7 +485,9 @@ async function main() {
   let cfgNote;
   let cfgSelection = null;
   const cfgRows = [];
-  if (!args.opts.includes('-O2')) {
+  if (planIn) {
+    cfgNote = 'configguard: not measured in a plan-driven run (the plan names erasure cells only)';
+  } else if (!args.opts.includes('-O2')) {
     cfgNote = 'configguard: not measured in this run (-O2 is not among --opts)';
   } else {
     const allTargets = configguardTargets(tracked, { cc: ccName, opt: '-O2' });
@@ -484,20 +518,22 @@ async function main() {
   rows.sort((a, b) => cmp(a.id, b.id) || cmp(a.opt, b.opt) || cmp(a.kind, b.kind));
 
   // ---- views beside the outcome ------------------------------------------------------
-  const plan = buildPinPlan(rows, args.opts);
+  const pinPlan = buildPinPlan(rows, args.opts);
   const coverage = crossVendorCoverage({
     tracked, rows, runCc: ccName, ids: new Set(erasure.map((x) => x.meta.id)), opts: args.opts,
   });
 
   // ---- results text ----------------------------------------------------------------
   const red = gradeRedControl(rows, { dryRun: args.dryRun, targetSuffix: args.targetSuffix });
-  const text = renderResults({ args, ccName, ccVersion, pluginSha, pre, rows, authz, cfgNote, cfgSelection, tracked, red, plan, coverage });
+  const planRun = planIn ? planSummary(rows) : null;
+  const text = renderResults({ args, ccName, ccVersion, pluginSha, pre, rows, authz, cfgNote, cfgSelection, tracked, red, plan: pinPlan, coverage })
+    + (planRun ? renderPlanSummary(planRun, { planSha256: planSha, entries: planIn.size }) : '');
 
   const rowsText = '[\n' + rows.map((r) => JSON.stringify(r)).join(',\n') + '\n]\n';
   const planText = JSON.stringify({
     what: 'find -> fix: per file, the levels at which the find step\'s observation says a wipe is gone, '
       + 'and the names to pin there (WPIN_TARGET_FNS = [fn, ...helpers])',
-    cc: ccName, opts: args.opts, fileSubset: args.files, entries: plan,
+    cc: ccName, opts: args.opts, fileSubset: args.files, entries: pinPlan,
   }, null, 2) + '\n';
   const manifestText = JSON.stringify({
     generatedAt: new Date().toISOString(), node: process.version,
@@ -507,7 +543,8 @@ async function main() {
     rowsFile: rowsFileLabel(args.rows, { defaultPath: DEFAULT_ROWS, repoRoot: REPO }), rowsSha256: sha256(args.rows),
     conc: args.conc, preflight: pre,
     erasureFiles: erasure.length, cells: cells.length, noWipeCells: noneCells.length, configguardRows: cfgRows.length,
-    perSpanCompilePairs: spanCompilePairs, pinPlanEntries: plan.length,
+    perSpanCompilePairs: spanCompilePairs, pinPlanEntries: pinPlan.length,
+    planInput: planIn ? { sha256: planSha, entries: planIn.size } : null,
     ignoredInheritedEnv: inherited,
   }, null, 2) + '\n';
 
@@ -541,7 +578,11 @@ async function main() {
     r.baselineMatchesTracked === false
     || r.ablatedUnchanged === false || r.controlUntouched === false
     || r.noPinNoChangeW === false || r.noPinNoChangeWo === false || r.noPinNoChange === false);
-  process.exit(integrityBroken || (red && !red.held) ? 2 : 0);
+  // A plan-driven run is the claim "what the find step reported gets repaired":
+  // a planned cell whose loss did not reproduce (stale plan) or did not come back
+  // fails it. Not applied to red controls, whose planned cells must NOT repair.
+  const planBroken = !!planRun && !red && (planRun.notReproduced.length > 0 || planRun.notRepaired.length > 0);
+  process.exit(integrityBroken || planBroken || (red && !red.held) ? 2 : 0);
 }
 
 // ---------------------------------------------------------------- rendering --
@@ -665,6 +706,8 @@ function renderResults({ args, ccName, ccVersion, pluginSha, pre, rows, authz, c
   L.push(`  no-wipe files with pinnedCount > 0     ${none.filter((r) => (r.pinnedCount ?? 0) > 0).length}/${none.length}`);
   const absent = er.filter((r) => r.absentAfterAblation.length);
   L.push(`  helper resolved in w, not-in-module in wo (its only call was the ablated wipe; tolerated, not broken): ${absent.length} cell(s)`);
+  L.push(`  pinned sites the plugin flags followedByUse (initialiser-like; a hint that can over-approximate): ${valid.reduce((n, x) => n + x.followedByUseCount, 0)}`);
+  L.push(`  records naming a non-exact target definition: ${valid.filter((x) => x.nonExact.length).length}`);
   L.push('');
 
   // per-span view: the same verdictOf, one span ablated at a time

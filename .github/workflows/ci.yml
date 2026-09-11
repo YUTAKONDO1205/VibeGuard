@@ -277,9 +277,10 @@ jobs:
   # it); what was inside the boundary was not.
   #
   # SCOPE, STATED RATHER THAN IMPLIED. This job runs the Node suites. The C++
-  # components — the Clang frontend gate and the two LLVM passes — need cmake and
-  # llvm-18-dev and are NOT built here. A green tick on this job means the Node
-  # side is exercised, not that the toolchain is.
+  # components — the Clang frontend gate, the two LLVM observer passes and the
+  # repair plugin under compiler/llvm-repair — need cmake and llvm-18-dev and are
+  # NOT built here. A green tick on this job means the Node side is exercised, not
+  # that the toolchain is.
   # NOTE ON THE JOB NAME. It does not repeat the directory's name, and that is
   # not stylistic: the naming guard treats that word as legitimate only under the
   # directory itself and in the two git dotfiles that have to spell it, so a job
