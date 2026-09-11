@@ -80,11 +80,15 @@ const VENDOR_KEYS = Object.freeze(['clang', 'gcc']);
  * WipePin's column is what LLVM 18's OptimizationLevel reports (measured with
  * the plugin at -O0..-Os: {0,0} {1,0} {2,0} {3,0} {2,1}).
  *
- * WipePinGcc's column is a COPY of the LLVM one, not a measurement. Lane B
- * measures what gcc-13 actually reports for `optimize` / `optimize_size` under
- * each flag; this column must then follow that measurement, flag by flag, and
- * say where it came from. Until it does, a GCC record is tied to its compile
- * only as well as this guess is right.
+ * WipePinGcc's column is what gcc-13 13.3.0 reports as `optimize` /
+ * `optimize_size`, measured from the plugin's own record at each flag
+ * (compiler/gcc-repair/README.md, "What is different on GCC"): -O0..-Oz give
+ * {0,0} {1,0} {2,0} {3,0} {2,1} {2,2}, the same pairs as the LLVM column. The
+ * columns are kept per component anyway, so that a vendor whose reading differs
+ * changes its own column and nothing else. gcc also has -Ofast {3,0} and
+ * -Og {1,0}; neither is in either table, so a record for them is refused as
+ * "no known optimisation pair" rather than matched to a level it only
+ * resembles.
  */
 const LLVM_OPT_LEVELS = Object.freeze({
   '-O0': Object.freeze({ speedup: 0, size: 0 }),

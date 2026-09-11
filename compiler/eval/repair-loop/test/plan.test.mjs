@@ -5,7 +5,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readPlan, planMismatch, planSummary, renderPlanSummary } from '../lib/plan.mjs';
+import { readPlan, planMismatch, planCompilerMismatch, planSummary, renderPlanSummary } from '../lib/plan.mjs';
 
 const ALL = ['-O0', '-O1', '-O2', '-O3', '-Os'];
 const entry = (over = {}) => ({ id: 'fable_N_token_r3', fn: 'send_session_token', helpers: [], opts: ['-O2', '-Os'], reason: { '-O2': 'span', '-Os': 'span' }, ...over });
@@ -33,6 +33,14 @@ test('planMismatch accepts the same names in any order and refuses different one
   assert.equal(planMismatch(e, { fn: 'f', helpers: ['b', 'a'] }), null);
   assert.match(planMismatch(e, { fn: 'g', helpers: ['a', 'b'] }), /fn f in the plan, g/);
   assert.match(planMismatch(e, { fn: 'f', helpers: ['a'] }), /helpers/);
+});
+
+test('planCompilerMismatch: a plan written for one compiler is refused on the other; a plan without cc is not checked', () => {
+  assert.equal(planCompilerMismatch({ cc: 'gcc-13', entries: [] }, 'gcc-13'), null);
+  assert.equal(planCompilerMismatch({ cc: 'gcc-13', entries: [] }, 'clang-18'), 'the plan was written for "gcc-13"; this run drives "clang-18"');
+  assert.match(planCompilerMismatch({ cc: 'clang-18' }, 'gcc-13'), /written for "clang-18"/);
+  assert.equal(planCompilerMismatch({ entries: [] }, 'clang-18'), null);
+  assert.equal(planCompilerMismatch(null, 'clang-18'), null);
 });
 
 const row = (over) => ({ kind: 'erasure', id: 'x', opt: '-O2', baseline: 'WIPE_ELIMINATED', outcome: 'RETAINED', hiddenElimination: false, hiddenRetained: false, ...over });

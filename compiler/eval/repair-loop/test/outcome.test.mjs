@@ -8,7 +8,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { outcomeOf, brokenReasons, absentAfterAblation, gradeRedControl, verdictWord, OUTCOMES } from '../lib/outcome.mjs';
-import { ablatedUnchanged, controlUntouched, noPinNoChange, pinDelta } from '../lib/surgicality.mjs';
+import {
+  ablatedUnchanged, controlUntouched, controlRenumberedOnly, canonicalLocalLabels, differsOnlyInLabels, noPinNoChange, pinDelta,
+} from '../lib/surgicality.mjs';
 
 const E = 'WIPE_ELIMINATED';
 const S = 'WIPE_SURVIVED';
@@ -262,6 +264,50 @@ test('controlUntouched: functions scope only, every pair must match', () => {
   assert.equal(controlUntouched({ scope: 'module', pairs: [moved], bodyOf }), null);
   assert.equal(controlUntouched({ scope: 'functions', pairs: [[null, listing('a')]], bodyOf }), null);
   assert.equal(controlUntouched({ scope: 'functions', pairs: [], bodyOf }), null);
+});
+
+// The gcc-13 shape, measured on fable_N_token_r3 -O2: the pin in the target
+// renumbers the unit-wide .L labels, and the control that follows it differs in
+// nothing else.
+const ctlOff = '\tcall\tvgctl_use@PLT\n\tjne\t.L15\n\taddq\t$40, %rsp\n\tret\n.L15:\n\tcall\t__stack_chk_fail@PLT';
+const ctlOn = ctlOff.replaceAll('.L15', '.L14');
+
+test('canonicalLocalLabels renames .L<n> by first appearance, and nothing clang writes', () => {
+  assert.equal(canonicalLocalLabels(ctlOff), canonicalLocalLabels(ctlOn));
+  assert.match(canonicalLocalLabels(ctlOff), /jne\t\.L#0\n[\s\S]*^\.L#0:$/m);
+  assert.equal(canonicalLocalLabels('jmp .L3\n.L10:\njmp .L3'), 'jmp .L#0\n.L#1:\njmp .L#0');
+  // clang's per-function labels, constant pools and gcc's .LC constants are left alone
+  const clang = 'jne .LBB0_2\n.LBB0_2:\n.Ltmp0:\nmovaps .LCPI1_0(%rip), %xmm0\nleaq .LC0(%rip), %rdi\n.Lfunc_end1:';
+  assert.equal(canonicalLocalLabels(clang), clang);
+  assert.equal(canonicalLocalLabels(null), null);
+});
+
+test('canonicalLocalLabels keeps a structural change visible: a branch to a different label still differs', () => {
+  const a = 'jne .L3\n.L3:\nret\n.L4:\nret';
+  const b = 'jne .L4\n.L3:\nret\n.L4:\nret';
+  assert.notEqual(canonicalLocalLabels(a), canonicalLocalLabels(b));
+  assert.equal(differsOnlyInLabels(a, b), false);
+});
+
+test('differsOnlyInLabels: true only for text that differs and is equal after renaming', () => {
+  assert.equal(differsOnlyInLabels(ctlOff, ctlOn), true);
+  assert.equal(differsOnlyInLabels(ctlOff, ctlOff), false);
+  assert.equal(differsOnlyInLabels(ctlOff, ctlOn + '\n\tpxor\t%xmm0, %xmm0'), false);
+  assert.equal(differsOnlyInLabels(null, ctlOn), null);
+});
+
+test('controlUntouched holds across a renumbering, and controlRenumberedOnly says that is why', () => {
+  const renum = [listing('a', ctlOff), listing('b', ctlOn)];
+  const exact = [listing('a', ctlOff), listing('b', ctlOff)];
+  const moved = [listing('a', ctlOff), listing('b', ctlOn + '\n\tnop')];
+  assert.equal(controlUntouched({ scope: 'functions', pairs: [exact, renum], bodyOf }), true);
+  assert.equal(controlRenumberedOnly({ scope: 'functions', pairs: [exact, renum], bodyOf }), true);
+  assert.equal(controlRenumberedOnly({ scope: 'functions', pairs: [exact, exact], bodyOf }), false);
+  // a real change is still a violation, and then nothing is "renumbered only"
+  assert.equal(controlUntouched({ scope: 'functions', pairs: [renum, moved], bodyOf }), false);
+  assert.equal(controlRenumberedOnly({ scope: 'functions', pairs: [renum, moved], bodyOf }), null);
+  assert.equal(controlRenumberedOnly({ scope: 'module', pairs: [renum], bodyOf }), null);
+  assert.equal(controlRenumberedOnly({ scope: 'functions', pairs: [], bodyOf }), null);
 });
 
 test('noPinNoChange compares the whole listing, not the target body', () => {
