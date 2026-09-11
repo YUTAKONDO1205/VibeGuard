@@ -456,6 +456,15 @@ jobs:
   # verdict from the harness's JSON report as well as its exit code, and the
   # report has to name the .so this job built.
   #
+  # The other four C++ components under compiler/ are built here too, and
+  # only built: the AST gate (compiler/clang-plugin, IntentGate, which is why
+  # libclang-18-dev is installed), the observer's synthetic ground truth
+  # (pass-instrumentation/observer/rq2), the marker pass and the introduction
+  # observer (pass-instrumentation/marker, /introduction). Nothing below runs
+  # them; what this job shows for them is that they still build against the
+  # pinned LLVM 18, so that no C++ component under compiler/ builds only on the
+  # machine that wrote it.
+  #
   # PINNED TO ubuntu-24.04, not ubuntu-latest, on purpose. The fixture loops'
   # expectations are measurements of clang 18.1.3 and gcc 13.3.0 as the 24.04
   # archive ships them — which level deletes the fixture's wipe, which form a
@@ -488,10 +497,10 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install clang-18, llvm-18-dev, lld-18, gcc-13 and the GCC plugin headers
+      - name: Install clang-18, llvm-18-dev, libclang-18-dev, lld-18, gcc-13 and the GCC plugin headers
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-18 llvm-18-dev lld-18 cmake ninja-build python3 gcc-13 g++-13 gcc-13-plugin-dev
+          sudo apt-get install -y clang-18 llvm-18-dev libclang-18-dev lld-18 cmake ninja-build python3 gcc-13 g++-13 gcc-13-plugin-dev
 
       # Printed, so a red run can be read against the versions the fixture
       # expectations were measured with (clang 18.1.3, gcc 13.3.0).
@@ -500,7 +509,7 @@ jobs:
           set -u
           clang-18 --version | head -1
           gcc-13 --version | head -1
-          for p in clang-18 llvm-18-dev lld-18 cmake ninja-build python3 gcc-13 g++-13 gcc-13-plugin-dev; do
+          for p in clang-18 llvm-18-dev libclang-18-dev lld-18 cmake ninja-build python3 gcc-13 g++-13 gcc-13-plugin-dev; do
             dpkg-query -W -f='${Package} ${Version}\n' "$p"
           done
 
@@ -533,6 +542,20 @@ jobs:
           cmake -S compiler/gcc-repair -B "$RUNNER_TEMP/build/gcc-repair" -G Ninja
           ninja -C "$RUNNER_TEMP/build/gcc-repair"
 
+      # Built only (see the job comment). clang-plugin needs Clang's CMake
+      # package as well as LLVM's, from libclang-18-dev.
+      - name: Build the other C++ components (build only)
+        run: |
+          set -u
+          llvm_dir="$(llvm-config-18 --cmakedir)"
+          cmake -S compiler/clang-plugin -B "$RUNNER_TEMP/build/clang-plugin" -G Ninja -DLLVM_DIR="$llvm_dir" -DClang_DIR=/usr/lib/llvm-18/lib/cmake/clang
+          ninja -C "$RUNNER_TEMP/build/clang-plugin"
+          for d in observer/rq2 marker introduction; do
+            b="$RUNNER_TEMP/build/pi-$(printf '%s' "$d" | tr '/' '-')"
+            cmake -S "compiler/pass-instrumentation/$d" -B "$b" -G Ninja -DLLVM_DIR="$llvm_dir"
+            ninja -C "$b"
+          done
+
       - name: Assert every plugin and the digest calibrator exist
         run: |
           set -u
@@ -541,7 +564,11 @@ jobs:
                    "$RUNNER_TEMP/build/pass-observer/libPropertyObserver.so" \
                    "$RUNNER_TEMP/build/llvm-repair/libWipePin.so" \
                    "$RUNNER_TEMP/build/gcc-repair/libWipePinGcc.so" \
-                   "$RUNNER_TEMP/build/gcc-repair/canon-vectors"; do
+                   "$RUNNER_TEMP/build/gcc-repair/canon-vectors" \
+                   "$RUNNER_TEMP/build/clang-plugin/libIntentGate.so" \
+                   "$RUNNER_TEMP/build/pi-observer-rq2/libSyntheticGroundTruth.so" \
+                   "$RUNNER_TEMP/build/pi-marker/libMarkerPass.so" \
+                   "$RUNNER_TEMP/build/pi-introduction/libIntroductionObserver.so"; do
             if [ -s "$f" ]; then
               echo "$(sha256sum "$f" | cut -d' ' -f1)  $(basename "$f")"
             else
