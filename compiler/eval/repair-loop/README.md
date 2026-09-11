@@ -396,18 +396,20 @@ node --test compiler/eval/repair-loop/test/*.test.mjs
 ## Results
 
 `clang-18` 18.1.3 (Ubuntu), x86-64, the plugin built from `compiler/llvm-repair/`
-(`libWipePin.so` sha256 `0436d66b…6d16d`, the same bytes from two independent
-builds). Full functions-scope run over all five levels; the rows and the
-rendered table are `data/r2-repair-rows.json` and `data/r2-repair-results.txt`.
-The numbers below not marked _pending_ come from that run, made with the
-`wipe-pin-v0` plugin and reader, before the per-span, corroboration, provenance
-and pin-plan layers existed.
+(`wipe-pin-v1`, `libWipePin.so` sha256 `aa7329c3…f0a66`, the same bytes from two
+independent builds). Full functions-scope run over all five levels; the rows and
+the rendered table are `data/r2-repair-rows.json` and `data/r2-repair-results.txt`.
+Only the module-scope line below comes from an earlier run with the `wipe-pin-v0`
+plugin; v1 changes what the record says, not what the plugin emits (identical
+`-S` output on the files and levels compared when v1 was written).
 
 **The find step reproduces.** Plugin off, every wipe cell agrees with the tracked
 find-step row: 1605/1605, and the 195 no-wipe cells are `NO_WIPE_WRITTEN` there
 too.
 
-**Every elimination the find step reported is reversed, and nothing else moves.**
+**Every elimination the find step reported is reversed** — at the find step's
+own, cell-level granularity. The per-span view below finds eliminations that
+granularity hides, and the plugin retains those too.
 
 | removable idiom (133 files) | `-O0` | `-O1` | `-O2` | `-O3` | `-Os` |
 |---|---|---|---|---|---|
@@ -423,25 +425,36 @@ not `DSEPass` (the `-O1` pipeline has none) but later, and the volatile flag
 holds it too.
 
 - **Per span** (the same `verdictOf`, one span ablated at a time; cell outcomes
-  above unchanged): in `RETAINED` cells, removable spans that survive
-  individually with the plugin: _pending (main agent fills)_ per level. Cells the
-  find step scored `WIPE_SURVIVED` in which a span is individually eliminated
-  without the plugin: _pending (main agent fills)_ per level, of which retained
-  with the plugin: _pending (main agent fills)_. The error-path shape
-  (`fable_N_token_r3`) and the initialiser-plus-wipe shape
-  (`sonnet_S_pinpad_r1`) are the two this layer was added for.
+  above unchanged): in `RETAINED` cells, every removable span also survives on
+  its own with the plugin — 81/81 at `-O1`, 156/156 at each of `-O2`/`-O3`/`-Os`
+  (549/549). Cells the find step scored `WIPE_SURVIVED` in which a span is
+  individually eliminated without the plugin: **0/7/19/18/19** at
+  `-O0`..`-Os` (63 cells in 19 files), and the plugin retains **all 63**. The
+  error-path shape (`fable_N_token_r3`: no zero store left in the target body,
+  but deleting both wipes also rotates the loop, so the cell reads "survived")
+  and the initialiser-plus-wipe shape (`sonnet_S_pinpad_r1`) are the two this
+  layer was added for; the ids are listed in the results file. Per-span
+  plugin-on records valid 835/835.
 - **`pinDelta` is not attribution** (see *Surgicality*): the wipe-deleted compile
   pinned nothing in any scored cell, so `pinDelta > 0` in the 401 `RETAINED`
   cells only restates that each pinned something.
 - **Corroboration** by the effect oracle: `RETAINED` cells with the effect
-  `PRESENT` in `w/on`: _pending (main agent fills)_; in `w/off`: _pending (main
-  agent fills)_ (unreliable by construction, see *Beside the outcome*).
-- **Listings hashed:** _pending (main agent fills)_.
-- **A pin changed a listing where the find step reported no loss:** _pending
-  (main agent fills)_ per level, split by `hiddenElimination`.
-- **Pin plan:** _pending (main agent fills)_ files.
-- **Cross-vendor coverage:** _pending (main agent fills)_ (the line
-  `eliminations reversed / found: …`).
+  `PRESENT` in `w/on`: 401/401; in `w/off`: 101 of 401 (5/32/32/32 at
+  `-O1`..`-Os`) — unreliable by construction, see *Beside the outcome*.
+- **Listings hashed:** 6790.
+- **A pin changed a listing where the find step reported no loss**
+  (`ALREADY_SURVIVED`, w pinned > 0, w/off and w/on digests differ):
+  158/32/26/25/26 at `-O0`..`-Os`. With a hidden elimination: 0/7/19/18/19;
+  without: 158/25/7/7/7. At `-O0` that is the pin turning a `memset` call into
+  inline stores (see `compiler/llvm-repair/README.md`). The 7 at `-O2` were read
+  record by record: every site pinned in them is one the plugin marks
+  `followedByUse` (initialiser-like; that hint can over-approximate, see the
+  plugin README), `opus_N_pinpad_r2` among them. The `-O1` 25 were not read one
+  by one. None of these is a repair, and none is counted as one.
+- **Pin plan:** 132 files — the 113 whose cell is eliminated at some level plus
+  the files with only a hidden elimination.
+- **Cross-vendor coverage:** eliminations reversed / found: clang-18 401/401,
+  gcc-13 0/432 (no plugin can load), total 401/833.
 - **Positive control** `PRESENT` in every plugin-on compile that compiled:
   `w/on` 321/321 and no-wipe 39/39 at each level; `wo/on` 319/321 (the 2 files
   whose ablation does not compile).
@@ -452,9 +465,10 @@ holds it too.
   The static-helper exception above was applied in 770 cells.
 - **Red controls, both `HELD`** (`-O2`, functions scope): `--dry-run` gives
   `RETAINED` 0 and `PIN_INEFFECTIVE` 113 with every `noPinNoChange` held;
-  `--target-suffix X` gives `BROKEN_REPAIR` in every scorable cell. The dry run's
-  new check, `hiddenRetained` nowhere: _pending (main agent fills)_.
-- **Module scope** (all five levels, not tracked): `RETAINED` 62/113/113/113 at
+  `--target-suffix X` gives `BROKEN_REPAIR` in every scorable cell. In the dry
+  run the 19 `-O2` hidden eliminations are all still eliminated
+  (`hiddenRetained` 0 of 19).
+- **Module scope** (`wipe-pin-v0`, all five levels, not tracked): `RETAINED` 62/113/113/113 at
   `-O1`..`-Os`, 0 eliminated cells left unrepaired. It carries no surgicality
   evidence, as explained above.
 - **configguard, `-O2`:** the tracked `DEFAULT_DIFFERS` result re-observed in
