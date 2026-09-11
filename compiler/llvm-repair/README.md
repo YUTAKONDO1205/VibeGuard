@@ -62,7 +62,7 @@ One clang invocation, one source file, one record, written at the end of the
 pass's single run and overwriting whatever was at `WPIN_OUT`:
 
 ```json
-{ "schemaVersion": "wipe-pin-v1", "component": "WipePin", "module": "<basename>",
+{ "schemaVersion": "wipe-pin-v2", "component": "WipePin", "module": "<basename>",
   "toolchain": {"clang": "18.1.3", "packages": [{"name": "llvm", "version": "18.1.3"}],
                 "digest": "<sha256>"},
   "optLevel": {"speedup": 2, "size": 0}, "scope": "functions",
@@ -80,6 +80,17 @@ pass's single run and overwriting whatever was at `WPIN_OUT`:
   "evidenceDigest": "...", "context": {"generatedAt": ..., "timeSource": ..., "sourceDateEpoch": ...} }
 ```
 
+What `wipe-pin-v2` changed from `v1`, for this plugin: `schemaVersion`, and how
+`followedByUse` is computed. Its three values and its meaning are the same; what
+no longer counts as a path to a later use is an edge of clang's cleanup dispatch
+that the path being followed cannot take (see *What `followedByUse` can and
+cannot say*). Every other field is computed exactly as in v1, and the code the
+plugin emits is the same (measured below). The v2 contract also admits a second
+writer, the GCC plugin `WipePinGcc` (`../gcc-repair/`), whose `toolchain` block
+carries `gcc` where this one carries `clang`; one reader,
+`../eval/repair-loop/lib/pin-record.mjs`, reads both, and takes the component
+the caller loaded (`WipePin` here) as part of what the record must match.
+
 What `wipe-pin-v1` added to `v0`; apart from `schemaVersion`, nothing else
 changed:
 
@@ -96,7 +107,8 @@ changed:
   shape of a wipe before the buffer dies. `null` when the underlying object is not an alloca (a parameter,
   a global, a pointer reloaded from memory) — the question has no answer inside
   this function. Computed at pipeline start for every recorded site, in a dry
-  run as well, before anything is changed.
+  run as well, before anything is changed. (v2 asks the reachability question a
+  second time where the first answer is `true`; see below.)
 - **`resolution[].exact`** — for a resolved name, `Function::isDefinitionExact()`:
   `false` for `linkonce_odr` (C++ inline and template functions), `weak`,
   `available_externally` (a C99 inline definition, which clang emits only when
@@ -203,21 +215,77 @@ succeeded and looks repaired. Each one is turned into something audible.
 ### What `followedByUse` can and cannot say
 
 It is a hint that points one way. `true` means "some use of this buffer is
-reachable in the CFG after this site"; `false` means "none is". Neither says the
-wipe survives — that is still the confirm step's question.
+reachable in the CFG after this site, not counting a cleanup-dispatch edge the
+path cannot take"; `false` means "none is". Neither says the wipe survives —
+that is still the confirm step's question.
 
-- **It over-approximates, and that is measured.** Reachability is asked of the
-  IR as the front end wrote it, which at `-O1` and above contains clang's
-  cleanup dispatch: a `return` from inside a loop body that declares a local
-  goes through a shared cleanup block whose `switch` has an edge back to the
-  loop. On `fable_N_token_r3.c` (`send_session_token`), the error-path wipe
-  `memset(token, …); return -1;` inside the `while` loop (line 17) is
-  `followedByUse: false` at `-O0` and `true` at `-O1` and `-O2`, because the CFG
-  path 17 → cleanup → loop header → `write(fd, token + total, …)` exists even
-  though no execution takes it. The partial line is printed for that file at
-  `-O1`/`-O2`. An over-approximation of this kind can add a partial line; it can
-  never remove one. `isPotentiallyReachable` also answers `true` when it gives
-  up on a large CFG.
+- **v2 no longer counts the cleanup-dispatch edge a path cannot take.**
+  Reachability is asked of the IR as the front end wrote it, which at `-O1` and
+  above contains clang's cleanup dispatch: a scope that declares a local has a
+  cleanup (its lifetime markers), and every jump out of it — a `return` inside a
+  loop body, a `break`, falling off the end of the body — goes through one shared
+  cleanup block. Which way the jump was going is kept in an `i32` stack slot
+  (`cleanup.dest.slot` in a build that keeps value names): each jump stores its
+  own constant there, the shared block loads it, and a `switch` on the load
+  sends control on. On `fable_N_token_r3.c` (`send_session_token`, front-end IR
+  at `-O1`) the `return -1` path stores `1`, the fall-through path stores `0`,
+  and the switch sends `0` back to the loop header and everything else to the
+  exit. So the CFG has a path from the error-path wipe `memset(token, …);
+  return -1;` (line 17) back to `write(fd, token + total, …)`, which no
+  execution takes. v1 answered reachability with `isPotentiallyReachable` alone
+  and read that site `true` at `-O1` and above (`false` at `-O0`, which has no
+  dispatch), and printed the partial line for it.
+
+  v2 asks twice. First `isPotentiallyReachable`, exactly as v1; a `false` there
+  is final. Only where it says `true`, a second search follows the CFG from the
+  memset, carrying for each **modelled slot** the constant last stored into it
+  on the current path, and at a `switch` whose condition is a load from such a
+  slot, read on the current walk of that block, it follows only the edge that
+  constant selects (the default when no case matches). Every other edge, and
+  every edge of any other terminator, is followed. A slot is modelled only when
+  every one of its users is a non-volatile store *into* it of a `ConstantInt` of
+  its own type, or a non-volatile load *from* it of its type — nothing else can
+  write it and its address goes nowhere, so its value on a path is the constant
+  last stored on that path. At the memset every slot is "unknown" (the search
+  does not look backwards), and an unknown slot keeps all of its switch's edges.
+  The model goes by that shape, not by clang's slot name: a source variable of
+  the same shape switched on directly is pruned the same way, and for the same
+  reason just as soundly (in the corpus sweep below no site changed for that
+  reason).
+
+  **The soundness rule:** v2 turns `true` into `false` only when every CFG path
+  from the memset to every use goes through a modelled switch edge that is
+  infeasible on that path. It never turns `false` into `true` (the first
+  question is v1's, unchanged). Past 65 536 explored (block, slot values) pairs
+  the search gives up and answers `true` — the direction `isPotentiallyReachable`
+  gives up in. The fixture loop has a guard for exactly the wrong answer this
+  could give: `loopbreakuse`, where the memset is followed by `break` and the
+  buffer is read after the loop; the break reaches the read *through* the
+  dispatch switch, on the edge its own constant selects, and must stay `true`. A
+  deliberately unsound build that took the switch's default edge instead reads
+  it `false` and the checker exits 2 (measured below).
+
+  Measured over the whole erasure corpus (below): the refinement changed 16
+  sites, all `true` → `false`, all at `-O1`..`-Os`, in exactly
+  `fable_N_token_r3`, `sonnet_N_token_r1` and `sonnet_S_pwverify_r1` (the
+  `return` inside the loop, and in the last file the two `return 0` inside the
+  nested hex-decoding loop), and each now reads what it reads at `-O0`.
+- **What it still over-approximates.** Everything the dispatch model does not
+  describe is plain reachability, as in v1:
+  - any other correlation between a stored value and a later branch — a flag
+    (`ok = 0; … if (ok) use(buf);`), a loop counter, the return-value slot
+    compared in an `if`, a condition on an ordinary variable. Only a `switch`
+    on a load is ever pruned, and only on a slot of the shape above;
+  - a slot whose constant was stored *before* the memset (the search starts
+    with every slot unknown), and a switch whose load sits in another block;
+  - a dispatch slot with any other user (a lifetime marker, a GEP, a call, its
+    address stored somewhere) — clang's own slot has none, measured on the
+    three files above; a different front end or a later clang might;
+  - `isPotentiallyReachable` giving up on a large CFG, and the second search
+    giving up past its bound: both answer `true` (how close any search in the
+    corpus came to the bound was not measured).
+
+  Each of these can add a partial line; none can remove one.
 - **It follows the address through stack slots, and nowhere else in memory.**
   When the buffer's address is stored into a stack slot (`unsigned char *p =
   key;`), loads from that slot count as the address again, and so on for any
@@ -247,9 +315,9 @@ WPIN_TARGET_FNS=encrypt_blob \
 
 | exit | meaning |
 |---|---|
-| `0` | clang succeeded; a `wipe-pin-v1` record was written; it pinned at least one site; every requested name resolved. **Not** "the wipe survived", and not even "the wipe was pinned": a pinned initialiser counts. `followedByUseCount` and the partial line are where that shows. |
+| `0` | clang succeeded; a `wipe-pin-v2` record was written; it pinned at least one site; every requested name resolved. **Not** "the wipe survived", and not even "the wipe was pinned": a pinned initialiser counts. `followedByUseCount` and the partial line are where that shows. |
 | `1` | clang failed |
-| `3` | clang succeeded and there is no usable record: the plugin refused to install, its pass never ran, the record could not be written, or what was written is not a `wipe-pin-v1` record `python3` can read |
+| `3` | clang succeeded and there is no usable record: the plugin refused to install, its pass never ran, the record could not be written, or what was written is not a `wipe-pin-v2` record `python3` can read (a v1 record from an older build is one) |
 | `4` | clang succeeded and a record was written, but nothing was repaired: `pinnedCount` is 0 (a dry run, a misspelt name, nothing eligible in scope) or a requested name did not resolve |
 
 `pin.sh` reads the record with `python3` (no `jq`), and writes
@@ -296,14 +364,18 @@ observer loaded first) must have the same `evidenceDigest`. Two more cells run
 `pin.sh` alone where it must exit 3. Then two groups that do not involve the
 observer, generated into the lab:
 
-- **shapes**: small sources, each compiled `-O2 -g` through `pin.sh`, whose
-  record and stderr have a known right answer — an `= {0}` initialiser followed
-  by a zeroing loop (`initloop`), the same initialiser with the wipe in a
-  helper (`inithelper`), a clear-before-fill memset and a trailing wipe memset
+- **shapes**: small sources, each compiled `-g` through `pin.sh` at `-O2`,
+  whose record and stderr have a known right answer — an `= {0}` initialiser
+  followed by a zeroing loop (`initloop`), the same initialiser with the wipe in
+  a helper (`inithelper`), a clear-before-fill memset and a trailing wipe memset
   on one buffer (`initwipe`), a clear-before-fill memset whose later uses all
   go through a copied pointer (`aliasinit`), a trailing memset only
-  (`trailing`), a C99 inline target (`c99inline`) and a C++ inline target
-  (`cxxinline`);
+  (`trailing`), a C99 inline target (`c99inline`), a C++ inline target
+  (`cxxinline`), and, each also at `-O0` and `-O1`, the error-path wipe inside
+  a loop (`loopreturn`: `memset; return -1;` in the body, which also reads the
+  buffer, plus a trailing memset — `false`, `false`, no partial line) and its
+  soundness guard (`loopbreakuse`: `memset; break;` with the buffer read after
+  the loop — `true` and the partial line);
 - **stale records**: clang run directly (not `pin.sh`, which deletes the path
   itself) with a file that is not this compile's record already at `WPIN_OUT`:
   a refused compile, a `-Xclang -disable-llvm-passes` compile, a normal compile,
@@ -326,6 +398,114 @@ tree. There are no default lab or build paths in either script.
 
 clang 18.1.3, Ubuntu 24.04 (WSL), plugin built with g++ 13.3.0, 2026-09-11.
 Every number below was copied from a run, not from reasoning.
+
+### `wipe-pin-v2`
+
+**Build.** `-Wall -Wextra`: 0 warnings. `libWipePin.so` sha256
+`e89e07fd54c397058d9a9ee28eb1faa2b879d27b060dc7a251231bccb11cbad6`, the same
+bytes from two builds into separate directories. The v1 plugin rebuilt from the
+parent commit in a different checkout directory gave v1's
+`aa7329c3…f0a66` again; that build is the "v1" of every comparison below.
+
+**Same code as `v1`.** The refinement is read-only and runs before the pin.
+Measured: over every erasure-family file of the r2 corpus (the 360 ids the
+tracked find-step rows list as `erasure`), with the find step's `FLAGS`, at
+`-O0`, `-O1`, `-O2`, `-O3` and `-Os`, the plugin live in module scope, v1 and v2
+gave the same `-S` output in 1800/1800 (file, level) pairs, with the same
+`pinnedCount` in all; in functions scope on the three files whose answer
+changed (target `send_session_token`, `send_session_token`, `verify_password`)
+the `-S` output is identical at all five levels (15/15); the six WipePin cells
+of the fixture loop produce byte-identical objects.
+
+**`followedByUse`, v1 against v2, whole erasure corpus** (same 360 files, five
+levels, dry run, module scope so that every zero-fill site of every function is
+listed; 3600 compiles, 0 failures; 251 sites per level, compared by (file,
+level, function, index)). Sites reading `true`:
+
+| | `-O0` | `-O1` | `-O2` | `-O3` | `-Os` |
+|---|---|---|---|---|---|
+| v1 | 59 | 63 | 63 | 63 | 63 |
+| v2 | 59 | 59 | 59 | 59 | 59 |
+
+The 16 sites whose value changed, every one `true` → `false`, none at `-O0`,
+and nothing else in any record differing but `schemaVersion` and the digests:
+
+| file | function / site | line | changed at | reads at `-O0` |
+|---|---|---|---|---|
+| `fable_N_token_r3` | `send_session_token` #0 | 17 | `-O1` `-O2` `-O3` `-Os` | `false` |
+| `sonnet_N_token_r1` | `send_session_token` #0 | 17 | `-O1` `-O2` `-O3` `-Os` | `false` |
+| `sonnet_S_pwverify_r1` | `verify_password` #2 | 35 | `-O1` `-O2` `-O3` `-Os` | `false` |
+| `sonnet_S_pwverify_r1` | `verify_password` #3 | 49 | `-O1` `-O2` `-O3` `-Os` | `false` |
+
+Each is a wipe followed by `return` inside a loop whose body declares a local;
+each now reads at `-O1`..`-Os` what it reads at `-O0`. Every other site kept
+its v1 value at every level, including `sonnet_S_pwverify_r1` line 12, a
+clear-before-fill memset, which is `true` at all five.
+
+**Fixture loop** (`run-fixture-loop.sh` + `check-fixture-loop.py`, exit 0,
+"all 29 cells as expected"; the loop and stale cells as in v1, the shape table
+with the six new cells):
+
+```
+cell          opt  WipePin  verdict  effect pre->post  firstZero  ctl held  volatile@post  pinned/would/mode/res   followedByUse  obj!=base  pin.sh
+base-O0       -O0  no       PRESENT  1->1              -          yes       0              -                       -              -          -       ok
+base-O1       -O1  no       PRESENT  1->1              -          yes       0              -                       -              -          -       ok
+base-O2       -O2  no       LOST     1->0              DSEPass    yes       0              -                       -              -          -       ok
+base-O3       -O3  no       LOST     1->0              DSEPass    yes       0              -                       -              -          -       ok
+pin-O0        -O0  yes      PRESENT  1->1              -          yes       1              1/1/live/resolved       false          yes        0       ok
+pin-O1        -O1  yes      PRESENT  1->1              -          yes       1              1/1/live/resolved       false          yes        0       ok
+pin-O2        -O2  yes      PRESENT  1->1              -          yes       1              1/1/live/resolved       false          yes        0       ok
+pin-O3        -O3  yes      PRESENT  1->1              -          yes       1              1/1/live/resolved       false          yes        0       ok
+dry-O2        -O2  yes      LOST     1->0              DSEPass    yes       0              0/1/dry/resolved        false          no         4       ok
+wrongname-O2  -O2  yes      LOST     1->0              DSEPass    yes       0              0/0/live/not-in-module  -              no         4       ok
+
+pin.sh alone     rc  clang rc  record
+notarget-O2      3   0         -       ok
+nollvmpasses-O2  3   0         -       ok
+
+shape (-g)       opt  pin.sh  pinned  followedByUse  exact/linkage               partial line  non-exact line
+initloop         -O2  0       1       true           True/external               yes           no              ok
+inithelper       -O2  0       1       true           True/external               yes           no              ok
+initwipe         -O2  0       2       true,false     True/external               yes           no              ok
+aliasinit        -O2  0       1       true           True/external               yes           no              ok
+trailing         -O2  0       1       false          True/external               no            no              ok
+c99inline        -O2  0       1       false          False/available_externally  no            yes             ok
+cxxinline        -O2  0       1       false          False/linkonce_odr          no            yes             ok
+loopreturn-O0    -O0  0       2       false,false    True/external               no            no              ok
+loopreturn-O1    -O1  0       2       false,false    True/external               no            no              ok
+loopreturn       -O2  0       2       false,false    True/external               no            no              ok
+loopbreakuse-O0  -O0  0       1       true           True/external               yes           no              ok
+loopbreakuse-O1  -O1  0       1       true           True/external               yes           no              ok
+loopbreakuse     -O2  0       1       true           True/external               yes           no              ok
+
+stale record    before  clang rc  after   WipePin stderr
+stale-refused   file    0         absent  WipePin: refusing to install: no target                ok
+stale-nopasses  file    0         absent  -                                                      ok
+stale-live      file    0         file    -                                                      ok
+stale-dir       dir     0         dir     WipePin: refusing to install: WPIN_OUT is a directory  ok
+```
+
+In the `-O1` front-end IR of `loopbreakuse` the break path stores `3` into the
+dispatch slot and the switch reads `[0 → loop header, 3 → the block that calls
+use()]`, default `unreachable`: the `true` is reached through the modelled
+switch, on the edge `3` selects. In `loopreturn` the return path stores `1` and
+the switch reads `[0 → loop header]`, default the exit.
+
+**The checker was shown to fail.** The v1 plugin through the same loop → exit 2:
+`loopreturn-O1` and `loopreturn` read `true,false` with the partial line
+(`pinned 2 site(s) in loopreturn.c; 1 followed by …`), besides `schemaVersion`
+`wipe-pin-v1` on every record and `pin.sh` exiting 3 on every one of them.
+A deliberately unsound build (at a modelled switch, take the default edge
+instead of the selected one; built from a copy outside this tree) → exit 2,
+with exactly two cells disagreeing: `loopbreakuse-O1` and `loopbreakuse` read
+`false`, with `followedByUseCount=0` and no partial line; every other cell,
+`loopreturn*` included, still read as expected.
+
+**The reader.** Every WipePin record of that fixture-loop run (6 loop, 6
+`pin.sh`, 13 shapes) is accepted by `../eval/repair-loop/lib/pin-record.mjs`
+with `expect.component: "WipePin"` (25/25), so the C++ writer's toolchain
+digest and the reader's re-derivation agree; the 13 v1 shape records are all
+refused (`unknown-schemaVersion`).
 
 ### `wipe-pin-v1`
 

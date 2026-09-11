@@ -1,13 +1,28 @@
 /**
- * Reader for the record the repair plugin writes (schemaVersion "wipe-pin-v1").
+ * Reader for the record the repair plugins write (schemaVersion "wipe-pin-v2").
  *
- * v1 is v0 plus four things, and only "wipe-pin-v1" is accepted: a v0 record
- * lacks them and is refused like any other record of the wrong shape.
- *   - pinned[].followedByUse     true | false | null
+ * Only "wipe-pin-v2" is accepted. A v1 record is refused like any other record
+ * of the wrong shape, and so is v0. What v2 is, field by field, is the contract
+ * the two plugins were written against (the LLVM one in compiler/llvm-repair/,
+ * the GCC one in compiler/gcc-repair/); what this reader holds them to:
+ *   - component                  "WipePin" (LLVM) or "WipePinGcc" (GCC), and the
+ *                                one the caller says it drove (expect.component);
+ *                                a mismatch is wrong-compile
+ *   - toolchain                  exactly {digest, packages} plus exactly ONE
+ *                                compiler key, the one the component names:
+ *                                `clang` for WipePin, `gcc` for WipePinGcc. The
+ *                                compiler key is the version the plugin was
+ *                                built against; packages is exactly
+ *                                [{name: "llvm" | "gcc", version: <that same
+ *                                version>}]; digest is the SHA-256 of the
+ *                                canonical serialisation of {<compiler key>,
+ *                                packages}, and is re-derived here
+ *   - optLevel                   compared with the flag through the component's
+ *                                own table (OPT_LEVELS[component])
+ *   - pinned[].followedByUse     true | false | null, as in v1 (v2 changes how
+ *                                WipePin computes it, not what it may hold)
  *   - resolution[].exact         true | false | null
- *   - resolution[].linkage       a string, or null
- *   - toolchain                  {digest: string (may be empty), clang: string,
- *                                 packages: array of objects}, exactly those keys
+ *   - resolution[].linkage       a string, or null (GCC reports LLVM's words)
  *
  * The record is the plugin's own account of what it did. This lane never takes
  * it as the verdict -- the verdict comes from compiling and comparing, exactly as
@@ -26,37 +41,68 @@
  * Problems are plain strings with NO filesystem paths in them: they travel into
  * the rows, and the rows may be tracked.
  *
- * The plugin seals the record the way every other native component here does
- * (interfaces.md section 5: `evidenceDigest` over the record minus `context`,
- * written by the same Record.cpp IrCheckpoints uses). This reader re-derives the
- * digest with compiler/evidence/canon.mjs -- an implementation that shares no
- * code with the C++ writer -- so a record edited after the compile is refused
- * rather than believed.
+ * Each plugin seals its record the way every other native component here does
+ * (interfaces.md section 5: `evidenceDigest` over the record minus `context`;
+ * WipePin writes it with the same Record.cpp IrCheckpoints uses). This reader
+ * re-derives the digest, and the toolchain digest, with
+ * compiler/evidence/canon.mjs -- an implementation that shares no code with
+ * either C++ writer -- so a record edited after the compile is refused rather
+ * than believed.
  *
  * Nothing here compiles anything or reads anything but the one file it is given.
  */
 import { readFileSync } from 'node:fs';
-import { evidenceDigest } from '../../../evidence/canon.mjs';
+import { evidenceDigest, canonicalJsonRaw, sha256Hex } from '../../../evidence/canon.mjs';
 
-export const SCHEMA_VERSION = 'wipe-pin-v1';
-export const COMPONENT = 'WipePin';
+export const SCHEMA_VERSION = 'wipe-pin-v2';
+export const COMPONENTS = Object.freeze(['WipePin', 'WipePinGcc']);
 export const RESOLUTIONS = Object.freeze(['resolved', 'declaration-only', 'not-in-module']);
 export const SCOPES = Object.freeze(['functions', 'module']);
 
 /**
- * What LLVM's OptimizationLevel reports for each driver flag. The plugin copies
- * the pair it was handed at the pipeline-start extension point; comparing it with
- * the flag this lane passed is how a record is tied to one compile rather than to
- * whichever compile last wrote that file.
+ * Per component: the toolchain block's compiler key, and the one package the
+ * block names. The key names the vendor; its value is the version of the
+ * headers the plugin was compiled against.
  */
-export const OPT_LEVELS = Object.freeze({
-  '-O0': { speedup: 0, size: 0 },
-  '-O1': { speedup: 1, size: 0 },
-  '-O2': { speedup: 2, size: 0 },
-  '-O3': { speedup: 3, size: 0 },
-  '-Os': { speedup: 2, size: 1 },
-  '-Oz': { speedup: 2, size: 2 },
+export const TOOLCHAIN_VENDOR = Object.freeze({
+  WipePin: Object.freeze({ key: 'clang', package: 'llvm' }),
+  WipePinGcc: Object.freeze({ key: 'gcc', package: 'gcc' }),
 });
+const VENDOR_KEYS = Object.freeze(['clang', 'gcc']);
+
+/**
+ * The flag -> optimisation pair each plugin reports, per component. The plugin
+ * copies the pair its compiler hands it (LLVM: the OptimizationLevel at the
+ * pipeline-start extension point; GCC: the global `optimize` and
+ * `optimize_size`); comparing it with the flag this lane passed is how a record
+ * is tied to one compile rather than to whichever compile last wrote that file.
+ *
+ * WipePin's column is what LLVM 18's OptimizationLevel reports (measured with
+ * the plugin at -O0..-Os: {0,0} {1,0} {2,0} {3,0} {2,1}).
+ *
+ * WipePinGcc's column is a COPY of the LLVM one, not a measurement. Lane B
+ * measures what gcc-13 actually reports for `optimize` / `optimize_size` under
+ * each flag; this column must then follow that measurement, flag by flag, and
+ * say where it came from. Until it does, a GCC record is tied to its compile
+ * only as well as this guess is right.
+ */
+const LLVM_OPT_LEVELS = Object.freeze({
+  '-O0': Object.freeze({ speedup: 0, size: 0 }),
+  '-O1': Object.freeze({ speedup: 1, size: 0 }),
+  '-O2': Object.freeze({ speedup: 2, size: 0 }),
+  '-O3': Object.freeze({ speedup: 3, size: 0 }),
+  '-Os': Object.freeze({ speedup: 2, size: 1 }),
+  '-Oz': Object.freeze({ speedup: 2, size: 2 }),
+});
+const GCC_OPT_LEVELS = Object.freeze({
+  '-O0': Object.freeze({ speedup: 0, size: 0 }),
+  '-O1': Object.freeze({ speedup: 1, size: 0 }),
+  '-O2': Object.freeze({ speedup: 2, size: 0 }),
+  '-O3': Object.freeze({ speedup: 3, size: 0 }),
+  '-Os': Object.freeze({ speedup: 2, size: 1 }),
+  '-Oz': Object.freeze({ speedup: 2, size: 2 }),
+});
+export const OPT_LEVELS = Object.freeze({ WipePin: LLVM_OPT_LEVELS, WipePinGcc: GCC_OPT_LEVELS });
 
 const TOP_KEYS = Object.freeze([
   'schemaVersion', 'component', 'module', 'optLevel', 'scope', 'requested', 'resolution',
@@ -66,7 +112,7 @@ const TOP_KEYS = Object.freeze([
 const OPT_KEYS = Object.freeze(['speedup', 'size']);
 const RESOLUTION_KEYS = Object.freeze(['name', 'resolution', 'exact', 'linkage']);
 const PINNED_KEYS = Object.freeze(['function', 'index', 'lengthBytes', 'destKind', 'alreadyVolatile', 'line', 'followedByUse']);
-const TOOLCHAIN_KEYS = Object.freeze(['digest', 'clang', 'packages']);
+const PACKAGE_KEYS = Object.freeze(['name', 'version']);
 export const SEEN_KEYS = Object.freeze(['zeroFillMemsetInScope', 'zeroFillMemsetInModule']);
 // inlineWrapperMemset: under -D_FORTIFY_SOURCE the target calls clang's
 // `memset.inline` wrapper, whose body holds the __memset_chk; nothing in the
@@ -93,13 +139,69 @@ function exactKeys(obj, keys, where, problems) {
   for (const k of Object.keys(obj)) if (!keys.includes(k)) problems.push(`unknown-field: ${where}${k}`);
 }
 
+/** The toolchain digest the contract defines: SHA-256 of canonical {<key>, packages}. */
+export function toolchainDigest(key, version, packages) {
+  return sha256Hex(canonicalJsonRaw({ [key]: version, packages }));
+}
+
+/**
+ * The toolchain block, held to the component's shape. `component` is the
+ * record's own, already known to be one of COMPONENTS, or null when it is not
+ * (then only the vendor-neutral half is checked).
+ */
+function checkToolchain(tc, component, problems) {
+  if (!isObj(tc)) { problems.push('bad-type: toolchain must be an object'); return; }
+  const present = VENDOR_KEYS.filter((k) => k in tc);
+  if (component === null) {
+    if (present.length !== 1) problems.push(`toolchain-vendor: toolchain must carry exactly one of ${VENDOR_KEYS.join(', ')} (it carries ${present.length})`);
+    exactKeys(tc, ['digest', 'packages', ...(present.length === 1 ? present : [])], 'toolchain.', problems);
+    return;
+  }
+  const want = TOOLCHAIN_VENDOR[component];
+  // Said once, in words, before the key-by-key list: a GCC record read as an
+  // LLVM one (or the other way round) is the mistake this check exists for.
+  for (const k of present) {
+    if (k !== want.key) problems.push(`toolchain-vendor: component ${component} carries toolchain.${k}; its compiler key is toolchain.${want.key}`);
+  }
+  exactKeys(tc, ['digest', want.key, 'packages'], 'toolchain.', problems);
+  const version = tc[want.key];
+  if (want.key in tc && !isName(version)) problems.push(`bad-type: toolchain.${want.key} must be a non-empty string`);
+  if ('packages' in tc) {
+    const p = tc.packages;
+    if (!Array.isArray(p)) problems.push('bad-type: toolchain.packages must be an array');
+    else if (p.length !== 1 || !isObj(p[0])) {
+      problems.push(`bad-toolchain: toolchain.packages must be exactly one {name, version} object (it has ${p.length} entr${p.length === 1 ? 'y' : 'ies'})`);
+    } else {
+      exactKeys(p[0], PACKAGE_KEYS, 'toolchain.packages[0].', problems);
+      if ('name' in p[0] && p[0].name !== want.package) {
+        problems.push(`bad-toolchain: toolchain.packages[0].name ${JSON.stringify(p[0].name)}, component ${component} names ${JSON.stringify(want.package)}`);
+      }
+      if ('version' in p[0] && isName(version) && p[0].version !== version) {
+        problems.push(`bad-toolchain: toolchain.packages[0].version ${JSON.stringify(p[0].version)} differs from toolchain.${want.key} ${JSON.stringify(version)}`);
+      }
+    }
+  }
+  if ('digest' in tc) {
+    if (typeof tc.digest !== 'string' || !/^[0-9a-f]{64}$/.test(tc.digest)) {
+      problems.push('bad-type: toolchain.digest must be 64 lowercase hex characters');
+    } else if (isName(version) && Array.isArray(tc.packages)) {
+      let derived = null;
+      try { derived = toolchainDigest(want.key, version, tc.packages); } catch { /* reported as a mismatch below */ }
+      if (derived !== tc.digest) {
+        problems.push(`toolchain-digest-mismatch: toolchain.digest is not the SHA-256 of the canonical {${want.key}, packages}`);
+      }
+    }
+  }
+}
+
 /**
  * Validate a parsed record.
  *
  * @param {unknown} rec
- * @param {{scope?: string, requested?: string[], dryRun?: boolean, opt?: string, module?: string}} [expect]
+ * @param {{component?: string, scope?: string, requested?: string[], dryRun?: boolean, opt?: string, module?: string}} [expect]
  *        what THIS compile asked for. Every key given is compared; a key left out
- *        is not. The runner passes all five.
+ *        is not. The runner passes all six; `component` is the plugin it loaded
+ *        ("WipePin" for clang).
  * @returns {{ok: boolean, record: object|null, problems: string[]}}
  */
 export function validatePinRecord(rec, expect = {}) {
@@ -111,7 +213,11 @@ export function validatePinRecord(rec, expect = {}) {
   if (rec.schemaVersion !== SCHEMA_VERSION) {
     problems.push(`unknown-schemaVersion: ${JSON.stringify(rec.schemaVersion)} (this reader knows ${SCHEMA_VERSION})`);
   }
-  if (rec.component !== COMPONENT) problems.push(`wrong-component: ${JSON.stringify(rec.component)}`);
+  const component = COMPONENTS.includes(rec.component) ? rec.component : null;
+  if (component === null) problems.push(`wrong-component: ${JSON.stringify(rec.component)} (this reader knows ${COMPONENTS.join(', ')})`);
+  if (expect.component !== undefined && !COMPONENTS.includes(expect.component)) {
+    problems.push(`bad-expect: component ${JSON.stringify(expect.component)} is not one this reader knows`);
+  }
   if (!isName(rec.module)) problems.push('bad-type: module must be a non-empty string');
   else if (!isBasename(rec.module)) problems.push('module-not-a-basename: the record carries a path, not a module basename');
 
@@ -161,18 +267,12 @@ export function validatePinRecord(rec, expect = {}) {
     });
   }
 
-  // Values are typed loosely on purpose: the reader checks the shape the
-  // contract names, not what a package entry says.
-  if (!isObj(rec.toolchain)) problems.push('bad-type: toolchain must be an object');
-  else {
-    exactKeys(rec.toolchain, TOOLCHAIN_KEYS, 'toolchain.', problems);
-    if ('digest' in rec.toolchain && typeof rec.toolchain.digest !== 'string') problems.push('bad-type: toolchain.digest must be a string');
-    if ('clang' in rec.toolchain && typeof rec.toolchain.clang !== 'string') problems.push('bad-type: toolchain.clang must be a string');
-    if ('packages' in rec.toolchain) {
-      if (!Array.isArray(rec.toolchain.packages)) problems.push('bad-type: toolchain.packages must be an array');
-      else rec.toolchain.packages.forEach((p, i) => { if (!isObj(p)) problems.push(`bad-type: toolchain.packages[${i}] must be an object`); });
-    }
-  }
+  // v1 typed this block loosely (any string digest, any package objects). v2's
+  // contract names its content exactly, for both vendors, so it is read exactly:
+  // the compiler key the component names and no other, one package that repeats
+  // its version, and a digest that re-derives. Nothing in it comes from the
+  // environment, so there is no "unavailable" case to admit.
+  checkToolchain(rec.toolchain, component, problems);
 
   if (!isCount(rec.pinnedCount)) problems.push('not-a-count: pinnedCount');
   if (!isCount(rec.wouldPinCount)) problems.push('not-a-count: wouldPinCount');
@@ -246,6 +346,11 @@ export function validatePinRecord(rec, expect = {}) {
   }
 
   // ---- does the record describe THIS compile? -----------------------------
+  // The component first: a record from the other vendor's plugin describes a
+  // different compiler, whatever else it says.
+  if (expect.component !== undefined && rec.component !== expect.component) {
+    problems.push(`wrong-compile: component ${rec.component}, this compile loaded ${expect.component}`);
+  }
   if (expect.scope !== undefined && rec.scope !== expect.scope) {
     problems.push(`wrong-compile: scope ${rec.scope}, this compile asked for ${expect.scope}`);
   }
@@ -256,7 +361,10 @@ export function validatePinRecord(rec, expect = {}) {
     problems.push(`wrong-compile: module ${JSON.stringify(rec.module)}, this compile read ${JSON.stringify(expect.module)}`);
   }
   if (expect.opt !== undefined) {
-    const want = OPT_LEVELS[expect.opt];
+    // The table of the compiler this lane drove when it says which; otherwise the
+    // record's own (already one this reader knows).
+    const table = OPT_LEVELS[expect.component ?? rec.component];
+    const want = table[expect.opt];
     if (!want) problems.push(`wrong-compile: no known optimisation pair for ${expect.opt}`);
     else if (rec.optLevel.speedup !== want.speedup || rec.optLevel.size !== want.size) {
       problems.push(`wrong-compile: optLevel {${rec.optLevel.speedup},${rec.optLevel.size}} does not match ${expect.opt} {${want.speedup},${want.size}}`);

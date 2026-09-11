@@ -31,11 +31,14 @@
 // `followedByUse`: whether some other instruction touching the same stack
 // object can run after it. A pinned site with a later use is initialiser-like,
 // and stderr says so (the "partial" line), because a record that only counts
-// pins would read that compile as repaired.
+// pins would read that compile as repaired. wipe-pin-v2 changes only how that
+// question is answered: an edge of clang's cleanup dispatch that the path being
+// followed cannot take no longer counts (CleanupDispatch, below).
 
 #include "PinSelector.h"
 #include "Record.h"
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
@@ -44,6 +47,7 @@
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Config/llvm-config.h"
 #include "llvm/IR/Argument.h"
+#include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Dominators.h"
@@ -65,8 +69,11 @@
 #include <cstdlib>
 #include <ctime>
 #include <limits>
+#include <iterator>
 #include <memory>
+#include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace llvm;
@@ -129,6 +136,146 @@ bool isZeroFill(const MemSetInst &MS) {
 /// `followedByUse`, as a tri-state: the record's true / false / null.
 enum class LaterUse { Yes, No, NotAlloca };
 
+/// clang's cleanup dispatch, modelled just far enough to follow the edge a path
+/// actually takes through it. New in wipe-pin-v2.
+///
+/// At -O1 and above clang emits lifetime markers, so a scope that declares a
+/// local has a cleanup, and every jump out of that scope -- a `return` inside a
+/// loop body, a `break`, a `continue`, falling off the end of the body -- is
+/// routed through ONE shared cleanup block. Which way the jump was going is kept
+/// in an i32 stack slot (named `cleanup.dest.slot` in a build that keeps value
+/// names; unnamed in the release clang measured here): each jump stores its own
+/// constant into the slot, the shared block loads it back, and a `switch` on
+/// that load sends control on. Measured on fable_N_token_r3.c at -O1, front-end
+/// IR: `store i32 1, ptr %7` before `br label %28` on the `return -1` path,
+/// `store i32 0, ptr %7` on the fall-through path, and in %28
+/// `switch i32 (load %7), label %33 [i32 0, label %30]`, where %30 goes back to
+/// the loop header and %33 is the function's exit. The CFG therefore has a path
+/// from the error-path memset back into the loop, although no execution takes
+/// it: on that path the slot holds 1, and 1 selects %33.
+///
+/// A slot is modelled only when every one of its users is a non-volatile store
+/// INTO it of a ConstantInt of its own type, or a non-volatile load FROM it of
+/// its own type: nothing else can write it, nothing can take its address, and
+/// its value at any point on a path is the constant last stored on that path.
+/// A slot with any other user (a lifetime marker, a GEP, a call, its address
+/// stored somewhere) is not modelled, and every switch on it keeps all of its
+/// edges. The test is the shape, not clang's slot name (which a release clang
+/// discards anyway): a source variable of the same shape switched on directly
+/// is modelled too, and for the same reason just as soundly. That is the whole
+/// model; anything it does not describe is plain reachability, as in v1.
+class CleanupDispatch {
+public:
+  explicit CleanupDispatch(const Function &F) {
+    for (const Instruction &I : F.getEntryBlock()) {
+      const auto *AI = dyn_cast<AllocaInst>(&I);
+      if (!AI || AI->isArrayAllocation() || !AI->getAllocatedType()->isIntegerTy())
+        continue;
+      if (onlyConstantStoresAndLoads(*AI)) {
+        SlotIndex[AI] = static_cast<unsigned>(Slots.size());
+        Slots.push_back(AI);
+      }
+    }
+  }
+
+  /// Whether some instruction in `Uses` can run after `From`, following every
+  /// CFG edge except those a modelled switch cannot take on the current path.
+  ///
+  /// A depth-first search over (block, the last constant stored into each
+  /// modelled slot on this path). The state at `From` is "unknown" for every
+  /// slot -- the search does not look backwards -- and an unknown slot, or a
+  /// switch whose load was not read on the current walk of its own block (the
+  /// load sits in another block, or before `From` in `From`'s block), keeps all
+  /// successors. `From`'s block is walked from just after `From`, and again in
+  /// full if a path comes back to it. Past `MaxStates` (block, state) pairs it
+  /// gives up and answers "yes", the direction isPotentiallyReachable gives up
+  /// in.
+  bool someUseReachable(const Instruction &From,
+                        const SmallPtrSetImpl<const Instruction *> &Uses) const {
+    using State = std::vector<const ConstantInt *>; // nullptr = unknown
+    std::set<std::pair<const BasicBlock *, State>> Visited;
+    SmallVector<std::pair<const BasicBlock *, State>, 16> Work;
+
+    // Walks [It, end) of BB under S; true on reaching a use, otherwise pushes
+    // the successors this path can take.
+    auto Walk = [&](const BasicBlock &BB, BasicBlock::const_iterator It,
+                    State S) -> bool {
+      DenseMap<const LoadInst *, const ConstantInt *> ReadHere;
+      for (; It != BB.end(); ++It) {
+        const Instruction &I = *It;
+        if (Uses.count(&I)) return true;
+        if (const auto *SI = dyn_cast<StoreInst>(&I)) {
+          if (const auto *Slot = dyn_cast<AllocaInst>(SI->getPointerOperand())) {
+            auto F = SlotIndex.find(Slot);
+            if (F != SlotIndex.end())
+              S[F->second] = cast<ConstantInt>(SI->getValueOperand());
+          }
+        } else if (const auto *L = dyn_cast<LoadInst>(&I)) {
+          if (const auto *Slot = dyn_cast<AllocaInst>(L->getPointerOperand())) {
+            auto F = SlotIndex.find(Slot);
+            if (F != SlotIndex.end()) ReadHere[L] = S[F->second];
+          }
+        }
+      }
+      const Instruction *T = BB.getTerminator();
+      if (const auto *SW = dyn_cast_or_null<SwitchInst>(T)) {
+        if (const auto *L = dyn_cast<LoadInst>(SW->getCondition())) {
+          auto F = ReadHere.find(L);
+          if (F != ReadHere.end() && F->second) {
+            // The one edge this path takes. findCaseValue falls back to the
+            // default destination when no case matches, as the switch does.
+            const BasicBlock *Next =
+                SW->findCaseValue(F->second)->getCaseSuccessor();
+            Work.emplace_back(Next, S);
+            return false;
+          }
+        }
+      }
+      for (const BasicBlock *Succ : successors(&BB)) Work.emplace_back(Succ, S);
+      return false;
+    };
+
+    if (Walk(*From.getParent(), std::next(From.getIterator()),
+             State(Slots.size(), nullptr)))
+      return true;
+    while (!Work.empty()) {
+      auto Item = Work.pop_back_val();
+      if (!Visited.insert(Item).second) continue;
+      if (Visited.size() > MaxStates) return true;
+      if (Walk(*Item.first, Item.first->begin(), Item.second)) return true;
+    }
+    return false;
+  }
+
+private:
+  static bool onlyConstantStoresAndLoads(const AllocaInst &AI) {
+    Type *Ty = AI.getAllocatedType();
+    for (const User *U : AI.users()) {
+      if (const auto *SI = dyn_cast<StoreInst>(U)) {
+        if (SI->getPointerOperand() != &AI || SI->isVolatile() ||
+            !isa<ConstantInt>(SI->getValueOperand()) ||
+            SI->getValueOperand()->getType() != Ty)
+          return false;
+        continue;
+      }
+      if (const auto *LI = dyn_cast<LoadInst>(U)) {
+        if (LI->isVolatile() || LI->getType() != Ty) return false;
+        continue;
+      }
+      return false;
+    }
+    return true;
+  }
+
+  /// A bound on the search, not a tuning knob: it keeps a pathological function
+  /// from stalling the compile, and reaching it answers "yes". How close any
+  /// search in the corpus came to it was not measured.
+  static constexpr size_t MaxStates = 1u << 16;
+
+  std::vector<const AllocaInst *> Slots;
+  DenseMap<const AllocaInst *, unsigned> SlotIndex;
+};
+
 /// Whether some instruction other than `MS` that uses the stack object `MS`
 /// writes can run after `MS`.
 ///
@@ -150,18 +297,32 @@ enum class LaterUse { Yes, No, NotAlloca };
 /// into the same buffer is a use: it is an instruction touching the object, and
 /// the question is whether this site is the buffer's last word.
 ///
-/// Reachability is llvm::isPotentiallyReachable, instruction to instruction,
-/// which answers "yes" when it cannot tell (it gives up after a bounded number
-/// of blocks). A "yes" that is really "don't know" makes the partial line
-/// appear where it may not be needed; it can never hide one.
+/// Reachability is asked twice, and the second question can only take a "yes"
+/// back, never add one:
+///
+///   1. llvm::isPotentiallyReachable, instruction to instruction, exactly as in
+///      wipe-pin-v1. It answers "yes" when it cannot tell (it gives up after a
+///      bounded number of blocks). A "no" here is final.
+///   2. Only when (1) said "yes": the same question through CleanupDispatch,
+///      which follows every edge except the ones clang's cleanup dispatch
+///      cannot take on the path being followed. A "no" here means every CFG
+///      path from `MS` to every use goes through a modelled switch edge that is
+///      infeasible on it; that, and only that, turns v1's "yes" into "no".
+///
+/// A "yes" that is really "don't know" makes the partial line appear where it
+/// may not be needed; it can never hide one. A wrong "no" would hide one, which
+/// is why (2) models one front-end shape exactly and nothing near it.
 ///
 /// Computed at pipeline start, on the IR as the front end wrote it, before this
 /// pass mutates anything.
 LaterUse laterUseOf(const MemSetInst &MS, const DominatorTree &DT,
-                    const LoopInfo &LI) {
+                    const LoopInfo &LI, const CleanupDispatch &CD) {
   const auto *AI = dyn_cast<AllocaInst>(getUnderlyingObject(MS.getDest()));
   if (!AI) return LaterUse::NotAlloca;
 
+  // Every use, collected in full (v1 stopped at the first reachable one; the
+  // second question needs them all). The same walk, the same uses.
+  SmallPtrSet<const Instruction *, 16> Uses;
   SmallVector<const Value *, 16> Work;
   SmallPtrSet<const Value *, 16> Seen;
   Work.push_back(AI);
@@ -190,11 +351,18 @@ LaterUse laterUseOf(const MemSetInst &MS, const DominatorTree &DT,
         // The store itself is still a use, and is checked below like any
         // other: storing the address after the memset hands the buffer on.
       }
-      if (isPotentiallyReachable(&MS, I, nullptr, &DT, &LI))
-        return LaterUse::Yes;
+      Uses.insert(I);
     }
   }
-  return LaterUse::No;
+
+  bool Reachable = false;
+  for (const Instruction *I : Uses)
+    if (isPotentiallyReachable(&MS, I, nullptr, &DT, &LI)) {
+      Reachable = true;
+      break;
+    }
+  if (!Reachable) return LaterUse::No;
+  return CD.someUseReachable(MS, Uses) ? LaterUse::Yes : LaterUse::No;
 }
 
 /// LLVM's own spelling of a linkage, as it appears in textual IR. Hand-written
@@ -378,6 +546,7 @@ public:
       // function in scope has been read, so that no answer depends on that.
       const DominatorTree DT(*F);
       const LoopInfo LI(DT);
+      const CleanupDispatch CD(*F);
       for (BasicBlock &BB : *F) {
         for (Instruction &I : BB) {
           // The atomic element-wise memset is a different intrinsic with a
@@ -403,7 +572,7 @@ public:
               }
             }
             S.DestKind = destKindOf(MS->getDest());
-            S.FollowedByUse = laterUseOf(*MS, DT, LI);
+            S.FollowedByUse = laterUseOf(*MS, DT, LI, CD);
             if (const DebugLoc &DL = MS->getDebugLoc()) {
               S.HaveLine = true;
               S.Line = static_cast<int64_t>(DL.getLine());
@@ -486,7 +655,7 @@ private:
             const Unhandled &U) const {
     const Config &C = *Cfg;
     Json R = Json::object();
-    R.set("schemaVersion", Json::str("wipe-pin-v1"));
+    R.set("schemaVersion", Json::str("wipe-pin-v2"));
     R.set("component", Json::str("WipePin"));
     R.set("module", Json::str(ModuleName));
     R.set("toolchain", toolchainJson());
