@@ -108,6 +108,17 @@ of the two above.
 Elimination begins at `-O1`, saturates at `-O2`, and `-Os` is no safer. clang-18
 and gcc-13 agree closely (71.1% vs 67.9% at `-O2`).
 
+The two vendors are not built with the same headers, and `FLAGS` does not make
+them so: Ubuntu's gcc-13 defines `_FORTIFY_SOURCE=3` whenever it optimises, and
+clang-18 defines nothing (`echo | gcc-13 -O2 -dM -E -`). So every gcc-13 cell
+above at `-O1` and beyond was built with glibc's fortifying wrappers. Measured
+afterwards, with this lane's own `wipeSpans`/`ablateSpans`/`verdictOf` and
+`-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0` added to both compiles of every gcc-13
+erasure cell at `-O1`, `-O2` and `-Os`: 0 of 321 verdicts change at each level,
+and the default build re-derives the tracked verdict in 321/321. The asymmetry
+does not move these numbers; it does matter to a repair that pins memset calls
+(see `../gcc-repair/README.md`).
+
 End to end at `-O2`, over **720 opportunities — 360 erasure files each measured
 on two compilers**, which is a different 720 from the 720 generations above and
 is counted per (file, vendor): 10.8% never wrote a wipe, 57.9% wrote one that
