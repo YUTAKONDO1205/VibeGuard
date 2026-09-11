@@ -16,7 +16,8 @@
 //
 // The LLVM twin (compiler/llvm-repair/src/WipePin.cpp) sets the volatile flag
 // on llvm.memset. GCC's GIMPLE has no volatile memset call to mark, so the
-// barrier is the pin. The contract both follow is the `wipe-pin-v2` record.
+// barrier is the pin. Both write the `wipe-pin-v2` record, described field by
+// field in compiler/schema/wipe-pin.md.
 //
 // It is the "repair" in find -> repair -> confirm, and never the "confirm": the
 // record says what this pass did to GIMPLE, and whether the wipe then reached
@@ -37,8 +38,8 @@
 // clear a buffer BEFORE it fills it; pinning that one leaves the real wipe --
 // often a loop of stores, which this pass cannot see -- exactly as removable as
 // it was. So every recorded site carries `followedByUse`, computed on GIMPLE as
-// the contract's section 4 says, and a pinned site with a later use prints the
-// "partial" line.
+// compiler/schema/wipe-pin.md section 8 says, and a pinned site with a later
+// use prints the "partial" line.
 //
 // (Unlike clang, GCC lowers `= {0}` to an aggregate assignment `key = {}`, not
 // to a memset call, so an initialiser is not a site here at all; see the
@@ -78,8 +79,8 @@
 // GCC loads a plugin only if it defines this symbol: the declaration that the
 // plugin's licence is compatible with the GPL, under which GCC is distributed
 // and whose headers this file is compiled against. compiler/ is Apache-2.0
-// WITH LLVM-exception (compiler/LICENSE), which is GPLv3-compatible; declaring
-// it was approved for this component and is required of every GCC plugin.
+// WITH LLVM-exception (compiler/LICENSE); the FSF lists the Apache License 2.0
+// as compatible with GPLv3. NOTICE and README.md ("Licence") say more.
 int plugin_is_GPL_compatible;
 
 namespace wpg {
@@ -120,7 +121,7 @@ struct Unhandled {
   // atomicMemset and inlineWrapperMemset name LLVM shapes that GCC does not
   // have (an element-wise atomic memset intrinsic; clang's `memset.inline`
   // rename of a gnu_inline wrapper). They are written as 0 on every record, as
-  // the contract's section 8 fixes, and README.md says so.
+  // compiler/schema/wipe-pin.md section 10 says.
 };
 
 struct State {
@@ -176,9 +177,10 @@ std::string referencedNameOf(tree FnDecl) {
   return std::string();
 }
 
-/// The contract's section 6: LLVM's spelling of the linkage, so the reader and
-/// the rows need no second vocabulary. See README.md for why DECL_COMDAT is
-/// tested before DECL_WEAK.
+/// compiler/schema/wipe-pin.md section 5: LLVM's spelling of the linkage, so
+/// the reader and the rows need no second vocabulary. DECL_COMDAT is tested
+/// before DECL_WEAK because a C++ inline function is both (measured; the same
+/// section and README.md).
 const char *linkageOf(tree FnDecl) {
   if (!TREE_PUBLIC(FnDecl)) return "internal";
   if (DECL_COMDAT(FnDecl)) return "linkonce_odr";
@@ -235,7 +237,8 @@ struct Dest {
   tree Local;
 };
 
-/// The observer's classifyTarget words (the contract's section 5): a local
+/// The observer's classifyTarget words (compiler/schema/wipe-pin.md section
+/// 7): a local
 /// automatic VAR_DECL is `alloca`, a PARM_DECL (or a pointer that is one) is
 /// `argument`, a static or global VAR_DECL is `global`, anything else `other`.
 ///
@@ -330,7 +333,8 @@ std::set<tree> carriersOf(tree Decl, function *Fun) {
   return C;
 }
 
-/// The contract's section 4, on GIMPLE: whether some statement other than
+/// compiler/schema/wipe-pin.md section 8, on GIMPLE: whether some statement
+/// other than
 /// `Site` that mentions the buffer (or a carrier of its address) can run after
 /// `Site`. Breadth-first over basic blocks from the memset: the rest of its
 /// own block, then every block reachable along any successor edge (EH and
@@ -372,21 +376,58 @@ LaterUse laterUseOf(gcall *Site, const std::set<tree> &C, function *Fun) {
 
 // ------------------------------------------------------------------- pin --
 
-/// True when the statement after `Site` in its block is already a volatile
-/// asm with a "memory" clobber: a pin placed earlier, or a barrier the source
-/// wrote itself. Such a site is recorded (`alreadyVolatile: true`) and left
-/// alone, as WipePin leaves an already-volatile llvm.memset alone.
+/// The declaration a pointer-valued operand is the address of -- `&key`,
+/// `&key[3]`, `&MEM[&key + 8]`, each through any conversion -- or NULL_TREE
+/// when the operand is not the address of a declaration.
+tree addressedDecl(tree T) {
+  STRIP_NOPS(T);
+  if (TREE_CODE(T) != ADDR_EXPR) return NULL_TREE;
+  tree Base = get_base_address(TREE_OPERAND(T, 0));
+  return Base && DECL_P(Base) ? Base : NULL_TREE;
+}
+
+/// Whether the asm input `In` hands the asm the buffer `Dest` (the memset's
+/// first argument) points into: the same pointer value, or the address of the
+/// same base declaration.
+bool inputNamesDest(tree In, tree Dest) {
+  if (!In) return false;
+  if (operand_equal_p(In, Dest, 0)) return true;
+  tree A = addressedDecl(In);
+  return A && A == addressedDecl(Dest);
+}
+
+/// True when the statement after `Site` in its block is already a pin: a
+/// volatile asm with a "memory" clobber that also takes the memset's
+/// destination as an input operand (inputNamesDest). That is this pass's own
+/// barrier, or one the source wrote in the same form. Such a site is recorded
+/// (`alreadyVolatile: true`) and left alone, as WipePin leaves an
+/// already-volatile llvm.memset alone.
+///
+/// The clobber alone is not a pin. It does not make a store to a local
+/// observable when the local's address never leaves the function: gcc-13 -O2
+/// deletes the zero fill of `uint64_t k` directly before
+/// `__asm__ __volatile__("" ::: "memory")` (measured: the `clobonly` shape),
+/// and before a barrier whose operand is a different local (`otherbar`). What
+/// keeps the memset is the input operand: the buffer's address reaches the asm,
+/// which may then read the bytes through it. A site followed by a barrier
+/// without that operand is pinned like any other (compiler/schema/wipe-pin.md
+/// section 9).
 bool alreadyPinned(gcall *Site) {
   gimple_stmt_iterator Gsi = gsi_for_stmt(Site);
   gsi_next_nondebug(&Gsi);
   if (gsi_end_p(Gsi)) return false;
   gasm *A = dyn_cast<gasm *>(gsi_stmt(Gsi));
   if (!A || !gimple_asm_volatile_p(A)) return false;
-  for (unsigned I = 0; I < gimple_asm_nclobbers(A); ++I) {
+  bool Clobbers = false;
+  for (unsigned I = 0; I < gimple_asm_nclobbers(A) && !Clobbers; ++I) {
     tree C = TREE_VALUE(gimple_asm_clobber_op(A, I));
-    if (C && TREE_CODE(C) == STRING_CST && std::strcmp(TREE_STRING_POINTER(C), "memory") == 0)
-      return true;
+    Clobbers = C && TREE_CODE(C) == STRING_CST &&
+               std::strcmp(TREE_STRING_POINTER(C), "memory") == 0;
   }
+  if (!Clobbers) return false;
+  tree Dest = gimple_call_arg(Site, 0);
+  for (unsigned I = 0; I < gimple_asm_ninputs(A); ++I)
+    if (inputNamesDest(TREE_VALUE(gimple_asm_input_op(A, I)), Dest)) return true;
   return false;
 }
 
@@ -559,8 +600,9 @@ unsigned int WipePinPass::execute(function *Fun) {
 
 // ---------------------------------------------------------------- record --
 
-/// interfaces.md section 5's toolchain block, built as the contract's section
-/// 3 says: `gcc` is the version of the plugin headers this file was compiled
+/// interfaces.md section 5's toolchain block, built as compiler/schema/
+/// wipe-pin.md section 3.1 says: `gcc` is the version of the plugin headers
+/// this file was compiled
 /// against (plugin-version.h's basever), `packages` names gcc at that version,
 /// and `digest` is the SHA-256 of the canonical serialisation of {gcc,
 /// packages}. The same construction WipePin uses with `clang`. Nothing from the

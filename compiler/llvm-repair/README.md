@@ -64,6 +64,8 @@ One of `WPIN_TARGET_FNS` / `WPIN_SCOPE=module` is required. If both are set,
 
 ## The record
 
+The record, field by field for both plugins, is specified in `../schema/wipe-pin.md`.
+
 One clang invocation, one source file, one record, written at the end of the
 pass's single run and overwriting whatever was at `WPIN_OUT`:
 

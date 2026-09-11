@@ -7,7 +7,11 @@ Whether a wipe is in a listing is decided by the repository's assembly oracle
 (compiler/eval/second-vendor/lib/asm-oracle.mjs), which this script reaches
 through lib/asm-presence.mjs -- imported there, never copied -- so node is
 required. WipePinGcc's own record is read too, but only to check that it says
-what the cell asked of it; it never decides whether the wipe survived.
+what the cell asked of it; it never decides whether the wipe survived. The one
+exception to "a listing" is the lto group, whose output is a linked shared
+object: there the zero stores are read from `objdump -d` by
+objdump_zero_stores below, which recognises the oracle's two inline idioms in
+objdump's spelling.
 
 Object files are compared byte for byte. That is the claim for the cells where
 the plugin is loaded and changes nothing (dry, wrongname, nothing): an object
@@ -31,6 +35,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -157,11 +162,26 @@ SHAPES = {
                   "lines": [partial_line(1, 1, "aliasinit.c")]},
     "trailing": {"module": "trailing.c", "target": "handle", "sites": [False], "pinShRc": 0,
                  "lines": []},
-    # Already pinned by the source: listed, left alone, nothing counted as
-    # pinned (so pin-gcc.sh exits 4), and -- the contract's reading of a use --
-    # the source's barrier names the buffer, so the site reads followedByUse.
+    # Already pinned by the source (volatile, a "memory" clobber, the buffer as
+    # an input operand): listed, left alone, nothing counted as pinned (so
+    # pin-gcc.sh exits 4), and -- a later statement that names the buffer is a
+    # use (compiler/schema/wipe-pin.md section 8) -- the site reads
+    # followedByUse. `store` is the subject's zero store in the listing with
+    # the plugin, then in the stock one: the source's barrier keeps it in both.
     "srcbarrier": {"module": "srcbarrier.c", "target": "handle", "sites": [True], "pinShRc": 4,
-                   "volatile": [True], "pinned": 0, "lines": [partial_line(0, 1, "srcbarrier.c")]},
+                   "volatile": [True], "pinned": 0, "lines": [partial_line(0, 1, "srcbarrier.c")],
+                   "store": ("PRESENT", "PRESENT")},
+    # A barrier that is not a pin (compiler/schema/wipe-pin.md section 9): a
+    # "memory" clobber with no operand, and one whose operand is another local.
+    # Neither keeps the store in the stock listing; the plugin must pin the
+    # site and the store must be back. Graded from the listings, not from the
+    # record.
+    "clobonly": {"module": "clobonly.c", "target": "handle", "sites": [False], "pinShRc": 0,
+                 "volatile": [False], "pinned": 1, "lines": [], "length": 8,
+                 "store": ("PRESENT", "ABSENT")},
+    "otherbar": {"module": "otherbar.c", "target": "handle", "sites": [False], "pinShRc": 0,
+                 "volatile": [False], "pinned": 1, "lines": [], "length": 8,
+                 "store": ("PRESENT", "ABSENT")},
     "c99inline": {"module": "c99inline.c", "target": "wipe_inline", "sites": [False], "pinShRc": 0,
                   "exact": False, "linkage": "available_externally",
                   "lines": [nonexact_line("wipe_inline", "available_externally")]},
@@ -187,8 +207,8 @@ for _o in LEVELS:
     SHAPES["loopreturn" + _o] = {"module": "loopreturn.c", "target": "handle", "sites": [False, False],
                                  "pinShRc": 0, "lines": [], "opt": _o}
 SHAPE_ORDER = ["initloop", "inithelper", "initwipe", "aliasinit", "trailing"] + \
-    [f"loopreturn{o}" for o in LEVELS] + ["srcbarrier", "c99inline", "cxxinline", "nobuiltin", "nonzero",
-                                          "chk", "chkconst"]
+    [f"loopreturn{o}" for o in LEVELS] + ["srcbarrier", "clobonly", "otherbar", "c99inline", "cxxinline",
+                                          "nobuiltin", "nonzero", "chk", "chkconst"]
 
 # Something that is not this compile's record sits at WPIN_OUT before each compile.
 STALE = {
@@ -199,6 +219,18 @@ STALE = {
                   "lines": ["WipePinGcc: refusing to install: WPIN_OUT is a directory"]},
 }
 STALE_ORDER = ["stale-refused", "stale-syntaxonly", "stale-live", "stale-dir"]
+
+# The trailing shape through -flto (README.md, "Other forms").
+LTO_REFUSAL = ("WipePinGcc: refusing to install: loaded into the LTO back end, where this pass does "
+               "not run; load it into the compile step instead")
+# Measured, not predicted: gcc-13 13.3.0 starts lto1 twice for this one-object
+# -shared link (the whole-program analysis, then one partition), and each
+# loads the plugin, so the refusal is printed twice.
+LTO_REFUSALS = 2
+# The site's buffer is 32 bytes; a zero fill that survived the link covers all
+# of it.
+LTO_FILL_BYTES = 32
+LTO_ORDER = ["lto-compile", "lto-linkline", "lto-stock"]
 
 
 class Incomplete(Exception):
@@ -281,11 +313,13 @@ def record_problems(rec, exp, module):
     return bad
 
 
-def read_listings(lab):
+def read_listings(lab, subject="handle_request", control="wipe_kept", subdir="asm"):
     script = os.path.join(HERE, "lib", "asm-presence.mjs")
+    argv = ["node", script, "--lab", lab, "--subject", subject, "--dir", subdir]
+    if control:
+        argv += ["--control", control]
     try:
-        out = subprocess.run(["node", script, "--lab", lab, "--subject", "handle_request",
-                              "--control", "wipe_kept"], capture_output=True, text=True, timeout=120)
+        out = subprocess.run(argv, capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise Incomplete(f"node could not read the listings: {e.__class__.__name__}")
     if out.returncode != 0:
@@ -420,7 +454,8 @@ def grade_alone(lab):
     return rows, problems, incomplete
 
 
-def grade_shapes(lab):
+def grade_shapes(lab, listings):
+    """`listings`: the oracle's reading of <lab>/shapes/*.s for `handle`."""
     rows, problems, incomplete = [], [], []
     for cell in SHAPE_ORDER:
         exp = SHAPES[cell]
@@ -429,6 +464,12 @@ def grade_shapes(lab):
             man = load_kv(os.path.join(lab, "shapes", cell + ".manifest.kv"))
             lines = plugin_lines(load_lines(os.path.join(lab, "shapes", cell + ".stderr.txt")))
             rec = load_json(os.path.join(lab, "shapes", cell + ".json"))
+            store = "-"
+            if "store" in exp:
+                for lid in (cell, cell + "-stock"):
+                    if lid not in listings:
+                        raise Incomplete(f"no listing shapes/{lid}.s")
+                store = (listings[cell]["subject"]["verdict"], listings[cell + "-stock"]["subject"]["verdict"])
         except Incomplete as e:
             incomplete.append(f"{cell}: {e}")
             continue
@@ -461,20 +502,25 @@ def grade_shapes(lab):
                                         (rec.get("optLevel") or {}).get("size")), OPT_LEVELS[exp["opt"]]))
         for k, v in exp.get("unhandled", {}).items():
             checks.append((f"unhandled.{k}", (rec.get("unhandled") or {}).get(k), v))
+        if "store" in exp:
+            checks.append(("zero store in the listing with the plugin", store[0], exp["store"][0]))
+            checks.append(("zero store in the stock listing", store[1], exp["store"][1]))
         for name, got, want in checks:
             if got != want:
                 bad.append(f"{name} = {got!r}, expected {want!r}")
         for s in sites:
             if s.get("function") != exp["target"] or s.get("destKind") != "alloca" \
-                    or s.get("lengthBytes") != 32 or s.get("line") is None:
+                    or s.get("lengthBytes") != exp.get("length", 32) or s.get("line") is None:
                 bad.append(f"unexpected site {s}")
         bad += lines_problems(lines, exp["lines"])
         rows.append((cell, kv.get("pinShRc"), str(rec.get("pinnedCount")),
                      ",".join(str(v).lower() for v in got_fbu) or "-",
+                     ",".join(str(s.get("alreadyVolatile")).lower() for s in sites) or "-",
                      ",".join(str(s.get("line")) for s in sites) or "-",
                      f"{r0.get('exact')}/{r0.get('linkage')}",
                      "yes" if any(l.startswith("WipePinGcc: partial:") for l in lines) else "no",
                      "yes" if any(l.startswith("WipePinGcc: nothing to pin") for l in lines) else "no",
+                     "/".join(store) if store != "-" else "-",
                      "ok" if not bad else "DISAGREES"))
         problems += [f"{cell}: {b}" for b in bad]
     return rows, problems, incomplete
@@ -520,6 +566,160 @@ def grade_stale(lab):
     return rows, problems, incomplete
 
 
+def objdump_body(text, fn):
+    """The instruction lines of `fn` in `objdump -d` output, or None."""
+    lines = text.split("\n")
+    head = re.compile(r"^[0-9a-f]+ <" + re.escape(fn) + r">:$")
+    for i, l in enumerate(lines):
+        if head.match(l):
+            body = []
+            for x in lines[i + 1:]:
+                if not x.strip():
+                    break
+                body.append(x)
+            return body
+    return None
+
+
+_OBJ_SELF_XOR = re.compile(r"^v?(?:pxor|xorps|xorpd)\s+%([xyz]mm\d+),%([xyz]mm\d+)$")
+_OBJ_VEC_STORE = re.compile(r"^v?(?:movaps|movups|movapd|movupd|movdqa|movdqu)\s+%([xyz]mm\d+),(\S*\(\S*\))$")
+_OBJ_IMM_STORE = re.compile(r"^mov([bwlq])\s+\$0x0,(\S*\(\S*\))$")
+_OBJ_MEMSET_CALL = re.compile(r"^call\s+\S+\s+<(?:memset|__memset_chk)(?:@plt)?>$")
+_OBJ_WRITES_VEC = re.compile(r",%([xyz]mm\d+)$")
+
+
+def objdump_zero_stores(text, fn):
+    """The zero stores in `fn`, read from `objdump -d --no-show-raw-insn`.
+
+    The assembly oracle's two inline idioms, in objdump's spelling: a vector
+    register zeroed against itself and then stored to a memory operand (16, 32
+    or 64 bytes by register width), and an immediate zero stored to a memory
+    operand (by suffix), plus calls to memset / __memset_chk. A vector register
+    that is written by anything else stops counting as zeroed. None when the
+    function is not in the output."""
+    body = objdump_body(text, fn)
+    if body is None:
+        return None
+    zeroed, stores, calls, nbytes = set(), [], [], 0
+    for raw in body:
+        ins = raw.split("\t", 1)[1].strip() if "\t" in raw else raw.strip()
+        ins = re.sub(r"\s+#.*$", "", ins)
+        m = _OBJ_SELF_XOR.match(ins)
+        if m and m.group(1) == m.group(2):
+            zeroed.add(m.group(1))
+            continue
+        m = _OBJ_VEC_STORE.match(ins)
+        if m and m.group(1) in zeroed:
+            stores.append(ins)
+            nbytes += {"x": 16, "y": 32, "z": 64}[m.group(1)[0]]
+            continue
+        m = _OBJ_IMM_STORE.match(ins)
+        if m:
+            stores.append(ins)
+            nbytes += {"b": 1, "w": 2, "l": 4, "q": 8}[m.group(1)]
+            continue
+        if _OBJ_MEMSET_CALL.match(ins):
+            calls.append(ins)
+            continue
+        m = _OBJ_WRITES_VEC.search(ins)
+        if m:
+            zeroed.discard(m.group(1))
+    return {"stores": len(stores), "bytes": nbytes, "calls": len(calls), "lines": stores + calls}
+
+
+def grade_lto(lab):
+    """The trailing shape through -flto. Each cell is graded from what the
+    compiles left on disk: records, stderr, file states and objdump output."""
+    rows, problems, incomplete = [], [], []
+    d = os.path.join(lab, "lto")
+    try:
+        kc = load_kv(os.path.join(d, "lto-compile.kv"))
+        kl = load_kv(os.path.join(d, "lto-linkline.kv"))
+        ks = load_kv(os.path.join(d, "lto-stock.kv"))
+        compile_lines = plugin_lines(load_lines(os.path.join(d, "compile.stderr.txt")))
+        link_lines = plugin_lines(load_lines(os.path.join(d, "linkline.stderr.txt")))
+        dumps = {}
+        for so in ("stock-pinned", "stock-unpinned"):
+            with open(os.path.join(d, so + ".objdump.txt"), encoding="utf-8", errors="replace") as f:
+                dumps[so] = f.read()
+    except (Incomplete, OSError) as e:
+        incomplete.append(f"lto: {e.__class__.__name__ if isinstance(e, OSError) else e}")
+        return rows, problems, incomplete
+
+    # lto-compile: rc 0, a record written, nothing on stderr from the plugin.
+    bad = []
+    rec = None
+    if kc.get("rc") != "0" or kc.get("unpinnedRc") != "0":
+        bad.append(f"compile rc {kc.get('rc')}, unpinned compile rc {kc.get('unpinnedRc')}, expected 0 and 0")
+    if kc.get("wpinOutAfter") != "file":
+        bad.append(f"WPIN_OUT after the -flto compile: {kc.get('wpinOutAfter')}, expected a record")
+    else:
+        try:
+            rec = load_json(os.path.join(d, "compile-record.json"))
+        except Incomplete as e:
+            bad.append(f"the compile's record: {e}")
+    if rec is not None:
+        bad += [f"record: {p}" for p in wpr.validate(rec)]
+        want = {"module": "trailing.c", "pinnedCount": 1, "scope": "functions", "requested": ["handle"]}
+        for k, v in want.items():
+            if rec.get(k) != v:
+                bad.append(f"record {k} = {rec.get(k)!r}, expected {v!r}")
+        if [s.get("followedByUse") for s in rec.get("pinned") or []] != [False]:
+            bad.append(f"record sites {rec.get('pinned')}")
+    bad += lines_problems(compile_lines, [])
+    rows.append(("lto-compile", kc.get("rc"), "-",
+                 f"{rec.get('schemaVersion')}/{rec.get('pinnedCount')}" if rec else "-",
+                 "-", kc.get("wpinOutAfter"), "-", "-", "ok" if not bad else "DISAGREES"))
+    problems += [f"lto-compile: {b}" for b in bad]
+
+    # lto-linkline: the plugin on an -flto link line, same WPIN_OUT.
+    bad = []
+    if kl.get("rc") != "0":
+        bad.append(f"link rc {kl.get('rc')}, expected 0")
+    if kl.get("wpinOutBefore") != "file":
+        bad.append(f"WPIN_OUT before the link: {kl.get('wpinOutBefore')}, expected the compile's record")
+    on_disk = os.path.exists(os.path.join(d, "wpin-out.json"))
+    if kl.get("wpinOutAfter") != "absent" or on_disk:
+        bad.append(f"WPIN_OUT after the link: {kl.get('wpinOutAfter')} (runner), "
+                   f"{'present' if on_disk else 'absent'} (now), expected absent")
+    refusals = sum(1 for l in link_lines if l == LTO_REFUSAL)
+    if refusals != LTO_REFUSALS:
+        bad.append(f"the LTO refusal printed {refusals} time(s), expected {LTO_REFUSALS}")
+    extra = [l for l in link_lines if l != LTO_REFUSAL]
+    if extra:
+        bad.append(f"unexpected WipePinGcc lines {extra}")
+    same = sha_file(os.path.join(d, "linkline.so"))
+    stock = sha_file(os.path.join(d, "stock-pinned.so"))
+    same_as_stock = same is not None and same == stock
+    if not same_as_stock:
+        bad.append("the link with the refused plugin is not byte-identical to the stock link of the same object")
+    rows.append(("lto-linkline", kl.get("rc"), str(refusals), "-", kl.get("wpinOutBefore"),
+                 kl.get("wpinOutAfter"), "yes" if same_as_stock else "no", "-",
+                 "ok" if not bad else "DISAGREES"))
+    problems += [f"lto-linkline: {b}" for b in bad]
+
+    # lto-stock: stock links; the zero fill read from the linked code.
+    bad = []
+    if ks.get("pinnedRc") != "0" or ks.get("unpinnedRc") != "0":
+        bad.append(f"stock link rc {ks.get('pinnedRc')}/{ks.get('unpinnedRc')}, expected 0/0")
+    zp = objdump_zero_stores(dumps["stock-pinned"], "handle")
+    zu = objdump_zero_stores(dumps["stock-unpinned"], "handle")
+    if zp is None or zu is None:
+        bad.append("handle is not in the objdump output of both links")
+    else:
+        if zp["bytes"] != LTO_FILL_BYTES and zp["calls"] == 0:
+            bad.append(f"pinned object, stock -flto link: {zp['bytes']} zero bytes stored in handle, "
+                       f"expected {LTO_FILL_BYTES} (the whole buffer) or a memset call")
+        if zu["stores"] != 0 or zu["calls"] != 0:
+            bad.append(f"unpinned object, stock -flto link: the zero fill is still there ({zu['lines']}); "
+                       "the cell cannot show the pin surviving the link")
+    fmt = (lambda z: "-" if z is None else f"{z['stores']} store(s)/{z['bytes']}B/{z['calls']} call(s)")
+    rows.append(("lto-stock", f"{ks.get('pinnedRc')}/{ks.get('unpinnedRc')}", "-", "-", "-", "-", "-",
+                 f"pinned {fmt(zp)}; unpinned {fmt(zu)}", "ok" if not bad else "DISAGREES"))
+    problems += [f"lto-stock: {b}" for b in bad]
+    return rows, problems, incomplete
+
+
 def checks_can_fail(lab):
     """A check that cannot fail checks nothing: alter a real record and confirm
     the reader notices, and that moving `context` alone does not."""
@@ -556,16 +756,18 @@ def main():
 
     try:
         listings = read_listings(lab)
+        shape_listings = read_listings(lab, subject="handle", control=None, subdir="shapes")
     except Incomplete as e:
         print(f"INCOMPLETE -- {e}")
         return 3
 
     rows, problems, incomplete = grade_loop(lab, listings)
     arow, aprob, ainc = grade_alone(lab)
-    srow, sprob, sinc = grade_shapes(lab)
+    srow, sprob, sinc = grade_shapes(lab, shape_listings)
     trow, tprob, tinc = grade_stale(lab)
-    problems += aprob + sprob + tprob
-    incomplete += ainc + sinc + tinc
+    lrow, lprob, linc = grade_lto(lab)
+    problems += aprob + sprob + tprob + lprob
+    incomplete += ainc + sinc + tinc + linc
 
     table(("cell", "opt", "kind", "subject", "via", "control", "obj=base", "asm=base",
            "pinned/would/mode/res", "followedByUse", "pin-gcc.sh", ""), rows)
@@ -574,10 +776,14 @@ def main():
     print()
     table(("pin-gcc.sh alone", "rc", "cc rc", "record", "module", ""), arow)
     print()
-    table(("shape (-g)", "pin-gcc.sh", "pinned", "followedByUse", "lines", "exact/linkage",
-           "partial line", "nothing line", ""), srow)
+    table(("shape (-g)", "pin-gcc.sh", "pinned", "followedByUse", "alreadyVolatile", "lines",
+           "exact/linkage", "partial line", "nothing line", "zero store plugin/stock", ""), srow)
+    print("zero store: the same oracle on shapes/<id>.s (plugin) and shapes/<id>-stock.s, subject handle")
     print()
     table(("stale record", "before", "cc rc", "after", "WipePinGcc stderr", ""), trow)
+    print()
+    table(("lto (-O2)", "rc", "refusals", "compile record", "WPIN_OUT before", "WPIN_OUT after",
+           "output==stock", "zero fill in handle (objdump -d)", ""), lrow)
 
     if incomplete:
         print("\nINCOMPLETE -- these cells could not be graded:")
@@ -599,7 +805,7 @@ def main():
         for p in problems:
             print("  " + p)
         return 2
-    n = len(rows) + len(arow) + len(srow) + len(trow)
+    n = len(rows) + len(arow) + len(srow) + len(trow) + len(lrow)
     print(f"\nall {n} cells as expected")
     return 0
 

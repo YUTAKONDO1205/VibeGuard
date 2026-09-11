@@ -5,6 +5,7 @@
  * runs this; it decides nothing itself about whether a cell is right.
  *
  *   node asm-presence.mjs --lab DIR --subject handle_request --control wipe_kept
+ *   node asm-presence.mjs --lab DIR --subject handle --dir shapes
  *
  * The oracle is compiler/eval/second-vendor/lib/asm-oracle.mjs, imported and
  * not copied -- the same file the find step's verdict code is built on -- and
@@ -64,37 +65,45 @@ export function readEffect(asmText, fn) {
   return { verdict: 'ABSENT', via: 'oracle', evidence: 0, reason: null };
 }
 
-/** Every <lab>/asm/<cell>.s, read for the subject and the control. */
-export function readLab(lab, subject, control) {
-  const dir = join(lab, 'asm');
+/**
+ * Every <lab>/<dir>/<cell>.s, read for the subject and, when one is named, the
+ * control (`control: null` in each cell when none is). `dir` is `asm` for the
+ * loop cells and `shapes` for the shape listings, whose one function is the
+ * subject and which have no control function.
+ */
+export function readLab(lab, subject, control, dir = 'asm') {
+  const where = join(lab, dir);
   const cells = {};
-  for (const f of readdirSync(dir).filter((x) => x.endsWith('.s')).sort()) {
-    const text = readFileSync(join(dir, f), 'utf8');
+  for (const f of readdirSync(where).filter((x) => x.endsWith('.s')).sort()) {
+    const text = readFileSync(join(where, f), 'utf8');
     cells[f.slice(0, -2)] = {
       sha256: createHash('sha256').update(text).digest('hex'),
       subject: readEffect(text, subject),
-      control: readEffect(text, control),
+      control: control ? readEffect(text, control) : null,
     };
   }
   return cells;
 }
 
+const USAGE = 'usage: asm-presence.mjs --lab DIR --subject FN [--control FN] [--dir SUBDIR]\n';
+
 function main(argv) {
-  const args = { lab: null, subject: null, control: null };
+  const args = { lab: null, subject: null, control: null, dir: 'asm' };
   for (let i = 0; i < argv.length; i += 2) {
     const k = argv[i].replace(/^--/, '');
     if (!(k in args) || i + 1 >= argv.length) {
-      process.stderr.write('usage: asm-presence.mjs --lab DIR --subject FN --control FN\n');
+      process.stderr.write(USAGE);
       return 3;
     }
     args[k] = argv[i + 1];
   }
-  if (!args.lab || !args.subject || !args.control || !existsSync(join(args.lab, 'asm'))) {
-    process.stderr.write('usage: asm-presence.mjs --lab DIR --subject FN --control FN (and DIR/asm must exist)\n');
+  if (!args.lab || !args.subject || !/^[A-Za-z0-9_-]+$/.test(args.dir) ||
+      !existsSync(join(args.lab, args.dir))) {
+    process.stderr.write(USAGE.replace(/\n$/, ' (and DIR/SUBDIR must exist; SUBDIR defaults to asm)\n'));
     return 3;
   }
   process.stdout.write(JSON.stringify({ oracle: 'second-vendor/lib/asm-oracle.mjs', effect: EFFECT,
-    cells: readLab(args.lab, args.subject, args.control) }) + '\n');
+    cells: readLab(args.lab, args.subject, args.control, args.dir) }) + '\n');
   return 0;
 }
 

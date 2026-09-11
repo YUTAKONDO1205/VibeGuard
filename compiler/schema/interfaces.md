@@ -43,6 +43,7 @@ plugin under `compiler/llvm-repair/`; it changes the object file on purpose, so
 the non-invasiveness claims made for the observers are measured without it),
 `WipePinGcc` (its GCC twin under `compiler/gcc-repair/`, a GCC plugin that is
 deliberately invasive in the same way and writes the same `wipe-pin-v2` record).
+The `wipe-pin-v2` record both write is described field by field in `wipe-pin.md`.
 
 ## 1. Where things live
 

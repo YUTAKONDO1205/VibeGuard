@@ -15,8 +15,9 @@ plugin loaded. A repair tool that grades its own repair has measured its own
 intentions.
 
 Both plugins write the same record, `wipe-pin-v2`; this one with `component:
-"WipePinGcc"`. What the record means, field by field, is WipePin's README plus
-the GCC readings under *What is different on GCC* below.
+"WipePinGcc"`. What the record means, field by field and per vendor, is
+`../schema/wipe-pin.md`; the GCC readings are summarised under *What is
+different on GCC* below.
 
 ## What it does
 
@@ -38,9 +39,12 @@ directly after `cfg`:
   no volatile memset to mark, which is what WipePin does on LLVM IR; the barrier
   is the pin here. That the wipe actually survives to the assembly is measured
   below, not assumed.
-- A memset that is already directly followed by a volatile asm with a `memory`
-  clobber (a previous pin, or a barrier the source wrote) is recorded
-  (`alreadyVolatile: true`) and left alone.
+- A memset that is already directly followed by a pin — a volatile asm with a
+  `memory` clobber that also takes the memset's destination as an input
+  operand (a previous pin, or a barrier the source wrote in that form) — is
+  recorded (`alreadyVolatile: true`) and left alone. A barrier without that
+  operand is not a pin, and the site is pinned (the `clobonly` and `otherbar`
+  shapes).
 - Before it changes a function it reads every site in it and records whether
   the buffer is used again afterwards (`followedByUse`), for the reason WipePin
   does: a zero-fill memset is also what clear-before-fill code looks like, and
@@ -139,9 +143,9 @@ tests.
 
 ### What is different on GCC
 
-- **`toolchain`** has exactly `gcc`, `packages` and `digest` (the contract's
-  §3). `gcc` is `basever` from the `plugin-version.h` the plugin was compiled
-  against; `packages` is `[{"name": "gcc", "version": <same>}]`; `digest` is
+- **`toolchain`** has exactly `gcc`, `packages` and `digest`
+  (`../schema/wipe-pin.md` §3.1). `gcc` is `basever` from the
+  `plugin-version.h` the plugin was compiled against; `packages` is `[{"name": "gcc", "version": <same>}]`; `digest` is
   the SHA-256 of the canonical serialisation of `{gcc, packages}`. For 13.3.0
   that is `59918b2e…`, the value `../evidence/canon.mjs` derives for the same
   object. Nothing comes from the environment.
@@ -153,13 +157,13 @@ tests.
   |---|---|---|---|---|---|---|---|---|
   | `{speedup, size}` | `{0,0}` | `{1,0}` | `{2,0}` | `{3,0}` | `{2,1}` | `{2,2}` | `{3,0}` | `{1,0}` |
 
-  For `-O0` … `-Oz` these are the pairs the repair loop's reader already
-  expects of clang (`OPT_LEVELS` in `../eval/repair-loop/lib/pin-record.mjs`),
-  so no per-component table is needed for those six; `-Ofast` and `-Og` are not
-  in that table at all. That reader belongs to the repair-loop lane; this
-  component only reports what gcc-13 says.
-- **`destKind`** uses the observer's words (the contract's §5): a local
-  automatic `VAR_DECL` is `alloca`; a `PARM_DECL`, or a pointer that is one, is
+  For `-O0` … `-Oz` these are the pairs the repair loop's reader holds for
+  WipePinGcc (`OPT_LEVELS` in `../eval/repair-loop/lib/pin-record.mjs`, the
+  same pairs as its clang column); `-Ofast` and `-Og` are not in that table at
+  all (`../schema/wipe-pin.md` §4). This component only reports what gcc-13
+  says.
+- **`destKind`** uses the observer's words (`../schema/wipe-pin.md` §7): a
+  local automatic `VAR_DECL` is `alloca`; a `PARM_DECL`, or a pointer that is one, is
   `argument`; a static or global `VAR_DECL` is `global`; anything else is
   `other`. The destination is followed back through `&obj`, `&MEM[p + off]` (to
   `p`) and SSA temporaries that copy, convert or offset a pointer. A local
@@ -168,12 +172,12 @@ tests.
   and reads `other`, as the same shape reads on the LLVM side (a pointer
   reloaded from a stack slot). A VLA or `__builtin_alloca` buffer is reached
   through such a pointer and reads `other` too (LLVM would say `alloca`).
-- **`resolution[].linkage`** uses LLVM's spelling (the contract's §6): not
-  `TREE_PUBLIC` → `internal`; `DECL_COMDAT` → `linkonce_odr`; `DECL_WEAK` →
-  `weak`; `DECL_EXTERNAL` with a body (gnu_inline / C99 `inline`) →
-  `available_externally`; otherwise `external`. `exact` is `true` exactly for
-  `external` and `internal`. **`DECL_COMDAT` is tested before `DECL_WEAK`**,
-  where the contract lists weak first: measured with a probe plugin at the same
+- **`resolution[].linkage`** uses LLVM's spelling (`../schema/wipe-pin.md`
+  §5): not `TREE_PUBLIC` → `internal`; `DECL_COMDAT` → `linkonce_odr`;
+  `DECL_WEAK` → `weak`; `DECL_EXTERNAL` with a body (gnu_inline / C99
+  `inline`) → `available_externally`; otherwise `external`. `exact` is `true`
+  exactly for `external` and `internal`. **`DECL_COMDAT` is tested before
+  `DECL_WEAK`**: measured with a probe plugin at the same
   position, a C++ `inline` function has `TREE_PUBLIC=1 DECL_WEAK=1
   DECL_COMDAT=1` (ELF's `MAKE_DECL_ONE_ONLY` marks every one-only decl weak), so
   weak-first would call every C++ inline function `weak` where clang says
@@ -193,8 +197,8 @@ tests.
 - **`line`** is read from the statement's location, which GCC keeps with or
   without `-g`. WipePin reads it from debug info and writes `null` without
   `-g`.
-- **`followedByUse`** is computed on GIMPLE, as the contract's §4 says: for an
-  `alloca` site, breadth-first over basic blocks from the memset — the rest of
+- **`followedByUse`** is computed on GIMPLE (`../schema/wipe-pin.md` §8): for
+  an `alloca` site, breadth-first over basic blocks from the memset — the rest of
   its block, then every block reachable along any successor edge — any
   statement that mentions the buffer's `VAR_DECL` (taking its address included)
   is a use; the memset itself, clobbers (`key ={v} {CLOBBER}`) and debug
@@ -204,7 +208,7 @@ tests.
   step through stack slots (the `aliasinit` shape needs it). `null` when the
   destination is not a local. There is no path feasibility at all: that can add
   a partial line, never remove one.
-- **`seen` / `unhandled`** keep their keys (the contract's §8).
+- **`seen` / `unhandled`** keep their keys (`../schema/wipe-pin.md` §10).
   `atomicMemset` and `inlineWrapperMemset` name LLVM shapes GCC does not have
   and are always 0. Under glibc's fortifying headers — which Ubuntu's gcc-13
   turns on by default whenever it optimises (`_FORTIFY_SOURCE` is `3` at `-O2`,
@@ -213,12 +217,26 @@ tests.
   it is pinned like any other (every fixture cell at `-O1` and above is that
   case). clang renames the same wrapper `memset.inline`, which is why WipePin
   needed `inlineWrapperMemset`.
-- **`alreadyVolatile`**: the statement after the memset in its block is a
-  volatile asm with a `memory` clobber. Such a barrier usually names the buffer,
-  and the contract counts any later statement that names it as a use, so the
-  site also reads `followedByUse: true` and prints the partial line (measured:
-  the `srcbarrier` shape). That is the direction that adds a line, not the one
-  that hides one.
+- **`alreadyVolatile`** (`../schema/wipe-pin.md` §9): the next non-debug
+  statement after the memset in its block is a volatile asm with a `memory`
+  clobber **and** an input operand that is the memset's destination — the same
+  pointer value, or the address of the same base declaration. Such a barrier
+  names the buffer, and any later statement that names it is a use, so the site
+  also reads `followedByUse: true` and prints the partial line (measured: the
+  `srcbarrier` shape). That is the direction that adds a line, not the one that
+  hides one.
+
+  The clobber alone is not a pin. Measured at `-O2`: a `uint64_t k` zeroed by
+  `memset` and followed by `__asm__ __volatile__("" ::: "memory")` loses its
+  zero store in the stock listing (the local's address never leaves the
+  function), and so does one followed by a barrier whose only operand is
+  another local. The first version of this rule treated any volatile asm with a
+  `memory` clobber as a pin, recorded both sites `alreadyVolatile: true`, pinned
+  nothing, and the stores stayed deleted; now both are pinned and the store is
+  in the listing (`clobonly`, `otherbar`, graded from the listings). An operand
+  the gimplifier first copies into a temporary (`"r"(key + 16)`: the `cfg` dump
+  shows `_1 = &key + 16;` between the memset and the asm) means the asm is not
+  the next statement, and the site is pinned — a second barrier, harmless.
 - **`= {0}` is not a site.** clang lowers it to a zero-fill `llvm.memset`, which
   WipePin pins as an initialiser. GCC lowers it to the aggregate assignment
   `key = {}`, which is not a call. The `initloop` shape — initialiser, then a
@@ -279,7 +297,7 @@ outside what this pass, or any memset, can clear.
 |---|---|
 | not installed: `WPIN_OUT` unset, no target, or `WPIN_DRY_RUN` neither `0` nor `1` | stderr `WipePinGcc: refusing to install: <reason>` (plus the explanatory note for "no target"); no record, so `pin-gcc.sh` exits **3** (measured: `notarget-O2`, `baddry-O2`). The compile's rc is unaffected. |
 | built for another GCC | `plugin_default_version_check` fails: `WipePinGcc: refusing to install: built against GCC <x>, loaded into GCC <y> …`, no record (not exercised: there is one gcc-13 here) |
-| loaded into the LTO back end (`-fplugin` on an `-flto` link line) | `WipePinGcc: refusing to install: loaded into the LTO back end, where this pass does not run; load it into the compile step instead` — measured: printed twice on one link, rc 0, and a stale file at `WPIN_OUT` was gone afterwards |
+| loaded into the LTO back end (`-fplugin` on an `-flto` link line) | `WipePinGcc: refusing to install: loaded into the LTO back end, where this pass does not run; load it into the compile step instead` — graded by the fixture loop's `lto-linkline` cell: printed exactly twice on a one-object `-flto -shared` link (lto1 runs twice, `-fwpa` then `-fltrans`, and each loads the plugin), link rc 0, the compile's record at the same `WPIN_OUT` gone afterwards, and the linked object byte-identical to a stock link of the same object |
 | a record from an earlier compile at `WPIN_OUT` | removed at load, before any refusal — a refused compile and one that never reached the end of the unit leave **no** record (measured: `stale-refused`, `stale-syntaxonly`). If it cannot be removed (a directory, a non-regular file, an unlink error other than "not there"): `WipePinGcc: refusing to install: <reason>`, nothing touched (`stale-dir`). |
 | installed, but the unit never reaches the end (`-fsyntax-only`) | no record → `pin-gcc.sh` exits **3** (`syntaxonly-O2`) |
 | a misspelt name | `resolution: not-in-module` in the record **and** `WipePinGcc: target <name> not-in-module`; `pin-gcc.sh` exits **4** (`wrongname-*`) |
@@ -290,6 +308,7 @@ outside what this pass, or any memset, can clear.
 | the dry run | `dryRun: true`, a stderr line, exit **4**; the `dry-*` cells show the loss coming back with listing and object byte-identical to the stock build |
 | the record cannot be written | `WipePinGcc: cannot write the record to WPIN_OUT (…); the IR was changed/not changed …`; exit **3** |
 | a site where no barrier can go (a memset that ends its block with no fallthrough edge — it cannot, being nothrow) | `WipePinGcc: could not place a pin …`, and `pinnedCount` < `wouldPinCount`, which the strict readers refuse (never observed) |
+| the memset is followed by a barrier that does not name the buffer (a `memory` clobber and no operand, or an operand that is another local) | not treated as a pin: the site reads `alreadyVolatile: false` and is pinned (`clobonly`, `otherbar`). Before the rule required the operand, such a site read `alreadyVolatile: true`, `pinnedCount` 0, `pin-gcc.sh` 4, and the store was gone from the listing. |
 | two source files on one line | measured: the driver runs one cc1 per file, each deletes `WPIN_OUT` at load and writes at the end, so the last file's record is the one left — `-c target.c opaque.c` leaves `opaque.c`'s record, which says `handle_request` is `not-in-module` (exit 4) although `target.c` was pinned. `pin-gcc.sh` counts source operands, warns, and writes `sourceOperands=`. One process never sees two units; the plugin still warns if it ever does. |
 | `-fplugin` given twice | measured: GCC loads it once — one `tree-wipe_pin` in `-fdump-passes`, one pin in the record |
 | the pin is in GIMPLE and the wipe still is not in the object | **not detectable here, by design.** That is the confirm step's job. The record is never the verdict. |
@@ -372,8 +391,18 @@ and `__memset_chk` calls, inline zero stores). The oracle does not know
 control as ABSENT at `-Os` with or without the plugin. `asm-presence.mjs` adds
 the same two-line fallback `ablation-cell.mjs`'s `controlPresent` uses (a
 zeroed `%eax`, then `rep stos`), and a reading that came from it says
-`rep-stos-fallback` in the table rather than being folded in. Objects are
-compared byte for byte.
+`rep-stos-fallback` in the table rather than being folded in. The same oracle
+reads the barrier shapes' listings (`shapes/<id>.s` with the plugin,
+`shapes/<id>-stock.s` without, subject `handle`). Objects are compared byte
+for byte.
+
+The `lto` group's output is a linked shared object, not a listing. Its zero
+fill is read from `objdump -d --no-show-raw-insn` of `handle` by
+`objdump_zero_stores` in the checker: the oracle's two inline idioms in
+objdump's spelling (a vector register zeroed against itself and then stored to
+memory, 16 bytes per `%xmm` store; an immediate `$0x0` stored to memory, by
+suffix), plus calls to `memset` / `__memset_chk`, with a vector register that
+anything else writes no longer counting as zeroed.
 
 Tests: `node --test compiler/gcc-repair/test/asm-presence.test.mjs
 compiler/gcc-repair/test/corpus-smoke.test.mjs`, and, as files (the directory
@@ -384,20 +413,24 @@ compiler/gcc-repair/test/test_check_gcc_fixture_loop.py`.
 ## Measured
 
 gcc-13 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1), Ubuntu 24.04 under WSL, plugin
-built with g++-13 13.3.0, 2026-09-11. Every number below was copied from a run,
-not from reasoning.
+built with g++-13 13.3.0, 2026-09-11, and again 2026-09-12 for the barrier rule
+and the `lto` cells. Every number below was copied from a run, not from
+reasoning.
 
 **Build.** `-Wall -Wextra`: 0 warnings. `libWipePinGcc.so` sha256
-`954b5b58d3e14028798fc48d6f7420fd77051d8d91233d048886959c3425f025`, the same
+`a023b047abcafdbb824f627d227861e0ae0556072c9e4ba87e102b2c9747ba1b`, the same
 bytes from two builds into separate directories; no absolute path in the
-binary. `canon-vectors` on the shared calibration: `canon-vectors: 22 vectors,
+binary. The build before the barrier rule, `954b5b58…425f025` (rebuilt from
+its commit to the same sha256), is "the previous plugin" below. `canon-vectors` on the shared calibration: `canon-vectors: 22 vectors,
 8 mustFail, 66 checks held, 0 disagreed` (the 66 include an extra UTF-16 key
 order case, the 13.3.0 toolchain digest, SHA-256 at the padding boundaries and
 the escaping of control characters, with expected values from `canon.mjs` and
 `node:crypto`).
 
 **Fixture loop** (`run-gcc-fixture-loop.sh` rc 0, `check-gcc-fixture-loop.py`
-exit 0, "all 50 cells as expected"; plugin sha256 `954b5b58…`):
+exit 0, "all 55 cells as expected"; plugin sha256 `a023b047…`; the 50 cells
+the loop had before read exactly as they did with the previous plugin, and the
+five new ones are `clobonly`, `otherbar` and the three `lto` cells):
 
 ```
 cell          opt  kind       subject  via                control                      obj=base  asm=base  pinned/would/mode/res   followedByUse  pin-gcc.sh
@@ -433,30 +466,37 @@ syntaxonly-O2     3   0      -                   -         ok
 baddry-O2         3   0      -                   -         ok
 twosources-O2     4   0      twosources-O2.json  opaque.c  ok
 
-shape (-g)     pin-gcc.sh  pinned  followedByUse  lines  exact/linkage               partial line  nothing line
-initloop       4           0       -              -      True/external               no            yes           ok
-inithelper     4           0       -              -      True/external               no            yes           ok
-initwipe       0           2       true,false     6,9    True/external               yes           no            ok
-aliasinit      0           1       true           7      True/external               yes           no            ok
-trailing       0           1       false          8      True/external               no            no            ok
-loopreturn-O0  0           2       false,false    11,16  True/external               no            no            ok
-loopreturn-O1  0           2       false,false    11,16  True/external               no            no            ok
-loopreturn-O2  0           2       false,false    11,16  True/external               no            no            ok
-loopreturn-O3  0           2       false,false    11,16  True/external               no            no            ok
-loopreturn-Os  0           2       false,false    11,16  True/external               no            no            ok
-srcbarrier     4           0       true           8      True/external               yes           no            ok
-c99inline      0           1       false          8      False/available_externally  no            no            ok
-cxxinline      0           1       false          8      False/linkonce_odr          no            no            ok
-nobuiltin      4           0       -              -      True/external               no            yes           ok
-nonzero        0           1       false          12     True/external               yes           no            ok
-chk            4           0       -              -      True/external               no            yes           ok
-chkconst       0           1       false          7      True/external               no            no            ok
+shape (-g)     pin-gcc.sh  pinned  followedByUse  alreadyVolatile  lines  exact/linkage               partial line  nothing line  zero store plugin/stock
+initloop       4           0       -              -                -      True/external               no            yes           -                        ok
+inithelper     4           0       -              -                -      True/external               no            yes           -                        ok
+initwipe       0           2       true,false     false,false      6,9    True/external               yes           no            -                        ok
+aliasinit      0           1       true           false            7      True/external               yes           no            -                        ok
+trailing       0           1       false          false            8      True/external               no            no            -                        ok
+loopreturn-O0  0           2       false,false    false,false      11,16  True/external               no            no            -                        ok
+loopreturn-O1  0           2       false,false    false,false      11,16  True/external               no            no            -                        ok
+loopreturn-O2  0           2       false,false    false,false      11,16  True/external               no            no            -                        ok
+loopreturn-O3  0           2       false,false    false,false      11,16  True/external               no            no            -                        ok
+loopreturn-Os  0           2       false,false    false,false      11,16  True/external               no            no            -                        ok
+srcbarrier     4           0       true           true             8      True/external               yes           no            PRESENT/PRESENT          ok
+clobonly       0           1       false          false            8      True/external               no            no            PRESENT/ABSENT           ok
+otherbar       0           1       false          false            10     True/external               no            no            PRESENT/ABSENT           ok
+c99inline      0           1       false          false            8      False/available_externally  no            no            -                        ok
+cxxinline      0           1       false          false            8      False/linkonce_odr          no            no            -                        ok
+nobuiltin      4           0       -              -                -      True/external               no            yes           -                        ok
+nonzero        0           1       false          false            12     True/external               yes           no            -                        ok
+chk            4           0       -              -                -      True/external               no            yes           -                        ok
+chkconst       0           1       false          false            7      True/external               no            no            -                        ok
 
 stale record      before  cc rc  after   WipePinGcc stderr
 stale-refused     file    0      absent  WipePinGcc: refusing to install: no target                ok
 stale-syntaxonly  file    0      absent  -                                                         ok
 stale-live        file    0      file    -                                                         ok
 stale-dir         dir     0      dir     WipePinGcc: refusing to install: WPIN_OUT is a directory  ok
+
+lto (-O2)     rc   refusals  compile record  WPIN_OUT before  WPIN_OUT after  output==stock  zero fill in handle (objdump -d)
+lto-compile   0    -         wipe-pin-v2/1   -                file            -              -                                                                  ok
+lto-linkline  0    2         -               file             absent          yes            -                                                                  ok
+lto-stock     0/0  -         -               -                -               -              pinned 2 store(s)/32B/0 call(s); unpinned 0 store(s)/0B/0 call(s)  ok
 ```
 
 What the table shows, beyond itself:
@@ -477,12 +517,34 @@ What the table shows, beyond itself:
   `pin-gcc.sh -c` compile have the same `evidenceDigest`.
 - `loopreturn` is the shape of `fable_N_token_r3`'s line 17, where clang's
   cleanup dispatch gives a `return` inside the loop a CFG edge back to the
-  header and WipePin reads `true` at `-O1`/`-O2`. GCC copies a clobber-only
-  cleanup onto each exit instead (the `cfg` dump at `-O0` and `-O2` shows
+  header. WipePin's `wipe-pin-v1` read that site `true` at `-O1`/`-O2`
+  through that edge; `wipe-pin-v2` no longer counts an edge the path cannot
+  take and reads it `false` (`../llvm-repair/README.md`, *What
+  `followedByUse` can and cannot say*). GCC copies a clobber-only cleanup onto
+  each exit instead (the `cfg` dump at `-O0` and `-O2` shows
   `n = {CLOBBER(eol)}` on the return path, then a jump to the block that
   clobbers `token` and returns), so there is no such edge and the error-path
-  wipe reads `false` at every level. The corpus file itself, through `pin-gcc.sh` (`-g`, the find step's
-  flags): sites at lines 17 and 23, both `false`, at `-O0`, `-O1` and `-O2`.
+  wipe reads `false` at every level. The corpus file itself, through
+  `pin-gcc.sh` (`-g`, the find step's flags): sites at lines 17 and 23, both
+  `false`, at `-O0`, `-O1` and `-O2` (measured with the previous plugin).
+- `clobonly` and `otherbar` are graded from the listings, not from the record:
+  in the stock listing the zero store is gone (`ABSENT`), with the plugin it is
+  back (`PRESENT`, `movq $0, (%rsp)` in `clobonly`). `srcbarrier`'s own
+  barrier keeps its store in both listings, which is why leaving that site
+  alone is right.
+- `lto-compile`: `-O2 -flto -c` with the plugin writes a valid record (one
+  site pinned, `followedByUse: false`) and prints nothing. `lto-linkline`:
+  linking that object `-O2 -flto -shared` with `-fplugin` and the same
+  `WPIN_OUT` exits 0, prints the LTO refusal exactly twice (lto1 runs twice for
+  this link, once with `-fwpa` and once with `-fltrans`, and each loads the
+  plugin), and leaves nothing at `WPIN_OUT`: the compile's record is removed at
+  load, before the refusal. The linked object is byte-identical to a stock link
+  of the same object. `lto-stock`: in a stock `-flto -shared` link of the
+  pinned object, `handle` holds `pxor %xmm0,%xmm0` and two `movaps` of `%xmm0`
+  to the stack, 32 bytes, the whole buffer; the same link of an object compiled
+  `-flto` without the plugin holds no zero store at all. The pin travels in the
+  object's GIMPLE and survives link-time optimisation; the plugin is needed at
+  compile time only.
 - The toolchain block in every record re-derives, and so does every
   `evidenceDigest` (`scripts/wpin_gcc_record.py`, calibrated against the shared
   vectors).
@@ -496,11 +558,56 @@ the digest re-sealed → exit 2; a stale file put back at `stale-refused`'s
 `WPIN_OUT` → exit 2; `pin-O2`'s toolchain version edited with `evidenceDigest`
 re-sealed and the toolchain digest not → exit 2 (three disagreements: the
 toolchain digest, the two records differing, and the self-check that uses that
-record); `dry-O2`'s `pin-gcc.sh` exit code edited to 0 → exit 2.
+record); `dry-O2`'s `pin-gcc.sh` exit code edited to 0 → exit 2. For the new
+cells, 2026-09-12, again one corruption at a time on a copy of the lab:
+`lto/stock-pinned.objdump.txt` replaced by the unpinned link's → exit 2
+(`0 zero bytes stored in handle, expected 32`); a file put back at the link's
+`WPIN_OUT` → exit 2; one of the two refusal lines deleted → exit 2 (`printed 1
+time(s), expected 2`); the compile's record deleted → exit 2; `clobonly`'s
+listing replaced by its stock listing → exit 2 (zero store `ABSENT`);
+`otherbar`'s stock listing replaced by the pinned one → exit 2 (stock
+`PRESENT`).
+
+**The previous plugin through the same loop** (`954b5b58…`, rebuilt from its
+commit): `run-gcc-fixture-loop.sh` rc 0, `check-gcc-fixture-loop.py` exit 2,
+and the only cells that disagree are the two new shapes — every other cell,
+the `lto` ones included, reads `ok`:
+
+```
+clobonly: pinnedCount = 0, expected 1
+clobonly: alreadyVolatile per site = [True], expected [False]
+clobonly: pin-gcc.sh rc = '4', expected '0'
+clobonly: manifest status = '4', expected '0'
+clobonly: zero store in the listing with the plugin = 'ABSENT', expected 'PRESENT'
+otherbar: pinnedCount = 0, expected 1
+otherbar: alreadyVolatile per site = [True], expected [False]
+otherbar: pin-gcc.sh rc = '4', expected '0'
+otherbar: manifest status = '4', expected '0'
+otherbar: zero store in the listing with the plugin = 'ABSENT', expected 'PRESENT'
+```
+
+**The barrier rule changes nothing in the r2 corpus.** Every file of
+`../eval/ai-generated/generated-corpus/r2/` (720), with the find step's `FLAGS`
+(`ablation-cell.mjs`: `-S -std=gnu11 -w -Wno-error=implicit-function-declaration
+-fcf-protection=none`), at `-O0`, `-O1`, `-O2`, `-O3` and `-Os`, module scope,
+live, with the previous plugin and this one (a build of this source whose
+sha256 is the `a023b047…` above): 3585 (file, level) pairs compiled,
+and in all 3585 the `-S` output and stderr are byte-identical and the records
+are equal once `context` is dropped. The other 15 pairs are three files that do
+not compile, with or without a plugin (`haiku_S_debugdump_r1`: an incomplete
+`struct session`; `haiku_S_filedel_r2` and `opus_E_apicall_r2`: `NULL`
+undeclared). The corpus's sites with `alreadyVolatile: true` are the same 10
+under both plugins — `opus_E_pwverify_r2` line 13 (`secure_wipe`, followed by
+`__asm__ __volatile__("" : : "r"(p), "r"(n) : "memory")`) and
+`opus_N_token_r3` line 31 (followed by `"r"(token)`), each at five levels —
+and both barriers name the buffer. The one barrier in the corpus with a
+`memory` clobber and no operand, `fable_S_premaster_r3.c:29`, follows a loop
+of stores through a `volatile unsigned char *`, not a memset, so no site is
+followed by it.
 
 **Corpus smoke** (`scripts/run-gcc-corpus-smoke.mjs`, exit 0). The first three
 ids, sorted, among the gcc-13 / `-O2` / `removable` / `WIPE_ELIMINATED` rows of
-`../eval/ai-generated/data/r2-build-rows.json`, re-run through that lane's own
+`../eval/ai-generated/data/r2-build-rows.json`, re-run through the find step's own
 `wipeSpans`, `ablateSpans`, `bodyOf`, `FLAGS`, `CONTROL` and `verdictOf` in the
 four-compile cell of `../eval/repair-loop/run-repair-loop.mjs`, with
 `-fplugin=` on both sides:
@@ -515,15 +622,22 @@ In all three the record pinned one site with `followedByUse: false`, the control
 was PRESENT on both sides, and the ablated file's target body was identical
 with and without the plugin (its record: 0 pinned, 0 would pin). These are the
 same three ids WipePin's smoke picked on clang. Three files at one level, by
-hand; the repair loop that runs the corpus is a separate lane.
+hand, with the previous plugin; the whole corpus is run by
+`../eval/repair-loop/`.
 
 **Other forms.**
 
-- `-flto -O2 -c` with the plugin writes a record and pins; linking that object
-  with the fixture's other two units under `-flto -O2`, without the plugin,
-  gives an executable whose `main` (everything is inlined into it) holds two
-  zero fills where the stock link holds one — the pin survived whole-program
-  inlining. The plugin on the link line refuses, as above.
+- LTO is graded by the fixture loop's `lto` cells (above): `-O2 -flto -c` with
+  the plugin writes a record and pins (`lto-compile`); the plugin on the
+  `-flto` link line refuses twice, exits 0 and removes the compile's record at
+  `WPIN_OUT` (`lto-linkline`); a stock `-flto -shared` link keeps the pinned
+  object's 32-byte zero fill in `handle` and loses the unpinned object's
+  (`lto-stock`). Load the plugin at compile time; if a build exports `WPIN_*`
+  to every step, keep `-fplugin` off the link line or give the link a
+  different `WPIN_OUT`. By hand, with the previous plugin: linking the erasure
+  fixture's pinned `target.c` with its other two units under `-flto -O2`,
+  without the plugin, gave an executable whose `main` (everything is inlined
+  into it) holds two zero fills where the stock link holds one.
 - C++: `WPIN_TARGET_FNS=_Z5wipe2i` resolves a non-`extern "C"` function and
   pins it (exit 0); `WPIN_TARGET_FNS=wipe2` reads `not-in-module` (exit 4).
 
@@ -544,10 +658,15 @@ hand; the repair loop that runs the corpus is a separate lane.
 ## Licence
 
 `compiler/` is Apache-2.0 WITH LLVM-exception (`../LICENSE`), and so is this
-component. GCC loads a plugin only if the plugin defines
-`plugin_is_GPL_compatible`, the plugin's declaration that its licence is
-compatible with the GPL under which GCC and the headers it is compiled against
-are distributed. Apache-2.0 is compatible with GPLv3, and the declaration was
-approved for this component; `src/WipePinGcc.cpp` makes it with a comment
-saying so. The plugin links against nothing but the host GCC it is loaded
-into.
+component. It is compiled against GCC's plugin headers (the installed
+`gcc-13-plugin-dev`), which carry GCC's own terms: the GNU General Public
+License, version 3 or (at your option) any later version. GCC loads a plugin
+only if the plugin defines `plugin_is_GPL_compatible`, the plugin's
+declaration that its licence is compatible with the GPL; `src/WipePinGcc.cpp`
+defines it. The FSF's licence list names the Apache License 2.0 as compatible
+with version 3 of the GPL. No GCC source is copied here; the headers stay where
+the package manager put them. Besides the symbols of the GCC process that loads
+it, the plugin needs only the C and C++ runtimes (`readelf -d`: `NEEDED`
+`libstdc++.so.6`, `libgcc_s.so.1`, `libc.so.6`). `../../NOTICE` and
+`../README.md` state the terms for the whole directory. This is a description
+of the terms, not legal advice.
