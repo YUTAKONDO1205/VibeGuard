@@ -43,16 +43,64 @@ control. Every inherited `WPIN_*` variable is removed before the first compile,
 and each record path is deleted before the compile that should write it, so a
 record left over from an earlier run can never be read as this one's.
 
-`verdictOf`, `wipeSpans`, `ablateSpans`, `bodyOf`, `controlPresent` and the
-positive control are **imported** from the find step, not copied. A repair
-judged by a private copy of the oracle would be judging itself, and the two
-copies would drift. If that module is missing the runner stops with exit 5; it
-has nothing to fall back on, by design.
+`verdictOf`, `wipeSpans`, `ablateSpans`, `bodyOf`, `controlPresent`, the
+positive control and its `CONTROL_EFFECT` are **imported** from the find step,
+and `observeEffect` from `../second-vendor/lib/asm-oracle.mjs`, not copied. A
+repair judged by a private copy of the oracle would be judging itself, and the
+two copies would drift. If either module is missing the runner stops with exit 5;
+it has nothing to fall back on, by design.
 
 The helpers named in `WPIN_TARGET_FNS` are the ones `wipeSpans` finds — the same
 list the find step uses to decide which statements to delete. A wipe routed
 through a function that list does not name is not selected in functions scope;
 module scope exists for that.
+
+## The per-span view
+
+The four-compile cell deletes **every** wipe span of the target function at once,
+because that is the find step's criterion, and the cell outcome below keeps it
+unchanged. But a cell-level verdict can hide a removed wipe. When the target
+body holds two zero-fills, deleting both can change the code for a reason that
+has nothing to do with the wipe the reader cares about:
+
+- a memset on an error path plus a trailing memset (`fable_N_token_r3`): deleting
+  both changes the loop layout, so the cell reads `WIPE_SURVIVED`, while the
+  trailing memset deleted on its own changes nothing — at `-O2` it was already
+  gone;
+- an initialising memset before the buffer is filled plus a trailing wipe
+  (`sonnet_S_pinpad_r1`): the initialiser matters, so deleting both reads
+  `WIPE_SURVIVED`, while the trailing wipe alone reads `WIPE_ELIMINATED`.
+
+So for every cell whose `wipeSpans` result has two or more spans, each span of
+kind `removable` is ablated **alone** (through the imported `ablateSpans`) into
+its own unit, `wo_i`, and compiled plugin off and plugin on with the same flags,
+the same plugin environment as the cell's `wo` compiles and its own record path.
+The same `verdictOf` then judges it against the cell's own `w` listings:
+
+```
+spanOff_i = verdictOf(w/off, wo_i/off, fn)
+spanOn_i  = verdictOf(w/on,  wo_i/on,  fn)
+```
+
+A cell with exactly one span is not recompiled: ablating its only span *is* the
+cell's ablation, so its span verdict is the cell verdict, and the span entry says
+so (`source: "cell"`; the row's `spanSource` is `"cell"`). A nonremovable span in
+a multi-span cell is listed with `source: "not-measured"` and no verdicts: it is
+a store or call the compiler may not delete, and a volatile-pointer declaration
+deleted without its loop does not compile. Rows carry
+`spans: [{index, kind, off, on, source, recordOk}]` — verdict words only, no
+source text.
+
+Two row booleans come from it:
+
+| field | when |
+|---|---|
+| `hiddenElimination` | the cell baseline is `WIPE_SURVIVED` **and** some removable span, ablated alone, is `WIPE_ELIMINATED` without the plugin |
+| `hiddenRetained` | `hiddenElimination`, and **every** such span is `WIPE_SURVIVED` with the plugin |
+
+Neither changes the cell outcome. The cell outcome is the find step's own
+criterion and the headline "same observation"; the per-span layer is the same
+`verdictOf` at a finer grain, reported beside it.
 
 ## Outcomes
 
@@ -91,13 +139,23 @@ The plugin seals the record as the other native components do (`interfaces.md`
 record edited after its compile is refused (`digest-mismatch`) rather than
 believed.
 
-`lib/pin-record.mjs` reads it strictly. Unknown or missing fields, a count that
-is not a non-negative integer, a `module` that is a path rather than a basename,
-an unknown `schemaVersion`, counts that contradict the lists they count, a dry
-run with mutations, and a record whose optimisation pair, scope, module or
-request list does not match the compile that was supposed to write it — each is
-a refusal, and a refusal is `BROKEN_REPAIR`. If the plugin grows a field, the
-reader grows it in the same change.
+`lib/pin-record.mjs` reads it strictly, and reads **`wipe-pin-v1` only**: v0 plus
+`pinned[].followedByUse` (`true`/`false`/`null`), `resolution[].exact`
+(`true`/`false`/`null`), `resolution[].linkage` (a string or `null`) and a
+top-level `toolchain` object with exactly `digest` (a string, possibly empty),
+`clang` (a string) and `packages` (an array of objects). `toolchain` is inside
+the digest. Unknown or missing fields, a count that is not a non-negative
+integer, a `module` that is a path rather than a basename, any other
+`schemaVersion`, a dry run with mutations, and a record whose optimisation pair,
+scope, module or request list does not match the compile that was supposed to
+write it — each is a refusal, and a refusal is `BROKEN_REPAIR`.
+
+The counts are tied to the list exactly. `pinned` lists every eligible site (in a
+dry run too); a site that was already volatile is listed and in neither count.
+Outside a dry run `pinnedCount === wouldPinCount ===` the number of listed sites
+not already volatile; in a dry run `pinnedCount` is 0 and `wouldPinCount` is that
+number. Anything else is refused. If the plugin grows a field, the reader grows it
+in the same change.
 
 One exception to "every requested name resolves", and only one. Ablation deletes
 the wipe statement; when that statement was the only call to a `static` helper,
@@ -119,12 +177,23 @@ the results, so the tolerance is visible.
   compared with the tracked row for the same `(id, cc, opt)`, and the row
   carries `baselineMatchesTracked` true or false. Neither side is preferred
   silently: a disagreement is listed by id and makes the run exit 2.
-- **Preflight**, before any cell: the plugin must load (exit 5 otherwise); a
-  module-scope compile should produce a record the reader accepts (a warning
-  otherwise, because every cell will then be `BROKEN_REPAIR`); a compile with
-  `WPIN_OUT` but no target must produce no record; and a compile without
-  `WPIN_OUT` is expected to print a refusal. The last is recorded only as
-  whether stderr was empty, because its text may carry a path.
+- **Preflight, fail-closed**, before any cell: the plugin must load (exit 5
+  otherwise); a module-scope compile must produce a record the reader accepts
+  (exit 5 otherwise, before any cell: every cell would be `BROKEN_REPAIR`, so
+  there is nothing to measure); a compile with `WPIN_OUT` but no target must
+  produce no record; and a compile without `WPIN_OUT` must print a refusal and
+  still compile. The last is recorded only as whether stderr was empty, because
+  its text may carry a path. A record written without a target, an empty stderr,
+  or a failed compile there is an integrity failure (`lib/preflight.mjs`): the
+  run exits 2, and `--write-data` is refused before any cell.
+- **Nothing written carries a path.** The manifest names the plugin as
+  `{basename, sha256}` and the baseline rows as `(default)`, a
+  repository-relative path, or `(outside the repository)` with the file's
+  sha256. Before anything is written, the rows, the manifest, the results text
+  and the pin plan are scanned for `/home/`, `/root/`, `/mnt/`, `/Users/` and a
+  drive letter (`lib/provenance.mjs`); a hit fails the run with exit 5 and
+  nothing goes to `data/` (the lab copies are still written, so the run can be
+  debugged).
 
 ## Surgicality
 
@@ -137,9 +206,76 @@ not applicable or not decidable; `null` is never counted as a pass.
 | `ablatedUnchanged` | where the wipe-deleted compile pinned nothing, its target body is the same with and without the plugin. The plugin cannot fabricate a wipe. |
 | `controlUntouched` | functions scope only: the body of `vgctl_control` is the same with and without the plugin, in both units. It is not a selected function. |
 | `noPinNoChange` | for every plugin-on compile whose record pinned nothing, the **full** listing equals the plugin-off one — so an analysis invalidation or pass-order side effect anywhere in the unit would show, not only in the target. Checked for `w`, `wo` and the no-wipe files. |
-| `pinDelta` | the wipe-kept compile's pin count minus the wipe-deleted one's. Positive means at least one pinned site exists only because the wipe statement does. A zero-initialised local (`= {0}`) lowers to the same intrinsic and is pinned in both units; a `RETAINED` cell with `pinDelta <= 0` is listed as weakly attributed. |
 
 Any violated check makes the run exit 2.
+
+`pinDelta` (the wipe-kept compile's pin count minus the wipe-deleted one's) is
+still carried in every row, but it is **not attribution** and the results no
+longer present it as such. Where the wipe-deleted compile pins nothing — which
+the full run showed for every scored cell — it is simply the wipe-kept pin
+count, which `RETAINED` already requires to be positive, so "`pinDelta > 0` in
+every `RETAINED` cell" restates the outcome rule. Nor can it tell an initialising
+memset from a wipe when the find step labelled both as spans and the ablation
+deleted both. What looks at each span on its own is the per-span view above.
+
+## Beside the outcome
+
+None of these changes an outcome. Each is computed in `lib/summaries.mjs` from the
+rows and printed in the results.
+
+- **Per-span counts**, per level: in `RETAINED` cells, how many removable spans
+  survive individually with the plugin (`X/Y`; a one-span cell contributes its
+  cell verdict), and how many cells the find step scored `WIPE_SURVIVED` hold a
+  span that is individually eliminated without the plugin (`hiddenElimination`),
+  with how many of those are retained with it (`hiddenRetained`) and their ids.
+- **Corroboration.** The effect oracle the find step's `controlPresent` is built
+  on (`observeEffect` from `../second-vendor/lib/asm-oracle.mjs`, imported, with
+  `CONTROL_EFFECT` imported from `../ai-generated/lib/ablation-cell.mjs`) reads the
+  target body of `w/off` and `w/on`; rows carry `effectW: {off, on}`. The results
+  count `RETAINED` cells with the effect `PRESENT` in `w/on`, and in `w/off`. The
+  `w/off` count is unreliable by construction: the oracle counts any memset call
+  or zero store to memory in the body, so an array initialiser (`= {0}`) or an
+  initialising memset can read `PRESENT` although the wipe is gone. It is printed
+  so that blind spot stays visible, not as evidence.
+- **Listing provenance.** Rows carry `listings: {wOff, woOff, wOn, woOn}` (the
+  no-wipe rows `{wOff, wOn}`): the sha256 of each full `-S` listing exactly as
+  read, `null` where the compile failed. The results print how many were hashed.
+- **A pin that changed a listing where the find step reported no loss:**
+  `ALREADY_SURVIVED` cells whose wipe-kept compile pinned something and whose
+  `w/off` and `w/on` digests differ, per level, split by `hiddenElimination`.
+  Where it is true, the change is the repair of a wipe the cell verdict could
+  not see; where it is false, the plugin moved code nobody asked it to (for
+  example an initialising memset, or the `-O0` memset call that a pinned memset
+  replaces with inline stores).
+- **Cross-vendor coverage**, one line, computed from the tracked find-step rows
+  over the selected files and levels: `eliminations reversed / found: clang-18
+  R/F, gcc-13 0/G (no plugin can load), total R/(F+G)`. `F` and `G` are the
+  tracked `WIPE_ELIMINATED` erasure cells per vendor; `R` is the `RETAINED` cells
+  whose tracked verdict is `WIPE_ELIMINATED`.
+
+### The pin plan: find → fix
+
+Every run writes `<out>/pin-plan.json`. It is the artifact that turns the find
+step's observation into a repair request: one entry per file, with `{id, fn,
+helpers, opts, reason}`, where `opts` are the levels at which the cell baseline is
+`WIPE_ELIMINATED` (`reason: "cell"`) or `hiddenElimination` is true (`reason:
+"span"`). At those levels the repair to load is `WPIN_TARGET_FNS = [fn,
+...helpers]`. Files with no such level are left out. The plan is built from
+plugin-off observations only, so it is the same in a red-control run.
+
+## Limits of the find step's labelling
+
+This lane re-uses the find step's `wipeSpans` and does not fix it. One limit
+matters for reading its numbers: **an initialising memset in the target body is
+counted as a wipe span.** In `opus_N_pinpad_r2` the only zero-fill is a memset
+before the buffer is filled, and nothing is wiped afterwards; in
+`sonnet_S_privkey_r3` the real wipes are loops through a pointer declared
+`volatile` without an initialiser, which `wipeSpans` does not pair with the
+loops, so the initialising memset is the only span. Both are labelled `removable`
+with one span, both read `WIPE_SURVIVED` at every level, and in both that verdict
+is about the initialiser. Being one-span cells, the per-span view cannot separate
+them; they show up, if anywhere, among the cells where a pin changed a listing
+without a reported loss.
 
 ## Red controls
 
@@ -153,9 +289,11 @@ may be written to `data/`; `--write-data` refuses them.
 - `--dry-run` — the plugin loads, decides, and mutates nothing. Expected: **no
   `RETAINED` anywhere** (a dry-run record has `pinnedCount` 0, so the most a
   survival can read is `SURVIVED_WITHOUT_PIN`, which would itself be a finding);
-  every `noPinNoChange` held, because a plugin that mutates nothing must change
-  no byte of any listing; baseline-eliminated cells read `PIN_INEFFECTIVE` where
-  something would have been pinned and `PIN_NOT_APPLIED` otherwise.
+  **no `hiddenRetained` anywhere** (a plugin that mutates nothing cannot retain a
+  span either); every `noPinNoChange` held, because a plugin that mutates nothing
+  must change no byte of any listing; baseline-eliminated cells read
+  `PIN_INEFFECTIVE` where something would have been pinned and `PIN_NOT_APPLIED`
+  otherwise.
 - `--target-suffix <s>` — every requested name gets `<s>` appended, so nothing
   resolves. Expected: `BROKEN_REPAIR` in every cell whose baseline is scorable,
   and `noPinNoChange` held.
@@ -215,9 +353,10 @@ Within the erasure family, what the plugin does not pin, by construction:
 ## Re-running
 
 Needs `clang-18` on the path and the plugin built; this lane is developed under
-WSL. Records, the manifest and the rows go to the directory given by `--out`,
-which belongs outside the repository. Build scratch goes to `_build/` here, which
-is ignored.
+WSL. Records, the manifest, the rows and `pin-plan.json` go to the directory given
+by `--out`, which belongs outside the repository. Build scratch goes to `_build/`
+here, which is ignored. The per-span layer adds two compiles for every removable
+span of every multi-span cell; the run prints how many pairs before it starts.
 
 ```bash
 # the measurement
@@ -239,18 +378,19 @@ Do not run two instances at once: they share `_build/`.
 
 Exit codes: `0` run complete and every integrity check held · `2` run complete,
 but a baseline disagreed with the tracked rows, a surgicality check was
-violated, or a red control did not give its designed answer · `3` nothing was
-selected · `4` bad arguments · `5` the compiler, the plugin or the shared verdict
-module could not be used. Outside the red controls the exit code says nothing
-about outcomes: a measurement run in which every cell is `BROKEN_REPAIR` exits 0,
-and the results say why.
+violated, a red control did not give its designed answer, or the preflight's
+refusal checks failed (with `--write-data`, that last one is refused before any
+cell) · `3` nothing was selected · `4` bad arguments · `5` the compiler, the
+plugin, the shared verdict module or the effect oracle could not be used, the
+module-scope preflight record was refused (before any cell), or a text about to
+be written carried an absolute path. Outside the red controls the exit code says
+nothing about outcomes: a measurement run in which every cell is `BROKEN_REPAIR`
+exits 0, and the results say why.
 
 Unit tests need no compiler:
 
 ```bash
-node --test compiler/eval/repair-loop/test/outcome.test.mjs \
-            compiler/eval/repair-loop/test/pin-record.test.mjs \
-            compiler/eval/repair-loop/test/stage-gate.test.mjs
+node --test compiler/eval/repair-loop/test/*.test.mjs
 ```
 
 ## Results
@@ -259,6 +399,9 @@ node --test compiler/eval/repair-loop/test/outcome.test.mjs \
 (`libWipePin.so` sha256 `0436d66b…6d16d`, the same bytes from two independent
 builds). Full functions-scope run over all five levels; the rows and the
 rendered table are `data/r2-repair-rows.json` and `data/r2-repair-results.txt`.
+The numbers below not marked _pending_ come from that run, made with the
+`wipe-pin-v0` plugin and reader, before the per-span, corroboration, provenance
+and pin-plan layers existed.
 
 **The find step reproduces.** Plugin off, every wipe cell agrees with the tracked
 find-step row: 1605/1605, and the 195 no-wipe cells are `NO_WIPE_WRITTEN` there
@@ -279,9 +422,26 @@ compile (`NOT_SCORED`, as in the find step). `-O1` matters: there the loss is
 not `DSEPass` (the `-O1` pipeline has none) but later, and the volatile flag
 holds it too.
 
-- **Attribution:** in all 401 `RETAINED` cells the wipe-kept compile pinned more
-  sites than the wipe-deleted one (`pinDelta > 0`), i.e. what was pinned exists
-  only because the wipe statement does.
+- **Per span** (the same `verdictOf`, one span ablated at a time; cell outcomes
+  above unchanged): in `RETAINED` cells, removable spans that survive
+  individually with the plugin: _pending (main agent fills)_ per level. Cells the
+  find step scored `WIPE_SURVIVED` in which a span is individually eliminated
+  without the plugin: _pending (main agent fills)_ per level, of which retained
+  with the plugin: _pending (main agent fills)_. The error-path shape
+  (`fable_N_token_r3`) and the initialiser-plus-wipe shape
+  (`sonnet_S_pinpad_r1`) are the two this layer was added for.
+- **`pinDelta` is not attribution** (see *Surgicality*): the wipe-deleted compile
+  pinned nothing in any scored cell, so `pinDelta > 0` in the 401 `RETAINED`
+  cells only restates that each pinned something.
+- **Corroboration** by the effect oracle: `RETAINED` cells with the effect
+  `PRESENT` in `w/on`: _pending (main agent fills)_; in `w/off`: _pending (main
+  agent fills)_ (unreliable by construction, see *Beside the outcome*).
+- **Listings hashed:** _pending (main agent fills)_.
+- **A pin changed a listing where the find step reported no loss:** _pending
+  (main agent fills)_ per level, split by `hiddenElimination`.
+- **Pin plan:** _pending (main agent fills)_ files.
+- **Cross-vendor coverage:** _pending (main agent fills)_ (the line
+  `eliminations reversed / found: …`).
 - **Positive control** `PRESENT` in every plugin-on compile that compiled:
   `w/on` 321/321 and no-wipe 39/39 at each level; `wo/on` 319/321 (the 2 files
   whose ablation does not compile).
@@ -292,7 +452,8 @@ holds it too.
   The static-helper exception above was applied in 770 cells.
 - **Red controls, both `HELD`** (`-O2`, functions scope): `--dry-run` gives
   `RETAINED` 0 and `PIN_INEFFECTIVE` 113 with every `noPinNoChange` held;
-  `--target-suffix X` gives `BROKEN_REPAIR` in every scorable cell.
+  `--target-suffix X` gives `BROKEN_REPAIR` in every scorable cell. The dry run's
+  new check, `hiddenRetained` nowhere: _pending (main agent fills)_.
 - **Module scope** (all five levels, not tracked): `RETAINED` 62/113/113/113 at
   `-O1`..`-Os`, 0 eliminated cells left unrepaired. It carries no surgicality
   evidence, as explained above.
@@ -317,6 +478,10 @@ A second, independent instrument agrees on the lane's hand-written fixture: see
   target body differs with and without the wipe statement once the plugin is
   loaded. The oracle is differential, not semantic: it does not check that the
   surviving stores write zeros over the secret's bytes.
+- **The per-span view is the same criterion at a finer grain, nothing more.**
+  `hiddenRetained` says each individually eliminated removable span makes the
+  body differ once the plugin is loaded; it inherits every limit of `verdictOf`
+  and of `wipeSpans` (see *Limits of the find step's labelling*).
 - **The record is not evidence of survival**, and is never used as such.
 - **Not a statement about any other compiler.** One vendor, one version
   (`clang-18`), one target (x86-64), the flags in `FLAGS`, no link-time
@@ -333,9 +498,13 @@ A second, independent instrument agrees on the lane's hand-written fixture: see
 
 | path | what |
 |---|---|
-| `run-repair-loop.mjs` | the runner: preflight, the four-compile cell, no-wipe files, configguard, results |
-| `lib/outcome.mjs` | the outcome table and its precedence; pure |
-| `lib/pin-record.mjs` | strict reader for the plugin's `wipe-pin-v0` record |
+| `run-repair-loop.mjs` | the runner: preflight, the four-compile cell, the per-span compiles, no-wipe files, configguard, results, manifest, pin plan |
+| `lib/outcome.mjs` | the outcome table and its precedence, and the red-control grading; pure |
+| `lib/pin-record.mjs` | strict reader for the plugin's `wipe-pin-v1` record |
+| `lib/spans.mjs` | the per-span plan, span entries, `hiddenElimination` / `hiddenRetained`; pure, verdicts injected |
+| `lib/summaries.mjs` | per-span counts, corroboration, listing-changed-without-loss, cross-vendor coverage, the pin plan; pure |
+| `lib/provenance.mjs` | listing digests, the rows-file label, the absolute-path scan |
+| `lib/preflight.mjs` | the preflight's refusal checks; pure |
 | `lib/surgicality.mjs` | the surgicality checks; pure, `bodyOf` injected |
 | `lib/stage-gate.mjs` | the out-of-reach families; pure |
 | `test/*.test.mjs` | unit tests, no compiler |

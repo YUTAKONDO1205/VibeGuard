@@ -59,10 +59,18 @@ export function noPinNoChange({ asmOff, asmOn, record }) {
 
 /**
  * How many more sites the wipe-kept compile pinned than the wipe-deleted one.
- * Positive means at least one pinned site exists only because the wipe
- * statement does -- the pin is attributable to the wipe, not to an initialiser
- * both versions share. In a dry run the would-pin counts are compared instead.
- * null when either record is unusable.
+ * In a dry run the would-pin counts are compared instead. null when either
+ * record is unusable.
+ *
+ * Carried in the rows, and NOT attribution. Where the wipe-deleted compile pins
+ * nothing -- the usual case, since ablation removed the wipe -- this is simply
+ * the wipe-kept pin count, which RETAINED already requires to be positive, so
+ * "pinDelta > 0 in every RETAINED cell" says nothing new. Nor can it tell an
+ * initialising memset from a wipe when the find step labelled both as wipe spans
+ * and the ablation deleted both. The per-span view in spans.mjs looks at each
+ * span on its own; an initialiser that is a cell's only span remains
+ * indistinguishable from a wipe there too (README, "Limits of the find step's
+ * labelling").
  */
 export function pinDelta(recordW, recordWo) {
   const w = recordW && recordW.ok ? recordW.record : null;

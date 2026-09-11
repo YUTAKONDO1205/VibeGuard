@@ -25,21 +25,30 @@ function good(over = {}) {
   }
   return rec;
 }
+/** One v1 resolution entry. */
+function res(name, resolution = 'resolved', { exact = resolution === 'resolved' ? true : null, linkage = resolution === 'resolved' ? 'external' : null } = {}) {
+  return { name, resolution, exact, linkage };
+}
+/** One v1 pinned entry for encrypt_blob. */
+function site(over = {}) {
+  return { function: 'encrypt_blob', index: 0, lengthBytes: 32, destKind: 'alloca', alreadyVolatile: false, line: 41, followedByUse: false, ...over };
+}
 function unsealed(over = {}) {
   return {
-    schemaVersion: 'wipe-pin-v0',
+    schemaVersion: 'wipe-pin-v1',
     component: 'WipePin',
     module: 'fable_N_aeskey_r3.w.c',
     optLevel: { speedup: 2, size: 0 },
     scope: 'functions',
     requested: ['encrypt_blob'],
-    resolution: [{ name: 'encrypt_blob', resolution: 'resolved' }],
+    resolution: [{ name: 'encrypt_blob', resolution: 'resolved', exact: true, linkage: 'external' }],
     dryRun: false,
-    pinned: [{ function: 'encrypt_blob', index: 0, lengthBytes: 32, destKind: 'alloca', alreadyVolatile: false, line: 41 }],
+    pinned: [{ function: 'encrypt_blob', index: 0, lengthBytes: 32, destKind: 'alloca', alreadyVolatile: false, line: 41, followedByUse: false }],
     pinnedCount: 1,
     wouldPinCount: 1,
     seen: { zeroFillMemsetInScope: 1, zeroFillMemsetInModule: 2 },
     unhandled: { libcallMemset: 0, memsetChk: 0, nonZeroFill: 0, atomicMemset: 0, inlineWrapperMemset: 0 },
+    toolchain: { digest: 'a'.repeat(64), clang: 'Ubuntu clang version 18.1.3 (1ubuntu1)', packages: [{ name: 'clang-18', version: '1:18.1.3-1ubuntu1' }] },
     evidenceDigest: '0'.repeat(64),
     context: { generatedAt: 1, sourceDateEpoch: null, timeSource: 'wall-clock' },
     ...over,
@@ -97,16 +106,66 @@ test('a dry-run record with nothing pinned and something that would be is accept
   assert.equal(r.ok, true, JSON.stringify(r.problems));
 });
 
-test('null is admitted for lengthBytes and line and nowhere else', () => {
-  const pinned = [{ function: 'encrypt_blob', index: 0, lengthBytes: null, destKind: 'argument', alreadyVolatile: false, line: null }];
+test('null is admitted for lengthBytes, line, followedByUse, exact and linkage, and nowhere else', () => {
+  const pinned = [site({ lengthBytes: null, destKind: 'argument', line: null, followedByUse: null })];
   assert.equal(validatePinRecord(good({ pinned }), EXPECT).ok, true);
+  assert.equal(validatePinRecord(good({ resolution: [res('encrypt_blob', 'resolved', { exact: null, linkage: null })] }), EXPECT).ok, true);
   refused(good({ pinnedCount: null }), EXPECT, /not-a-count: pinnedCount/);
   refused(good({ pinned: [{ ...pinned[0], index: null }] }), EXPECT, /pinned\[0\]\.index/);
+  refused(good({ pinned: [{ ...pinned[0], alreadyVolatile: null }] }), EXPECT, /pinned\[0\]\.alreadyVolatile/);
 });
 
-test('an unknown schemaVersion is refused', () => {
-  refused(good({ schemaVersion: 'wipe-pin-v1' }), EXPECT, /unknown-schemaVersion/);
+test('an unknown schemaVersion is refused, and v0 is no longer known', () => {
+  refused(good({ schemaVersion: 'wipe-pin-v0' }), EXPECT, /unknown-schemaVersion/);
+  refused(good({ schemaVersion: 'wipe-pin-v2' }), EXPECT, /unknown-schemaVersion/);
   refused(good({ schemaVersion: undefined }), EXPECT, /unknown-schemaVersion/);
+});
+
+test('a v0-shaped record is refused for each field v1 added', () => {
+  const v0 = good({ schemaVersion: 'wipe-pin-v1' });
+  delete v0.toolchain;
+  v0.pinned = v0.pinned.map(({ followedByUse: _f, ...p }) => p);
+  v0.resolution = v0.resolution.map(({ exact: _e, linkage: _l, ...r }) => r);
+  const r = refused(v0, EXPECT, /missing-field: toolchain$/);
+  assert.ok(r.problems.some((p) => /missing-field: pinned\[0\]\.followedByUse/.test(p)), JSON.stringify(r.problems));
+  assert.ok(r.problems.some((p) => /missing-field: resolution\[0\]\.exact/.test(p)), JSON.stringify(r.problems));
+  assert.ok(r.problems.some((p) => /missing-field: resolution\[0\]\.linkage/.test(p)), JSON.stringify(r.problems));
+});
+
+test('v1 fields: followedByUse, exact and linkage are typed', () => {
+  for (const bad of [0, 1, 'true', 'yes', {}]) {
+    refused(good({ pinned: [site({ followedByUse: bad })] }), EXPECT, /pinned\[0\]\.followedByUse must be true, false or null/);
+    refused(good({ resolution: [res('encrypt_blob', 'resolved', { exact: bad })] }), EXPECT, /resolution\[0\]\.exact must be true, false or null/);
+  }
+  for (const f of [true, false]) {
+    assert.equal(validatePinRecord(good({ pinned: [site({ followedByUse: f })] }), EXPECT).ok, true, `followedByUse ${f}`);
+    assert.equal(validatePinRecord(good({ resolution: [res('encrypt_blob', 'resolved', { exact: f })] }), EXPECT).ok, true, `exact ${f}`);
+  }
+  for (const bad of [0, true, {}, []]) {
+    refused(good({ resolution: [res('encrypt_blob', 'resolved', { linkage: bad })] }), EXPECT, /resolution\[0\]\.linkage must be a string or null/);
+  }
+  assert.equal(validatePinRecord(good({ resolution: [res('encrypt_blob', 'resolved', { linkage: 'internal' })] }), EXPECT).ok, true);
+});
+
+test('v1 toolchain: exactly digest, clang and packages, loosely typed', () => {
+  // an empty digest is allowed; an empty package list is allowed
+  assert.equal(validatePinRecord(good({ toolchain: { digest: '', clang: '', packages: [] } }), EXPECT).ok, true);
+  // package entries are objects, whatever they carry
+  assert.equal(validatePinRecord(good({ toolchain: { digest: 'x', clang: 'c', packages: [{}, { anything: 'goes', n: 3 }] } }), EXPECT).ok, true);
+  refused(good({ toolchain: null }), EXPECT, /toolchain must be an object/);
+  refused(good({ toolchain: [] }), EXPECT, /toolchain must be an object/);
+  refused(good({ toolchain: { digest: '', clang: '' } }), EXPECT, /missing-field: toolchain\.packages/);
+  refused(good({ toolchain: { digest: '', clang: '', packages: [], extra: 1 } }), EXPECT, /unknown-field: toolchain\.extra/);
+  refused(good({ toolchain: { digest: null, clang: '', packages: [] } }), EXPECT, /toolchain\.digest must be a string/);
+  refused(good({ toolchain: { digest: '', clang: 18, packages: [] } }), EXPECT, /toolchain\.clang must be a string/);
+  refused(good({ toolchain: { digest: '', clang: '', packages: {} } }), EXPECT, /toolchain\.packages must be an array/);
+  refused(good({ toolchain: { digest: '', clang: '', packages: ['clang-18'] } }), EXPECT, /toolchain\.packages\[0\] must be an object/);
+});
+
+test('the toolchain is inside the digest: editing it after sealing is refused', () => {
+  const rec = good();
+  rec.toolchain = { ...rec.toolchain, clang: 'another clang' };
+  refused(rec, EXPECT, /digest-mismatch/);
 });
 
 test('a record from another component is refused', () => {
@@ -169,17 +228,52 @@ test('a dry run that mutated something contradicts itself', () => {
 });
 
 test('counts that contradict the lists they count are refused', () => {
-  refused(good({ pinnedCount: 2, wouldPinCount: 2, seen: { zeroFillMemsetInScope: 2, zeroFillMemsetInModule: 2 } }), {}, /exceeds the 1 pinned site/);
+  refused(good({ pinnedCount: 2, wouldPinCount: 2, seen: { zeroFillMemsetInScope: 2, zeroFillMemsetInModule: 2 } }), {}, /pinnedCount 2, but 1 listed site\(s\) are not already volatile/);
   refused(good({ seen: { zeroFillMemsetInScope: 3, zeroFillMemsetInModule: 2 } }), {}, /InScope exceeds/);
   refused(good({ seen: { zeroFillMemsetInScope: 0, zeroFillMemsetInModule: 2 } }), {}, /pinnedCount 1 exceeds seen/);
-  refused(good({ pinnedCount: 0, pinned: [] }), {}, /wouldPinCount 1 with pinnedCount 0/);
+  refused(good({ pinnedCount: 0, pinned: [] }), {}, /pinnedCount 0 differs from wouldPinCount 1/);
+});
+
+// ---- v1 count consistency: pinnedCount, wouldPinCount and the list agree exactly ----
+
+const two = [site(), site({ index: 1, lengthBytes: 16, line: 44 })];
+const seen2 = { zeroFillMemsetInScope: 2, zeroFillMemsetInModule: 3 };
+
+test('outside a dry run: pinnedCount === wouldPinCount === listed sites not already volatile', () => {
+  assert.equal(validatePinRecord(good({ pinned: two, pinnedCount: 2, wouldPinCount: 2, seen: seen2 }), EXPECT).ok, true);
+  // nothing listed, nothing counted
+  assert.equal(validatePinRecord(good({ pinned: [], pinnedCount: 0, wouldPinCount: 0 }), EXPECT).ok, true);
+  // an already-volatile site is listed and counted in neither
+  const oneVol = [site(), site({ index: 1, alreadyVolatile: true })];
+  assert.equal(validatePinRecord(good({ pinned: oneVol, pinnedCount: 1, wouldPinCount: 1, seen: seen2 }), EXPECT).ok, true);
+  refused(good({ pinned: oneVol, pinnedCount: 2, wouldPinCount: 2, seen: seen2 }), EXPECT, /pinnedCount 2, but 1 listed site/);
+  // pinnedCount below the list: a site listed as pinned that was not
+  refused(good({ pinned: two, pinnedCount: 1, wouldPinCount: 1, seen: seen2 }), EXPECT, /pinnedCount 1, but 2 listed site/);
+  // the two counts disagree although one of them matches the list
+  refused(good({ pinned: two, pinnedCount: 2, wouldPinCount: 1, seen: seen2 }), EXPECT, /pinnedCount 2 differs from wouldPinCount 1/);
+  refused(good({ pinned: two, pinnedCount: 1, wouldPinCount: 2, seen: seen2 }), EXPECT, /pinnedCount 1 differs from wouldPinCount 2/);
+  // counts above zero with an empty list
+  refused(good({ pinned: [], pinnedCount: 1, wouldPinCount: 1 }), EXPECT, /pinnedCount 1, but 0 listed site/);
+});
+
+test('in a dry run: pinnedCount 0, and wouldPinCount === listed sites not already volatile', () => {
+  const D = { ...EXPECT, dryRun: true };
+  assert.equal(validatePinRecord(good({ dryRun: true, pinned: two, pinnedCount: 0, wouldPinCount: 2, seen: seen2 }), D).ok, true);
+  assert.equal(validatePinRecord(good({ dryRun: true, pinned: [], pinnedCount: 0, wouldPinCount: 0 }), D).ok, true);
+  const oneVol = [site(), site({ index: 1, alreadyVolatile: true })];
+  assert.equal(validatePinRecord(good({ dryRun: true, pinned: oneVol, pinnedCount: 0, wouldPinCount: 1, seen: seen2 }), D).ok, true);
+  refused(good({ dryRun: true, pinned: oneVol, pinnedCount: 0, wouldPinCount: 2, seen: seen2 }), D, /dry run with wouldPinCount 2, but 1 listed site/);
+  refused(good({ dryRun: true, pinned: two, pinnedCount: 0, wouldPinCount: 1, seen: seen2 }), D, /dry run with wouldPinCount 1, but 2 listed site/);
+  refused(good({ dryRun: true, pinned: two, pinnedCount: 2, wouldPinCount: 2, seen: seen2 }), D, /dryRun is true but pinnedCount is 2/);
+  // a dry run that lists nothing cannot claim it would have pinned something
+  refused(good({ dryRun: true, pinned: [], pinnedCount: 0, wouldPinCount: 1 }), D, /dry run with wouldPinCount 1, but 0 listed site/);
 });
 
 test('in functions scope every requested name resolves exactly once, and nothing else is resolved or pinned', () => {
   refused(good({ resolution: [] }), {}, /has 0 resolution entries/);
-  refused(good({ resolution: [{ name: 'encrypt_blob', resolution: 'resolved' }, { name: 'encrypt_blob', resolution: 'resolved' }] }), {}, /has 2 resolution entries/);
-  refused(good({ resolution: [{ name: 'encrypt_blob', resolution: 'resolved' }, { name: 'other', resolution: 'resolved' }] }), {}, /resolution names other/);
-  refused(good({ pinned: [{ ...good().pinned[0], function: 'vgctl_control' }] }), {}, /pinned site in vgctl_control/);
+  refused(good({ resolution: [res('encrypt_blob'), res('encrypt_blob')] }), {}, /has 2 resolution entries/);
+  refused(good({ resolution: [res('encrypt_blob'), res('other')] }), {}, /resolution names other/);
+  refused(good({ pinned: [site({ function: 'vgctl_control' })] }), {}, /pinned site in vgctl_control/);
 });
 
 test('a record that describes a different compile is refused', () => {
@@ -194,7 +288,7 @@ test('a record that describes a different compile is refused', () => {
 test('request order and duplicates do not matter; the set does', () => {
   const rec = good({
     requested: ['secure_wipe', 'encrypt_blob'],
-    resolution: [{ name: 'secure_wipe', resolution: 'resolved' }, { name: 'encrypt_blob', resolution: 'resolved' }],
+    resolution: [res('secure_wipe'), res('encrypt_blob')],
   });
   assert.equal(validatePinRecord(rec, { ...EXPECT, requested: ['encrypt_blob', 'secure_wipe', 'encrypt_blob'] }).ok, true);
 });
@@ -228,7 +322,7 @@ test('problem strings never carry a path, even for an unreadable or missing file
 test('unresolvedNames lists what did not resolve, and nothing in module scope', () => {
   const rec = good({
     requested: ['encrypt_blob', 'wipe'],
-    resolution: [{ name: 'encrypt_blob', resolution: 'resolved' }, { name: 'wipe', resolution: 'not-in-module' }],
+    resolution: [res('encrypt_blob'), res('wipe', 'not-in-module')],
   });
   assert.deepEqual(unresolvedNames(rec), ['wipe:not-in-module']);
   assert.deepEqual(unresolvedNames(good({ scope: 'module', requested: [], resolution: [] })), []);

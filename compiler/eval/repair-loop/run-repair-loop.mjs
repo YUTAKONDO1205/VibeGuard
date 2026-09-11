@@ -18,12 +18,23 @@
  * judging itself. The plugin's own record is read only to show that the repair ran
  * on the functions it was asked about; it never decides survival. See README.md.
  *
+ * Beside the cell outcome, and never changing it: a per-span view (each removable
+ * span of a multi-span cell ablated alone, judged by the same verdictOf), a second
+ * reading of the w listings by the effect oracle, sha256 digests of every listing,
+ * and the pin plan (<out>/pin-plan.json) that turns the find step's eliminations
+ * into WPIN_TARGET_FNS per file and level.
+ *
  *   node run-repair-loop.mjs --plugin <libWipePin.so> --out <lab dir> [options]
  *
  * Exit codes: 0 run complete and every integrity check held; 2 run complete but a
- * baseline disagreed with the tracked rows or a surgicality check was violated;
- * 3 vacuous (nothing selected); 4 bad arguments; 5 a tool, the plugin or the
- * shared verdict module could not be used.
+ * baseline disagreed with the tracked rows, a surgicality check was violated, a
+ * red control did not give its designed answer, or the preflight's refusal checks
+ * failed (a record written without a target, a silent or failing compile without
+ * WPIN_OUT; with --write-data that is refused before any cell); 3 vacuous
+ * (nothing selected); 4 bad arguments; 5 a tool, the plugin, the shared verdict
+ * module or the effect oracle could not be used, the module-scope preflight record
+ * was refused (before any cell), or a text about to be written carried an
+ * absolute path.
  */
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, existsSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -35,13 +46,21 @@ import { readPinRecord, unresolvedNames, SEEN_KEYS, UNHANDLED_KEYS } from './lib
 import { outcomeOf, absentAfterAblation, gradeRedControl, OUTCOMES, ELIMINATED } from './lib/outcome.mjs';
 import { ablatedUnchanged, controlUntouched, noPinNoChange, pinDelta } from './lib/surgicality.mjs';
 import { authzSummary, configguardTargets, configguardRow, unsupportedVendorLine, notAttemptedLine } from './lib/stage-gate.mjs';
+import { spanPlan, spanSourceOf, spanRows, hiddenFlags } from './lib/spans.mjs';
+import { spanSummary, effectVerdict, corroborationSummary, listingChangedWithoutLoss, crossVendorCoverage, buildPinPlan } from './lib/summaries.mjs';
+import { sha256Text, absolutePathHits, rowsFileLabel } from './lib/provenance.mjs';
+import { preflightProblems } from './lib/preflight.mjs';
 
 const run = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
+const REPO = resolve(HERE, '..', '..', '..');
 const AIGEN = resolve(HERE, '..', 'ai-generated');
 const GEN = join(AIGEN, 'generated-corpus', 'r2');
 const SCEN_PATH = join(AIGEN, 'scenarios.json');
 const CELL_PATH = join(AIGEN, 'lib', 'ablation-cell.mjs');
+// The effect oracle the find step's controlPresent is built on. Imported, not
+// copied, for the corroboration column.
+const ORACLE_PATH = resolve(HERE, '..', 'second-vendor', 'lib', 'asm-oracle.mjs');
 const DEFAULT_ROWS = join(AIGEN, 'data', 'r2-build-rows.json');
 // Build scratch: regenerable, ignored by .gitignore.
 const BUILD = join(HERE, '_build');
@@ -52,7 +71,7 @@ const CONTROL_FN = 'vgctl_control';
 const USAGE = `usage: node run-repair-loop.mjs --plugin <so> --out <dir> [options]
 
   --plugin <so>          the repair plugin (required; there is no default)
-  --out <dir>            lab directory for records, rows and the manifest (required)
+  --out <dir>            lab directory for records, rows, the manifest and pin-plan.json (required)
   --cc <compiler>        default clang-18; gcc is refused
   --scope functions|module     default functions
   --opts <list>          comma list from ${ALL_OPTS.join(' ')} (default: all five)
@@ -179,9 +198,13 @@ async function main() {
       + 'and has no private copy to fall back on.');
   }
   const cell = await import(pathToFileURL(CELL_PATH).href);
-  for (const name of ['FLAGS', 'CONTROL', 'wipeSpans', 'controlPresent', 'ablateSpans', 'bodyOf', 'compile', 'pool', 'verdictOf']) {
+  for (const name of ['FLAGS', 'CONTROL', 'CONTROL_EFFECT', 'wipeSpans', 'controlPresent', 'ablateSpans', 'bodyOf', 'compile', 'pool', 'verdictOf']) {
     if (!(name in cell)) die(5, `ablation-cell.mjs does not export ${name}`);
   }
+  if (!existsSync(ORACLE_PATH)) die(5, 'second-vendor/lib/asm-oracle.mjs is missing; the corroboration column reads with it and has no copy.');
+  const oracle = await import(pathToFileURL(ORACLE_PATH).href);
+  if (typeof oracle.observeEffect !== 'function') die(5, 'asm-oracle.mjs does not export observeEffect');
+  const effectOf = (listing, fn) => effectVerdict(oracle.observeEffect, listing, fn, cell.CONTROL_EFFECT);
 
   let ccVersion;
   try {
@@ -245,10 +268,22 @@ async function main() {
     } catch {
       pre.noRecordWithoutOut = 'compile-failed';
     }
+    // Fail closed. A plugin whose one known-good record is refused would make
+    // every cell BROKEN_REPAIR; there is nothing to measure, so stop here.
     if (!rA.ok) {
-      process.stderr.write(`warning: the plugin loaded but its module-scope preflight record was refused (${pre.recordOnModuleScope}); `
-        + 'expect BROKEN_REPAIR in every cell\n');
+      die(5, `the plugin loaded but its module-scope preflight record was refused (${pre.recordOnModuleScope}); `
+        + 'every cell would be BROKEN_REPAIR, so no cell is run');
     }
+  }
+  // The refusal contract is an integrity property of the instrument (see
+  // lib/preflight.mjs). A failure makes the run exit 2, and a run that is to be
+  // written to data/ is refused before any cell.
+  const preProblems = preflightProblems(pre);
+  pre.integrityHeld = preProblems.length === 0;
+  pre.integrityProblems = preProblems;
+  if (!pre.integrityHeld) {
+    if (args.writeData) die(2, `--write-data refused: the preflight refusal checks failed (${preProblems.join('; ')})`);
+    process.stderr.write(`warning: preflight integrity failed (${preProblems.join('; ')}); the run will exit 2\n`);
   }
 
   // ---- select files -----------------------------------------------------------
@@ -288,11 +323,25 @@ async function main() {
     }
     const pWo = join(BUILD, `${meta.id}.wo.c`);
     writeFileSync(pWo, cell.ablateSpans(src, ws.spans) + cell.CONTROL, 'utf8');
+    // Per-span sources: each removable span of a multi-span cell ablated alone,
+    // through the same ablateSpans. A one-span cell needs none (its span verdict
+    // is the cell verdict).
+    const plan = spanPlan(ws.kinds);
+    const pWoSpan = {};
+    for (const p of plan) {
+      if (p.source !== 'span') continue;
+      pWoSpan[p.index] = join(BUILD, `${meta.id}.wo${p.index}.c`);
+      writeFileSync(pWoSpan[p.index], cell.ablateSpans(src, [ws.spans[p.index]]) + cell.CONTROL, 'utf8');
+    }
     const idiom = idiomOf(ws.kinds);
-    for (const opt of args.opts) cells.push({ meta, opt, pW, pWo, requested, idiom, nSpans: ws.spans.length });
+    for (const opt of args.opts) {
+      cells.push({ meta, opt, pW, pWo, requested, idiom, nSpans: ws.spans.length, helpers: [...ws.helpers], plan, pWoSpan });
+    }
   }
   if (!cells.length && !noneCells.length) die(3, 'no erasure-family file was selected; nothing was measured');
+  const spanCompilePairs = cells.reduce((n, c) => n + c.plan.filter((p) => p.source === 'span').length, 0);
   process.stderr.write(`${erasure.length} erasure file(s): ${cells.length} wipe cell(s), ${noneCells.length} no-wipe cell(s), `
+    + `${spanCompilePairs} per-span compile pair(s), `
     + `opts ${args.opts.join(' ')}, scope ${args.scope}${args.dryRun ? ', DRY RUN' : ''}`
     + `${args.targetSuffix !== null ? `, target suffix ${JSON.stringify(args.targetSuffix)}` : ''}\n`);
 
@@ -326,20 +375,45 @@ async function main() {
     const ctlWo = aWoon ? cell.controlPresent(aWoon) : { ok: false, via: 'COMPILE_ERROR' };
     const oc = outcomeOf(baseline, repaired, rW, rWo, ctlW.ok && ctlWo.ok);
 
+    // Per span: only span i ablated, compiled off and on with the same flags and
+    // the same plugin environment as the cell's wo compiles, its own record path,
+    // judged against the SAME w/off and w/on listings by the SAME verdictOf.
+    const measured = {};
+    for (const p of c.plan) {
+      if (p.source !== 'span') continue;
+      const pS = c.pWoSpan[p.index];
+      const side = `wo${p.index}`;
+      const recS = join(rd, `${ccName}${opt}.${side}.json`);
+      rmSync(recS, { force: true });
+      const aSoff = await cell.compile(args.cc, [opt], pS, asmPath(meta.id, opt, side, 'off'));
+      const aSon = await cell.compile(args.cc, [opt, pluginArg], pS, asmPath(meta.id, opt, side, 'on'), { env: pluginEnv(recS, requested) });
+      const rS = readPinRecord(recS, { ...baseExpect, opt, module: basename(pS), requested });
+      measured[p.index] = { off: cell.verdictOf(aWoff, aSoff, meta.fn), on: cell.verdictOf(aWon, aSon, meta.fn), recordOk: rS.ok };
+    }
+    const spans = spanRows(c.plan, { baseline, repaired, measured });
+    const hidden = hiddenFlags(baseline, spans);
+
     const tv = trackedVerdict.get(`${meta.id}|${ccName}|${opt}`);
     rows.push({
       id: meta.id, model: meta.model, framing: meta.framing, scen: meta.scen, fam: meta.fam, fn: meta.fn,
       kind: 'erasure', idiom: c.idiom, idiomMatchesTracked: trackedIdiom.has(meta.id) ? trackedIdiom.get(meta.id) === c.idiom : null,
       n_spans: c.nSpans, cc: ccName, opt, scope: args.scope, dryRun: args.dryRun, targetSuffix: args.targetSuffix,
-      requested,
+      requested, helpers: c.helpers,
       baseline: baseline.verdict, baselineControl: baseline.control ?? null,
       repaired: repaired.verdict, repairedControl: repaired.control ?? null,
       trackedVerdict: tv ?? null,
       baselineMatchesTracked: tv === undefined ? null : tv === baseline.verdict,
       outcome: oc.outcome, outcomeReason: oc.reason,
+      spanSource: spanSourceOf(c.plan), spans,
+      hiddenElimination: hidden.hiddenElimination, hiddenRetained: hidden.hiddenRetained,
+      effectW: { off: effectOf(aWoff, meta.fn), on: effectOf(aWon, meta.fn) },
+      listings: { wOff: sha256Text(aWoff), woOff: sha256Text(aWooff), wOn: sha256Text(aWon), woOn: sha256Text(aWoon) },
       controlOnW: ctlW.ok, controlOnWVia: ctlW.via, controlOnWo: ctlWo.ok, controlOnWoVia: ctlWo.via,
       recordW: summarizeRecord(rW), recordWo: summarizeRecord(rWo),
       absentAfterAblation: absentAfterAblation(rW, rWo),
+      // Carried in the row, not presented as attribution: where the wipe-deleted
+      // compile pins nothing this is just the wipe-kept pin count, which RETAINED
+      // already requires to be positive. See README, Surgicality.
       pinDelta: pinDelta(rW, rWo),
       ablatedUnchanged: ablatedUnchanged({ asmWoOff: aWooff, asmWoOn: aWoon, fn: meta.fn, recordWo: rWo, bodyOf: cell.bodyOf }),
       controlUntouched: controlUntouched({ scope: args.scope, pairs: [[aWoff, aWon], [aWooff, aWoon]], bodyOf: cell.bodyOf, controlFn: CONTROL_FN }),
@@ -364,6 +438,7 @@ async function main() {
       requested,
       baselineMatchesTracked: trackedNone.has(meta.id),
       compiledOff: !!aOff, compiledOn: !!aOn,
+      listings: { wOff: sha256Text(aOff), wOn: sha256Text(aOn) },
       controlOn: aOn ? cell.controlPresent(aOn).ok : false,
       record: summarizeRecord(rW),
       pinnedCount: rW.ok ? rW.record.pinnedCount : null,
@@ -408,21 +483,53 @@ async function main() {
 
   rows.sort((a, b) => cmp(a.id, b.id) || cmp(a.opt, b.opt) || cmp(a.kind, b.kind));
 
+  // ---- views beside the outcome ------------------------------------------------------
+  const plan = buildPinPlan(rows, args.opts);
+  const coverage = crossVendorCoverage({
+    tracked, rows, runCc: ccName, ids: new Set(erasure.map((x) => x.meta.id)), opts: args.opts,
+  });
+
   // ---- results text ----------------------------------------------------------------
   const red = gradeRedControl(rows, { dryRun: args.dryRun, targetSuffix: args.targetSuffix });
-  const text = renderResults({ args, ccName, ccVersion, pluginSha, pre, rows, authz, cfgNote, cfgSelection, tracked, red });
+  const text = renderResults({ args, ccName, ccVersion, pluginSha, pre, rows, authz, cfgNote, cfgSelection, tracked, red, plan, coverage });
 
   const rowsText = '[\n' + rows.map((r) => JSON.stringify(r)).join(',\n') + '\n]\n';
+  const planText = JSON.stringify({
+    what: 'find -> fix: per file, the levels at which the find step\'s observation says a wipe is gone, '
+      + 'and the names to pin there (WPIN_TARGET_FNS = [fn, ...helpers])',
+    cc: ccName, opts: args.opts, fileSubset: args.files, entries: plan,
+  }, null, 2) + '\n';
+  const manifestText = JSON.stringify({
+    generatedAt: new Date().toISOString(), node: process.version,
+    cc: ccName, ccVersion, plugin: { basename: basename(args.plugin), sha256: pluginSha },
+    scope: args.scope, dryRun: args.dryRun, targetSuffix: args.targetSuffix, opts: args.opts,
+    files: args.files,
+    rowsFile: rowsFileLabel(args.rows, { defaultPath: DEFAULT_ROWS, repoRoot: REPO }), rowsSha256: sha256(args.rows),
+    conc: args.conc, preflight: pre,
+    erasureFiles: erasure.length, cells: cells.length, noWipeCells: noneCells.length, configguardRows: cfgRows.length,
+    perSpanCompilePairs: spanCompilePairs, pinPlanEntries: plan.length,
+    ignoredInheritedEnv: inherited,
+  }, null, 2) + '\n';
+
+  // Nothing written may carry the measuring machine's layout. Checked on the
+  // exact texts, before the tracked copies are written.
+  const pathHits = [];
+  for (const [name, t] of [['r2-repair-rows.json', rowsText], ['manifest.json', manifestText],
+    ['r2-repair-results.txt', text], ['pin-plan.json', planText]]) {
+    const h = absolutePathHits(t);
+    if (h.length) pathHits.push(`${name}: ${h.join(', ')}`);
+  }
+
+  // The lab copies are written either way: the lab is outside the repository, and
+  // a run that failed the path check has to be debuggable.
   writeFileSync(join(args.out, 'r2-repair-rows.json'), rowsText, 'utf8');
   writeFileSync(join(args.out, 'r2-repair-results.txt'), text, 'utf8');
-  writeFileSync(join(args.out, 'manifest.json'), JSON.stringify({
-    generatedAt: new Date().toISOString(), node: process.version,
-    cc: args.cc, ccVersion, plugin: args.plugin, pluginSha256: pluginSha,
-    scope: args.scope, dryRun: args.dryRun, targetSuffix: args.targetSuffix, opts: args.opts,
-    files: args.files, rowsFile: args.rows, conc: args.conc, preflight: pre,
-    erasureFiles: erasure.length, cells: cells.length, noWipeCells: noneCells.length, configguardRows: cfgRows.length,
-    ignoredInheritedEnv: inherited,
-  }, null, 2) + '\n', 'utf8');
+  writeFileSync(join(args.out, 'manifest.json'), manifestText, 'utf8');
+  writeFileSync(join(args.out, 'pin-plan.json'), planText, 'utf8');
+  if (pathHits.length) {
+    process.stdout.write(text);
+    die(5, `an absolute path would be written (${pathHits.join('; ')}); nothing was written to data/`);
+  }
   if (args.writeData) {
     mkdirSync(DATA, { recursive: true });
     writeFileSync(join(DATA, 'r2-repair-rows.json'), rowsText, 'utf8');
@@ -430,7 +537,7 @@ async function main() {
   }
   process.stdout.write(text);
 
-  const integrityBroken = rows.some((r) =>
+  const integrityBroken = !pre.integrityHeld || rows.some((r) =>
     r.baselineMatchesTracked === false
     || r.ablatedUnchanged === false || r.controlUntouched === false
     || r.noPinNoChangeW === false || r.noPinNoChangeWo === false || r.noPinNoChange === false);
@@ -447,7 +554,7 @@ function tri(rows, field) {
   return `held ${t}, violated ${f}, n/a ${n}`;
 }
 
-function renderResults({ args, ccName, ccVersion, pluginSha, pre, rows, authz, cfgNote, cfgSelection, tracked, red }) {
+function renderResults({ args, ccName, ccVersion, pluginSha, pre, rows, authz, cfgNote, cfgSelection, tracked, red, plan, coverage }) {
   const L = [];
   const er = rows.filter((r) => r.kind === 'erasure');
   const none = rows.filter((r) => r.kind === 'none');
@@ -470,6 +577,8 @@ function renderResults({ args, ccName, ccVersion, pluginSha, pre, rows, authz, c
   L.push(`  module-scope record                   ${pre.recordOnModuleScope}`);
   L.push(`  no record when no target is given     ${pre.noRecordWithoutTarget}`);
   L.push(`  without WPIN_OUT (expect a refusal)   ${pre.noRecordWithoutOut}`);
+  L.push(`  refusal checks                        ${pre.integrityHeld ? 'held' : 'FAILED (exit 2)'}`);
+  for (const p of pre.integrityProblems || []) L.push(`  PREFLIGHT ${p}`);
   L.push('');
 
   if (red) {
@@ -558,12 +667,45 @@ function renderResults({ args, ccName, ccVersion, pluginSha, pre, rows, authz, c
   L.push(`  helper resolved in w, not-in-module in wo (its only call was the ablated wipe; tolerated, not broken): ${absent.length} cell(s)`);
   L.push('');
 
-  // attribution for RETAINED
-  const ret = er.filter((r) => r.outcome === 'RETAINED');
-  const weak = ret.filter((r) => !(r.pinDelta > 0));
-  L.push('attribution of RETAINED cells');
-  L.push(`  RETAINED ${ret.length}; the wipe-kept compile pinned more sites than the wipe-deleted one in ${ret.length - weak.length}`);
-  for (const r of weak) L.push(`  WEAK ${r.id} ${r.opt}: pinDelta ${r.pinDelta}`);
+  // per-span view: the same verdictOf, one span ablated at a time
+  L.push('per-span view (each removable span of a multi-span cell ablated alone, same verdictOf; cell outcomes unchanged)');
+  for (const s of spanSummary(rows, opts)) {
+    L.push(`  ${pad(s.opt, 4)} multi-span cells ${s.multiSpanCells}`);
+    L.push(`       RETAINED cells: removable spans that survive individually with the plugin: ${s.retainedSpans.survived}/${s.retainedSpans.total}`);
+    for (const m of s.retainedSpanMisses) L.push(`         SPAN NOT RETAINED ${m.id} span ${m.index}: ${m.on}`);
+    L.push(`       cells the find step scored SURVIVED in which a span is individually eliminated without the plugin: ${s.hidden} (retained with the plugin: ${s.hiddenRetained})`);
+    for (const h of s.hiddenIds) L.push(`         HIDDEN ${h.id} ${h.retained ? 'retained' : 'NOT retained'}`);
+  }
+  const spanRowsAll = er.flatMap((r) => (r.spans || []).filter((s) => s.source === 'span'));
+  L.push(`  per-span plugin-on records valid ${spanRowsAll.filter((s) => s.recordOk === true).length}/${spanRowsAll.length}`);
+  L.push('  pinDelta is carried in the rows and is not attribution: where the wipe-deleted compile pins nothing it equals the wipe-kept pin count.');
+  L.push('');
+
+  // corroboration: a second reading of the same w listings
+  L.push('corroboration by the effect oracle (observeEffect on the target body, CONTROL_EFFECT; never changes an outcome)');
+  for (const c of corroborationSummary(rows, opts)) {
+    L.push(`  ${pad(c.opt, 4)} RETAINED ${c.retained}: effect PRESENT in w/on ${c.onPresent}, in w/off ${c.offPresent}`);
+    for (const id of c.onNotPresent) L.push(`         w/on NOT PRESENT ${id}`);
+  }
+  L.push('  the w/off count is unreliable: any memset call or zero store in the body counts, so an array initialiser can read PRESENT although the wipe is gone.');
+  L.push('');
+
+  // listing provenance
+  const hashed = rows.reduce((n, r) => n + (r.listings ? Object.values(r.listings).filter((h) => typeof h === 'string').length : 0), 0);
+  L.push('listing provenance');
+  L.push(`  listings hashed (sha256 of the full -S text as read): ${hashed}`);
+  L.push('');
+
+  // the plugin moved code where the find step reported no loss
+  L.push('pin changed a listing where the find step reported no loss (ALREADY_SURVIVED, w pinned > 0, w/off and w/on digests differ)');
+  for (const c of listingChangedWithoutLoss(rows, opts)) {
+    L.push(`  ${pad(c.opt, 4)} ${c.total}: with a hidden elimination ${c.hidden}, without ${c.notHidden}`);
+  }
+  L.push('');
+
+  // find -> fix
+  L.push(`pin plan (pin-plan.json in the lab directory): ${plan.length} file(s)`);
+  L.push(`  ${coverage.line}`);
   L.push('');
 
   // non-RETAINED among baseline-ELIMINATED

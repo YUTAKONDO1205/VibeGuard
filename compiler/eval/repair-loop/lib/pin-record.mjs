@@ -1,5 +1,13 @@
 /**
- * Reader for the record the repair plugin writes (schemaVersion "wipe-pin-v0").
+ * Reader for the record the repair plugin writes (schemaVersion "wipe-pin-v1").
+ *
+ * v1 is v0 plus four things, and only "wipe-pin-v1" is accepted: a v0 record
+ * lacks them and is refused like any other record of the wrong shape.
+ *   - pinned[].followedByUse     true | false | null
+ *   - resolution[].exact         true | false | null
+ *   - resolution[].linkage       a string, or null
+ *   - toolchain                  {digest: string (may be empty), clang: string,
+ *                                 packages: array of objects}, exactly those keys
  *
  * The record is the plugin's own account of what it did. This lane never takes
  * it as the verdict -- the verdict comes from compiling and comparing, exactly as
@@ -30,7 +38,7 @@
 import { readFileSync } from 'node:fs';
 import { evidenceDigest } from '../../../evidence/canon.mjs';
 
-export const SCHEMA_VERSION = 'wipe-pin-v0';
+export const SCHEMA_VERSION = 'wipe-pin-v1';
 export const COMPONENT = 'WipePin';
 export const RESOLUTIONS = Object.freeze(['resolved', 'declaration-only', 'not-in-module']);
 export const SCOPES = Object.freeze(['functions', 'module']);
@@ -52,12 +60,13 @@ export const OPT_LEVELS = Object.freeze({
 
 const TOP_KEYS = Object.freeze([
   'schemaVersion', 'component', 'module', 'optLevel', 'scope', 'requested', 'resolution',
-  'dryRun', 'pinned', 'pinnedCount', 'wouldPinCount', 'seen', 'unhandled',
+  'dryRun', 'pinned', 'pinnedCount', 'wouldPinCount', 'seen', 'unhandled', 'toolchain',
   'evidenceDigest', 'context',
 ]);
 const OPT_KEYS = Object.freeze(['speedup', 'size']);
-const RESOLUTION_KEYS = Object.freeze(['name', 'resolution']);
-const PINNED_KEYS = Object.freeze(['function', 'index', 'lengthBytes', 'destKind', 'alreadyVolatile', 'line']);
+const RESOLUTION_KEYS = Object.freeze(['name', 'resolution', 'exact', 'linkage']);
+const PINNED_KEYS = Object.freeze(['function', 'index', 'lengthBytes', 'destKind', 'alreadyVolatile', 'line', 'followedByUse']);
+const TOOLCHAIN_KEYS = Object.freeze(['digest', 'clang', 'packages']);
 export const SEEN_KEYS = Object.freeze(['zeroFillMemsetInScope', 'zeroFillMemsetInModule']);
 // inlineWrapperMemset: under -D_FORTIFY_SOURCE the target calls clang's
 // `memset.inline` wrapper, whose body holds the __memset_chk; nothing in the
@@ -67,6 +76,7 @@ export const UNHANDLED_KEYS = Object.freeze(['libcallMemset', 'memsetChk', 'nonZ
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const isCount = (v) => Number.isInteger(v) && v >= 0;
 const isName = (v) => typeof v === 'string' && v.length > 0;
+const isTri = (v) => v === true || v === false || v === null;
 
 /**
  * A module name must be a basename. The plugin is told to write one, and a path
@@ -126,6 +136,10 @@ export function validatePinRecord(rec, expect = {}) {
       exactKeys(r, RESOLUTION_KEYS, `resolution[${i}].`, problems);
       if (!isName(r.name)) problems.push(`bad-type: resolution[${i}].name`);
       if (!RESOLUTIONS.includes(r.resolution)) problems.push(`bad-resolution: resolution[${i}].resolution = ${JSON.stringify(r.resolution)}`);
+      if ('exact' in r && !isTri(r.exact)) problems.push(`bad-type: resolution[${i}].exact must be true, false or null`);
+      if ('linkage' in r && !(r.linkage === null || typeof r.linkage === 'string')) {
+        problems.push(`bad-type: resolution[${i}].linkage must be a string or null`);
+      }
     });
   }
 
@@ -143,7 +157,21 @@ export function validatePinRecord(rec, expect = {}) {
       if (!(p.line === null || isCount(p.line))) problems.push(`not-a-count: pinned[${i}].line (an integer >= 0, or null without debug info)`);
       if (!isName(p.destKind)) problems.push(`bad-type: pinned[${i}].destKind`);
       if (typeof p.alreadyVolatile !== 'boolean') problems.push(`bad-type: pinned[${i}].alreadyVolatile`);
+      if ('followedByUse' in p && !isTri(p.followedByUse)) problems.push(`bad-type: pinned[${i}].followedByUse must be true, false or null`);
     });
+  }
+
+  // Values are typed loosely on purpose: the reader checks the shape the
+  // contract names, not what a package entry says.
+  if (!isObj(rec.toolchain)) problems.push('bad-type: toolchain must be an object');
+  else {
+    exactKeys(rec.toolchain, TOOLCHAIN_KEYS, 'toolchain.', problems);
+    if ('digest' in rec.toolchain && typeof rec.toolchain.digest !== 'string') problems.push('bad-type: toolchain.digest must be a string');
+    if ('clang' in rec.toolchain && typeof rec.toolchain.clang !== 'string') problems.push('bad-type: toolchain.clang must be a string');
+    if ('packages' in rec.toolchain) {
+      if (!Array.isArray(rec.toolchain.packages)) problems.push('bad-type: toolchain.packages must be an array');
+      else rec.toolchain.packages.forEach((p, i) => { if (!isObj(p)) problems.push(`bad-type: toolchain.packages[${i}] must be an object`); });
+    }
   }
 
   if (!isCount(rec.pinnedCount)) problems.push('not-a-count: pinnedCount');
@@ -173,14 +201,26 @@ export function validatePinRecord(rec, expect = {}) {
   if (problems.length) return { ok: false, record: null, problems };
 
   // ---- internal consistency ----------------------------------------------
-  if (rec.dryRun && rec.pinnedCount !== 0) {
-    problems.push(`inconsistent: dryRun is true but pinnedCount is ${rec.pinnedCount} (a dry run mutates nothing)`);
-  }
-  if (!rec.dryRun && rec.pinnedCount === 0 && rec.wouldPinCount > 0) {
-    problems.push(`inconsistent: outside a dry run, wouldPinCount ${rec.wouldPinCount} with pinnedCount 0`);
-  }
-  if (!rec.dryRun && rec.pinnedCount > rec.pinned.length) {
-    problems.push(`inconsistent: pinnedCount ${rec.pinnedCount} exceeds the ${rec.pinned.length} pinned site(s) listed`);
+  // The counts are tied to the list exactly. `pinned` lists every eligible site
+  // (in a dry run too); a site that was already volatile is listed and left
+  // alone, so it is in neither count. Outside a dry run:
+  //   pinnedCount === wouldPinCount === (listed sites not already volatile)
+  // and in a dry run pinnedCount is 0 while wouldPinCount is that number.
+  const eligible = rec.pinned.filter((p) => !p.alreadyVolatile).length;
+  if (rec.dryRun) {
+    if (rec.pinnedCount !== 0) {
+      problems.push(`inconsistent: dryRun is true but pinnedCount is ${rec.pinnedCount} (a dry run mutates nothing)`);
+    }
+    if (rec.wouldPinCount !== eligible) {
+      problems.push(`inconsistent: dry run with wouldPinCount ${rec.wouldPinCount}, but ${eligible} listed site(s) are not already volatile`);
+    }
+  } else {
+    if (rec.pinnedCount !== rec.wouldPinCount) {
+      problems.push(`inconsistent: outside a dry run, pinnedCount ${rec.pinnedCount} differs from wouldPinCount ${rec.wouldPinCount}`);
+    }
+    if (rec.pinnedCount !== eligible) {
+      problems.push(`inconsistent: pinnedCount ${rec.pinnedCount}, but ${eligible} listed site(s) are not already volatile`);
+    }
   }
   if (rec.seen.zeroFillMemsetInScope > rec.seen.zeroFillMemsetInModule) {
     problems.push('inconsistent: seen.zeroFillMemsetInScope exceeds seen.zeroFillMemsetInModule');

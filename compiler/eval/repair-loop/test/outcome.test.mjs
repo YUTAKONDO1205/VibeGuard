@@ -19,11 +19,14 @@ function rec({ pinnedCount = 1, wouldPinCount = pinnedCount, dryRun = false, sco
     ok: true,
     problems: [],
     record: {
-      schemaVersion: 'wipe-pin-v0', component: 'WipePin', module: 'x.w.c', optLevel: { speedup: 2, size: 0 },
+      // outcomeOf takes records pin-record.mjs already accepted; the shape is v1's,
+      // but the lists are not filled in because nothing here reads them.
+      schemaVersion: 'wipe-pin-v1', component: 'WipePin', module: 'x.w.c', optLevel: { speedup: 2, size: 0 },
       scope, requested: resolution.map((r) => r.name), resolution, dryRun,
       pinned: [], pinnedCount, wouldPinCount,
       seen: { zeroFillMemsetInScope: 2, zeroFillMemsetInModule: 3 },
-      unhandled: { libcallMemset: 0, memsetChk: 0, nonZeroFill: 0, atomicMemset: 0 },
+      unhandled: { libcallMemset: 0, memsetChk: 0, nonZeroFill: 0, atomicMemset: 0, inlineWrapperMemset: 0 },
+      toolchain: { digest: '', clang: '', packages: [] },
     },
   };
 }

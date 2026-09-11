@@ -165,7 +165,9 @@ const SCORABLE_BASELINE = (r) => r.baseline === ELIMINATED || r.baseline === SUR
  * notice it.
  *
  *   --dry-run        nothing may change: no RETAINED, no SURVIVED_WITHOUT_PIN, no
- *                    REGRESSED, and no noPinNoChange violated anywhere.
+ *                    REGRESSED, no hiddenRetained (a plugin that mutates nothing
+ *                    cannot retain a span either), and no noPinNoChange violated
+ *                    anywhere.
  *   --target-suffix  nothing resolves: every cell with a scorable baseline is
  *                    BROKEN_REPAIR, and no noPinNoChange is violated.
  *
@@ -186,9 +188,10 @@ export function gradeRedControl(rows, { dryRun = false, targetSuffix = null } = 
   let control, expected;
   if (dryRun) {
     control = '--dry-run';
-    expected = 'no RETAINED, SURVIVED_WITHOUT_PIN or REGRESSED; every listing unchanged';
+    expected = 'no RETAINED, SURVIVED_WITHOUT_PIN or REGRESSED; no hiddenRetained; every listing unchanged';
     for (const r of er) {
       if (['RETAINED', 'SURVIVED_WITHOUT_PIN', 'REGRESSED'].includes(r.outcome)) violations.push(`${cellTag(r)}: ${r.outcome}`);
+      if (r.hiddenRetained === true) violations.push(`${cellTag(r)}: hiddenRetained`);
     }
   }
   if (targetSuffix !== null) {
