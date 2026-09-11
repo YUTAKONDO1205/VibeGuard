@@ -67,3 +67,13 @@ updates:
       - dependency-name: '@types/chrome'
         update-types:
           - version-update:semver-major
+      # @types/vscode is not a free-floating dev dependency: it has to stay at or
+      # below extensions/vscode's engines.vscode, or `vsce package` refuses to
+      # build (check-packaging-invariants catches it). Its minor version tracks
+      # the VS Code release, so every minor bump dependabot proposes moves it past
+      # the engine on its own. That broke CI three times through grouped bumps
+      # before this entry. Raise it by hand, in the same change as the engine.
+      - dependency-name: '@types/vscode'
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
