@@ -104,3 +104,6 @@ gcc-13 は -Os で対照の消去を `xorl %eax,%eax` + `rep stosl` として出
 - 2026-08-30 round 1 (n=120) 実施、PROTOCOL.md を測定前に確定
 - 2026-08-30 round 2 計画。シナリオ 5→20、反復 2→3、最適化水準 2→5、
   検出器を上記 4 点で改訂、対照オラクルに rep stos フォールバックを追加
+- 2026-09-11 事後追加（結果を見た後）: 消去スパンを 1 つずつアブレーションする per-span 補足測定
+  （`lib/build-spans.mjs` → `data/r2-span-rows.json`）と字句ラベル `initialiserLike` を別測定・別データとして追加。
+  採点済みのセル判定と集計値は一つも変更しない（README「Per-span supplement」）

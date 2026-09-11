@@ -139,6 +139,113 @@ helper, 14 leave the defence **off in the default build** (17 including files
 that are mixed across configurations). That is the paper's configguard finding, reproduced on code a
 model wrote.
 
+## Per-span supplement
+
+A post-hoc addition, recorded as such in `PROTOCOL-r2.md`'s change history. It
+changes **no verdict and no number above**: the erasure tables stay cell-level,
+because that is the criterion the protocol fixed and the one the poster quotes.
+What it adds is a second measurement beside them, in a second data file,
+`data/r2-span-rows.json`.
+
+**Why.** Ablation deletes every wipe span of the target function at once. When
+the target body holds two zero-fills, deleting both can change the code for a
+reason that has nothing to do with the wipe a reader cares about — an
+initialiser that matters, or a loop laid out differently once an error-path wipe
+is gone — so the cell reads `WIPE_SURVIVED` although a wipe the model wrote,
+deleted on its own, changes nothing: it was already gone. The repair loop
+(`../repair-loop/README.md`, *The per-span view*) found 63 such `clang-18` cells
+in 19 files. `gcc-13` was never looked at, and the `both` row above says nothing
+about the `memset` those 26 files contain for exactly this reason.
+
+**What is measured.** `lib/build-spans.mjs`, stock compilers only, no plugin.
+For every erasure file whose tracked rows show two or more wipe spans (155 of
+360), for each vendor and level:
+
+```
+w      the file as written                 (+ the positive control)
+wo     every span ablated                  -> cell   = verdictOf(w, wo)
+wo_i   only removable span i ablated       -> span_i = verdictOf(w, wo_i)
+```
+
+`FLAGS`, `compile`, `pool`, `wipeSpans`, `ablateSpans`, `verdictOf` and the
+positive control are imported from `lib/ablation-cell.mjs`, as is `spanPlan`
+(which spans get an ablation of their own), which moved there from the repair
+loop so that both lanes plan their per-span compiles with one function. A
+nonremovable span is listed and not ablated alone (a volatile-pointer
+declaration deleted without its loop does not compile). Of the 155 files, 77
+have a removable span (51 `removable`, 26 `both`); the other 78 have only
+nonremovable spans and get rows with no compile, since there is nothing to
+ablate alone. Rows carry verdict words, ids and booleans only.
+
+A **hidden elimination** is a cell the tracked rows score `WIPE_SURVIVED` in
+which some removable span, ablated alone, is `WIPE_ELIMINATED` — the repair
+loop's `hiddenElimination`, read against the tracked verdict. It is not counted
+as the cell being eliminated: the other span still survives. It says that at
+least one wipe statement the model wrote contributed nothing to the emitted
+body.
+
+**Checks, every run.** The span count and idiom of every file must equal its
+tracked rows', and the re-derived cell verdict must equal the tracked one. For
+`clang-18`, each span verdict must equal the repair loop's plugin-off verdict
+for the same (id, level, span index) wherever that loop measured the span alone
+(`../repair-loop/data/r2-repair-rows.json`, `spans[].off` with `source: "span"`),
+and the two `hiddenElimination` flags must agree; the repair rows are read as
+data. Any disagreement, or a `clang-18` run in which no span could be compared,
+exits 2 and lists the ids. The check was shown to fail on a lab copy of the
+repair rows with every span index shifted by one.
+
+**Results.** TODO-MAIN: fill from the full run (`--write-data`), `data/r2-span-rows.json`.
+
+| vendor | level | cell-level eliminated (tracked, whole family) | hidden eliminations | cell-level + hidden | hidden whose eliminated span is initialiser-like |
+|---|---|---|---|---|---|
+| `clang-18` | `-O0` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
+| `clang-18` | `-O1` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
+| `clang-18` | `-O2` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
+| `clang-18` | `-O3` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
+| `clang-18` | `-Os` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
+| `gcc-13` | `-O0` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
+| `gcc-13` | `-O1` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
+| `gcc-13` | `-O2` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
+| `gcc-13` | `-O3` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
+| `gcc-13` | `-Os` | TODO-MAIN | TODO-MAIN | TODO-MAIN | TODO-MAIN |
+
+Re-derived cell verdicts agreeing with the tracked rows: TODO-MAIN. Cross-check
+against the repair rows: TODO-MAIN span verdicts compared, TODO-MAIN agree,
+TODO-MAIN `hiddenElimination` flags compared, TODO-MAIN disagree. The ids of
+every hidden elimination are printed in the run's results text, per vendor and
+level.
+
+### initialiserLike
+
+A lexical label per span, printed beside its verdict and never folded into it
+(`lib/span-label.mjs` holds the exact definition and its limits). A span is
+initialiser-like when the object it zeroes is read or written, by the same
+name, in text that can run after it in the same function body: from the span
+to the first unconditional `return` of an enclosing block (not taken as the end
+when a `goto`, `break` or `continue` comes first), plus the back edge of any
+enclosing loop that return does not leave. `sizeof`, a release call (`free`,
+`munlock`, ...), `p = NULL`, a sibling struct member and an inline-asm barrier
+operand are not uses. It cannot see a use through another name, it reads the
+text before preprocessing, and it does not model `switch`, `goto` targets or
+calls that do not return. It exists because `wipeSpans` labels an initialising
+`memset` a wipe span (see `../repair-loop/README.md`, *Limits of the find
+step's labelling*): `opus_N_pinpad_r2` and `sonnet_S_privkey_r3`, whose only span
+is a `memset` before the buffer is filled, come out initialiser-like, so their
+cell verdicts are verdicts about an initialiser (`test/span-label.test.mjs` pins
+both).
+
+Cross-checked against the repair plugin's own `followedByUse` at `-O0`, where
+the plugin has no cleanup code to over-approximate through (`lib/label-check.mjs`:
+`clang-18 -O0`, module scope, dry run, `-gline-tables-only` so that each recorded
+site carries a line to match a span on, and a second compile without it to show
+the line tables change no recorded site). Only a span that is an `llvm.memset` in
+the target function has a site to compare; helper calls and volatile loops have
+none. TODO-MAIN: agree / disagree / plugin `null` counts. By design they differ on
+an asm barrier: in `opus_N_token_r3` the trailing `memset` is followed only by
+`__asm__ __volatile__("" : : "r"(token) : "memory")`, which the plugin counts
+as a later instruction touching the buffer and the label does not count as a
+use, because it is the idiom that keeps the wipe, not a fill.
+
 ## What this changed in the product
 
 Two independent defects in `VG-MEM-006`, both found by running the shipped rule
@@ -206,7 +313,18 @@ cd compiler/eval/ai-generated/lib
 node build-analyze.mjs            # 4,698 rows -> ../data/r2-build-rows.json
 node configguard-direction.mjs    #           -> ../data/r2-configguard-direction.json
 python3 analyze.py                # tables    -> ../data/r2-results.txt
+
+# the per-span supplement (stock compilers; rows, results and scratch in the lab dir)
+node build-spans.mjs --out <lab dir> [--cc clang-18,gcc-13] [--opts -O2] [--files <globs>]
+node build-spans.mjs --out <lab dir> --write-data    # the full run only -> ../data/r2-span-rows.json
+# initialiserLike against the repair plugin's followedByUse (clang-18 -O0)
+node label-check.mjs --plugin <libWipePin.so> --out <lab dir>
 ```
+
+`build-spans.mjs` refuses `--write-data` for a subset or a non-default input
+before compiling anything, and after the run when a check failed. Exit codes: 0
+every check held; 2 a check failed (the ids are listed); 3 nothing selected; 4
+bad arguments; 5 a compiler or an input could not be used.
 
 `_build/` is scratch and is ignored. Generation itself is not scripted here: it
 was 720 subagent calls, and the protocol records the prompts verbatim so the
@@ -243,7 +361,11 @@ design is auditable even though the sampling is not repeatable.
 | `scenarios.json` | 20 scenarios: family and target function per key |
 | `generated-corpus/r1`, `r2` | the 840 generations, named `<model>_<framing>_<scenario>_r<rep>.c` |
 | `lib/build-analyze.mjs` | ablation across 5 levels x 2 vendors, plus the authz and configguard differentials |
-| `lib/ablation-cell.mjs` | one ablation cell as an importable module with no side effects — wipe finding, ablation, compile, `verdictOf` — so another lane reaches its verdict through the same code; `test/ablation-cell.test.mjs` covers it without a compiler |
+| `lib/ablation-cell.mjs` | one ablation cell as an importable module with no side effects — wipe finding, ablation, compile, `verdictOf`, and `spanPlan` for the per-span view — so another lane reaches its verdict through the same code; `test/ablation-cell.test.mjs` covers it without a compiler |
+| `lib/build-spans.mjs` | the per-span supplement: each removable span of a multi-span file ablated alone, both vendors, five levels, with the repair-rows cross-check |
+| `lib/span-summary.mjs` | the supplement's rows, integrity checks, cross-check, hidden-elimination counts; pure, `test/span-summary.test.mjs` |
+| `lib/span-label.mjs` | the lexical `initialiserLike` label; pure, `test/span-label.test.mjs` |
+| `lib/label-check.mjs` | `initialiserLike` against the repair plugin's `followedByUse` at `-O0`; lab output only |
 | `lib/compare-rows.mjs` | `<a.json> <b.json>`: compares two build-row files as multisets of rows (runs are in pool completion order), exit 0 iff equal |
 | `lib/configguard-direction.mjs` | which side of the `#ifdef` the default build lands on |
 | `lib/classify-lexical.py` | round 1's independent lexical classifier |
