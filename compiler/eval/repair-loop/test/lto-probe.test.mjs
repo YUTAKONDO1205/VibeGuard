@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path';
 import {
   MODES, ltoCompileFlags, ltoLinkArgs, llcOptFor, objectKind, expectedOutputs, pickOutput, readRecordFields,
   ltoOutcome, LTO_OUTCOMES, gradeDryRun, SENTINEL, linkPluginState, LINK_LINE_REMOVED, linkLineStderr,
-  gradeLinkPlugin, zeroMemsetsInFunctions, evenSample, summarizeGroup, insideRepo,
+  gradeLinkPlugin, zeroMemsetsInFunctions, evenSample, summarizeGroup, insideRepo, selectErasureIds,
 } from '../tools/lib/lto.mjs';
 
 const WIPEPIN_CPP = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'llvm-repair', 'src', 'WipePin.cpp');
@@ -243,6 +243,22 @@ test('zeroMemsetsInFunctions: zero-fill memsets in the named functions only, spl
   assert.deepEqual(zeroMemsetsInFunctions(ll, ['encrypt_blob', 'secure_wipe']), { defined: ['encrypt_blob', 'secure_wipe'], volatile: 1, plain: 2 });
   assert.equal(zeroMemsetsInFunctions(ll, ['absent']), null);
   assert.equal(zeroMemsetsInFunctions(null, ['encrypt_blob']), null);
+});
+
+test('selectErasureIds: eliminated at the level, or every removable-idiom file there; the verdict field is named', () => {
+  const r = (id, opt, verdict, idiom = 'removable', cc = 'clang-18', kind = 'erasure') => ({ id, opt, verdict, idiom, cc, kind });
+  const rows = [
+    r('b', '-O2', E), r('a', '-O2', E), r('a', '-O1', S), r('c', '-O2', S), r('d', '-O2', E, 'both'), r('e', '-O2', S, 'nonremovable'),
+    r('f', '-O2', E, 'removable', 'gcc-13'), r('g', '-O2', 'NO_WIPE_WRITTEN', null, 'clang-18', 'none'), r('a', '-O2', E),
+  ];
+  assert.deepEqual(selectErasureIds(rows, { cc: 'clang-18', opt: '-O2' }), ['a', 'b', 'd']);
+  assert.deepEqual(selectErasureIds(rows, { cc: 'clang-18', opt: '-O2', allRemovable: true }), ['a', 'b', 'c']);
+  assert.deepEqual(selectErasureIds(rows, { cc: 'clang-18', opt: '-O1' }), []);
+  // the repair loop's rows keep the verdict as `baseline`; read as `verdict`, nothing is eliminated
+  const repair = [{ id: 'x', opt: '-O2', baseline: E, idiom: 'removable', cc: 'gcc-13', kind: 'erasure' }];
+  assert.deepEqual(selectErasureIds(repair, { cc: 'gcc-13', opt: '-O2', verdictField: 'baseline' }), ['x']);
+  assert.deepEqual(selectErasureIds(repair, { cc: 'gcc-13', opt: '-O2' }), []);
+  assert.deepEqual(selectErasureIds(undefined, { cc: 'clang-18', opt: '-O2' }), []);
 });
 
 test('evenSample: spread, ordered, and the whole list when k does not cut it', () => {

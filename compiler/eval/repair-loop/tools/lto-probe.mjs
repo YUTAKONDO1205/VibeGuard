@@ -50,9 +50,9 @@ import { promisify } from 'node:util';
 import { dirname, resolve, join, basename, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
-  ELIMINATED, MODES, ltoCompileFlags, ltoLinkArgs, llcOptFor, objectKind, expectedOutputs, pickOutput,
+  ELIMINATED, SURVIVED, MODES, ltoCompileFlags, ltoLinkArgs, llcOptFor, objectKind, expectedOutputs, pickOutput,
   readRecordFields, ltoOutcome, LTO_OUTCOMES, SENTINEL, linkPluginState, linkLineStderr, zeroMemsetsInFunctions,
-  evenSample, summarizeGroup, insideRepo,
+  evenSample, summarizeGroup, insideRepo, selectErasureIds,
 } from './lib/lto.mjs';
 import { sha256Text, absolutePathHits } from '../lib/provenance.mjs';
 
@@ -82,9 +82,11 @@ const USAGE = `usage: node lto-probe.mjs --plugin <so> --out <dir> [options]
   --conc <n>           parallel cells (default 4)
   --force-fallback     read post-LTO code through --save-temps' precodegen.bc + llc even if
                        --lto-emit-asm passes the preflight (exercises the fallback)
+  --all-removable      select every removable-idiom file instead (see below)
   --rows <path>        tracked find-step rows (default the ai-generated lane's r2-build-rows.json)
 
-The selection is fixed: the clang-18 erasure files the tracked rows score WIPE_ELIMINATED at ${SELECT_OPT}.
+The selection is fixed: the clang-18 erasure files the tracked rows score WIPE_ELIMINATED at ${SELECT_OPT}
+(with --all-removable, every clang-18 erasure file of the removable idiom there).
 Everything is written under --out; there is no --write-data.
 `;
 
@@ -100,7 +102,7 @@ function globToRe(g) {
 
 function parseArgs(argv) {
   const a = { plugin: null, out: null, cc: 'clang-18', llvmDis: 'llvm-dis-18', llc: 'llc-18', modes: ['full', 'thin'],
-    opts: [SELECT_OPT], files: null, sample: null, conc: 4, forceFallback: false, rows: DEFAULT_ROWS };
+    opts: [SELECT_OPT], files: null, sample: null, conc: 4, forceFallback: false, allRemovable: false, rows: DEFAULT_ROWS };
   const need = (i, flag) => { if (i + 1 >= argv.length || argv[i + 1].startsWith('--')) die(4, `${flag} needs a value`); return argv[i + 1]; };
   const list = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
   for (let i = 0; i < argv.length; i++) {
@@ -117,6 +119,7 @@ function parseArgs(argv) {
       case '--sample': a.sample = Number(need(i, f)); i++; break;
       case '--conc': a.conc = Number(need(i, f)); i++; break;
       case '--force-fallback': a.forceFallback = true; break;
+      case '--all-removable': a.allRemovable = true; break;
       case '--rows': a.rows = need(i, f); i++; break;
       case '--write-data': die(4, '--write-data does not exist here: the LTO probe writes its lab directory and nothing else'); break;
       case '-h': case '--help': process.stdout.write(USAGE); process.exit(0); break;
@@ -193,12 +196,13 @@ async function main() {
   const pluginSha = sha256File(args.plugin);
 
   // ---- selection: the tracked clang-18 erasure files eliminated at -O2 -------
+  //      (or, with --all-removable, the removable-idiom ones there)
   let tracked;
   try { tracked = JSON.parse(readFileSync(args.rows, 'utf8')); } catch { die(5, 'the --rows file could not be read as JSON'); }
   const scen = JSON.parse(readFileSync(SCEN_PATH, 'utf8'));
   const trackedVerdict = new Map();
   for (const r of tracked) if (r.kind === 'erasure' && r.cc === 'clang-18') trackedVerdict.set(`${r.id}|${r.opt}`, r.verdict);
-  let ids = [...new Set(tracked.filter((r) => r.kind === 'erasure' && r.cc === 'clang-18' && r.opt === SELECT_OPT && r.verdict === ELIMINATED).map((r) => r.id))].sort();
+  let ids = selectErasureIds(tracked, { cc: 'clang-18', opt: SELECT_OPT, allRemovable: args.allRemovable, verdictField: 'verdict' });
   const selectedTotal = ids.length;
   if (args.files) {
     const res = args.files.map(globToRe);
@@ -502,7 +506,7 @@ async function main() {
   const manifestText = JSON.stringify({
     generatedAt: new Date().toISOString(), node: process.version, cc: ccName, ccVersion, lld: lldVersion,
     plugin: { basename: basename(args.plugin), sha256: pluginSha },
-    modes: args.modes, opts: args.opts, files: args.files, sample: args.sample, selectedTotal, measuredFiles: units.length,
+    modes: args.modes, opts: args.opts, allRemovable: args.allRemovable, files: args.files, sample: args.sample, selectedTotal, measuredFiles: units.length,
     forceFallback: args.forceFallback, conc: args.conc, llvmDis: haveDis, preflight: pre,
     compileFlags: FLAGS_BY_MODE, linkArgs: Object.fromEntries(args.modes.map((m) => [m, ltoLinkArgs({ opt: '-O2', mode: m })])),
     ignoredInheritedEnv: inherited,
@@ -533,7 +537,8 @@ function render({ args, ccName, ccVersion, lldVersion, pluginSha, pre, groups, u
   L.push(`compiler        ${ccName}  (${ccVersion})`);
   L.push(`linker          ${lldVersion}`);
   L.push(`plugin sha256   ${pluginSha}`);
-  L.push(`files           ${units.length} of the ${selectedTotal} clang-18 erasure files tracked WIPE_ELIMINATED at ${SELECT_OPT}`
+  L.push(`files           ${units.length} of the ${selectedTotal} clang-18 erasure files `
+    + `${args.allRemovable ? `of the removable idiom at ${SELECT_OPT} (--all-removable)` : `tracked WIPE_ELIMINATED at ${SELECT_OPT}`}`
     + `${args.files ? ` (--files ${args.files.join(',')})` : ''}${args.sample ? ` (--sample ${args.sample})` : ''}`);
   L.push(`modes / opts    ${args.modes.join(',')} / ${args.opts.join(',')}`);
   L.push('link            each object alone: -shared, -fuse-ld=lld, post-LTO code via --lto-emit-asm'
@@ -551,6 +556,11 @@ function render({ args, ccName, ccVersion, lldVersion, pluginSha, pre, groups, u
     L.push(`  baseline (plugin off, stock link)   eliminated ${s.baselineEliminated}, survived ${s.baselineSurvived}, other ${s.baselineOther}`);
     L.push(`  differs from the tracked non-LTO row: ${s.trackedDiff.length}`);
     for (const d of s.trackedDiff) L.push(`    DIFF ${d.id}: tracked (no LTO) ${d.tracked}, LTO ${d.lto}`);
+    if (args.allRemovable) {
+      const added = s.trackedDiff.filter((d) => d.tracked === SURVIVED && d.lto === ELIMINATED);
+      L.push(`  eliminations the LTO link adds (tracked survived, LTO eliminated): ${added.length}`);
+      for (const d of added) L.push(`    ADDED ${d.id}: ${(rows.find((r) => r.mode === mode && r.opt === opt && r.id === d.id) || {}).outcome}`);
+    }
     L.push('  (i) plugin at compile time, stock link');
     for (const o of LTO_OUTCOMES) if (s.outcomes[o]) L.push(`    ${pad(o, 22)} ${s.outcomes[o]}`);
     const here = rows.filter((r) => r.mode === mode && r.opt === opt);

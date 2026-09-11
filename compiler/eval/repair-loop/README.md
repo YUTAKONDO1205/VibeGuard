@@ -523,8 +523,16 @@ does not handle*, measured on its fixture loop; what matters here:
 - a wipe written as stores, a memset a later pass creates, a wipe in a helper
   the request does not name, and a call through a function pointer — as on clang;
 - anything after the translation unit. WipePinGcc refuses to install when loaded
-  into the LTO back end (`-fplugin` on an `-flto` link line); `tools/lto-probe.mjs`
-  does not drive gcc.
+  into the LTO back end (`-fplugin` on an `-flto` link line). Link-time
+  optimisation is measured beside the loop by `tools/lto-probe-gcc.mjs`
+  (`tools/LTO.md`, *gcc-13*), for one object per `-flto -shared` link: the pin
+  made at compile time holds through the link in all 108 cells the tracked rows
+  score eliminated at each of `-O1`, `-O2`, `-O3` and `-Os`, and WipePinGcc on the
+  link line is refused twice per link and changes neither the assembly nor the
+  shared object. In each of those cells the stock wipe is already gone from the
+  object cc1 writes (read back with `lto-dump-13`), and the 25 removable-idiom
+  wipes that do reach the link at `-O2` still survive it, so the pin was carried
+  through gcc's LTO link but never met an elimination the link itself performs.
 
 ## Re-running
 
@@ -838,8 +846,9 @@ compile (`NOT_SCORED`).
   at `-O1` and above and the clang cells are not. The two repairs are different
   mechanisms (a volatile `llvm.memset` against a volatile `asm` barrier), and a
   number for one is not a number for the other. Link-time optimisation only as
-  far as `tools/LTO.md` measured it, for clang: one object per link, `-shared`,
-  lld 18; gcc's LTO is not in this lane.
+  far as `tools/LTO.md` measured it: one object per link, `-shared`, with lld 18
+  for clang and with GNU ld 2.42 through gcc's linker plugin, at gcc's default
+  partitioning, for gcc-13.
 - **Not a statement about code in general.** The corpus is the find step's: one
   model family, synthetic scenarios, one-shot generation. Every caveat in
   `../ai-generated/README.md` carries over unchanged.
@@ -865,6 +874,7 @@ compile (`NOT_SCORED`).
 | `lib/stage-gate.mjs` | the out-of-reach families; pure |
 | `lib/corpus.mjs` | the selection: the corpus files, what each one is, the erasure family; imported by the runner and by `tools/fbu-levels.mjs`; pure |
 | `tools/lto-probe.mjs`, `tools/lib/lto.mjs`, `tools/LTO.md` | the LTO probe: the same cell judged on the assembly a full or thin LTO link writes; lab output only, never `data/` |
+| `tools/lto-probe-gcc.mjs`, `tools/lib/lto-gcc.mjs` | its gcc-13 twin: the same cell judged on the assembly lto1 writes for an `-flto -shared` link, WipePinGcc records read through `lib/pin-record.mjs`; lab output only (`tools/LTO.md`, *gcc-13*) |
 | `tools/fbu-levels.mjs`, `tools/lib/fbu.mjs` | `followedByUse` at `-O1`..`-Os` against `-O0`, site by site, both vendors; lab output only, never `data/` |
 | `test/*.test.mjs` | unit tests, no compiler |
 | `data/` | written only by `--write-data` after a full run: `r2-repair-rows.json` / `r2-repair-results.txt` for clang-18, `r2-repair-rows-gcc-13.json` / `r2-repair-results-gcc-13.txt` for gcc-13 |

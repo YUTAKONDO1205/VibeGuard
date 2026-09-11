@@ -366,6 +366,23 @@ export function zeroMemsetsInFunctions(ll, names) {
   return out.defined.length ? out : null;
 }
 
+/**
+ * The ids a probe measures at one level, from the tracked rows of one
+ * compiler: the erasure files whose verdict there is WIPE_ELIMINATED, or with
+ * `allRemovable` every file of the `removable` idiom there -- the eliminated
+ * ones and the ones whose wipe survives, so that a run can say whether the LTO
+ * link removes a wipe the non-LTO find step saw survive. `verdictField` is
+ * where the rows keep the verdict: `verdict` in the find step's rows
+ * (../../../ai-generated/data/r2-build-rows.json), `baseline` in the repair
+ * loop's (../../data/). Sorted, each id once.
+ */
+export function selectErasureIds(rows, { cc, opt, allRemovable = false, verdictField = 'verdict' }) {
+  if (!Array.isArray(rows)) return [];
+  const pick = rows.filter((r) => r && r.kind === 'erasure' && r.cc === cc && r.opt === opt
+    && (allRemovable ? r.idiom === 'removable' : r[verdictField] === ELIMINATED));
+  return [...new Set(pick.map((r) => r.id))].sort();
+}
+
 /** `k` items spread evenly over `list` (order kept); the whole list when k is absent or not smaller. */
 export function evenSample(list, k) {
   if (!Number.isInteger(k) || k <= 0 || k >= list.length) return [...list];
