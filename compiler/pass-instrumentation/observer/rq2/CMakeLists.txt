@@ -1,5 +1,6 @@
 # The synthetic ground-truth plugin for the pass-observer accuracy harness.
-# Measurement instrument, outside the repository on purpose: it mutates IR.
+# Measurement instrument, a project of its own on purpose: it mutates IR, so no
+# real build loads it (CI builds it, and runs nothing with it).
 
 cmake_minimum_required(VERSION 3.20)
 project(SyntheticGroundTruth LANGUAGES CXX)

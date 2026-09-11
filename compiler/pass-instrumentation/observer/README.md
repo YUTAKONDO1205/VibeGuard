@@ -347,5 +347,7 @@ between tools is agreement, not truth. It manufactures the answer instead:
 
 The correct attribution is then known because the harness wrote it down before
 the observer ran. The synthetic passes mutate IR on purpose and are the exact
-opposite of this plugin, so they live with the harness and outside this
-repository; they are never loaded by a real build.
+opposite of this plugin, so they live with the harness, in a CMake project of
+their own (`rq2/`, `libSyntheticGroundTruth.so`), and are never loaded by a
+real build. CI's native-plugins job builds that project to show it still
+compiles against LLVM 18, and loads it nowhere.

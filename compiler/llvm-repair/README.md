@@ -309,7 +309,8 @@ that is still the confirm step's question.
   every level (two items down). In this corpus none of them made any site read
   differently from `-O0`, which says nothing about a front end, or a later
   clang, that emits those shapes.
-- **Site by site, v2 reads at `-O1`..`-Os` what it reads at `-O0`.** The v1
+- **On the r2 corpus, site by site, v2 reads at `-O1`..`-Os` what it reads at
+  `-O0`.** The v1
   against v2 table below shows the per-level counts agreeing; this is the claim
   for each site. Measured 2026-09-12 with
   `../eval/repair-loop/tools/fbu-levels.mjs`, plugin `db3298cf…73a4c8`, clang

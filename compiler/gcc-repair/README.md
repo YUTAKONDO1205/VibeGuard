@@ -723,7 +723,8 @@ and both barriers name the buffer. The one barrier in the corpus with a
 of stores through a `volatile unsigned char *`, not a memset, so no site is
 followed by it.
 
-**`followedByUse` reads the same at every level, site by site.** Measured
+**On the r2 corpus, `followedByUse` reads the same at every level, site by
+site.** Measured
 2026-09-12 with `../eval/repair-loop/tools/fbu-levels.mjs`, plugin
 `a023b047…`: the 360 erasure-family files the repair loop measures, the find
 step's `FLAGS` plus `-g1`, module scope, dry run, `-O0`..`-Os`; 3960 compiles,
