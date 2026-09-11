@@ -18,9 +18,17 @@
  * Problems are plain strings with NO filesystem paths in them: they travel into
  * the rows, and the rows may be tracked.
  *
+ * The plugin seals the record the way every other native component here does
+ * (interfaces.md section 5: `evidenceDigest` over the record minus `context`,
+ * written by the same Record.cpp IrCheckpoints uses). This reader re-derives the
+ * digest with compiler/evidence/canon.mjs -- an implementation that shares no
+ * code with the C++ writer -- so a record edited after the compile is refused
+ * rather than believed.
+ *
  * Nothing here compiles anything or reads anything but the one file it is given.
  */
 import { readFileSync } from 'node:fs';
+import { evidenceDigest } from '../../../evidence/canon.mjs';
 
 export const SCHEMA_VERSION = 'wipe-pin-v0';
 export const COMPONENT = 'WipePin';
@@ -45,12 +53,16 @@ export const OPT_LEVELS = Object.freeze({
 const TOP_KEYS = Object.freeze([
   'schemaVersion', 'component', 'module', 'optLevel', 'scope', 'requested', 'resolution',
   'dryRun', 'pinned', 'pinnedCount', 'wouldPinCount', 'seen', 'unhandled',
+  'evidenceDigest', 'context',
 ]);
 const OPT_KEYS = Object.freeze(['speedup', 'size']);
 const RESOLUTION_KEYS = Object.freeze(['name', 'resolution']);
 const PINNED_KEYS = Object.freeze(['function', 'index', 'lengthBytes', 'destKind', 'alreadyVolatile', 'line']);
 export const SEEN_KEYS = Object.freeze(['zeroFillMemsetInScope', 'zeroFillMemsetInModule']);
-export const UNHANDLED_KEYS = Object.freeze(['libcallMemset', 'memsetChk', 'nonZeroFill', 'atomicMemset']);
+// inlineWrapperMemset: under -D_FORTIFY_SOURCE the target calls clang's
+// `memset.inline` wrapper, whose body holds the __memset_chk; nothing in the
+// target is an intrinsic, so nothing is pinned and the wipe can still go.
+export const UNHANDLED_KEYS = Object.freeze(['libcallMemset', 'memsetChk', 'nonZeroFill', 'atomicMemset', 'inlineWrapperMemset']);
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const isCount = (v) => Number.isInteger(v) && v >= 0;
@@ -143,8 +155,21 @@ export function validatePinRecord(rec, expect = {}) {
     for (const k of keys) if (k in rec[field] && !isCount(rec[field][k])) problems.push(`not-a-count: ${field}.${k}`);
   }
 
+  if (!isObj(rec.context)) problems.push('bad-type: context must be an object');
+  if (typeof rec.evidenceDigest !== 'string' || !/^[0-9a-f]{64}$/.test(rec.evidenceDigest)) {
+    problems.push('bad-type: evidenceDigest must be 64 lowercase hex characters');
+  }
+
   // Type problems make the cross-field checks below meaningless; stop here so
   // the problem list names causes rather than their consequences.
+  if (problems.length) return { ok: false, record: null, problems };
+
+  // ---- integrity ------------------------------------------------------------
+  let derived = null;
+  try { derived = evidenceDigest(rec); } catch (e) { problems.push(`digest-underivable: ${e && e.message ? e.message : 'error'}`); }
+  if (derived !== null && derived !== rec.evidenceDigest) {
+    problems.push('digest-mismatch: evidenceDigest does not re-derive from the record (edited after the compile?)');
+  }
   if (problems.length) return { ok: false, record: null, problems };
 
   // ---- internal consistency ----------------------------------------------

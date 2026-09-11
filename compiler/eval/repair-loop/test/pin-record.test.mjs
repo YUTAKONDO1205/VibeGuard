@@ -10,8 +10,22 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { validatePinRecord, readPinRecord, unresolvedNames, OPT_LEVELS } from '../lib/pin-record.mjs';
+import { evidenceDigest } from '../../../evidence/canon.mjs';
 
+/**
+ * A record sealed AFTER the override, as the plugin seals what it writes: a test
+ * that breaks one field then tests that field, not the digest. `unsealed` lets a
+ * test edit the record after sealing, which is what tampering looks like.
+ */
 function good(over = {}) {
+  const rec = unsealed(over);
+  if (!('evidenceDigest' in over)) {
+    const { evidenceDigest: _d, context: _c, ...body } = rec;
+    try { rec.evidenceDigest = evidenceDigest(body); } catch { /* an unserialisable field: the test is about that field */ }
+  }
+  return rec;
+}
+function unsealed(over = {}) {
   return {
     schemaVersion: 'wipe-pin-v0',
     component: 'WipePin',
@@ -25,10 +39,36 @@ function good(over = {}) {
     pinnedCount: 1,
     wouldPinCount: 1,
     seen: { zeroFillMemsetInScope: 1, zeroFillMemsetInModule: 2 },
-    unhandled: { libcallMemset: 0, memsetChk: 0, nonZeroFill: 0, atomicMemset: 0 },
+    unhandled: { libcallMemset: 0, memsetChk: 0, nonZeroFill: 0, atomicMemset: 0, inlineWrapperMemset: 0 },
+    evidenceDigest: '0'.repeat(64),
+    context: { generatedAt: 1, sourceDateEpoch: null, timeSource: 'wall-clock' },
     ...over,
   };
 }
+
+test('a record edited after sealing is refused on the digest', () => {
+  const rec = good();
+  assert.equal(validatePinRecord(rec, EXPECT).ok, true);
+  rec.pinnedCount = 2;
+  rec.pinned.push({ ...rec.pinned[0], index: 1 });
+  rec.seen = { zeroFillMemsetInScope: 2, zeroFillMemsetInModule: 2 };
+  rec.wouldPinCount = 2;
+  refused(rec, EXPECT, /digest-mismatch/);
+});
+
+test('context is outside the digest, as interfaces.md section 5 says', () => {
+  const rec = good();
+  rec.context = { generatedAt: 999, sourceDateEpoch: 5, timeSource: 'source-date-epoch' };
+  assert.equal(validatePinRecord(rec, EXPECT).ok, true);
+});
+
+test('a record without a digest or a context is refused', () => {
+  const noDigest = good(); delete noDigest.evidenceDigest;
+  refused(noDigest, EXPECT, /missing-field: evidenceDigest/);
+  const noCtx = good(); delete noCtx.context;
+  refused(noCtx, EXPECT, /missing-field: context/);
+  refused(good({ evidenceDigest: 'ABC' }), EXPECT, /evidenceDigest must be 64/);
+});
 const EXPECT = { scope: 'functions', dryRun: false, opt: '-O2', module: 'fable_N_aeskey_r3.w.c', requested: ['encrypt_blob'] };
 
 const refused = (rec, expect, re) => {

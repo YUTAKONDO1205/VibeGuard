@@ -84,6 +84,13 @@ repair **ran**, on the functions it was asked about, in the configuration it was
 loaded into; and whether it **changed** anything (`pinnedCount`), which is what
 separates `RETAINED` from a survival the plugin did not cause.
 
+The plugin seals the record as the other native components do (`interfaces.md`
+§5: `evidenceDigest` over everything but `context`, written by the same
+`Record.cpp` the IR observer uses). The reader re-derives that digest with
+`compiler/evidence/canon.mjs`, which shares no code with the C++ writer, so a
+record edited after its compile is refused (`digest-mismatch`) rather than
+believed.
+
 `lib/pin-record.mjs` reads it strictly. Unknown or missing fields, a count that
 is not a non-negative integer, a `module` that is a path rather than a basename,
 an unknown `schemaVersion`, counts that contradict the lists they count, a dry
@@ -195,7 +202,11 @@ Within the erasure family, what the plugin does not pin, by construction:
 - a wipe that reaches IR as anything other than a zero-fill `llvm.memset`
   intrinsic in a selected function. The record counts the memset-shaped ones it
   saw and left alone (`unhandled.libcallMemset`, `memsetChk`, `nonZeroFill`,
-  `atomicMemset`), and the results print their totals;
+  `atomicMemset`, `inlineWrapperMemset`), and the results print their totals.
+  The last is the `_FORTIFY_SOURCE` shape: the target calls clang's
+  `memset.inline` wrapper, whose body holds the `__memset_chk`, so nothing in the
+  target is an intrinsic and the wipe can still be removed. The corpus is built
+  without `_FORTIFY_SOURCE`, so all five totals are 0 here;
 - a zeroing loop that a later pass would turn into a memset: at the pipeline
   start it is still a loop;
 - anything after the translation unit. The observation is the `-S` listing of one
@@ -242,19 +253,59 @@ node --test compiler/eval/repair-loop/test/outcome.test.mjs \
             compiler/eval/repair-loop/test/stage-gate.test.mjs
 ```
 
-## Results (filled in by the integration run)
+## Results
 
-> **Not yet measured.** No number in this section exists yet. It is filled in
-> from `data/r2-repair-results.txt` after a full run with the repair plugin,
-> together with the two red controls. Smoke runs made while this lane was being
-> written used stand-in plugins and are not results.
+`clang-18` 18.1.3 (Ubuntu), x86-64, the plugin built from `compiler/llvm-repair/`
+(`libWipePin.so` sha256 `0436d66b…6d16d`, the same bytes from two independent
+builds). Full functions-scope run over all five levels; the rows and the
+rendered table are `data/r2-repair-rows.json` and `data/r2-repair-results.txt`.
 
-- baseline agreement with the tracked rows: _pending_
-- outcomes per idiom x level: _pending_
-- positive control in the plugin-on compiles: _pending_
-- surgicality: _pending_
-- dry-run and target-suffix red controls: _pending_
-- configguard: _pending_
+**The find step reproduces.** Plugin off, every wipe cell agrees with the tracked
+find-step row: 1605/1605, and the 195 no-wipe cells are `NO_WIPE_WRITTEN` there
+too.
+
+**Every elimination the find step reported is reversed, and nothing else moves.**
+
+| removable idiom (133 files) | `-O0` | `-O1` | `-O2` | `-O3` | `-Os` |
+|---|---|---|---|---|---|
+| eliminated without the plugin | 0 | 62 | 113 | 113 | 113 |
+| `RETAINED` | 0 | **62** | **113** | **113** | **113** |
+| `ALREADY_SURVIVED` | 133 | 71 | 20 | 20 | 20 |
+| `PIN_INEFFECTIVE` / `PIN_NOT_APPLIED` / `BROKEN_REPAIR` / `REGRESSED` / `SURVIVED_WITHOUT_PIN` | 0 | 0 | 0 | 0 | 0 |
+
+The nonremovable (162 files) and `both` (26) idioms are `ALREADY_SURVIVED` in
+every cell, apart from the 2 nonremovable files whose ablated form does not
+compile (`NOT_SCORED`, as in the find step). `-O1` matters: there the loss is
+not `DSEPass` (the `-O1` pipeline has none) but later, and the volatile flag
+holds it too.
+
+- **Attribution:** in all 401 `RETAINED` cells the wipe-kept compile pinned more
+  sites than the wipe-deleted one (`pinDelta > 0`), i.e. what was pinned exists
+  only because the wipe statement does.
+- **Positive control** `PRESENT` in every plugin-on compile that compiled:
+  `w/on` 321/321 and no-wipe 39/39 at each level; `wo/on` 319/321 (the 2 files
+  whose ablation does not compile).
+- **Surgicality, 0 violations:** `ablatedUnchanged` 1595 held, `controlUntouched`
+  1595 held, `noPinNoChange` held for `w` 810, `wo` 1595, no-wipe 195.
+- **Records:** 3395/3405 valid; the 10 missing are the wipe-deleted compiles of
+  the 2 files whose ablation does not compile. `unhandled.*` totals are all 0.
+  The static-helper exception above was applied in 770 cells.
+- **Red controls, both `HELD`** (`-O2`, functions scope): `--dry-run` gives
+  `RETAINED` 0 and `PIN_INEFFECTIVE` 113 with every `noPinNoChange` held;
+  `--target-suffix X` gives `BROKEN_REPAIR` in every scorable cell.
+- **Module scope** (all five levels, not tracked): `RETAINED` 62/113/113/113 at
+  `-O1`..`-Os`, 0 eliminated cells left unrepaired. It carries no surgicality
+  evidence, as explained above.
+- **configguard, `-O2`:** the tracked `DEFAULT_DIFFERS` result re-observed in
+  81/81 files; with the plugin loaded in module scope the default build equals
+  the all-macros build in **0/81** — the plugin does not bring back a defence the
+  preprocessor removed. It left the default target body unchanged in 80/81; in
+  the exception (`opus_E_debugdump_r3`) the module-scope record pins 4 memsets
+  and the target body changes, still without becoming the enabled build's.
+
+A second, independent instrument agrees on the lane's hand-written fixture: see
+`compiler/llvm-repair/README.md` (the IR observer reads the erasure subject
+`LOST` at `DSEPass` without the plugin and `PRESENT` with it, at `-O2` and `-O3`).
 
 ## What this does not claim
 

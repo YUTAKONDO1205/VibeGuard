@@ -415,4 +415,6 @@ jobs:
           run_suite observer              compiler/pass-instrumentation/observer/test/*.test.mjs
           run_suite calibration           compiler/eval/calibration/test/*.test.mjs
           run_suite metamorphic           compiler/eval/metamorphic/test/*.test.mjs
+          run_suite ai-generated          compiler/eval/ai-generated/test/*.test.mjs
+          run_suite repair-loop           compiler/eval/repair-loop/test/*.test.mjs
           run_suite elf-verifier          compiler/elf-verifier/test/*.test.mjs
