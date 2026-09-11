@@ -110,14 +110,30 @@ and gcc-13 agree closely (71.1% vs 67.9% at `-O2`).
 
 The two vendors are not built with the same headers, and `FLAGS` does not make
 them so: Ubuntu's gcc-13 defines `_FORTIFY_SOURCE=3` whenever it optimises, and
-clang-18 defines nothing (`echo | gcc-13 -O2 -dM -E -`). So every gcc-13 cell
-above at `-O1` and beyond was built with glibc's fortifying wrappers. Measured
-afterwards, with this lane's own `wipeSpans`/`ablateSpans`/`verdictOf` and
-`-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0` added to both compiles of every gcc-13
-erasure cell at `-O1`, `-O2` and `-Os`: 0 of 321 verdicts change at each level,
-and the default build re-derives the tracked verdict in 321/321. The asymmetry
-does not move these numbers; it does matter to a repair that pins memset calls
-(see `../gcc-repair/README.md`).
+clang-18 defines nothing (`-dM -E` with `FLAGS`: `#define _FORTIFY_SOURCE 3` at
+each of gcc-13's `-O1`..`-Os`, nothing at clang-18's `-O2`). So every gcc-13
+cell above at `-O1` and beyond was built with glibc's fortifying wrappers.
+Measured afterwards by `lib/fortify-check.mjs`, with this lane's own
+`wipeSpans`/`ablateSpans`/`verdictOf` and `-U_FORTIFY_SOURCE
+-D_FORTIFY_SOURCE=0` added to both compiles of every erasure file with a wipe
+span: at gcc-13 `-O1`, `-O2`, `-O3` and `-Os`, 0 of 321 verdicts change at
+each level, and the default build re-derives the tracked verdict in 321/321.
+The flags do reach the code: the file-as-written listing differs between the
+two builds in 313 of 321 cells at each level, and in 28/12/12/14 of them
+(`-O1`/`-O2`/`-O3`/`-Os`) by more than gcc's unit-wide `.L` label numbering.
+clang-18 at `-O2`, run as a control, also gives 0 changes, and that says
+nothing: clang predefines no `_FORTIFY_SOURCE`, and its listing differs in 0 of
+321 cells. The asymmetry does not move these numbers; it does matter to a repair
+that pins memset calls (see `../gcc-repair/README.md`).
+
+```bash
+cd compiler/eval/ai-generated/lib
+node fortify-check.mjs --cc gcc-13 --opts -O1,-O2,-O3,-Os --out <lab dir>
+node fortify-check.mjs --cc clang-18 --opts -O2 --out <lab dir>    # the control
+```
+
+It writes to the lab directory only (an `--out` inside the repository is
+refused) and exits 2 when a default verdict does not re-derive the tracked one.
 
 End to end at `-O2`, over **720 opportunities — 360 erasure files each measured
 on two compilers**, which is a different 720 from the 720 generations above and
@@ -165,8 +181,9 @@ initialiser that matters, or a loop laid out differently once an error-path wipe
 is gone — so the cell reads `WIPE_SURVIVED` although a wipe the model wrote,
 deleted on its own, changes nothing: it was already gone. The repair loop
 (`../repair-loop/README.md`, *The per-span view*) found 63 such `clang-18` cells
-in 19 files. `gcc-13` was never looked at, and the `both` row above says nothing
-about the `memset` those 26 files contain for exactly this reason.
+in 19 files; `gcc-13` had not been looked at before this supplement, and the
+`both` row above says nothing about the `memset` those 26 files contain for
+exactly this reason.
 
 **What is measured.** `lib/build-spans.mjs`, stock compilers only, no plugin.
 For every erasure file whose tracked rows show two or more wipe spans (155 of
@@ -197,13 +214,22 @@ body.
 
 **Checks, every run.** The span count and idiom of every file must equal its
 tracked rows', and the re-derived cell verdict must equal the tracked one. For
-`clang-18`, each span verdict must equal the repair loop's plugin-off verdict
-for the same (id, level, span index) wherever that loop measured the span alone
-(`../repair-loop/data/r2-repair-rows.json`, `spans[].off` with `source: "span"`),
-and the two `hiddenElimination` flags must agree; the repair rows are read as
-data. Any disagreement, or a `clang-18` run in which no span could be compared,
-exits 2 and lists the ids. The check was shown to fail on a lab copy of the
-repair rows with every span index shifted by one.
+every vendor whose repair-loop rows file exists — `clang-18`:
+`../repair-loop/data/r2-repair-rows.json`, `gcc-13`:
+`../repair-loop/data/r2-repair-rows-gcc-13.json` (named in
+`lib/span-summary.mjs` `REPAIR_ROWS_FILES`, spelled as the repair loop's
+`dataFileNames` spells them; this lane imports none of its code) — each span
+verdict must equal the repair loop's plugin-off verdict for the same (vendor,
+id, level, span index) wherever that loop measured the span alone (`spans[].off`
+with `source: "span"`), and the two `hiddenElimination` flags must agree; the
+repair rows are read as data. Any disagreement, or a vendor in which no span
+could be compared although spans were measured, exits 2 and lists the ids. A
+vendor with no repair rows file is printed `not cross-checked (no repair rows)`
+and never counted as held; that alone does not fail the run, but it refuses
+`--write-data`. `--repair-rows <cc>=<path>` names another file for one vendor.
+The check was shown to fail on a lab copy of the repair rows with every span
+index shifted by one (`clang-18`), and on a lab copy of the `gcc-13` rows whose
+span verdicts were rotated by one position (71 mismatches at `-O2`, exit 2).
 
 **Results.** The full run (`--write-data`, both vendors, all five levels,
 `data/r2-span-rows.json`, 1550 rows): 155 multi-span files, 770 measured cells
@@ -234,8 +260,11 @@ not a lost wipe. The tracked cell-level numbers stay the find step's criterion;
 these are the same `verdictOf` at a finer grain, beside them.
 
 Re-derived cell verdicts agreeing with the tracked rows: 770/770. Cross-check
-against the repair rows: 835 span verdicts compared, 835 agree, 385
-`hiddenElimination` flags compared, 0 disagree. The ids of every hidden
+against the repair rows, per vendor: `clang-18` 835 span verdicts compared, 835
+agree, 385 `hiddenElimination` flags compared, 0 disagree; `gcc-13` the same,
+835/835 and 385 with 0 disagreeing (a lab run of this version over the full
+supplement, whose rows equal `data/r2-span-rows.json` byte for byte; the
+tracked file was written before `gcc-13` was cross-checked). The ids of every hidden
 elimination are printed in the run's results text, per vendor and level. gcc-13
 had no per-span view before this run; every one of its 22 removable multi-span
 cells scored `WIPE_SURVIVED` at `-O1`..`-Os` holds a span that is eliminated on
@@ -264,7 +293,12 @@ Cross-checked against the repair plugin's own `followedByUse` at `-O0`, where
 the plugin has no cleanup code to over-approximate through (`lib/label-check.mjs`:
 `clang-18 -O0`, module scope, dry run, `-gline-tables-only` so that each recorded
 site carries a line to match a span on, and a second compile without it to show
-the line tables change no recorded site). Only a span that is an `llvm.memset` in
+the line tables change no recorded site). The numbers below are from a
+`label-check.mjs` run, whose output goes to the lab only and is not tracked,
+with WipePin `wipe-pin-v2` sha256 `e89e07fd…cbad6` (the build before the
+link-time line). `followedByUse` at `-O0` is the same in every v2 build: a
+re-run with `db3298cf…73a4c8`, the build the repair loop's results quote, gave
+the same counts and the same disagreement. Only a span that is an `llvm.memset` in
 the target function has a site to compare; helper calls and volatile loops have
 none. Over 321 files and 575 spans, the 249 removable spans: 244 agree, 1
 disagrees, 4 have `followedByUse: null` (the destination is not a stack
@@ -349,6 +383,8 @@ node build-spans.mjs --out <lab dir> [--cc clang-18,gcc-13] [--opts -O2] [--file
 node build-spans.mjs --out <lab dir> --write-data    # the full run only -> ../data/r2-span-rows.json
 # initialiserLike against the repair plugin's followedByUse (clang-18 -O0)
 node label-check.mjs --plugin <libWipePin.so> --out <lab dir>
+# does gcc-13's predefined _FORTIFY_SOURCE move a verdict? (lab output only)
+node fortify-check.mjs --cc gcc-13 --opts -O1,-O2,-O3,-Os --out <lab dir>
 ```
 
 `build-spans.mjs` refuses `--write-data` for a subset or a non-default input
@@ -392,10 +428,11 @@ design is auditable even though the sampling is not repeatable.
 | `generated-corpus/r1`, `r2` | the 840 generations, named `<model>_<framing>_<scenario>_r<rep>.c` |
 | `lib/build-analyze.mjs` | ablation across 5 levels x 2 vendors, plus the authz and configguard differentials |
 | `lib/ablation-cell.mjs` | one ablation cell as an importable module with no side effects — wipe finding, ablation, compile, `verdictOf`, and `spanPlan` for the per-span view — so another lane reaches its verdict through the same code; `test/ablation-cell.test.mjs` covers it without a compiler |
-| `lib/build-spans.mjs` | the per-span supplement: each removable span of a multi-span file ablated alone, both vendors, five levels, with the repair-rows cross-check |
+| `lib/build-spans.mjs` | the per-span supplement: each removable span of a multi-span file ablated alone, both vendors, five levels, with the repair-rows cross-check for every vendor that has repair rows |
 | `lib/span-summary.mjs` | the supplement's rows, integrity checks, cross-check, hidden-elimination counts; pure, `test/span-summary.test.mjs` |
 | `lib/span-label.mjs` | the lexical `initialiserLike` label; pure, `test/span-label.test.mjs` |
 | `lib/label-check.mjs` | `initialiserLike` against the repair plugin's `followedByUse` at `-O0`; lab output only |
+| `lib/fortify-check.mjs` | every erasure verdict with the default flags and with `-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0`, against the tracked rows; lab output only; pure parts in `test/fortify-check.test.mjs` |
 | `lib/compare-rows.mjs` | `<a.json> <b.json>`: compares two build-row files as multisets of rows (runs are in pool completion order), exit 0 iff equal |
 | `lib/configguard-direction.mjs` | which side of the `#ifdef` the default build lands on |
 | `lib/classify-lexical.py` | round 1's independent lexical classifier |

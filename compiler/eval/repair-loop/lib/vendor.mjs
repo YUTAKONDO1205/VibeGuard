@@ -14,8 +14,9 @@
  * a guess picks the plugin flag and the record the reader will insist on.
  *
  * Also here: where a run's tracked data goes (per compiler, so two compilers can
- * never overwrite each other's file), and whether a tracked rows file is a full
- * --write-data run. All pure.
+ * never overwrite each other's file), whether a tracked rows file is a full
+ * --write-data run, and whether the tracked find-step rows name this run's
+ * compiler at all. All pure.
  */
 
 /** Per vendor: the plugin that repairs it, and how the compiler is told to load it. */
@@ -69,6 +70,35 @@ export function dataFileNames(ccName) {
     throw new Error(`dataFileNames: ${JSON.stringify(ccName)} is not a compiler basename`);
   }
   return { rows: `r2-repair-rows-${ccName}.json`, results: `r2-repair-results-${ccName}.txt` };
+}
+
+/**
+ * The compilers the tracked find-step rows hold erasure rows for, sorted.
+ */
+export function trackedErasureCcs(trackedRows) {
+  if (!Array.isArray(trackedRows)) return [];
+  return [...new Set(trackedRows.filter((r) => r && r.kind === 'erasure' && typeof r.cc === 'string').map((r) => r.cc))].sort();
+}
+
+/**
+ * Can the tracked rows judge this run's baseline at all? The runner keys a
+ * tracked verdict by the --cc basename exactly as typed, so a spelling the rows
+ * do not use (`gcc` for `gcc-13`, even where one is a symlink to the other)
+ * finds no tracked row for any cell, and "0/0 agree" would read as a pass. That
+ * is refused, and no spelling is mapped to another: which binary a name reaches
+ * is the machine's business, and the rows say which compiler they were measured
+ * with by name.
+ *
+ * @returns {null | string}  null when the rows hold an erasure row for `ccName`;
+ *          otherwise the refusal, naming the compilers the rows do hold
+ */
+export function trackedCcProblem(trackedRows, ccName) {
+  const ccs = trackedErasureCcs(trackedRows);
+  if (ccs.includes(ccName)) return null;
+  return `the tracked rows hold no erasure row for --cc ${ccName} (they hold ${ccs.length ? ccs.join(', ') : 'none'}), `
+    + 'so no baseline could be compared and "0/0 agree" would pass vacuously. A spelling is not mapped to another: '
+    + `name the compiler as the rows do (${ccs.length ? ccs.join(' or ') : 'no compiler is named there'}), `
+    + 'or give --rows measured with this one';
 }
 
 /**

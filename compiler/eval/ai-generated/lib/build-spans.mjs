@@ -9,8 +9,8 @@
  * change the code for a reason that has nothing to do with the wipe the reader
  * cares about -- an initialiser that matters, or a loop laid out differently --
  * so the cell reads WIPE_SURVIVED although the trailing wipe, deleted on its own,
- * changes nothing. The repair loop found 63 such clang-18 cells in 19 files; gcc-13
- * was never looked at.
+ * changes nothing. The repair loop found 63 such clang-18 cells in 19 files
+ * before this supplement looked at gcc-13.
  *
  * So, for every erasure file whose TRACKED rows show two or more wipe spans, for
  * each requested vendor and level:
@@ -30,28 +30,34 @@
  * Every span also carries initialiserLike (./span-label.mjs), a lexical label
  * reported beside the verdict and never folded into it.
  *
- * Cross-check, every time clang-18 rows are produced: each clang-18 span verdict
- * here must equal the repair loop's plugin-off verdict for the same (id, level,
- * span index) wherever that loop measured the span alone
- * (../../repair-loop/data/r2-repair-rows.json, spans[].off with source 'span'),
- * and the two hiddenElimination flags must agree. The rows file is read as data;
- * no code of the repair loop is imported.
+ * Cross-check, per vendor, for every vendor whose repair rows file exists: each
+ * span verdict here must equal the repair loop's plugin-off verdict for the same
+ * (vendor, id, level, span index) wherever that loop measured the span alone
+ * (spans[].off with source 'span'), and the two hiddenElimination flags must
+ * agree. The files are the ones span-summary.mjs REPAIR_ROWS_FILES names --
+ * ../../repair-loop/data/r2-repair-rows.json for clang-18 and
+ * ../../repair-loop/data/r2-repair-rows-gcc-13.json for gcc-13 -- read as data;
+ * no code of the repair loop is imported. A vendor without a file is printed as
+ * not cross-checked and is never counted as held.
  *
  *   node build-spans.mjs --out <lab dir> [options]
  *
  * Nothing is written to the repository unless --write-data is given, and that is
  * refused for anything but the full run (every multi-span file, both vendors,
- * all five levels, the default input files) with every integrity check held.
+ * all five levels, the default input files) with every integrity check held and
+ * both vendors cross-checked and held.
  *
- * Exit codes: 0 run complete and every check held; 2 run complete, but a span
- * count or idiom disagreed with the tracked rows, a re-derived cell verdict
- * disagreed with the tracked one, a planned span was not measured, or the
- * cross-check failed (a mismatch, or no span compared at all while clang-18 spans
- * were measured) -- with --write-data, nothing is then written; 3 nothing
- * selected; 4 bad arguments, including --write-data with a subset or a
- * non-default input (refused before any compile); 5 a compiler could not be run,
- * an input file could not be read, or a text about to be written carried an
- * absolute path.
+ * Exit codes: 0 run complete and every check that could run held (a vendor with
+ * no repair rows is reported as not cross-checked; that alone does not fail the
+ * run, but it does refuse --write-data); 2 run complete, but a span count or
+ * idiom disagreed with the tracked rows, a re-derived cell verdict disagreed with
+ * the tracked one, a planned span was not measured, or a vendor's cross-check
+ * failed (a mismatch, or no span compared at all while that vendor's spans were
+ * measured) -- with --write-data, nothing is then written; 3 nothing selected;
+ * 4 bad arguments, including --write-data with a subset or a non-default input
+ * (refused before any compile); 5 a compiler could not be run, an input file
+ * could not be read (a --repair-rows file that was named but is missing
+ * included), or a text about to be written carried an absolute path.
  */
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -64,8 +70,9 @@ import {
 } from './ablation-cell.mjs';
 import { initialiserLabels } from './span-label.mjs';
 import {
-  ALL_OPTS, VENDORS, CROSS_CHECK_CC, multiSpanFiles, trackedVerdicts, spanRow, integrityProblems,
-  crossCheckRepairRows, hiddenSummary, undercountLine, labelSummary, writeDataProblems, pathHits,
+  ALL_OPTS, VENDORS, REPAIR_ROWS_FILES, multiSpanFiles, trackedVerdicts, spanRow, integrityProblems,
+  crossCheckRepairRows, crossCheckSummary, spansMeasuredAlone, parseRepairRowsArg,
+  hiddenSummary, undercountLine, labelSummary, writeDataProblems, pathHits,
 } from './span-summary.mjs';
 
 const run = promisify(execFile);
@@ -74,7 +81,8 @@ const ROOT = resolve(HERE, '..');
 const GEN = join(ROOT, 'generated-corpus', 'r2');
 const SCEN_PATH = join(ROOT, 'scenarios.json');
 const DEFAULT_ROWS = join(ROOT, 'data', 'r2-build-rows.json');
-const DEFAULT_REPAIR_ROWS = resolve(ROOT, '..', 'repair-loop', 'data', 'r2-repair-rows.json');
+// Per vendor, the repair loop's tracked rows (span-summary.mjs REPAIR_ROWS_FILES).
+const DEFAULT_REPAIR_ROWS = Object.fromEntries(VENDORS.map((cc) => [cc, resolve(HERE, REPAIR_ROWS_FILES[cc])]));
 const DATA_OUT = join(ROOT, 'data', 'r2-span-rows.json');
 
 const USAGE = `usage: node build-spans.mjs --out <dir> [options]
@@ -84,8 +92,10 @@ const USAGE = `usage: node build-spans.mjs --out <dir> [options]
   --opts <list>          comma list from ${ALL_OPTS.join(' ')} (default: all five)
   --files <list>         comma list of basenames or globs (* ?), with or without .c
   --rows <path>          the find step's tracked rows (default: ../data/r2-build-rows.json)
-  --repair-rows <path>   the repair loop's rows for the clang-18 cross-check
-                         (default: ../../repair-loop/data/r2-repair-rows.json)
+  --repair-rows <cc>=<path>[,<cc>=<path>]
+                         the repair loop's rows to cross-check a vendor against, instead of its
+                         default (${VENDORS.map((cc) => `${cc}: ${REPAIR_ROWS_FILES[cc]}`).join(', ')});
+                         a vendor whose default file does not exist is not cross-checked
   --conc <n>             parallel cells (default 4)
   --write-data           also write data/r2-span-rows.json (refused for anything but the full run)
 `;
@@ -97,7 +107,7 @@ function die(code, msg) {
 
 function parseArgs(argv) {
   const a = { out: null, ccs: [...VENDORS], opts: [...ALL_OPTS], files: null, rows: DEFAULT_ROWS,
-    repairRows: DEFAULT_REPAIR_ROWS, conc: 4, writeData: false };
+    repairRows: { ...DEFAULT_REPAIR_ROWS }, repairRowsGiven: {}, conc: 4, writeData: false };
   const need = (i, flag) => { if (i + 1 >= argv.length || argv[i + 1].startsWith('--')) die(4, `${flag} needs a value`); return argv[i + 1]; };
   const list = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
   for (let i = 0; i < argv.length; i++) {
@@ -108,7 +118,12 @@ function parseArgs(argv) {
       case '--opts': a.opts = list(need(i, f)); i++; break;
       case '--files': a.files = list(need(i, f)); i++; break;
       case '--rows': a.rows = need(i, f); i++; break;
-      case '--repair-rows': a.repairRows = need(i, f); i++; break;
+      case '--repair-rows': {
+        const p = parseRepairRowsArg(need(i, f)); i++;
+        if (p.problems.length) die(4, `--repair-rows: ${p.problems.join('; ')}`);
+        Object.assign(a.repairRowsGiven, p.given);
+        break;
+      }
       case '--conc': a.conc = Number(need(i, f)); i++; break;
       case '--write-data': a.writeData = true; break;
       case '-h': case '--help': process.stdout.write(USAGE); process.exit(0); break;
@@ -125,12 +140,13 @@ function parseArgs(argv) {
   if (!Number.isInteger(a.conc) || a.conc < 1) die(4, '--conc must be a positive integer');
   a.out = resolve(a.out);
   a.rows = resolve(a.rows);
-  a.repairRows = resolve(a.repairRows);
+  for (const [cc, p] of Object.entries(a.repairRowsGiven)) a.repairRows[cc] = resolve(p);
+  a.repairRowsIsDefault = VENDORS.every((cc) => a.repairRows[cc] === DEFAULT_REPAIR_ROWS[cc]);
   // What the arguments alone rule out is refused before any compile; what the
   // run finds (integrity, the cross-check) is refused after it.
   if (a.writeData) {
     const why = writeDataProblems({ files: a.files, vendors: a.ccs, opts: a.opts,
-      rowsIsDefault: a.rows === DEFAULT_ROWS, repairRowsIsDefault: a.repairRows === DEFAULT_REPAIR_ROWS, integrity: [], crossCheck: null });
+      rowsIsDefault: a.rows === DEFAULT_ROWS, repairRowsIsDefault: a.repairRowsIsDefault, integrity: [], crossCheck: null });
     if (why.length) die(4, `--write-data refused with ${why.join(', ')}: data/r2-span-rows.json is the full run over the default inputs`);
   }
   return a;
@@ -162,9 +178,16 @@ async function main() {
   const scen = JSON.parse(readFileSync(SCEN_PATH, 'utf8'));
   const trackedIn = readJson(args.rows, 'the --rows file');
   const tracked = trackedIn.json;
-  // The cross-check is not optional: a clang-18 run that cannot read the repair
-  // rows stops here rather than printing results that were never checked.
-  const repairIn = args.ccs.includes(CROSS_CHECK_CC) ? readJson(args.repairRows, 'the --repair-rows file') : null;
+  // Per selected vendor: its repair rows, or null when its DEFAULT file does not
+  // exist (then it is printed as not cross-checked, never as held). A file that
+  // exists but cannot be read, or one named with --repair-rows that does not
+  // exist, stops the run here rather than printing results that were never checked.
+  const repairIn = {};
+  for (const cc of args.ccs) {
+    const p = args.repairRows[cc];
+    if (!(cc in args.repairRowsGiven) && !existsSync(p)) { repairIn[cc] = null; continue; }
+    repairIn[cc] = readJson(p, `the ${cc} repair rows file`);
+  }
 
   const { files: multi, problems: trackedProblems } = multiSpanFiles(tracked);
   const tv = trackedVerdicts(tracked);
@@ -234,13 +257,14 @@ async function main() {
   rows.sort((a, b) => cmp(a.id, b.id) || cmp(a.cc, b.cc) || cmp(ALL_OPTS.indexOf(a.opt), ALL_OPTS.indexOf(b.opt)));
   integrity.push(...integrityProblems(rows));
 
-  // ---- cross-check against the repair loop (clang-18) ---------------------------
-  let cross = null;
-  const clangSpans = rows.filter((r) => r.cc === CROSS_CHECK_CC && r.measured).reduce((n, r) => n + r.spans.filter((s) => s.source === 'span').length, 0);
-  if (repairIn) {
-    cross = crossCheckRepairRows(rows, repairIn.json);
-    cross.vacuous = clangSpans > 0 && cross.compared === 0;
+  // ---- cross-check against the repair loop, per vendor ---------------------------
+  const perVendor = {};
+  const measuredAlone = {};
+  for (const cc of args.ccs) {
+    measuredAlone[cc] = spansMeasuredAlone(rows, cc);
+    perVendor[cc] = repairIn[cc] ? crossCheckRepairRows(rows, repairIn[cc].json, cc) : null;
   }
+  const cross = crossCheckSummary(perVendor, measuredAlone);
 
   // ---- the lexical label over every erasure file (no compile) -------------------
   const labelFiles = [];
@@ -266,7 +290,9 @@ async function main() {
   L.push(`opts            ${args.opts.join(' ')}`);
   L.push(`file subset     ${args.files ? args.files.join(',') : `(all ${multi.size} multi-span files)`}`);
   L.push(`tracked rows    ${label(args.rows, DEFAULT_ROWS)} sha256 ${sha256(trackedIn.text)}`);
-  if (repairIn) L.push(`repair rows     ${label(args.repairRows, DEFAULT_REPAIR_ROWS)} sha256 ${sha256(repairIn.text)}`);
+  for (const cc of args.ccs) {
+    L.push(`repair rows     ${cc} ${repairIn[cc] ? `${label(args.repairRows[cc], DEFAULT_REPAIR_ROWS[cc])} sha256 ${sha256(repairIn[cc].text)}` : '(none: no repair rows file)'}`);
+  }
   L.push(`cells           ${rows.length} (${rows.filter((r) => r.measured).length} measured; the rest have no removable span to ablate alone)`);
   L.push(`per-span verdicts ${rows.reduce((n, r) => n + r.spans.filter((s) => s.source === 'span' && s.off !== null).length, 0)}`);
   L.push('');
@@ -276,19 +302,24 @@ async function main() {
   for (const p of integrity) L.push(`  ${p}`);
   if (!integrity.length) L.push('  held');
   L.push('');
-  if (cross) {
-    L.push(`cross-check against the repair loop's plugin-off per-span verdicts (${CROSS_CHECK_CC}, spans it measured alone)`);
-    L.push(`  span verdicts compared ${cross.compared}, agree ${cross.agreed}, not compared ${cross.notCompared}`);
-    L.push(`  hiddenElimination compared ${cross.hiddenCompared}, disagree ${cross.hiddenMismatches.length}`);
-    for (const m of cross.mismatches) L.push(`  MISMATCH ${m.id} ${m.opt} span ${m.index}: here ${m.ours}, repair rows ${m.theirs}${m.kinds ? ` (kind ${m.kinds.join(' vs ')})` : ''}`);
-    for (const m of cross.hiddenMismatches) L.push(`  HIDDEN MISMATCH ${m.id} ${m.opt}: here ${m.ours}, repair rows ${m.theirs}`);
-    if (cross.vacuous) L.push('  VACUOUS: clang-18 spans were measured but none could be compared');
-    L.push(`  ${cross.mismatches.length || cross.hiddenMismatches.length || cross.vacuous ? `FAILED (ids: ${cross.ids.join(' ') || '-'})` : 'held'}`);
-    L.push('');
-  } else {
-    L.push(`cross-check: not applicable (${CROSS_CHECK_CC} not in --cc)`);
-    L.push('');
+  L.push('cross-check against the repair loop\'s plugin-off per-span verdicts (per vendor, spans that loop measured alone)');
+  for (const v of cross.vendors) {
+    if (v.status === 'not-cross-checked') {
+      L.push(`  ${v.cc}  not cross-checked (no repair rows)`);
+      continue;
+    }
+    const c = v.cross;
+    L.push(`  ${v.cc}  span verdicts compared ${c.compared}, agree ${c.agreed}, not compared ${c.notCompared}; `
+      + `hiddenElimination compared ${c.hiddenCompared}, disagree ${c.hiddenMismatches.length}`);
+    for (const m of c.mismatches) L.push(`    MISMATCH ${m.id} ${m.opt} span ${m.index}: here ${m.ours}, repair rows ${m.theirs}${m.kinds ? ` (kind ${m.kinds.join(' vs ')})` : ''}`);
+    for (const m of c.hiddenMismatches) L.push(`    HIDDEN MISMATCH ${m.id} ${m.opt}: here ${m.ours}, repair rows ${m.theirs}`);
+    if (v.vacuous) L.push(`    VACUOUS: ${v.cc} spans were measured but none could be compared`);
+    L.push(`    ${v.status === 'failed' ? `FAILED (ids: ${c.ids.join(' ') || '-'})` : 'held'}`);
   }
+  L.push(`  held for ${cross.held.length} of ${cross.vendors.length} vendor(s)${cross.held.length ? ` (${cross.held.join(', ')})` : ''}`
+    + `${cross.failed.length ? `; FAILED for ${cross.failed.join(', ')}` : ''}`
+    + `${cross.notChecked.length ? `; not cross-checked: ${cross.notChecked.join(', ')}` : ''}`);
+  L.push('');
   L.push('hidden eliminations: tracked WIPE_SURVIVED cells in which a removable span, ablated alone, is WIPE_ELIMINATED');
   for (const h of hidden) {
     const idi = Object.entries(h.hiddenByIdiom).map(([k, v]) => `${k} ${v}`).join(', ');
@@ -319,8 +350,9 @@ async function main() {
     generatedAt: new Date().toISOString(), node: process.version, versions,
     ccs: args.ccs, opts: args.opts, files: args.files, conc: args.conc,
     rowsFile: label(args.rows, DEFAULT_ROWS), rowsSha256: sha256(trackedIn.text),
-    repairRowsFile: repairIn ? label(args.repairRows, DEFAULT_REPAIR_ROWS) : null,
-    repairRowsSha256: repairIn ? sha256(repairIn.text) : null,
+    repairRows: Object.fromEntries(args.ccs.map((cc) => [cc, repairIn[cc]
+      ? { file: label(args.repairRows[cc], DEFAULT_REPAIR_ROWS[cc]), sha256: sha256(repairIn[cc].text) } : null])),
+    crossCheck: { held: cross.held, failed: cross.failed, notCrossChecked: cross.notChecked },
     multiSpanFiles: multi.size, selectedFiles: selected.length, cells: rows.length, perSpanCompiles: spanPairs,
   }, null, 2) + '\n';
 
@@ -335,12 +367,11 @@ async function main() {
   process.stdout.write(text + '\n');
   if (hits.length) die(5, `an absolute path would be written (${hits.join('; ')}); nothing was written to data/`);
 
-  const crossFailed = !!cross && (cross.mismatches.length > 0 || cross.hiddenMismatches.length > 0 || cross.vacuous);
+  const crossFailed = cross.failed.length > 0;
   if (args.writeData) {
     const why = writeDataProblems({ files: args.files, vendors: args.ccs, opts: args.opts,
-      rowsIsDefault: args.rows === DEFAULT_ROWS, repairRowsIsDefault: args.repairRows === DEFAULT_REPAIR_ROWS,
+      rowsIsDefault: args.rows === DEFAULT_ROWS, repairRowsIsDefault: args.repairRowsIsDefault,
       integrity, crossCheck: cross });
-    if (cross && cross.vacuous) why.push('a vacuous cross-check');
     if (why.length) die(2, `--write-data refused with ${why.join(', ')}: data/r2-span-rows.json is the full run, checked`);
     if (!existsSync(dirname(DATA_OUT))) die(5, 'the data directory is missing');
     writeFileSync(DATA_OUT, rowsText, 'utf8');

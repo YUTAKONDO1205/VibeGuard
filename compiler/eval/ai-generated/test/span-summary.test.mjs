@@ -12,7 +12,8 @@ import assert from 'node:assert/strict';
 import { spanPlan } from '../lib/ablation-cell.mjs';
 import {
   ELIMINATED, SURVIVED, multiSpanFiles, trackedVerdicts, hiddenOf, spanRow, integrityProblems,
-  crossCheckRepairRows, hiddenSummary, undercountLine, labelSummary, writeDataProblems, pathHits, VENDORS, ALL_OPTS,
+  crossCheckRepairRows, crossCheckSummary, spansMeasuredAlone, parseRepairRowsArg, REPAIR_ROWS_FILES,
+  hiddenSummary, undercountLine, labelSummary, writeDataProblems, pathHits, VENDORS, ALL_OPTS,
 } from '../lib/span-summary.mjs';
 
 const E = ELIMINATED;
@@ -94,13 +95,22 @@ test('integrityProblems: a re-derived cell that disagrees, and a planned span no
 
 // ---- the cross-check -----------------------------------------------------------
 
-const repairRow = (id, opt, spans, hiddenElimination) => ({ id, kind: 'erasure', cc: 'clang-18', opt, spans, hiddenElimination });
+const repairRow = (id, opt, spans, hiddenElimination, cc = 'clang-18') => ({ id, kind: 'erasure', cc, opt, spans, hiddenElimination });
 const rs = (index, off, source = 'span', kind = 'removable') => ({ index, kind, off, on: S, source, recordOk: true });
 
-test('crossCheckRepairRows: agreement where the repair loop measured the span alone', () => {
+test('REPAIR_ROWS_FILES: one file per vendor, named as the repair loop names them', () => {
+  assert.deepEqual(Object.keys(REPAIR_ROWS_FILES).sort(), [...VENDORS].sort());
+  // repair-loop/lib/vendor.mjs dataFileNames: clang-18 keeps the first name, any other compiler gets its own
+  assert.equal(REPAIR_ROWS_FILES['clang-18'], '../../repair-loop/data/r2-repair-rows.json');
+  assert.equal(REPAIR_ROWS_FILES['gcc-13'], '../../repair-loop/data/r2-repair-rows-gcc-13.json');
+  for (const p of Object.values(REPAIR_ROWS_FILES)) assert.deepEqual(pathHits(p), []);
+});
+
+test('crossCheckRepairRows: agreement where the repair loop measured the span alone, per vendor', () => {
   const ours = [errorPathRow('clang-18', '-O2', E), errorPathRow('gcc-13', '-O2', E)];
   const theirs = [repairRow('fable_N_token_r3', '-O2', [rs(0, S), rs(1, E)], true)];
-  const c = crossCheckRepairRows(ours, theirs);
+  const c = crossCheckRepairRows(ours, theirs, 'clang-18');
+  assert.equal(c.cc, 'clang-18');
   assert.equal(c.compared, 2);
   assert.equal(c.agreed, 2);
   assert.equal(c.notCompared, 0);
@@ -108,33 +118,75 @@ test('crossCheckRepairRows: agreement where the repair loop measured the span al
   assert.equal(c.hiddenCompared, 1);
   assert.deepEqual(c.hiddenMismatches, []);
   assert.deepEqual(c.ids, []);
+  // gcc-13 is checked the same way, against gcc-13 repair rows
+  const g = crossCheckRepairRows(ours, [repairRow('fable_N_token_r3', '-O2', [rs(0, S), rs(1, E)], true, 'gcc-13')], 'gcc-13');
+  assert.deepEqual([g.cc, g.compared, g.agreed, g.hiddenCompared, g.mismatches.length], ['gcc-13', 2, 2, 1, 0]);
+  assert.throws(() => crossCheckRepairRows(ours, theirs, 'gcc'), /not one of/);
 });
 
 test('crossCheckRepairRows: a shifted index is a mismatch, and the ids are listed', () => {
   const ours = [errorPathRow('clang-18', '-O2', E)];
   // the repair rows' span indices shifted by one: span 1's verdict sits at index 0
   const shifted = [repairRow('fable_N_token_r3', '-O2', [rs(0, E), rs(1, S)], true)];
-  const c = crossCheckRepairRows(ours, shifted);
+  const c = crossCheckRepairRows(ours, shifted, 'clang-18');
   assert.equal(c.compared, 2);
   assert.equal(c.agreed, 0);
   assert.deepEqual(c.mismatches.map((m) => [m.id, m.opt, m.index, m.ours, m.theirs]),
     [['fable_N_token_r3', '-O2', 0, S, E], ['fable_N_token_r3', '-O2', 1, E, S]]);
   assert.deepEqual(c.ids, ['fable_N_token_r3']);
+  // the same shift in gcc-13's repair rows fails gcc-13's check
+  const g = crossCheckRepairRows([errorPathRow('gcc-13', '-O2', E)],
+    [repairRow('fable_N_token_r3', '-O2', [rs(0, E), rs(1, S)], true, 'gcc-13')], 'gcc-13');
+  assert.equal(g.mismatches.length, 2);
 });
 
 test('crossCheckRepairRows: spans the repair loop did not measure alone are not compared, never agreed', () => {
   const ours = [errorPathRow('clang-18', '-O2', E)];
-  const c1 = crossCheckRepairRows(ours, [repairRow('fable_N_token_r3', '-O2', [rs(0, S, 'cell'), rs(1, null, 'not-measured')], false)]);
+  const c1 = crossCheckRepairRows(ours, [repairRow('fable_N_token_r3', '-O2', [rs(0, S, 'cell'), rs(1, null, 'not-measured')], false)], 'clang-18');
   assert.equal(c1.compared, 0);
   assert.equal(c1.notCompared, 2);
   assert.deepEqual(c1.hiddenMismatches.map((m) => m.id), ['fable_N_token_r3']);
-  const c2 = crossCheckRepairRows(ours, []);
+  const c2 = crossCheckRepairRows(ours, [], 'clang-18');
   assert.equal(c2.compared, 0);
   assert.equal(c2.notCompared, 2);
   assert.equal(c2.hiddenCompared, 0);
-  // gcc rows and repair rows of another vendor never enter
-  const c3 = crossCheckRepairRows([errorPathRow('gcc-13', '-O2', E)], [{ ...repairRow('fable_N_token_r3', '-O2', [rs(0, E)], true), cc: 'gcc-13' }]);
-  assert.equal(c3.compared + c3.notCompared, 0);
+  // one vendor's repair rows never judge the other vendor's rows, either way round
+  const c3 = crossCheckRepairRows([errorPathRow('gcc-13', '-O2', E)], [repairRow('fable_N_token_r3', '-O2', [rs(0, E), rs(1, S)], true)], 'gcc-13');
+  assert.deepEqual([c3.compared, c3.notCompared, c3.hiddenCompared], [0, 2, 0]);
+  const c4 = crossCheckRepairRows([errorPathRow('gcc-13', '-O2', E)], [repairRow('fable_N_token_r3', '-O2', [rs(0, S), rs(1, E)], true, 'gcc-13')], 'clang-18');
+  assert.equal(c4.compared + c4.notCompared + c4.hiddenCompared, 0);
+});
+
+test('crossCheckSummary: a vendor without repair rows is not cross-checked, and never held', () => {
+  const ours = [errorPathRow('clang-18', '-O2', E), errorPathRow('gcc-13', '-O2', E)];
+  const measured = { 'clang-18': spansMeasuredAlone(ours, 'clang-18'), 'gcc-13': spansMeasuredAlone(ours, 'gcc-13') };
+  assert.deepEqual(measured, { 'clang-18': 2, 'gcc-13': 2 });
+  const clang = crossCheckRepairRows(ours, [repairRow('fable_N_token_r3', '-O2', [rs(0, S), rs(1, E)], true)], 'clang-18');
+  const s = crossCheckSummary({ 'clang-18': clang, 'gcc-13': null }, measured);
+  assert.deepEqual(s.held, ['clang-18']);
+  assert.deepEqual(s.failed, []);
+  assert.deepEqual(s.notChecked, ['gcc-13']);
+  assert.deepEqual(s.vendors.map((v) => [v.cc, v.status]), [['clang-18', 'held'], ['gcc-13', 'not-cross-checked']]);
+  // both files: both held
+  const gcc = crossCheckRepairRows(ours, [repairRow('fable_N_token_r3', '-O2', [rs(0, S), rs(1, E)], true, 'gcc-13')], 'gcc-13');
+  assert.deepEqual(crossCheckSummary({ 'clang-18': clang, 'gcc-13': gcc }, measured).held, ['clang-18', 'gcc-13']);
+  // a file that compares nothing while that vendor measured spans alone is vacuous, and fails
+  const empty = crossCheckRepairRows(ours, [], 'gcc-13');
+  const v = crossCheckSummary({ 'clang-18': clang, 'gcc-13': empty }, measured);
+  assert.deepEqual(v.failed, ['gcc-13']);
+  assert.equal(v.vendors[1].vacuous, true);
+  // a vendor not in the run does not appear at all
+  assert.deepEqual(crossCheckSummary({ 'clang-18': clang }, measured).vendors.map((x) => x.cc), ['clang-18']);
+});
+
+test('parseRepairRowsArg: <cc>=<path> per vendor; a bare path or an unknown vendor is refused', () => {
+  assert.deepEqual(parseRepairRowsArg('gcc-13=lab/g.json,clang-18=lab/c.json'),
+    { given: { 'gcc-13': 'lab/g.json', 'clang-18': 'lab/c.json' }, problems: [] });
+  assert.deepEqual(parseRepairRowsArg('lab/c.json').problems, ['lab/c.json: expected <cc>=<path>']);
+  assert.deepEqual(parseRepairRowsArg('gcc=lab/g.json').problems, ['gcc is not one of clang-18 gcc-13']);
+  assert.deepEqual(parseRepairRowsArg('gcc-13=a,gcc-13=b').problems, ['gcc-13 given twice']);
+  assert.deepEqual(parseRepairRowsArg('gcc-13=').problems, ['gcc-13=: expected <cc>=<path>']);
+  assert.deepEqual(parseRepairRowsArg('').problems, ['no <cc>=<path> given']);
 });
 
 // ---- the summary ----------------------------------------------------------------
@@ -178,16 +230,20 @@ test('labelSummary: counts per kind and label, and one-span files whose only spa
   assert.equal(s.spans, 4);
 });
 
-test('writeDataProblems: only the full, checked run may be written', () => {
+test('writeDataProblems: only the full run, checked for every vendor, may be written', () => {
   const full = { files: null, vendors: [...VENDORS], opts: [...ALL_OPTS], rowsIsDefault: true, repairRowsIsDefault: true,
-    integrity: [], crossCheck: { mismatches: [], hiddenMismatches: [] } };
+    integrity: [], crossCheck: { held: [...VENDORS], failed: [], notChecked: [] } };
   assert.deepEqual(writeDataProblems(full), []);
+  assert.deepEqual(writeDataProblems({ ...full, crossCheck: null }), []);
   assert.deepEqual(writeDataProblems({ ...full, files: ['a*'] }), ['--files']);
   assert.deepEqual(writeDataProblems({ ...full, vendors: ['gcc-13'] }), ['a partial --cc']);
   assert.deepEqual(writeDataProblems({ ...full, opts: ['-O2'] }), ['a partial --opts']);
   assert.deepEqual(writeDataProblems({ ...full, repairRowsIsDefault: false }), ['--repair-rows']);
   assert.deepEqual(writeDataProblems({ ...full, integrity: ['x'] }), ['1 integrity problem(s)']);
-  assert.deepEqual(writeDataProblems({ ...full, crossCheck: { mismatches: [{}], hiddenMismatches: [] } }), ['a failed cross-check']);
+  assert.deepEqual(writeDataProblems({ ...full, crossCheck: { held: ['clang-18'], failed: ['gcc-13'], notChecked: [] } }),
+    ['a failed cross-check (gcc-13)']);
+  assert.deepEqual(writeDataProblems({ ...full, crossCheck: { held: ['clang-18'], failed: [], notChecked: ['gcc-13'] } }),
+    ['no repair rows to cross-check gcc-13']);
 });
 
 test('pathHits: the shapes of a home directory, a mount and a drive letter', () => {

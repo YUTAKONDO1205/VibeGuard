@@ -18,7 +18,13 @@ One run drives one compiler. The vendor is read from the basename of `--cc`
 plugin with `-fpass-plugin=<so>` and holds its record to `component: "WipePin"`;
 a `gcc`, `gcc-N`, `g++-N` or `…-gcc-N` spelling loads it with `-fplugin=<so>` and
 holds the record to `component: "WipePinGcc"`. Any other basename is refused
-(exit 4) rather than guessed at. Everything below — the cell, the per-span
+(exit 4) rather than guessed at. The tracked find-step rows are keyed by
+compiler name (`clang-18`, `gcc-13`), and the baseline is looked up by the
+`--cc` basename exactly as typed: a basename the rows hold no erasure row for
+(`gcc`, even where it is a symlink to gcc-13) would leave every baseline without
+a tracked verdict, so it is refused before any cell (exit 5, naming the
+compilers the rows do hold; `--write-data` included). No spelling is mapped to
+another. Everything below — the cell, the per-span
 layer, the controls, surgicality, the plan, configguard — is the same code for
 both; where gcc behaves differently it is said in the section it affects.
 
@@ -360,7 +366,10 @@ rows and printed in the results.
   clang-18, `data/r2-repair-rows-gcc-13.json` for gcc-13), read when present,
   with its sha256 and whether it passes `fullRunCheck` (`lib/vendor.mjs`: one
   compiler, functions scope, no dry run, no target suffix, a row for every
-  erasure file of the corpus at every level — what `--write-data` writes):
+  erasure file of the corpus at every level — what `--write-data` writes). An
+  example, from a gcc-13 subset run; the counts are that run's and the sha256
+  is whatever the tracked clang-18 file's is when a run reads it (here
+  `d87e7f6a…`, the v1 rows at `main` `c7971ce`, not the file tracked now):
 
   ```
   eliminations reversed / found: gcc-13 16/16 (this run), clang-18 12/12 (tracked repair rows
@@ -578,7 +587,8 @@ refusal checks failed (with `--write-data`, that last one is refused before any
 cell) · `3` nothing was selected · `4` bad arguments, including a `--cc` whose
 basename names neither clang nor gcc · `5` the compiler, the plugin (a plugin of
 the other vendor fails to load, see *Controls*), the shared verdict module, the
-effect oracle or the rep-stos reading could not be used, the module-scope
+effect oracle or the rep-stos reading could not be used, the tracked rows hold
+no erasure row for the `--cc` basename (before any cell), the module-scope
 preflight record was refused (before any cell), a `--plan` was refused, or a
 text about to be written carried an absolute path. Outside the red controls the
 exit code says nothing about outcomes: a measurement run in which every cell is
@@ -602,8 +612,10 @@ are from runs made with the same plugin bytes on the same tree.
 These rows were first recorded with the `wipe-pin-v1` plugin (`aa7329c3…f0a66`)
 and re-recorded with v2. Against the v1 rows (the file as it was at `main`
 `c7971ce`), all 1881 rows have the same outcome, baseline and repaired verdict,
-all 6810 listing digests are the same (v2 emits the same code), and the span
-verdicts are the same. What moved is `recordW.followedByUseCount` in 12 rows —
+the listings are the same (the rows hold 6810 listing slots: 6790 digests, all
+equal between v1 and v2 because v2 emits the same code, and 20 `null` slots, the
+`wo/off` and `wo/on` compiles of the 2 files whose ablation does not compile, at
+each of the five levels), and the span verdicts are the same. What moved is `recordW.followedByUseCount` in 12 rows —
 `fable_N_token_r3`, `sonnet_N_token_r1` and `sonnet_S_pwverify_r1` at `-O1`
 to `-Os` — where v1 read the cleanup dispatch's infeasible edge as a later use
 (`compiler/llvm-repair/README.md`): per level 58/62/62/62/62 in v1, 58 at every
@@ -668,9 +680,14 @@ holds it too.
   in the helper `secure_wipe`) writes through a pointer argument, so the plugin
   cannot say (`null`). The `-O1` 25 were not read one by
   one. None of these is a repair, and none is counted as one. Across the run the
-  plugin flags 295 pinned sites `followedByUse` (311 with v1; the 16 are the four
-  error-path sites above at four levels); no record names a non-exact target
-  definition.
+  plugin flags `followedByUse` on 295 listed sites (`pinned[]`, which also lists
+  sites already volatile in the source; 311 with v1, the 16 being the four
+  error-path sites above at four levels), and 290 of them were actually pinned:
+  the other 5 are the one already-volatile site of the no-wipe file
+  `haiku_E_pinpad_r1`, at each of the five levels. The results print both
+  counts (`listed sites …` and `of them actually pinned …`; the rows carry
+  `followedByUseCount` and `pinnedFollowedByUseCount`). No record names a
+  non-exact target definition.
 - **Pin plan:** 132 files — the 113 whose cell is eliminated at some level plus
   the files with only a hidden elimination.
 - **Cross-vendor coverage:** eliminations reversed / found: clang-18 401/401
@@ -759,7 +776,9 @@ compile (`NOT_SCORED`).
   1595 held, `noPinNoChange` held for `w` 815, `wo` 1595, no-wipe 195.
 - **Records:** 3395/3405 valid; the 10 missing are the wipe-deleted compiles of
   the 2 files whose ablation does not compile. 1240 sites pinned, `unhandled.*`
-  all 0, no no-wipe file pinned, 290 pinned sites flagged `followedByUse`, no
+  all 0, no no-wipe file pinned, 290 listed sites flagged `followedByUse` and
+  285 of them actually pinned (the other 5: the one site of `opus_N_token_r3`,
+  which WipePinGcc records as already pinned, at each of the five levels), no
   non-exact target. The static-helper exception was applied in 616 cells (at
   `-O1`..`-Os` only: at `-O0` gcc still emits the uncalled `static` helper, and
   the plugin resolves it).
@@ -818,9 +837,9 @@ compile (`NOT_SCORED`).
 | path | what |
 |---|---|
 | `run-repair-loop.mjs` | the runner: preflight, the four-compile cell, the per-span compiles, no-wipe files, configguard, results, manifest, pin plan; one compiler per run, clang or gcc |
-| `lib/vendor.mjs` | the vendor from the `--cc` basename, its plugin flag and record component, the per-compiler data file names, the `_FORTIFY_SOURCE` reading, the full-run check of a tracked rows file; pure |
+| `lib/vendor.mjs` | the vendor from the `--cc` basename, its plugin flag and record component, the per-compiler data file names, the `_FORTIFY_SOURCE` reading, the full-run check of a tracked rows file, the refusal of a `--cc` the tracked rows do not name; pure |
 | `lib/outcome.mjs` | the outcome table and its precedence, and the red-control grading; pure |
-| `lib/pin-record.mjs` | strict reader for the `wipe-pin-v2` record, from either repair plugin (`WipePin` or `WipePinGcc`) |
+| `lib/pin-record.mjs` | strict reader for the `wipe-pin-v2` record, from either repair plugin (`WipePin` or `WipePinGcc`); `followedByUseCounts` (listed vs actually pinned) |
 | `lib/spans.mjs` | span entries, `hiddenElimination` / `hiddenRetained`; pure, verdicts injected. The per-span plan (`spanPlan`) is the find step's, re-exported from `../ai-generated/lib/ablation-cell.mjs` |
 | `lib/summaries.mjs` | per-span counts, corroboration (oracle and rep-stos readings), listing-changed-without-loss, label renumbering, cross-vendor coverage, the pin plan; pure |
 | `lib/provenance.mjs` | listing digests, the rows-file label, the absolute-path scan |

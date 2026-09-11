@@ -42,7 +42,9 @@
  * (nothing selected); 4 bad arguments (including a --cc whose basename names
  * neither vendor); 5 a tool, the plugin (a plugin of the other vendor fails to
  * load here), the shared verdict module or the effect oracle could not be used,
- * the module-scope preflight record was refused (before any cell), or a text
+ * the tracked rows hold no erasure row for the --cc basename (before any cell,
+ * with or without --write-data; `gcc` is not read as `gcc-13`), the
+ * module-scope preflight record was refused (before any cell), or a text
  * about to be written carried an absolute path.
  */
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, existsSync, statSync } from 'node:fs';
@@ -51,11 +53,11 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { dirname, resolve, join, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { readPinRecord, unresolvedNames, SEEN_KEYS, UNHANDLED_KEYS } from './lib/pin-record.mjs';
+import { readPinRecord, unresolvedNames, followedByUseCounts, SEEN_KEYS, UNHANDLED_KEYS } from './lib/pin-record.mjs';
 import { outcomeOf, absentAfterAblation, gradeRedControl, OUTCOMES, ELIMINATED } from './lib/outcome.mjs';
 import { ablatedUnchanged, controlUntouched, controlRenumberedOnly, differsOnlyInLabels, noPinNoChange, pinDelta } from './lib/surgicality.mjs';
 import { authzSummary, configguardTargets, configguardRow, otherVendorLines, notAttemptedLine } from './lib/stage-gate.mjs';
-import { vendorOf, vendorConfig, dataFileNames, fullRunCheck, fortifyFromDefines } from './lib/vendor.mjs';
+import { vendorOf, vendorConfig, dataFileNames, fullRunCheck, fortifyFromDefines, trackedCcProblem } from './lib/vendor.mjs';
 import { spanPlan, spanSourceOf, spanRows, hiddenFlags } from './lib/spans.mjs';
 import {
   spanSummary, effectVerdict, corroborationSummary, listingChangedWithoutLoss, labelRenumbering, crossVendorCoverage, buildPinPlan,
@@ -196,6 +198,7 @@ function cleanEnv() {
 function summarizeRecord(rr) {
   if (!rr.ok) return { ok: false, problems: rr.problems };
   const r = rr.record;
+  const fbu = followedByUseCounts(r);
   return {
     ok: true,
     pinnedCount: r.pinnedCount,
@@ -203,8 +206,13 @@ function summarizeRecord(rr) {
     unresolved: unresolvedNames(r),
     // Carried so the tracked rows, not only the lab records, can show which pins
     // the plugin itself flags as initialiser-like, and which targets were not
-    // exact definitions.
-    followedByUseCount: r.pinned.filter((p) => p.followedByUse === true).length,
+    // exact definitions. Two counts (lib/pin-record.mjs followedByUseCounts):
+    // followedByUseCount is every LISTED site with followedByUse true, the
+    // already-volatile ones included (kept under its old name, so rows written
+    // before the second count still read the same); pinnedFollowedByUseCount is
+    // the sites this compile actually made volatile.
+    followedByUseCount: fbu.listed,
+    pinnedFollowedByUseCount: fbu.pinned,
     nonExact: r.resolution.filter((x) => x.exact === false).map((x) => x.name),
     seen: { ...r.seen },
     unhandled: { ...r.unhandled },
@@ -262,6 +270,10 @@ async function main() {
   let tracked;
   try { tracked = JSON.parse(readFileSync(args.rows, 'utf8')); }
   catch { die(5, 'the --rows file could not be read as JSON'); }
+  // Fail closed before any cell, --write-data or not: rows keyed by another
+  // spelling would leave every baseline without a tracked verdict.
+  const ccWhy = trackedCcProblem(tracked, ccName);
+  if (ccWhy) die(5, `${ccWhy}${args.writeData ? '; --write-data refused' : ''}`);
 
   let planIn = null;
   let planSha = null;
@@ -799,7 +811,8 @@ function renderResults({ args, ccName, ccVersion, pluginSha, pre, rows, authz, c
   L.push(`  no-wipe files with pinnedCount > 0     ${none.filter((r) => (r.pinnedCount ?? 0) > 0).length}/${none.length}`);
   const absent = er.filter((r) => r.absentAfterAblation.length);
   L.push(`  helper resolved in w, not-in-module in wo (its only call was the ablated wipe; tolerated, not broken): ${absent.length} cell(s)`);
-  L.push(`  pinned sites the plugin flags followedByUse (initialiser-like; a hint that can over-approximate): ${valid.reduce((n, x) => n + x.followedByUseCount, 0)}`);
+  L.push(`  listed sites (pinned[], already-volatile included) the plugin flags followedByUse (initialiser-like; a hint that can over-approximate): ${valid.reduce((n, x) => n + x.followedByUseCount, 0)}`);
+  L.push(`    of them actually pinned (not already volatile, not a dry run): ${valid.reduce((n, x) => n + x.pinnedFollowedByUseCount, 0)}`);
   L.push(`  records naming a non-exact target definition: ${valid.filter((x) => x.nonExact.length).length}`);
   L.push('');
 

@@ -5,9 +5,11 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { vendorOf, vendorConfig, VENDORS, dataFileNames, fullRunCheck, fortifyFromDefines, LEGACY_CC } from '../lib/vendor.mjs';
+import { vendorOf, vendorConfig, VENDORS, dataFileNames, fullRunCheck, fortifyFromDefines, LEGACY_CC,
+  trackedCcProblem, trackedErasureCcs } from '../lib/vendor.mjs';
 import { COMPONENTS } from '../lib/pin-record.mjs';
 import { absolutePathHits } from '../lib/provenance.mjs';
+import { REPAIR_ROWS_FILES as SPAN_REPAIR_ROWS_FILES } from '../../ai-generated/lib/span-summary.mjs';
 
 test('vendorOf: every spelling the runner used to refuse as gcc is gcc now', () => {
   for (const cc of ['gcc', 'gcc-13', 'g++', 'g++-13', 'gcc-13.3', 'x86_64-linux-gnu-gcc-13', 'x86_64-linux-gnu-g++-13', '/usr/bin/gcc-13']) {
@@ -94,4 +96,39 @@ test('fullRunCheck: each way a file can fall short is named', () => {
   assert.match(fullRunCheck(clangRows, opts).why[0], /rows for clang-18, not only gcc-13/);
   assert.deepEqual(fullRunCheck({}, opts), { full: false, why: ['not a list of rows'] });
   assert.equal(fullRunCheck([], opts).full, false);
+});
+
+test('dataFileNames: the per-span supplement names the same rows files (it may not import them from here)', () => {
+  // ai-generated/lib/span-summary.mjs spells the paths out because that lane
+  // imports nothing from this one; this lane may import from it, so the two
+  // spellings are held together here.
+  for (const [cc, rel] of Object.entries(SPAN_REPAIR_ROWS_FILES)) {
+    assert.equal(rel, `../../repair-loop/data/${dataFileNames(cc).rows}`, cc);
+  }
+});
+
+test('trackedCcProblem: a --cc the tracked rows do not name is refused, never mapped to a spelling they do', () => {
+  const tracked = [
+    { id: 'a', kind: 'erasure', cc: 'clang-18', opt: '-O2', verdict: 'WIPE_SURVIVED' },
+    { id: 'a', kind: 'erasure', cc: 'gcc-13', opt: '-O2', verdict: 'WIPE_SURVIVED' },
+    { id: 'n', kind: 'none', verdict: 'NO_WIPE_WRITTEN' },
+    { id: 'c', kind: 'configguard', cc: 'gcc-12', opt: '-O2' },
+  ];
+  assert.deepEqual(trackedErasureCcs(tracked), ['clang-18', 'gcc-13']);
+  assert.equal(trackedCcProblem(tracked, 'clang-18'), null);
+  assert.equal(trackedCcProblem(tracked, 'gcc-13'), null);
+  // `gcc` may be a symlink to gcc-13 on the measuring machine; the rows are keyed
+  // by name, so it finds no row and is refused, naming what the rows do hold
+  for (const cc of ['gcc', 'clang', 'g++-13', 'x86_64-linux-gnu-gcc-13', 'gcc-12']) {
+    const why = trackedCcProblem(tracked, cc);
+    assert.equal(typeof why, 'string', cc);
+    assert.ok(why.includes(`--cc ${cc} `), why);
+    assert.ok(why.includes('they hold clang-18, gcc-13'), why);
+  }
+  // only erasure rows count: a configguard row for gcc-12 does not make gcc-12 judgeable
+  assert.match(trackedCcProblem(tracked, 'gcc-12'), /no erasure row/);
+  // rows with no erasure row at all refuse every compiler
+  assert.match(trackedCcProblem([{ id: 'n', kind: 'none' }], 'clang-18'), /they hold none/);
+  assert.match(trackedCcProblem(null, 'clang-18'), /they hold none/);
+  assert.deepEqual(absolutePathHits(trackedCcProblem(tracked, 'gcc')), []);
 });
