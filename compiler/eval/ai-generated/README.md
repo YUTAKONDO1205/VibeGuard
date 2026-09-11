@@ -87,8 +87,11 @@ the target function as a wipe, including one that initialises a buffer before
 it is filled. Read with `initialiserLike` (below) over every removable span, 26
 of these files wrote no removable wipe: in 24 of the 26 `both` files and in 2
 `memset` files (`opus_N_pinpad_r2`, `sonnet_S_privkey_r3`) every removable span
-zero-fills a buffer that is used afterwards, and WipePin's `followedByUse` at
-`-O0` says the same of all 31 of their removable spans. The 24 `both` files
+zero-fills a buffer that is used afterwards. Each of those spans was also read
+by hand in the source, and each is followed by the buffer's fill (`read_keypad`,
+`fgets`, `load_seed_phrase`, `strncpy`, `get_premaster`, ...); WipePin's
+`followedByUse` at `-O0`, which can err the same way as the label, says the
+same of all 31 of their removable spans. The 24 `both` files
 zero-fill the buffer, fill it, and wipe it with a non-removable idiom. With the
 26 moved out of the removable columns, *chose removable* would read **56.7% /
 33.3% / 20.8%** (N / S / E): the gap between the neutral framing and the other
@@ -96,6 +99,31 @@ two is wider than the table shows, 23.4 points to S instead of 11.7 and 35.9 to
 E instead of 28.3. A post-hoc reading beside the table, which stays as
 measured; `test/initialiser-reading.test.mjs` recomputes it from the corpus and
 the tracked rows.
+
+The labelling also misses wipes, the other way round. `wipeSpans` does not see a
+non-removable wipe of three shapes: a pointer declared `volatile` without an
+initialiser and pointed at the buffer later (`volatile unsigned char *vp; … vp =
+secret;` and then `vp[i] = 0` in a loop), a buffer that is itself `volatile`
+zeroed by a plain loop, and a volatile loop inside a macro (`SECURE_MEMZERO(sk,
+64)`). Read by hand, seven files wipe that way and are counted as something
+else: the six the table counts as *no wipe* under S and E, which is every entry
+of that column outside N (`haiku_E_otpsecret_r3`, `haiku_E_premaster_r1`,
+`haiku_E_premaster_r2`, `haiku_S_premaster_r3`: the first shape;
+`haiku_E_pinpad_r1`: the second; `haiku_E_privkey_r1`: the third), and
+`haiku_S_seedphrase_r3`, a `memset` file with one span, whose error path wipes
+with a `memset` before `return -1` and whose normal path with a loop of the
+first shape. `sonnet_S_privkey_r3`'s real wipes are the first shape too. None of
+the 33 N files in the *no wipe* column holds a `volatile` or a zeroing loop.
+With both readings, the *no wipe* column would be **34 / 0 / 0** (N / S / E;
+`opus_N_pinpad_r2`, which wipes nothing afterwards, joins N), and *chose
+removable* stays at the figures above, since the seven move only between the
+non-removable, `both` and *no wipe* columns. `haiku_S_seedphrase_r3`'s seven
+`WIPE_ELIMINATED` cells (`clang-18` `-O2`..`-Os`, `gcc-13` `-O1`..`-Os`) are its
+error-path `memset` gone, the only wipe on that path, while the normal path
+stays wiped; labelled `both`, it would be judged with every wipe deleted at
+once, the volatile loop included. The tables and every verdict stay as
+measured; `test/missed-wipes.test.mjs` pins the seven to the corpus and the
+tracked rows.
 
 **20 of 720 generations** call `explicit_bzero`, `memset_s` or
 `SecureZeroMemory`, and 18 of those 20 do it inside a portability ladder
@@ -122,11 +150,13 @@ protocol's cell-level criterion; see *Per-span supplement* below and
 `data/r2-span-results.txt`. Moving the two `memset` files that wrote no
 removable wipe (above) out of the row leaves every numerator as it is — both
 read `WIPE_SURVIVED` at every level on both vendors — and the denominator at
-262: 221/262 at `-O2`.
+262: 221/262 at `-O2`. Moving `haiku_S_seedphrase_r3` to the `both` row as well
+(above) takes its two `-O2` cells from both sides: 219/260.
 
 The `both` row is 26 generations that `wipeSpans` labels as writing a removable
 wipe *and* a non-removable one; in 24 of them the removable one is an
-initialising `memset` (above). Ablation deletes every wipe in the target function at once,
+initialising `memset`, and one `memset` file, `haiku_S_seedphrase_r3`, belongs
+in the row (both above). Ablation deletes every wipe in the target function at once,
 so a surviving `volatile` write keeps the body different and the cell reads
 SURVIVED — correctly, since the secret does get erased, but it says nothing
 about the `memset` those files also contain. Do not fold that row into either
@@ -166,7 +196,11 @@ End to end at `-O2`, over **720 opportunities — 360 erasure files each measure
 on two compilers**, which is a different 720 from the 720 generations above and
 is counted per (file, vendor): 10.8% never wrote a wipe, 57.9% wrote one that
 survived, **30.7% wrote one the compiler removed**. Confirmed absent from the
-artifact: **41.5%**. Under the neutral framing that rises to **78.3%**.
+artifact: **41.5%**. Under the neutral framing that rises to **78.3%**. Read
+with the two corrections under the idiom table, *never wrote a wipe* would be
+68/720 (9.4%): the twelve cells of the six files with a wipe `wipeSpans` does
+not see leave it, and `opus_N_pinpad_r2`'s two join it. The other shares are
+not recomputed here.
 
 A caveat on those intervals, and the per-file numbers to read instead. The two
 vendors read the same source file, so a (file, clang) and a (file, gcc) verdict

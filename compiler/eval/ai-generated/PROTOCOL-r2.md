@@ -111,3 +111,10 @@ gcc-13 は -Os で対照の消去を `xorl %eax,%eax` + `rep stosl` として出
 - 2026-09-12 事後追加（結果を見た後）: `initialiserLike` を全ファイルの全 removable スパンに当てた読み
   （26 ファイルは removable な消去を書いていない: `memset` 2・`both` 24）を README の表の横に追加。
   idiom 表・生存表・セル判定は一つも変更しない（`test/initialiser-reading.test.mjs` がコーパスと追跡データから再計算する）
+- 2026-09-12 `wipeSpans` の潜在欠陥を修正: spans だけを位置順に並べ替え kinds を並べ替えていなかったため、
+  揮発ループが memset より前にある関数では kind が入れ替わる。spans と kinds を対で並べ替える。
+  r2 の 321 ファイルでは修正前後の出力が完全一致＝判定と集計値は不変（`test/ablation-cell.test.mjs` がその形を固定）
+- 2026-09-12 事後追加（結果を見た後）: `wipeSpans` が見落とす非可除消去の 3 形（初期化子なしで宣言し後で代入する
+  volatile ポインタ、volatile 配列の素朴なループ、マクロ内の揮発ループ）と、それで数え違えている 7 ファイル
+  （no wipe の S 1・E 5 の全部と `haiku_S_seedphrase_r3`）を README の表の横に記録。検出器・表・判定は変更しない
+  （`test/missed-wipes.test.mjs`）。検出器を直して再記録するのはプロトコル改訂であり、ここではしない

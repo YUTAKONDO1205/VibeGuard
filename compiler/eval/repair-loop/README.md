@@ -414,6 +414,17 @@ that idiom for an initialising `memset` beside a non-removable wipe
 (`../ai-generated/README.md`, *initialiserLike*); their cells read
 `ALREADY_SURVIVED` in this lane either way.
 
+It misses wipes the other way round too (`../ai-generated/README.md`, under the
+idiom table): a volatile pointer declared without an initialiser, a volatile
+array zeroed by a loop, a volatile loop in a macro. One such file has cells in
+this lane's counts: `haiku_S_seedphrase_r3`, labelled `removable` with one span,
+its error-path `memset`, while its normal path is wiped by a volatile loop
+`wipeSpans` does not see. Its seven eliminated cells (`clang-18` `-O2`..`-Os`,
+`gcc-13` `-O1`..`-Os`, among the 401 and 432) are that `memset` gone on the error
+path, the only wipe there, and each is `RETAINED` with one site pinned; the loop
+needed no repair. The six files the find step reads as writing no wipe, for the
+same reason, are no-wipe cells here as well.
+
 ## Red controls
 
 Each is a run whose correct answer is known in advance, and the answer is
