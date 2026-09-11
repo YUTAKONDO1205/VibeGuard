@@ -98,6 +98,14 @@ Every other non-removable wipe was hand-rolled — a `volatile` pointer loop, a
 | non-removable | 0/324 | 0/324 | 0/324 | 0/324 | 0/324 |
 | both | 0/52 | 0/52 | 0/52 | 0/52 | 0/52 |
 
+Judged one wipe span at a time as well, with the same `verdictOf`, the
+`memset` row has a removable wipe gone in **199/266** cells at `-O1` and
+**260/266** at `-O2`, `-O3` and `-Os`: the eliminated cells above plus the
+cells scored `WIPE_SURVIVED` in which a removable span, ablated on its own, is
+`WIPE_ELIMINATED`. That is a second count beside the table, which stays the
+protocol's cell-level criterion; see *Per-span supplement* below and
+`data/r2-span-results.txt`.
+
 The `both` row is 26 generations that wrote a removable wipe *and* a
 non-removable one. Ablation deletes every wipe in the target function at once,
 so a surviving `volatile` write keeps the body different and the cell reads
@@ -171,8 +179,9 @@ model wrote.
 A post-hoc addition, recorded as such in `PROTOCOL-r2.md`'s change history. It
 changes **no verdict and no number above**: the erasure tables stay cell-level,
 because that is the criterion the protocol fixed and the one the poster quotes.
-What it adds is a second measurement beside them, in a second data file,
-`data/r2-span-rows.json`.
+What it adds is a second measurement beside them, in its own data: the rows,
+`data/r2-span-rows.json`, and the results text the run printed from them,
+`data/r2-span-results.txt`.
 
 **Why.** Ablation deletes every wipe span of the target function at once. When
 the target body holds two zero-fills, deleting both can change the code for a
@@ -231,9 +240,11 @@ The check was shown to fail on a lab copy of the repair rows with every span
 index shifted by one (`clang-18`), and on a lab copy of the `gcc-13` rows whose
 span verdicts were rotated by one position (71 mismatches at `-O2`, exit 2).
 
-**Results.** The full run (`--write-data`, both vendors, all five levels,
-`data/r2-span-rows.json`, 1550 rows): 155 multi-span files, 770 measured cells
-(77 files with a removable span × 2 vendors × 5 levels), 1670 per-span verdicts.
+**Results.** The full run (`--write-data`, both vendors, all five levels, stock
+`clang-18` 18.1.3 and `gcc-13` 13.3.0; `data/r2-span-rows.json`, 1550 rows, and
+`data/r2-span-results.txt`): 155 multi-span files, 770 measured cells (77 files
+with a removable span × 2 vendors × 5 levels), 1670 per-span verdicts. A second
+full run into another lab directory wrote both files byte for byte the same.
 "Hidden" counts cells of those 77 files.
 
 | vendor | level | cell-level eliminated (tracked, whole family) | hidden eliminations (removable / both) | cell-level + hidden | hidden whose eliminated span is initialiser-like |
@@ -250,25 +261,36 @@ span verdicts were rotated by one position (71 mismatches at `-O2`, exit 2).
 | `gcc-13` | `-Os` | 108 | 23 (22 / 1) | 131 | 0 |
 
 Read against the headline table above, and without changing it: in the
-`memset` row, the files in which some removable wipe is gone when judged one
-span at a time are **199/266** at `-O1` (tracked 170) and **260/266** at `-O2`,
-`-O3` and `-Os` (tracked 221). The `both` row's 0/52 hides 2 (`clang-18 -O2`,
-`-Os`), 1 (`clang-18 -O3`) and 1 (`gcc-13 -O1`..`-Os`) cells in which the
-removable span is gone on its own; in `fable_E_dbpass_r3` (`clang-18 -O2`,
-`-Os`) that span is initialiser-like (a `memset` before `strncpy`), so it is
-not a lost wipe. The tracked cell-level numbers stay the find step's criterion;
-these are the same `verdictOf` at a finer grain, beside them.
+`memset` row, the cells in which a removable wipe is gone — scored
+`WIPE_ELIMINATED`, or a hidden elimination — are **199/266** at `-O1` (tracked
+170) and **260/266** at `-O2`, `-O3` and `-Os` (tracked 221). Counted strictly
+span by span instead (a one-span cell by its verdict, a multi-span cell only by
+its spans ablated alone), `-O1` gives 181, not 199: 18 `clang-18 -O1` cells, in
+18 files, score `WIPE_ELIMINATED` while every removable span, ablated alone,
+reads `WIPE_SURVIVED`. In the lab listings of the run, each of those 37
+single-span ablations adds zero stores (an `xorps` and `movaps`) to the body:
+with every `memset` in the source, `clang-18 -O1` emits none of them; with any
+one deleted, stores for the others come back. A per-span `WIPE_SURVIVED` can
+therefore be another wipe reappearing rather than this one surviving; `-O2`,
+`-O3` and `-Os` have no such cell. The `both` row's 0/52 hides 2
+(`clang-18 -O2`, `-Os`), 1 (`clang-18 -O3`) and 1 (`gcc-13 -O1`..`-Os`) cells
+in which the removable span is gone on its own; in `fable_E_dbpass_r3`
+(`clang-18 -O2`, `-Os`) that span is initialiser-like (a `memset` before
+`strncpy`), so it is not a lost wipe. The tracked cell-level numbers stay the
+find step's criterion; these are the same `verdictOf` at a finer grain, beside
+them.
 
 Re-derived cell verdicts agreeing with the tracked rows: 770/770. Cross-check
 against the repair rows, per vendor: `clang-18` 835 span verdicts compared, 835
 agree, 385 `hiddenElimination` flags compared, 0 disagree; `gcc-13` the same,
-835/835 and 385 with 0 disagreeing (a lab run of this version over the full
-supplement, whose rows equal `data/r2-span-rows.json` byte for byte; the
-tracked file was written before `gcc-13` was cross-checked). The ids of every hidden
-elimination are printed in the run's results text, per vendor and level. gcc-13
-had no per-span view before this run; every one of its 22 removable multi-span
-cells scored `WIPE_SURVIVED` at `-O1`..`-Os` holds a span that is eliminated on
-its own.
+835/835 and 385 with 0 disagreeing. Each vendor's check is printed in
+`data/r2-span-results.txt` beside the sha256 of the repair rows it was checked
+against (`--write-data` writes nothing unless both held); a repair rows file
+re-recorded after that has not been checked against until `--write-data` runs
+again. The ids of every hidden elimination are in the same file, per vendor and
+level. gcc-13 had no per-span view before this run; every one of its 22
+removable multi-span cells scored `WIPE_SURVIVED` at `-O1`..`-Os` holds a span
+that is eliminated on its own.
 
 ### initialiserLike
 
@@ -380,7 +402,7 @@ python3 analyze.py                # tables    -> ../data/r2-results.txt
 
 # the per-span supplement (stock compilers; rows, results and scratch in the lab dir)
 node build-spans.mjs --out <lab dir> [--cc clang-18,gcc-13] [--opts -O2] [--files <globs>]
-node build-spans.mjs --out <lab dir> --write-data    # the full run only -> ../data/r2-span-rows.json
+node build-spans.mjs --out <lab dir> --write-data    # the full run only -> ../data/r2-span-rows.json, ../data/r2-span-results.txt
 # initialiserLike against the repair plugin's followedByUse (clang-18 -O0)
 node label-check.mjs --plugin <libWipePin.so> --out <lab dir>
 # does gcc-13's predefined _FORTIFY_SOURCE move a verdict? (lab output only)
@@ -438,3 +460,4 @@ design is auditable even though the sampling is not repeatable.
 | `lib/classify-lexical.py` | round 1's independent lexical classifier |
 | `lib/analyze.py`, `lib/analyze-r1.py` | the tables |
 | `data/` | every verdict row and the rendered results |
+| `data/r2-span-results.txt` | the per-span supplement's results text, written with `data/r2-span-rows.json` by the same full `build-spans.mjs --write-data` run; `test/span-readme.test.mjs` pins the per-span numbers this README quotes from tracked data to both files and to `data/r2-build-rows.json` (not those from lab-only runs, such as `label-check.mjs`'s) |

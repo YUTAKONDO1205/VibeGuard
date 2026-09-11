@@ -45,7 +45,12 @@
  * Nothing is written to the repository unless --write-data is given, and that is
  * refused for anything but the full run (every multi-span file, both vendors,
  * all five levels, the default input files) with every integrity check held and
- * both vendors cross-checked and held.
+ * both vendors cross-checked and held. It writes two files, data/r2-span-rows.json
+ * and data/r2-span-results.txt, the same bytes the run writes to the lab directory
+ * under those names. Neither holds a path, a host name or a time: the rows carry
+ * verdict words, ids and booleans, and the results text the compiler version
+ * lines, the sha256 of the input rows, counts and ids -- so two full runs on the
+ * same toolchains write the same bytes, whatever the lab directory.
  *
  * Exit codes: 0 run complete and every check that could run held (a vendor with
  * no repair rows is reported as not cross-checked; that alone does not fail the
@@ -84,6 +89,7 @@ const DEFAULT_ROWS = join(ROOT, 'data', 'r2-build-rows.json');
 // Per vendor, the repair loop's tracked rows (span-summary.mjs REPAIR_ROWS_FILES).
 const DEFAULT_REPAIR_ROWS = Object.fromEntries(VENDORS.map((cc) => [cc, resolve(HERE, REPAIR_ROWS_FILES[cc])]));
 const DATA_OUT = join(ROOT, 'data', 'r2-span-rows.json');
+const DATA_RESULTS_OUT = join(ROOT, 'data', 'r2-span-results.txt');
 
 const USAGE = `usage: node build-spans.mjs --out <dir> [options]
 
@@ -97,7 +103,8 @@ const USAGE = `usage: node build-spans.mjs --out <dir> [options]
                          default (${VENDORS.map((cc) => `${cc}: ${REPAIR_ROWS_FILES[cc]}`).join(', ')});
                          a vendor whose default file does not exist is not cross-checked
   --conc <n>             parallel cells (default 4)
-  --write-data           also write data/r2-span-rows.json (refused for anything but the full run)
+  --write-data           also write data/r2-span-rows.json and data/r2-span-results.txt
+                         (refused for anything but the full run)
 `;
 
 function die(code, msg) {
@@ -147,7 +154,7 @@ function parseArgs(argv) {
   if (a.writeData) {
     const why = writeDataProblems({ files: a.files, vendors: a.ccs, opts: a.opts,
       rowsIsDefault: a.rows === DEFAULT_ROWS, repairRowsIsDefault: a.repairRowsIsDefault, integrity: [], crossCheck: null });
-    if (why.length) die(4, `--write-data refused with ${why.join(', ')}: data/r2-span-rows.json is the full run over the default inputs`);
+    if (why.length) die(4, `--write-data refused with ${why.join(', ')}: data/r2-span-rows.json and data/r2-span-results.txt are the full run over the default inputs`);
   }
   return a;
 }
@@ -372,10 +379,14 @@ async function main() {
     const why = writeDataProblems({ files: args.files, vendors: args.ccs, opts: args.opts,
       rowsIsDefault: args.rows === DEFAULT_ROWS, repairRowsIsDefault: args.repairRowsIsDefault,
       integrity, crossCheck: cross });
-    if (why.length) die(2, `--write-data refused with ${why.join(', ')}: data/r2-span-rows.json is the full run, checked`);
+    if (why.length) die(2, `--write-data refused with ${why.join(', ')}: data/r2-span-rows.json and data/r2-span-results.txt are the full run, checked`);
     if (!existsSync(dirname(DATA_OUT))) die(5, 'the data directory is missing');
+    // The rows and the text that was printed from them, as one pair: the per-span
+    // numbers the README quotes from tracked data are pinned to both
+    // (test/span-readme.test.mjs).
     writeFileSync(DATA_OUT, rowsText, 'utf8');
-    process.stderr.write(`wrote ${rows.length} rows to data/r2-span-rows.json\n`);
+    writeFileSync(DATA_RESULTS_OUT, text, 'utf8');
+    process.stderr.write(`wrote ${rows.length} rows to data/r2-span-rows.json and the results text to data/r2-span-results.txt\n`);
   }
   process.exit(integrity.length || crossFailed ? 2 : 0);
 }

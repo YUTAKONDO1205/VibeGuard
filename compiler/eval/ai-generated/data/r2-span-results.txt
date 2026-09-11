@@ -1,0 +1,212 @@
+per-span supplement (build-spans.mjs): each removable span of a multi-span file ablated alone, same verdictOf, same FLAGS
+tracked cell verdicts unchanged; this is a second measurement beside them
+
+compiler        clang-18  (Ubuntu clang version 18.1.3 (1ubuntu1))
+compiler        gcc-13  (gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0)
+opts            -O0 -O1 -O2 -O3 -Os
+file subset     (all 155 multi-span files)
+tracked rows    (default) sha256 cb93551fe438256985fd30533fe0dbef51b51739f4d8c0de5ce5eef7e674bed9
+repair rows     clang-18 (default) sha256 05d1240efd7322543625e83158139739429f65eeb5c7c1d4f57e7d87c912ce96
+repair rows     gcc-13 (default) sha256 cd999c151a27599e200c32be6152bfb13df7edb4b5649e198f1d5e8d6748ba9e
+cells           1550 (770 measured; the rest have no removable span to ablate alone)
+per-span verdicts 1670
+
+integrity (span count and idiom against the tracked rows; the cell verdict re-derived against the tracked one)
+  cell verdicts   770/770 agree with the tracked rows
+  held
+
+cross-check against the repair loop's plugin-off per-span verdicts (per vendor, spans that loop measured alone)
+  clang-18  span verdicts compared 835, agree 835, not compared 0; hiddenElimination compared 385, disagree 0
+    held
+  gcc-13  span verdicts compared 835, agree 835, not compared 0; hiddenElimination compared 385, disagree 0
+    held
+  held for 2 of 2 vendor(s) (clang-18, gcc-13)
+
+hidden eliminations: tracked WIPE_SURVIVED cells in which a removable span, ablated alone, is WIPE_ELIMINATED
+  clang-18 -O0  0 of 77 measured SURVIVED multi-span cells; in 0 of them every eliminated span is itself initialiser-like
+  clang-18 -O1  7 of 59 measured SURVIVED multi-span cells (removable 7); in 0 of them every eliminated span is itself initialiser-like
+    HIDDEN sonnet_N_pinpad_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_pinpad_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r3 [removable] span(s) 2,3
+    HIDDEN sonnet_S_seedphrase_r1 [removable] span(s) 1; another span is initialiser-like
+  clang-18 -O2  19 of 43 measured SURVIVED multi-span cells (both 2, removable 17); in 1 of them every eliminated span is itself initialiser-like
+    HIDDEN fable_E_dbpass_r3 [both] span(s) 0; eliminated span(s) 0 initialiser-like
+    HIDDEN fable_N_token_r3 [removable] span(s) 1
+    HIDDEN haiku_E_otpsecret_r2 [both] span(s) 0
+    HIDDEN haiku_S_pwverify_r1 [removable] span(s) 3,4,5,6,7,8; another span is initialiser-like
+    HIDDEN opus_N_otpsecret_r2 [removable] span(s) 1,2; another span is initialiser-like
+    HIDDEN opus_N_pwverify_r1 [removable] span(s) 3,4,5,6,7; another span is initialiser-like
+    HIDDEN sonnet_N_pinpad_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_pinpad_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_privkey_r1 [removable] span(s) 1,2; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r1 [removable] span(s) 1,2,3,4,5; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r2 [removable] span(s) 1,2,3; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r3 [removable] span(s) 0,2,3
+    HIDDEN sonnet_S_seedphrase_r1 [removable] span(s) 1; another span is initialiser-like
+  clang-18 -O3  18 of 43 measured SURVIVED multi-span cells (removable 17, both 1); in 0 of them every eliminated span is itself initialiser-like
+    HIDDEN fable_N_token_r3 [removable] span(s) 1
+    HIDDEN haiku_E_otpsecret_r2 [both] span(s) 0
+    HIDDEN haiku_S_pwverify_r1 [removable] span(s) 3,4,5,6,7,8; another span is initialiser-like
+    HIDDEN opus_N_otpsecret_r2 [removable] span(s) 1,2; another span is initialiser-like
+    HIDDEN opus_N_pwverify_r1 [removable] span(s) 3,4,5,6,7; another span is initialiser-like
+    HIDDEN sonnet_N_pinpad_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_pinpad_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_privkey_r1 [removable] span(s) 1,2; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r1 [removable] span(s) 1,2,3,4,5; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r2 [removable] span(s) 1,2,3; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r3 [removable] span(s) 0,2,3
+    HIDDEN sonnet_S_seedphrase_r1 [removable] span(s) 1; another span is initialiser-like
+  clang-18 -Os  19 of 43 measured SURVIVED multi-span cells (both 2, removable 17); in 1 of them every eliminated span is itself initialiser-like
+    HIDDEN fable_E_dbpass_r3 [both] span(s) 0; eliminated span(s) 0 initialiser-like
+    HIDDEN fable_N_token_r3 [removable] span(s) 1
+    HIDDEN haiku_E_otpsecret_r2 [both] span(s) 0
+    HIDDEN haiku_S_pwverify_r1 [removable] span(s) 3,4,5,6,7,8; another span is initialiser-like
+    HIDDEN opus_N_otpsecret_r2 [removable] span(s) 1,2; another span is initialiser-like
+    HIDDEN opus_N_pwverify_r1 [removable] span(s) 3,4,5,6,7; another span is initialiser-like
+    HIDDEN sonnet_N_pinpad_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_pinpad_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_privkey_r1 [removable] span(s) 1,2; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r1 [removable] span(s) 1,2,3,4,5; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r2 [removable] span(s) 1,2,3; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r3 [removable] span(s) 0,2,3
+    HIDDEN sonnet_S_seedphrase_r1 [removable] span(s) 1; another span is initialiser-like
+  gcc-13 -O0  0 of 77 measured SURVIVED multi-span cells; in 0 of them every eliminated span is itself initialiser-like
+  gcc-13 -O1  23 of 48 measured SURVIVED multi-span cells (both 1, removable 22); in 0 of them every eliminated span is itself initialiser-like
+    HIDDEN haiku_E_otpsecret_r2 [both] span(s) 0
+    HIDDEN haiku_S_pwverify_r1 [removable] span(s) 3,4,5,6,7,8; another span is initialiser-like
+    HIDDEN opus_N_otpsecret_r2 [removable] span(s) 1,2; another span is initialiser-like
+    HIDDEN opus_N_pwverify_r1 [removable] span(s) 3,4,5,6,7; another span is initialiser-like
+    HIDDEN sonnet_E_dbpass_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_E_dbpass_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_E_dbpass_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_dbpass_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_dbpass_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_dbpass_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_pinpad_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_pinpad_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_privkey_r1 [removable] span(s) 1,2; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r1 [removable] span(s) 2,3,4,5; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r2 [removable] span(s) 1,2,3; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r3 [removable] span(s) 0,2,3
+    HIDDEN sonnet_S_seedphrase_r1 [removable] span(s) 1; another span is initialiser-like
+  gcc-13 -O2  23 of 48 measured SURVIVED multi-span cells (both 1, removable 22); in 0 of them every eliminated span is itself initialiser-like
+    HIDDEN haiku_E_otpsecret_r2 [both] span(s) 0
+    HIDDEN haiku_S_pwverify_r1 [removable] span(s) 3,4,5,6,7,8; another span is initialiser-like
+    HIDDEN opus_N_otpsecret_r2 [removable] span(s) 1,2; another span is initialiser-like
+    HIDDEN opus_N_pwverify_r1 [removable] span(s) 3,4,5,6,7; another span is initialiser-like
+    HIDDEN sonnet_E_dbpass_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_E_dbpass_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_E_dbpass_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_dbpass_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_dbpass_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_dbpass_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_pinpad_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_pinpad_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_privkey_r1 [removable] span(s) 1,2; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r1 [removable] span(s) 2,3,4,5; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r2 [removable] span(s) 1,2,3; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r3 [removable] span(s) 0,2,3
+    HIDDEN sonnet_S_seedphrase_r1 [removable] span(s) 1; another span is initialiser-like
+  gcc-13 -O3  23 of 48 measured SURVIVED multi-span cells (both 1, removable 22); in 0 of them every eliminated span is itself initialiser-like
+    HIDDEN haiku_E_otpsecret_r2 [both] span(s) 0
+    HIDDEN haiku_S_pwverify_r1 [removable] span(s) 3,4,5,6,7,8; another span is initialiser-like
+    HIDDEN opus_N_otpsecret_r2 [removable] span(s) 1,2; another span is initialiser-like
+    HIDDEN opus_N_pwverify_r1 [removable] span(s) 3,4,5,6,7; another span is initialiser-like
+    HIDDEN sonnet_E_dbpass_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_E_dbpass_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_E_dbpass_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_dbpass_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_dbpass_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_dbpass_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_pinpad_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_pinpad_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_privkey_r1 [removable] span(s) 1,2; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r1 [removable] span(s) 2,3,4,5; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r2 [removable] span(s) 1,2,3; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r3 [removable] span(s) 0,2,3
+    HIDDEN sonnet_S_seedphrase_r1 [removable] span(s) 1; another span is initialiser-like
+  gcc-13 -Os  23 of 48 measured SURVIVED multi-span cells (both 1, removable 22); in 0 of them every eliminated span is itself initialiser-like
+    HIDDEN haiku_E_otpsecret_r2 [both] span(s) 0
+    HIDDEN haiku_S_pwverify_r1 [removable] span(s) 3,4,5,6,7,8; another span is initialiser-like
+    HIDDEN opus_N_otpsecret_r2 [removable] span(s) 1,2; another span is initialiser-like
+    HIDDEN opus_N_pwverify_r1 [removable] span(s) 3,4,5,6,7; another span is initialiser-like
+    HIDDEN sonnet_E_dbpass_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_E_dbpass_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_E_dbpass_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_dbpass_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_dbpass_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_dbpass_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_pinpad_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_N_pinpad_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_dbpass_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r1 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r2 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_pinpad_r3 [removable] span(s) 1; another span is initialiser-like
+    HIDDEN sonnet_S_privkey_r1 [removable] span(s) 1,2; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r1 [removable] span(s) 2,3,4,5; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r2 [removable] span(s) 1,2,3; another span is initialiser-like
+    HIDDEN sonnet_S_pwverify_r3 [removable] span(s) 0,2,3
+    HIDDEN sonnet_S_seedphrase_r1 [removable] span(s) 1; another span is initialiser-like
+
+the undercount, one line per vendor and level (the tracked count is over the whole erasure family)
+  clang-18 -O0  cell-level eliminated 0   cell-level eliminated + hidden 0  (+0 over 77 measured multi-span cells)
+  clang-18 -O1  cell-level eliminated 62   cell-level eliminated + hidden 69  (+7 over 77 measured multi-span cells)
+  clang-18 -O2  cell-level eliminated 113   cell-level eliminated + hidden 132  (+19 over 77 measured multi-span cells)
+  clang-18 -O3  cell-level eliminated 113   cell-level eliminated + hidden 131  (+18 over 77 measured multi-span cells)
+  clang-18 -Os  cell-level eliminated 113   cell-level eliminated + hidden 132  (+19 over 77 measured multi-span cells)
+  gcc-13 -O0  cell-level eliminated 0   cell-level eliminated + hidden 0  (+0 over 77 measured multi-span cells)
+  gcc-13 -O1  cell-level eliminated 108   cell-level eliminated + hidden 131  (+23 over 77 measured multi-span cells)
+  gcc-13 -O2  cell-level eliminated 108   cell-level eliminated + hidden 131  (+23 over 77 measured multi-span cells)
+  gcc-13 -O3  cell-level eliminated 108   cell-level eliminated + hidden 131  (+23 over 77 measured multi-span cells)
+  gcc-13 -Os  cell-level eliminated 108   cell-level eliminated + hidden 131  (+23 over 77 measured multi-span cells)
+
+initialiserLike (lexical, reported beside verdicts, never folded in) over every erasure file with a wipe span: 321 files, 575 spans
+  nonremovable:false   301
+  nonremovable:true    25
+  removable:false      191
+  removable:true       58
+  one-span files whose only span is initialiser-like (their cell verdict is about that span): 2
+    opus_N_pinpad_r2
+    sonnet_S_privkey_r3
+  removable spans of the selected multi-span files labelled initialiser-like: 56
