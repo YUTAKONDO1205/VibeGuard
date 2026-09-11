@@ -341,7 +341,11 @@ than an absence.
   form of the claim), and `defaultDiffersReproduced` (the tracked verdict,
   re-observed). A plugin that pins a real memset in the target function will
   change the default body; that is reported as measured, and it is still not a
-  restored defence.
+  restored defence. Nothing is planned here, and that is a decision rather than
+  an unfinished item: bringing such a defence back means defining the macro,
+  which is a choice of build configuration made before the compiler sees the
+  file, not a repair made inside it. Which way each file's default build falls is
+  already the find step's `configguard` direction table.
 - **gcc** — `UNSUPPORTED_VENDOR`, one line with the tracked cell count. An LLVM
   pass plugin cannot load into gcc; `--cc gcc-*` is refused.
 - **nullcheck, signedovf** — `NOT_ATTEMPTED`. Neither family is in this corpus,
@@ -360,7 +364,10 @@ Within the erasure family, what the plugin does not pin, by construction:
 - a zeroing loop that a later pass would turn into a memset: at the pipeline
   start it is still a loop;
 - anything after the translation unit. The observation is the `-S` listing of one
-  unit. Linking and link-time optimisation are not in the loop.
+  unit; linking is not in the loop. Link-time optimisation is measured beside it,
+  by `tools/lto-probe.mjs` (`tools/LTO.md`): the pin made at compile time holds
+  through a full and a thin LTO link of one object, and WipePin loaded only on the
+  link line never runs its pass there.
 
 ## Re-running
 
@@ -529,8 +536,9 @@ A second, independent instrument agrees on the lane's hand-written fixture: see
   and of `wipeSpans` (see *Limits of the find step's labelling*).
 - **The record is not evidence of survival**, and is never used as such.
 - **Not a statement about any other compiler.** One vendor, one version
-  (`clang-18`), one target (x86-64), the flags in `FLAGS`, no link-time
-  optimisation. gcc is not measured at all.
+  (`clang-18`), one target (x86-64), the flags in `FLAGS`. Link-time
+  optimisation only as far as `tools/LTO.md` measured it: one object per link,
+  `-shared`, lld 18. gcc is not measured at all.
 - **Not a statement about code in general.** The corpus is the find step's: one
   model family, synthetic scenarios, one-shot generation. Every caveat in
   `../ai-generated/README.md` carries over unchanged.
@@ -546,13 +554,14 @@ A second, independent instrument agrees on the lane's hand-written fixture: see
 | `run-repair-loop.mjs` | the runner: preflight, the four-compile cell, the per-span compiles, no-wipe files, configguard, results, manifest, pin plan |
 | `lib/outcome.mjs` | the outcome table and its precedence, and the red-control grading; pure |
 | `lib/pin-record.mjs` | strict reader for the `wipe-pin-v2` record, from either repair plugin (`WipePin` or `WipePinGcc`) |
-| `lib/spans.mjs` | the per-span plan, span entries, `hiddenElimination` / `hiddenRetained`; pure, verdicts injected |
+| `lib/spans.mjs` | span entries, `hiddenElimination` / `hiddenRetained`; pure, verdicts injected. The per-span plan (`spanPlan`) is the find step's, re-exported from `../ai-generated/lib/ablation-cell.mjs` |
 | `lib/summaries.mjs` | per-span counts, corroboration, listing-changed-without-loss, cross-vendor coverage, the pin plan; pure |
 | `lib/provenance.mjs` | listing digests, the rows-file label, the absolute-path scan |
 | `lib/preflight.mjs` | the preflight's refusal checks; pure |
 | `lib/plan.mjs` | `--plan`: reading a pin plan, matching it to this tree, the plan-driven summary; pure |
 | `lib/surgicality.mjs` | the surgicality checks; pure, `bodyOf` injected |
 | `lib/stage-gate.mjs` | the out-of-reach families; pure |
+| `tools/lto-probe.mjs`, `tools/lib/lto.mjs`, `tools/LTO.md` | the LTO probe: the same cell judged on the assembly a full or thin LTO link writes; lab output only, never `data/` |
 | `test/*.test.mjs` | unit tests, no compiler |
 | `data/` | written only by `--write-data` after a full run |
 
