@@ -80,9 +80,32 @@ describe('CI runs every suite this tree has', () => {
   const pys = pyTests(join(REPO, 'compiler'));
 
   it('names every Python test file by name, since Python is run by filename here', () => {
-    expect(pys.length).toBeGreaterThan(2);
+    expect(pys.length).toBeGreaterThan(0);
+    expect(pys).toContain('compiler/eval/metamorphic/test/test_check_meta_survival_axis.py');
     const missing = pys.filter((f) => !yml.includes(f));
     expect(missing, `Python test files no CI job runs:\n  ${missing.join('\n  ')}`).toEqual([]);
+  });
+
+  // A step that CALLS run_suite must be the step that DEFINES it.
+  //
+  // Naming a suite in this file is not the same as running it, and the way the
+  // two came apart on 2026-09-12 was a new step inserted in the middle of the
+  // old one: the trailing `run_suite gcc-repair` line stayed where it was in
+  // the text and became part of the new step's `run:` block, where the shell
+  // function does not exist. That is a red step AND a suite that runs nowhere,
+  // and every check in this file passed, because all of them ask what the file
+  // MENTIONS. This one asks what the steps CONTAIN. No YAML parser: this repo
+  // ships none, and the shape needed here is a step boundary and two strings.
+  it('every step that calls run_suite also defines it', () => {
+    const steps = yml.split(/\n(?=\s*- name:)/);
+    const broken = [];
+    for (const step of steps) {
+      const body = step.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+      const calls = /(^|\n)\s+run_suite\s+\S/.test(body);
+      const defines = /run_suite\s*\(\)\s*\{/.test(body);
+      if (calls && !defines) broken.push((/- name:\s*(.*)/.exec(step) || [, '(unnamed step)'])[1].trim());
+    }
+    expect(broken, `steps calling run_suite without the function:\n  ${broken.join('\n  ')}`).toEqual([]);
   });
 
   it('found some suites, so this file is not asserting over an empty set', () => {

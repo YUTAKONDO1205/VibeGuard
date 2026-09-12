@@ -453,6 +453,11 @@ jobs:
           # synthetic receipts -- and scripts/ci-suite-coverage.test.mjs is what
           # found that this line was missing.
           run_suite second-vendor        compiler/eval/second-vendor/test/*.test.mjs
+          # WipePinGcc's Node suites need no plugin and no gcc: asm-presence
+          # reads synthetic listings through the shared oracle, corpus-smoke
+          # tests the smoke runner's pure row selection and body delta. The
+          # suites that do need the plugin run in native-plugins below.
+          run_suite gcc-repair            compiler/gcc-repair/test/*.test.mjs
 
       # Python suites that need no toolchain. Same rigour as the WipePinGcc
       # Python step further down: non-empty file, exit 0, and unittest's
@@ -476,11 +481,6 @@ jobs:
             [ -n "$ran" ] && [ "$ran" -gt 0 ] || { echo "::error::$t ran no test (no \"Ran N tests\" with N > 0)"; exit 1; }
             echo "$t: $ran test(s) ran"
           done
-          # WipePinGcc's Node suites need no plugin and no gcc: asm-presence
-          # reads synthetic listings through the shared oracle, corpus-smoke
-          # tests the smoke runner's pure row selection and body delta. The
-          # suites that do need the plugin run in native-plugins below.
-          run_suite gcc-repair            compiler/gcc-repair/test/*.test.mjs
 
   # The native plugins, built and run.
   #
