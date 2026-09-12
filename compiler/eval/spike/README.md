@@ -110,6 +110,35 @@ of `compiler/schema/effect-symbol-lists.json` (group `wipe-5-observer`) rather
 than spelling one — `compiler/schema/effect-symbol-lists.test.mjs` fails on a
 literal the registry does not declare, and rightly.
 
+## Both subjects report VG-MEM-006, and one of them is the interesting one
+
+The shipped analyser scans this repository, `compiler/` included, and it reports
+`VG-MEM-006 Secret buffer cleared with a removable memset` on **both** subjects:
+`spike-disappearing.c:56` and `spike-surviving.c:35`. Neither is suppressed, and
+neither should be.
+
+`spike-disappearing.c` is the easy half: the rule is right, the wipe is a dead
+store, and the compiler removes it at every level above `-O0`. The source rule
+and this lane's differential verdict agree, and a subject that did NOT report
+would be the wrong subject.
+
+`spike-surviving.c` is the half worth reading. The rule reports it, and this
+lane's instrument measures `WIPE_SURVIVED` at every registered level on both
+vendors. **They disagree, and the disagreement is not a defect in either of
+them**: the rule reads the source lexically, where a `memset` on a secret buffer
+looks removable whatever follows it; the instrument compiles both forms and
+compares the emitted body, where the read that follows the wipe makes its zeroes
+observable and no optimiser may delete them. A lexical reader cannot see that
+and is not pretending to.
+
+So the pair is also a small, standing example of the thing the closed loop
+exists to measure: **where the source-side rule and the artefact-side
+measurement part company, and which of them the reader should act on.** Here the
+rule's finding is a true statement about the source shape and a false alarm
+about the artefact, and it is the artefact that ships. That is recorded here
+rather than silenced in `.vibeguardrc.json`, because a suppression would delete
+the example along with the noise.
+
 ## Pre-registration, and why the runner cannot see the answers
 
 `claims/spike-expected.json` holds what each spike must read per

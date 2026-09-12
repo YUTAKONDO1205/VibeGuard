@@ -287,112 +287,172 @@ export function interventionVerdict(ev) {
  * formed. Everything here is about the table's own integrity; whether its
  * numbers are true is the drift test's question.
  */
-export function validateTable(table) {
+/**
+ * The row checks, one question each.
+ *
+ * These were one 108-line `validateTable` until 2026-09-12, when the shipped
+ * analyser reported VG-SMELL-003 on it. `.vibeguardrc.json` says of that rule,
+ * for this very directory: "it fired on three long dispatchers here and all
+ * three were split rather than silenced, so the rule is live over this directory
+ * and the next one that grows will report." This is the next one. It is split
+ * rather than suppressed, and the split is along the questions the validator was
+ * already asking in sequence, so no check changed and no message moved.
+ *
+ * Each returns the problems it found. None of them decides anything about the
+ * table as a whole -- that stays in validateTable, which is now short enough to
+ * read as the list of questions it is.
+ */
+function checkRowFields(r, at, ctx) {
   const problems = [];
-  const p = (s) => problems.push(s);
-  if (!table || typeof table !== 'object') return ['the table is not an object'];
-  if (table.schemaVersion !== 'pin-families-v1') {
-    p(`schemaVersion is ${JSON.stringify(table.schemaVersion)}, not "pin-families-v1"`);
+  const p = (m) => problems.push(m);
+  for (const k of ['property', 'shape', 'candidate', 'status', 'shapeSeenAs', 'note']) {
+    if (typeof r[k] !== 'string' || r[k] === '') p(`${at}: ${k} is missing or not a non-empty string`);
   }
-  if (!Array.isArray(table.rows) || table.rows.length === 0) return [...problems, 'rows is not a non-empty array'];
-  const candidates = table.candidates ?? {};
-  const seen = new Set();
-  table.rows.forEach((r, i) => {
-    const at = `rows[${i}] (${r.property ?? '?'} / ${r.shape ?? '?'} / ${r.candidate ?? '?'})`;
-    for (const k of ['property', 'shape', 'candidate', 'status', 'shapeSeenAs', 'note']) {
-      if (typeof r[k] !== 'string' || r[k] === '') p(`${at}: ${k} is missing or not a non-empty string`);
-    }
-    const key = `${r.property}|${r.shape}|${r.candidate}`;
-    if (seen.has(key)) p(`${at}: duplicate (property, shape, candidate)`);
-    seen.add(key);
-    if (!STATUSES.includes(r.status)) p(`${at}: status ${JSON.stringify(r.status)} is not one of ${STATUSES.join(' | ')}`);
-    if (r.candidate !== 'none' && !candidates[r.candidate]) p(`${at}: candidate is not in candidates{}`);
+  const key = `${r.property}|${r.shape}|${r.candidate}`;
+  if (ctx.seen.has(key)) p(`${at}: duplicate (property, shape, candidate)`);
+  ctx.seen.add(key);
+  if (!STATUSES.includes(r.status)) p(`${at}: status ${JSON.stringify(r.status)} is not one of ${STATUSES.join(' | ')}`);
+  if (r.candidate !== 'none' && !ctx.candidates[r.candidate]) p(`${at}: candidate is not in candidates{}`);
+  return problems;
+}
 
-    const measured = r.status === 'measured-retained' || r.status === 'measured-not-retained';
-    if (measured) {
-      if (!r.evidence || r.evidence.tracked !== true) p(`${at}: a measured-* status needs evidence.tracked === true`);
-      if (!r.evidence?.cite) p(`${at}: a measured-* status needs evidence.cite`);
-    }
-    if (r.evidence) {
-      const e = r.evidence;
-      if (typeof e.tracked !== 'boolean') p(`${at}: evidence.tracked must be a boolean`);
-      if (e.tracked === true) {
-        if (!e.cite || !CLAIM_IDS.includes(e.cite.claim)) {
-          p(`${at}: evidence.cite.claim is not one of ${CLAIM_IDS.join(', ')}`);
-        }
-        if (!e.value || !Number.isInteger(e.value.num) || !Number.isInteger(e.value.den)) {
-          p(`${at}: evidence.value must be {num, den} integers -- a ratio is never a float here`);
-        }
-        if (typeof e.means !== 'string' || e.means === '') {
-          p(`${at}: evidence.means must say what the ratio counts; a bare ratio invites being read as the repair's score when it is not`);
-        }
-        if (typeof e.source !== 'string' || e.source === '') {
-          p(`${at}: evidence.source must name the tracked file the claim is recomputed from`);
-        }
+/** What a `measured-*` status has to be able to show, and what evidence must look like. */
+function checkRowEvidence(r, at) {
+  const problems = [];
+  const p = (m) => problems.push(m);
+  const measured = r.status === 'measured-retained' || r.status === 'measured-not-retained';
+  if (measured) {
+    if (!r.evidence || r.evidence.tracked !== true) p(`${at}: a measured-* status needs evidence.tracked === true`);
+    if (!r.evidence?.cite) p(`${at}: a measured-* status needs evidence.cite`);
+  }
+  if (r.evidence) {
+    const e = r.evidence;
+    if (typeof e.tracked !== 'boolean') p(`${at}: evidence.tracked must be a boolean`);
+    if (e.tracked === true) {
+      if (!e.cite || !CLAIM_IDS.includes(e.cite.claim)) {
+        p(`${at}: evidence.cite.claim is not one of ${CLAIM_IDS.join(', ')}`);
+      }
+      if (!e.value || !Number.isInteger(e.value.num) || !Number.isInteger(e.value.den)) {
+        p(`${at}: evidence.value must be {num, den} integers -- a ratio is never a float here`);
+      }
+      if (typeof e.means !== 'string' || e.means === '') {
+        p(`${at}: evidence.means must say what the ratio counts; a bare ratio invites being read as the repair's score when it is not`);
+      }
+      if (typeof e.source !== 'string' || e.source === '') {
+        p(`${at}: evidence.source must name the tracked file the claim is recomputed from`);
       }
     }
-    // A lab run may ride along, but it may never carry the measured word.
-    if (r.labObservation && measured) p(`${at}: a labObservation is one untracked run and cannot support a measured-* status`);
+  }
+  // A lab run may ride along, but it may never carry the measured word.
+  if (r.labObservation && measured) p(`${at}: a labObservation is one untracked run and cannot support a measured-* status`);
+  return problems;
+}
 
-    if (r.status === 'not-repairable-in-compiler') {
-      if (!NOT_REPAIRABLE_BASES.includes(r.basis)) {
-        p(`${at}: not-repairable-in-compiler needs basis one of ${NOT_REPAIRABLE_BASES.join(' | ')}`);
-      }
-      if (r.basis === 'measured-here' && r.evidence?.tracked !== true) p(`${at}: basis measured-here needs tracked evidence`);
-      if (r.basis === 'one-lab-run' && r.intervention?.verdict !== 'NEVER_CAME_BACK') {
-        p(`${at}: basis one-lab-run needs an intervention block the gate reads NEVER_CAME_BACK`);
-      }
-      if (r.basis === 'by-construction' && (typeof r.stage !== 'string' || r.stage === '')) {
-        p(`${at}: basis by-construction must name the stage at which the shape is already gone`);
-      }
-    }
-    if (r.routesTo) {
-      const t = r.routesTo;
-      const named = typeof t.rule === 'string' && /^VG-[A-Z]+-\d{3}$/.test(t.rule);
-      if (!named && t.rule !== 'none') p(`${at}: routesTo.rule is neither a rule id nor "none"`);
-      if (t.rule === 'none' && (typeof t.whyNone !== 'string' || t.whyNone === '')) {
-        p(`${at}: routesTo.rule "none" must say why there is no source-side rule for this shape`);
-      }
-      if (named) {
-        if (!APPLIES.includes(t.appliesToThisShape)) {
-          p(`${at}: routesTo.appliesToThisShape must be one of ${APPLIES.join(' | ')} -- routing a shape to a rule whose scope does not cover it is the quiet overclaim this table exists to prevent`);
-        }
-        if (typeof t.appliesWhy !== 'string' || t.appliesWhy === '') p(`${at}: routesTo.appliesWhy must say how the scope was checked`);
-        if (t.recallVerified !== true && t.recallVerified !== false) p(`${at}: routesTo.recallVerified must be a boolean`);
-        if (t.recallVerified === true) {
-          if (!t.recall || !Number.isInteger(t.recall.num) || !Number.isInteger(t.recall.den)) {
-            p(`${at}: a verified recall must be {num, den} integers`);
-          }
-          if (typeof t.recallQuote !== 'string' || t.recallQuote === '') p(`${at}: a verified recall must quote the sentence it comes from`);
-          if (typeof t.recallSource !== 'string' || t.recallSource === '') p(`${at}: a verified recall must name the file the sentence is in`);
-          if (typeof t.recallScope !== 'string' || t.recallScope === '') p(`${at}: a verified recall must state its scope (in-sample or not)`);
-        } else if (typeof t.recallUnverifiedWhy !== 'string' || t.recallUnverifiedWhy === '') {
-          p(`${at}: an unverified recall must say why it could not be verified`);
-        }
-      }
-    }
-    if (r.intervention) {
-      const v = interventionVerdict(r.intervention);
-      if (v.verdict !== r.intervention.verdict) {
-        p(`${at}: intervention.verdict is ${r.intervention.verdict}, the gate says ${v.verdict} (${v.why})`);
-      }
-      if (r.status === 'not-repairable-in-compiler' && r.intervention.verdict !== 'NEVER_CAME_BACK') {
-        p(`${at}: an intervention block on a not-repairable row must read NEVER_CAME_BACK or not be there`);
-      }
-    }
-  });
+/** What each basis for "not repairable in the compiler" has to bring with it. */
+function checkRowNotRepairable(r, at) {
+  if (r.status !== 'not-repairable-in-compiler') return [];
+  const problems = [];
+  const p = (m) => problems.push(m);
+  if (!NOT_REPAIRABLE_BASES.includes(r.basis)) {
+    p(`${at}: not-repairable-in-compiler needs basis one of ${NOT_REPAIRABLE_BASES.join(' | ')}`);
+  }
+  if (r.basis === 'measured-here' && r.evidence?.tracked !== true) p(`${at}: basis measured-here needs tracked evidence`);
+  if (r.basis === 'one-lab-run' && r.intervention?.verdict !== 'NEVER_CAME_BACK') {
+    p(`${at}: basis one-lab-run needs an intervention block the gate reads NEVER_CAME_BACK`);
+  }
+  if (r.basis === 'by-construction' && (typeof r.stage !== 'string' || r.stage === '')) {
+    p(`${at}: basis by-construction must name the stage at which the shape is already gone`);
+  }
+  return problems;
+}
 
-  // The clonal-selection rule, and the only cross-row one: a shape that no
-  // candidate is measured to retain has to say where it goes instead. A shape
-  // that HAS a retaining candidate does not, because it is not routed anywhere
-  // -- and requiring a routing there would put a rule id beside every repaired
-  // shape, which reads as "and the rule catches it too" when nobody checked.
-  for (const [key, group] of Object.entries(byShape(table.rows))) {
+/** Where a shape routes when the compiler cannot hold it, and what the routing must prove. */
+function checkRowRouting(r, at) {
+  if (!r.routesTo) return [];
+  const problems = [];
+  const p = (m) => problems.push(m);
+  const t = r.routesTo;
+  const named = typeof t.rule === 'string' && /^VG-[A-Z]+-\d{3}$/.test(t.rule);
+  if (!named && t.rule !== 'none') p(`${at}: routesTo.rule is neither a rule id nor "none"`);
+  if (t.rule === 'none' && (typeof t.whyNone !== 'string' || t.whyNone === '')) {
+    p(`${at}: routesTo.rule "none" must say why there is no source-side rule for this shape`);
+  }
+  if (!named) return problems;
+  if (!APPLIES.includes(t.appliesToThisShape)) {
+    p(`${at}: routesTo.appliesToThisShape must be one of ${APPLIES.join(' | ')} -- routing a shape to a rule whose scope does not cover it is the quiet overclaim this table exists to prevent`);
+  }
+  if (typeof t.appliesWhy !== 'string' || t.appliesWhy === '') p(`${at}: routesTo.appliesWhy must say how the scope was checked`);
+  if (t.recallVerified !== true && t.recallVerified !== false) p(`${at}: routesTo.recallVerified must be a boolean`);
+  if (t.recallVerified === true) {
+    if (!t.recall || !Number.isInteger(t.recall.num) || !Number.isInteger(t.recall.den)) {
+      p(`${at}: a verified recall must be {num, den} integers`);
+    }
+    if (typeof t.recallQuote !== 'string' || t.recallQuote === '') p(`${at}: a verified recall must quote the sentence it comes from`);
+    if (typeof t.recallSource !== 'string' || t.recallSource === '') p(`${at}: a verified recall must name the file the sentence is in`);
+    if (typeof t.recallScope !== 'string' || t.recallScope === '') p(`${at}: a verified recall must state its scope (in-sample or not)`);
+  } else if (typeof t.recallUnverifiedWhy !== 'string' || t.recallUnverifiedWhy === '') {
+    p(`${at}: an unverified recall must say why it could not be verified`);
+  }
+  return problems;
+}
+
+/** The recorded intervention verdict, re-derived rather than believed. */
+function checkRowIntervention(r, at) {
+  if (!r.intervention) return [];
+  const problems = [];
+  const v = interventionVerdict(r.intervention);
+  if (v.verdict !== r.intervention.verdict) {
+    problems.push(`${at}: intervention.verdict is ${r.intervention.verdict}, the gate says ${v.verdict} (${v.why})`);
+  }
+  if (r.status === 'not-repairable-in-compiler' && r.intervention.verdict !== 'NEVER_CAME_BACK') {
+    problems.push(`${at}: an intervention block on a not-repairable row must read NEVER_CAME_BACK or not be there`);
+  }
+  return problems;
+}
+
+/**
+ * The clonal-selection rule, and the only cross-row one: a shape that no
+ * candidate is measured to retain has to say where it goes instead. A shape
+ * that HAS a retaining candidate does not, because it is not routed anywhere
+ * -- and requiring a routing there would put a rule id beside every repaired
+ * shape, which reads as "and the rule catches it too" when nobody checked.
+ */
+function checkShapeRouting(rows) {
+  const problems = [];
+  for (const [key, group] of Object.entries(byShape(rows))) {
     if (group.some((r) => r.status === 'measured-retained')) continue;
     if (!group.some((r) => r.routesTo)) {
       problems.push(`${key}: no candidate is measured to retain this shape and no row says where it routes instead`);
     }
   }
+  return problems;
+}
+
+/**
+ * Validate the table's shape. Returns a list of problems, empty when it is well
+ * formed. Everything here is about the table's own integrity; whether its
+ * numbers are true is the drift test's question.
+ */
+export function validateTable(table) {
+  const problems = [];
+  if (!table || typeof table !== 'object') return ['the table is not an object'];
+  if (table.schemaVersion !== 'pin-families-v1') {
+    problems.push(`schemaVersion is ${JSON.stringify(table.schemaVersion)}, not "pin-families-v1"`);
+  }
+  if (!Array.isArray(table.rows) || table.rows.length === 0) return [...problems, 'rows is not a non-empty array'];
+
+  const ctx = { candidates: table.candidates ?? {}, seen: new Set() };
+  table.rows.forEach((r, i) => {
+    const at = `rows[${i}] (${r.property ?? '?'} / ${r.shape ?? '?'} / ${r.candidate ?? '?'})`;
+    problems.push(
+      ...checkRowFields(r, at, ctx),
+      ...checkRowEvidence(r, at),
+      ...checkRowNotRepairable(r, at),
+      ...checkRowRouting(r, at),
+      ...checkRowIntervention(r, at),
+    );
+  });
+  problems.push(...checkShapeRouting(table.rows));
   return problems;
 }
 

@@ -294,6 +294,20 @@ names its own target function in the file (`/* VG-LADDER-TARGET: <fn> */`) so th
 subject and the function the measurement asks about cannot drift apart; a subject
 without that marker is refused (exit 4).
 
+## `vl01` reports VG-MEM-006, and that is the subject working
+
+The shipped analyser scans `compiler/` like anything else and reports
+`VG-MEM-006 Secret buffer cleared with a removable memset` on
+`subjects/vl01_deadstore_memset.c:40`. It is not suppressed. The subject's whole
+job is to carry a wipe the optimiser is entitled to delete — that is what makes
+it a rung-to-rung comparison at all — so a subject the rule did NOT report would
+be the wrong subject, and the finding is a check on the fixture rather than a
+complaint about it.
+
+`vl02_volatile_barrier.c` does not report, and does not disappear at any rung
+this ladder obtained. The pair is deliberate: the rule and the ladder agree on
+both, which is the case where neither tells you anything new.
+
 ## What the smoke run found
 
 Nine subjects × 11 rungs × 5 levels = **495 cells (990 compiles)**, 13 s wall at
