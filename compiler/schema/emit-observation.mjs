@@ -104,9 +104,19 @@ export const VERDICT_EXIT = Object.freeze({
   EVIDENCE_MISMATCH: 4,
 });
 
-export const STAGES = Object.freeze(['compile', 'lto-backend', 'link', 'artifact']);
+export const STAGES = Object.freeze(['compile', 'lto-backend', 'link', 'artifact', 'run']);
 
-/** Which stage a checkpoint is reached in when nothing says otherwise. */
+/**
+ * Which stage a checkpoint is reached in when nothing says otherwise.
+ *
+ * `process: 'run'` was added 2026-09-12 with the two schema words it copies.
+ * It is the one entry in this table whose stage is not a compilation stage at
+ * all: the artefact is finished and is being EXECUTED, and the observer is a
+ * separate process reading this one. Defaulting it to `artifact` would have
+ * been the cheap thing to write and would have made every emitted point say a
+ * static read of a file produced the number, which is a stronger claim than a
+ * residency reading can carry.
+ */
 export const DEFAULT_STAGE_FOR_CHECKPOINT = Object.freeze({
   invocation: 'compile',
   ast: 'compile',
@@ -115,6 +125,7 @@ export const DEFAULT_STAGE_FOR_CHECKPOINT = Object.freeze({
   object: 'compile',
   linked: 'link',
   artifact: 'artifact',
+  process: 'run',
 });
 
 export const CHECKPOINTS = Object.freeze(Object.keys(DEFAULT_STAGE_FOR_CHECKPOINT));

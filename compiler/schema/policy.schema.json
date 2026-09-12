@@ -102,9 +102,9 @@
             }
           },
           "observeAt": {
-            "description": "Checkpoints at which this property is examined. A property with no reachable checkpoint is exit 3, not a pass.",
+            "description": "Checkpoints at which this property is examined. A property with no reachable checkpoint is exit 3, not a pass. The list is held identical, in order, to definitions.checkpoint in observation.schema.json by observation-schema.test.mjs -- a policy that could ask for a checkpoint no record can name, or the other way round, is a vocabulary split down the middle. `process` was added 2026-09-12 by user adjudication and is last because it is not a compile-pipeline point: it names an observation taken from a process that is RUNNING the linked image, read from outside it at a defined instant, rather than a file read on the way from a command line to an artefact. Asking for it commits the build to executing what it produced, which no other entry in this list does. The reasoning is written out once, in observation.schema.json definitions.checkpoint, rather than twice.",
             "type": "array",
-            "items": { "enum": ["invocation", "ast", "pre-opt-ir", "after-pass", "object", "linked", "artifact"] }
+            "items": { "enum": ["invocation", "ast", "pre-opt-ir", "after-pass", "object", "linked", "artifact", "process"] }
           }
         }
       }

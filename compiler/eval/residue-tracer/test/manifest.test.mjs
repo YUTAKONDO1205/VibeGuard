@@ -11,7 +11,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   OPTS, VENDORS, IDIOMS, ARMS, UNOBSERVED, cellId, parseCellId, plannedCells, buildRow,
-  assertIntegers, assertNoPaths, renderCrossTab,
+  assertIntegers, assertNoPaths, renderCrossTab, pluginMismatch, vendorOf, VENDOR_PLUGIN,
 } from '../lib/manifest.mjs';
 import { CONTROLS, gradeCell, crossTab } from '../lib/grade.mjs';
 
@@ -164,4 +164,50 @@ test('the cross-tab renders both rows and states its own denominator', () => {
   assert.match(text, /graded cells: 6/);
   assert.match(text, /excluded: 6 x plugin-absent/);
   assert.match(renderCrossTab({ cells: { 'WIPE_SURVIVED|NONE': 0, 'WIPE_SURVIVED|PARTIAL': 0, 'WIPE_SURVIVED|FULL': 0, 'WIPE_ELIMINATED|NONE': 0, 'WIPE_ELIMINATED|PARTIAL': 0, 'WIPE_ELIMINATED|FULL': 0 }, excluded: {}, graded: 0 }), /excluded: none/);
+});
+
+// --- the repair plugin is per vendor -----------------------------------------
+//
+// The whole-matrix run ended `graded cells: 45  excluded: 15 x compile-failed`
+// because one --plugin was handed to both compilers and gcc cannot load an LLVM
+// pass plugin. These tests are why a run cannot spend fifteen cells discovering
+// that again. They are over basenames, so neither compiler has to be installed.
+
+test('each vendor loads its own plugin and the mapping is not guessed per call site', () => {
+  assert.deepEqual(Object.keys(VENDOR_PLUGIN).sort(), ['clang', 'gcc']);
+  assert.equal(VENDOR_PLUGIN.clang, 'libWipePin.so');
+  assert.equal(VENDOR_PLUGIN.gcc, 'libWipePinGcc.so');
+  for (const cc of VENDORS) assert.ok(VENDOR_PLUGIN[vendorOf(cc)], `${cc} maps to no plugin`);
+});
+
+test('the right plugin for the right compiler is not a mismatch', () => {
+  assert.equal(pluginMismatch('clang-18', 'libWipePin.so'), null);
+  assert.equal(pluginMismatch('gcc-13', 'libWipePinGcc.so'), null);
+});
+
+test('gcc handed the LLVM plugin is refused, and told which option to use instead', () => {
+  const bad = pluginMismatch('gcc-13', 'libWipePin.so');
+  assert.ok(bad, 'gcc-13 + libWipePin.so must be a mismatch');
+  assert.equal(bad.vendor, 'gcc');
+  assert.equal(bad.want, 'libWipePinGcc.so');
+  assert.equal(bad.got, 'libWipePin.so');
+  // the message has to name the way out, not just the problem
+  assert.match(bad.message, /--plugin-gcc/);
+});
+
+test('clang handed the GCC plugin is refused the same way, in the other direction', () => {
+  const bad = pluginMismatch('clang-18', 'libWipePinGcc.so');
+  assert.ok(bad);
+  assert.equal(bad.want, 'libWipePin.so');
+  assert.match(bad.message, /Pass the LLVM plugin with --plugin/);
+  assert.doesNotMatch(bad.message, /--plugin-gcc/);
+});
+
+test('no plugin for a vendor is not a mismatch -- it is plugin-absent, which is a reading', () => {
+  // This is the distinction the fifteen COMPILE_ERRORs destroyed: "this arm was
+  // not measured on gcc" and "this arm was measured wrong on gcc" are different
+  // runs, and only one of them is a mistake.
+  assert.equal(pluginMismatch('gcc-13', null), null);
+  assert.equal(pluginMismatch('gcc-13', undefined), null);
+  assert.equal(pluginMismatch('clang-18', ''), null);
 });

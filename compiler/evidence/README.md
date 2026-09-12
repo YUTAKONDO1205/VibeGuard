@@ -18,15 +18,18 @@ apart without anybody noticing.
 | `record-run.mjs` | The writer: provenance, measured toolchain, seal, out-of-tree. |
 | `verify.mjs` | Independent verifier. Re-derives the digest from the rules without importing `canon.mjs`. |
 | `ledger.mjs` | The double-entry ledger: at every planned checkpoint the four accounts must add up to what the declaration opened. `evidence-v1` only. |
+| `checkpoint-map.mjs` | The alias table. The record vocabulary, the observation vocabulary the policy and the schema use, and the conversion between them — including the two words that convert to nothing. Plus the per-lane table, for a lane that reads one checkpoint word in two pipelines. |
+| `produce.mjs` | The writer of `evidence-v1`: a lane result in, a record out, and a declaration built from the policy **before** it. Refuses to emit without one. |
 | `testdata/digest-vectors.json` | 22 input/output pairs and 8 inputs that must be refused. |
 | `testdata/bundles/`, `testdata/records/`, `testdata/declarations/` | Static record and bundle fixtures: three `evidence-v0`, eleven `evidence-v1` and one `evidence-v2` that exists only because this verifier must refuse it, plus three bundle manifests and two declaration documents — 23 files, which is what `find testdata -type f ! -name make-fixtures.mjs ! -name digest-vectors.json | wc -l` prints. Sealed through `canon.mjs` once and committed as bytes; `node testdata/make-fixtures.mjs` rebuilds the whole set byte-identically when a record body has to change, and `node verify.mjs --digest <file>` re-derives one digest on its own. The stand-in artefact is ASCII and is called `wipe-object.txt`, not `wipe.o`: `.gitignore` line 100 is `compiler/**/*.o`, so under the obvious name the file is never committed and every bundle test fails on a fresh clone with `VG-ART-060`; and `scripts/check-packaging-invariants.mjs` refuses a committable file under `compiler/` whose extension its egress tripwire cannot read, which ruled out inventing one. |
-| `test/*.test.mjs` | 112 cases. `node --test compiler/evidence/test/*.test.mjs` — glob it; passing the directory throws `MODULE_NOT_FOUND` on newer runtimes. |
+| `test/*.test.mjs` | 143 cases. `node --test compiler/evidence/test/*.test.mjs` — glob it; passing the directory throws `MODULE_NOT_FOUND` on newer runtimes. |
 
 > That count read "71 cases" until the ledger was added, when the suite as it
 > then stood ran 72. The line was one out and nothing was checking it; it is
-> now the number `node --test` printed: 72 before the ledger, 102 with it, and
-> 112 once the ten cases below — nine of them regressions found by taking this
-> directory apart rather than by reading it — were added.
+> now the number `node --test` printed: 72 before the ledger, 102 with it, 112
+> once the ten cases below — nine of them regressions found by taking this
+> directory apart rather than by reading it — were added, and 143 with the
+> producer and the alias table.
 
 The measurement record store — where records live, what one must carry, and what
 none of it can detect — is documented separately in [`STORE.md`](./STORE.md).
@@ -160,6 +163,30 @@ node validate-store.mjs --self-test    # every store detector, both directions
 node validate-store.mjs --store <dir>  # every measurement record in a store
 node --test compiler/evidence/test/*.test.mjs
 ```
+
+Writing one, which is two commands run at two different times:
+
+```sh
+# BEFORE the run: open the accounts from the policy.
+node produce.mjs --declare --policy <policy.json> --lane <lane> --out <declaration.json>
+
+# AFTER it: hold the measurement against them.
+node produce.mjs --lane <lane-result.json> --declaration <declaration.json> \
+                 --envelope <envelope.json> --out <lab>/evidence.json
+
+node verify.mjs --record <lab>/evidence.json --declared <declaration.json>
+```
+
+`--out` for the record is refused inside the checkout: a record is measurement
+output and lives where measurement output lives (`../schema/interfaces.md` §1).
+The declaration is not — it is a plan written before the run, and the repository
+is where a plan belongs.
+
+The envelope is the one input neither the lane nor this component can derive:
+`{"toolchain": {…}, "command": {"argv": [...]}}`, §5's two required blocks. A
+lane result carries version strings and no digest of a pinned set, and no argv
+at all, so both are supplied rather than guessed — see the header of
+`produce.mjs`.
 
 Exit codes are the shared ones (`../schema/interfaces.md` §7): `0` checked and
 clean, `2` findings at or above the threshold, `3` a check could not be
@@ -313,11 +340,15 @@ inside* the block, or the block as a whole becomes the empty-input-set bug that
   `ir-post` / `asm` / `artifact` (the names `STAGE_TABLE` in `verify.mjs` maps),
   while `policy.schema.json`'s `observeAt` and `observation.schema.json` use
   `invocation` / `ast` / `pre-opt-ir` / `after-pass` / `object` / `linked` /
-  `artifact`. A producer that copies `observeAt` straight into
+  `artifact` / `process`. A producer that copies `observeAt` straight into
   `plannedCheckpoints` gets an imbalance at every checkpoint naming every
   declared property. That is a true report — nothing was posted — but the cause
-  is a vocabulary mismatch and the finding will not say so. The mapping is part
-  of the producer-side request below, and this component does not guess at it.
+  is a vocabulary mismatch and the finding will not say so. **The verifier still
+  cannot say so**; what changed is that the conversion now exists, in
+  [`checkpoint-map.mjs`](./checkpoint-map.mjs), is executed by `produce.mjs`
+  rather than described, and refuses the two words (`invocation`, `process`)
+  that have no counterpart instead of approximating them. A record written by
+  hand against the wrong vocabulary still lands here.
 - **A blanket `unresolved[]` entry** is refused rather than honoured: an entry
   settles a cell only when it names the property *and* the checkpoint
   (`checkpoint`, or `checkpoints` for several). An entry naming a property alone
@@ -368,14 +399,166 @@ there is. That is why `testdata/records/v1-no-ledger.json` exits 3 rather than
 0, and `test/record-v0.test.mjs` asserts that no v0 run so much as mentions the
 word.
 
-### What the producer has to write — [SPEC], not implemented here
+### What the producer writes — implemented, on a [SPEC-INPUT] input
 
-No component in this repository emits `evidence-v0` bundles today: the driver
-emits `compiler-evidence-v0` and the schema emits observation records. So the
-producer side of this is a specification and nothing more, and the exact field
-spec is in **[Edits requested in files this lane does not own](#edits-requested-in-files-this-lane-does-not-own)**
+This used to read "[SPEC], not implemented here", and it was the gap that made
+every check above self-referential: each one had only ever been run against a
+record written by hand in `testdata/` to exercise it. `produce.mjs` closes the
+first half of that and `test/produce.test.mjs` runs its output back through
+`verify.mjs` as a subprocess, so the checks are now calibrated against something
+a producer actually emits.
+
+The second half is open and is marked rather than glossed. The lane the producer
+reads is `compiler/eval/lto-window`, which writes its result to the lab
+directory named by `--out` — measurement output, outside the checkout
+(`../schema/interfaces.md` §1) — so there is no recorded run of it on disk here
+and the suite may not compile one. The lane result the tests convert is
+**constructed**: its fields are taken from `run-lto-window.mjs`'s own
+`results.cells.push({…})` and from `lib/cell.mjs`'s `finish()`, and its verdicts
+are plausible rather than measured. So:
+
+| Claim | Status |
+|---|---|
+| The producer converts the lane's cell shape into a record the verifier accepts, and a missing cell makes it a record the verifier refuses | measured, `node --test compiler/evidence/test/*.test.mjs` |
+| A real `lto-window` run produces a record that verifies | **measured 2026-09-12 and it does NOT** — exit 2, VG-ART-064 and VG-ART-056, both of them the verifier working. See below; the earlier exit 0 was produced by a producer defect and is corrected there |
+| A record that has been altered after the fact is refused, on three different paths | **measured 2026-09-12**, see below |
+| A measured cell the declaration did not plan for is refused, not dropped | **measured 2026-09-12** — exit 4, naming each cell and checkpoint |
+
+### Measured, 2026-09-12 — a real `lto-window` result through the whole pipe
+
+The lane result is the `-O2` full-LTO run of `compiler/eval/lto-window` (clang-18
+18.1.3, LLD 18.1.3, on WSL2): 15 cells, 9 subject keys. The envelope carries the
+lane's own recorded `toolchain` block and the compile command.
+
+**The end-to-end exits 2, and that is the result.** An earlier version of this
+section reported exit 0 and was wrong for a reason worth keeping, because it is
+the same shape of error twice in one directory.
+
+The first attempt used a policy with `observeAt: ["after-pass"]`, so the
+declaration opened accounts at `ir-post` only. The lane measures at compile AND
+at link; both map into the record, at `ir-pre` and `ir-post`. The producer then
+kept the planned checkpoints that were measured and **dropped every measured
+checkpoint that was not planned, with no trace** — not in `skipped`, not in
+`unresolved[]`, not on stderr, while `counts` still said `checked=15 skipped=0`.
+What came out verified clean. It was also a different claim from the one that was
+measured: the loss interval is computed from the states present, so removing an
+earlier reading moves the interval and `mayNamePass` goes false, stripping the
+pass name while keeping the unit. A run that measured *DSEPass removed it in the
+LTO backend* emitted *lost somewhere in compile, by nothing*.
+
+That is now a refusal (`produce.mjs`, exit 4), naming each cell and checkpoint:
+
+```
+produce: 3 measured cell(s) landed at a record checkpoint the declaration did not plan for:
+  xtu.full.compile        -> lto-window.xtu.full.clang        at ir-pre
+  xtu.thin.compile        -> lto-window.xtu.thin.clang        at ir-pre
+  xtu-inline.full.compile -> lto-window.xtu-inline.full.clang at ir-pre
+```
+
+With the policy widened to `["pre-opt-ir", "after-pass"]` the record is written —
+and the **verifier refuses it, at exit 2, with two high findings**:
+
+```
+ledger: external declaration, 9 declared properties, 18 planned cell(s)
+        - ir-pre  present=0 absent=6 unobserved=0 unresolved=0 of 9
+        - ir-post present=1 absent=1 unobserved=7 unresolved=0 of 9
+
+[high] VG-ART-064  The ledger does not balance at a planned checkpoint
+  ir-pre: the declaration opens 9 accounts here and 6 are posted. 3 cells are in
+  none of the four accounts: lto-window.{xtu,xtu-inline,erasure}.full.gcc
+[high] VG-ART-056  A property reappears as PRESENT after a loss without a REINTRODUCED marker
+  lto-window.xtu-inline.full.clang: checkpoint "ir-post" is PRESENT again
+```
+
+**Both are the verifier working, and neither is noise.**
+
+`VG-ART-064` is a policy that asked for something the lane does not measure. The
+gcc subjects have a link cell and no compile cell, so an account opened for them
+at `ir-pre` can never be posted to. The ledger's whole purpose is to notice a
+planned checkpoint that nobody mentioned, and it noticed. Under the narrow policy
+this was invisible.
+
+`VG-ART-056` is a **producer gap**, and the honest place for it is here rather
+than in a policy tweak. `xtu-inline.full.clang` reads `ir-pre: ABSENT` then
+`ir-post: PRESENT`: at compile the observer sees no wipe in `handle` because the
+wipe is a call into another translation unit, and at link — after inlining — it
+is there. Nothing was removed and put back; the record vocabulary has one word
+(`ABSENT`) where the lane distinguishes *not applicable here* from *it was taken
+away*, and `produce.mjs` has no way to emit the `REINTRODUCED` marker that would
+say so. The verifier is right to refuse a chain it cannot read, and the fix is a
+producer that can mark a reappearance. **Not implemented; open.**
+
+The state chains, in full, so the two findings can be read against them:
+
+```
+lto-window.xtu.full.clang          ir-pre:ABSENT -> ir-post:LOST
+lto-window.xtu.thin.clang          ir-pre:ABSENT -> ir-post:NOT_OBSERVED
+lto-window.xtu.full.gcc                             ir-post:NOT_OBSERVED
+lto-window.xtu-inline.full.clang   ir-pre:ABSENT -> ir-post:PRESENT      <- VG-ART-056
+lto-window.xtu-inline.thin.clang   ir-pre:ABSENT -> ir-post:NOT_OBSERVED
+lto-window.xtu-inline.full.gcc                      ir-post:NOT_OBSERVED
+lto-window.erasure.full.clang      ir-pre:LOST   -> ir-post:NOT_OBSERVED
+lto-window.erasure.thin.clang      ir-pre:LOST   -> ir-post:NOT_OBSERVED
+lto-window.erasure.full.gcc                         ir-post:NOT_OBSERVED
+```
+
+**The first attempt without `--envelope` failed too, and that failure is the more
+useful half:**
+
+```
+produce: no envelope was given. interfaces.md §5 requires `toolchain` on every
+record and verify.mjs requires a non-empty `command.argv` (VG-ART-052); a lane
+result carries neither in that shape, and nothing here will invent them.
+```
+
+A producer that filled those in from what it could see would have written a
+record whose toolchain field was the producer's guess, sealed under a digest,
+indistinguishable afterwards from one that was measured.
+
+### The verifier is not vacuous on real records either
+
+Three alterations of the record above, each caught on a different path, with the
+unmodified pair still exiting 0 in between:
+
+| what was changed | exit | finding |
+|---|---|---|
+| one property deleted from the record, declaration untouched | 2 | **VG-ART-065** — `ir-post: the ledger says unobserved=7, the recomputation gives 6` (and `unresolved=0` vs `1`) |
+| one cell flipped `absent` → `present` | 2 | **VG-ART-050** — `evidenceDigest does not match the record it seals` |
+| the declaration opened a tenth account the record never had | 2 | **VG-ART-067** — `the record does not declare ["lto-window.ghost.full.clang"], which the external declaration does` |
+| nothing changed | **0** | — |
+
+The first is the ledger doing the job it exists for: the record's own summary and
+its own detail were produced by two different pieces of arithmetic and the
+verdict rests on the recomputation. The digest check catches the second before
+the ledger is even consulted, and says in its own text that this is *a
+disagreement inside the evidence, not a tamper detection* — nothing binds a
+record to an authority, so a record regenerated wholesale would agree with
+itself. That limit is unchanged and is not closed by any of this.
+
+The recipe, for another lane result:
+
+```sh
+# after a real run has written <lab>/_results/<stamp>/lto-window.json
+node produce.mjs --declare --policy <policy.json> --lane lto-window --out <lab>/declaration.json
+node produce.mjs --lane <lab>/_results/<stamp>/lto-window.json \
+                 --declaration <lab>/declaration.json \
+                 --envelope <lab>/envelope.json \
+                 --out <lab>/evidence.json
+node verify.mjs --record <lab>/evidence.json --declared <lab>/declaration.json
+```
+
+The policy's `properties[].id` have to be the subject keys the producer derives
+— `lto-window.<fixture>.<form>.<vendor>` — because that is the only name a cell
+carries that is stable across the two windows; `subjectKeyOf` is where that is
+written down and why the vendor is part of it.
+
+What is **not** implemented, and is still specification, is the two edits in
+files this lane does not own: the `evidence-v1` field spec in §5, and the
+`declares` block in the bundle manifest. Both are in
+**[Edits requested in files this lane does not own](#edits-requested-in-files-this-lane-does-not-own)**
 below rather than applied, because `../schema/interfaces.md` is the one file
-nobody edits while implementing against it.
+nobody edits while implementing against it. `checkpoint-map.mjs` is the table
+that section asks for, living in code for the same reason.
 
 ## Finding IDs
 
@@ -450,9 +633,16 @@ Every claim below was produced by running the code, not by reading it.
 | `--fail-on critical` suppresses every ledger finding and exits 0, and the run prints which findings it suppressed | `--record testdata/records/v1-unbalanced.json --fail-on critical` → exit 0 with `VG-ART-064` printed; `--fail-on high` → exit 2 |
 | A `declares` block in the manifest becomes the declaration in force, and the report says so | `--bundle testdata/bundles/v1-manifest-declared` → exit 0, source `manifest` |
 | The fixture builder rebuilds all 23 fixture files byte-identically — 15 records (3 of them a bundle's `evidence.json`), 3 artefacts, 3 manifests, 2 declarations | `node testdata/make-fixtures.mjs`, then `diff -rq` against a copy taken first → the 19 that existed before are unchanged, the 4 new ones are the only additions |
-| The clock audit still passes over the enlarged directory, the fixture builder included | `--clock-audit` → 19 of 20 files, 0 reads, exit 0 |
+| The clock audit still passes over the enlarged directory, the fixture builder included | `--clock-audit .` → **23 of 24 files, 0 reads, exit 0** (re-measured 2026-09-12; this row read `19 of 20` from an earlier, smaller directory and was left standing beside the row below, which had the right number all along — two readings of one command in one table) |
 | The vectors still reproduce and the store validator still self-tests clean | `--self-test` → 22/22 + 8/8, `canon.mjs` agrees on 30, exit 0; `validate-store.mjs --self-test` → 14/14 fired, 3/3 silent, exit 0 |
-| The repository-wide packaging check passes over the new files, and the disclosure check is clean over this directory | `check-packaging-invariants.mjs` → exit 0; `check-disclosure-shape.mjs --paths <every file under compiler/evidence>` → 0 hits over 46 files. Run over the whole repository it now reports 3 hits and exit 1, all three in `compiler/eval/lto-window/test/record.test.mjs`, which is not this directory's file and was not touched here |
+| The producer's output verifies: `produce` -> `verify --record --declared` exits 0 with **nothing** on the unchecked list, over a [SPEC-INPUT] lane result | `test/produce.test.mjs`, "produce -> verify --record --declared exits 0" |
+| Taking one cell out of the lane result makes the same producer, over the same declaration, emit a record that exits 2 with `VG-ART-064` naming the property — and `VG-ART-065` stays silent, so it is the declaration that caught it and not the record disagreeing with itself | same file, "drop one cell and the producer emits a record the verifier refuses" |
+| The producer refuses to emit with no declaration, through the API and through the CLI, and no file is written | same file, two cases; exit 4 |
+| The alias table's observation vocabulary is the one in `../schema/observation.schema.json`, read from the schema at test time rather than copied | `test/checkpoint-map.test.mjs`, first case |
+| The whole suite after the producer: 143 cases, 0 failures | `node --test compiler/evidence/test/*.test.mjs` → exit 0 |
+| The clock audit is still clean over the enlarged directory, and the vectors still reproduce | `--clock-audit .` → 23 of 24 files, 0 reads, exit 0; `--self-test` → 22/22 + 8/8, `canon.mjs` agrees on 30, exit 0 |
+| The disclosure check reads all four new files rather than skipping any as binary — which is what a stray NUL byte in the source would cost, and is why `SEP` is built from a code point | `check-disclosure-shape.mjs --paths <the four>` → scanned 4, hits 0, skipped 0 |
+| The repository-wide packaging check passes over the new files, and the disclosure check is clean over this directory | `check-packaging-invariants.mjs` → exit 0; `check-disclosure-shape.mjs --paths <every file under compiler/evidence>` → 0 hits over 46 files. Run over the whole repository it reports **0 hits over 2,756 files, exit 0** (re-measured 2026-09-12). This row used to say `3 hits and exit 1` in `compiler/eval/lto-window/test/record.test.mjs`; those were the account-name strings §2.20(c)4 records as replaced with placeholders, so the sentence was stale on the day it was written into a table whose premise is that its rows had just been run |
 
 ## Compatibility: what the new schema version cost
 

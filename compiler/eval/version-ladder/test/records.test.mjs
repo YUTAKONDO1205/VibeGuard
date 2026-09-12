@@ -27,6 +27,7 @@ import { LADDER } from '../lib/ladder.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DATA = resolve(HERE, '../data/version-ladder.json');
+const SWEEP = resolve(HERE, '../data/version-ladder-sweep.json');
 const PROBE = resolve(HERE, '../tools/fortify-spelling-probe.mjs');
 const text = readFileSync(DATA, 'utf8');
 const data = JSON.parse(text);
@@ -87,3 +88,108 @@ test('the fortify probe shows the detector CAN see __memset_chk, which is what m
     assert.equal(runtime, '__memset_chk', `runtime-length wipe on ${gccRung} -O1 spelled ${runtime}\n${r.stdout}`);
     assert.notEqual(constSize, '__memset_chk', 'the constant-size wipe is the shape every subject here has');
   });
+
+// --- the corpus sweep ---------------------------------------------------------
+//
+// data/version-ladder.json is the SMOKE record: six subjects, 495 cells. The
+// sweep is the other thing this lane can be asked, and until 2026-09-12 it had
+// never been run, so the README's own "NOT measured" list named it. It has been
+// run now, and what is kept is the finding rather than the 3.1 MB of cells that
+// produced it (see sweepRecord in the runner for why).
+//
+// These pins are the point of keeping it at all. A sweep record whose numbers
+// are free to move is not evidence of anything; if a later run disagrees, the
+// disagreement is the result and it should be read, not absorbed.
+
+test('the sweep record is the whole removable corpus, and its accounting adds up', () => {
+  const s = JSON.parse(readFileSync(SWEEP, 'utf8'));
+  assert.equal(s.subjects, 133);
+  assert.deepEqual(s.opts, ['-O0', '-O1', '-O2', '-O3', '-Os']);
+  assert.equal(s.counting.versions.obtained, 11);
+  assert.equal(s.counting.versions.skipped, 0);
+  assert.equal(s.counting.cells, 7315);
+  assert.equal(s.counting.cells, 133 * 11 * 5);
+  // the three ways a ladder question can end, and nothing else
+  const a = s.counting.appearances;
+  assert.equal(a.asked, 1330);
+  assert.equal(a.asked, 133 * 2 * 5);
+  assert.equal(a.firstAtObserved + a.firstAtNoneBelow + a.never + a.undetermined, a.asked);
+  assert.equal(a.undetermined, 0);
+  assert.equal(a.accountedFor, true);
+  assert.deepEqual(s.transitions, { 'never-eliminated': 497, 'none-below': 825, observed: 8 });
+});
+
+test('every cell of the sweep reached a wipe verdict -- no build failed and no ablation failed', () => {
+  const s = JSON.parse(readFileSync(SWEEP, 'utf8'));
+  // This is the one silent failure mode the sweep has. A COMPILE_ERROR on an
+  // ANCHOR rung shows up as an anchor disagreement and exits 2; on any of the
+  // other nine rungs nothing would notice, and a timeout would quietly become a
+  // "the wipe disappeared here" that no compiler ever performed.
+  assert.deepEqual(Object.keys(s.verdictTotals).sort(), ['WIPE_ELIMINATED', 'WIPE_SURVIVED']);
+  assert.equal(s.verdictTotals.WIPE_SURVIVED + s.verdictTotals.WIPE_ELIMINATED, 7315);
+  assert.equal(s.verdictTotals.WIPE_ELIMINATED, 4557);
+});
+
+test('the sweep is anchored on every one of its corpus questions, not on a subset', () => {
+  const s = JSON.parse(readFileSync(SWEEP, 'utf8'));
+  assert.equal(s.anchor.checked, 1330);
+  assert.equal(s.anchor.agreed, 1330);
+  assert.deepEqual(s.anchor.disagreements, []);
+  assert.equal(s.anchor.problem, null);
+  // 0/0 agreeing is how this lane once shipped a pass; the pin is on the count.
+  assert.ok(s.anchor.checked > 0);
+});
+
+test('the eight observed transitions are named, and they are the only ones the ladder saw', () => {
+  const s = JSON.parse(readFileSync(SWEEP, 'utf8'));
+  assert.equal(s.observed.length, 8);
+  assert.equal(s.observed.length, s.counting.appearances.firstAtObserved);
+  // Both subjects are gcc-only, and every clang rung from 15 to 20 kept or
+  // removed the wipe uniformly -- no clang transition was seen anywhere in the
+  // corpus. That asymmetry is the finding; it is pinned so that it cannot drift
+  // into the record unremarked.
+  assert.deepEqual([...new Set(s.observed.map((o) => o.vendor))], ['gcc']);
+  assert.deepEqual([...new Set(s.observed.map((o) => o.id))].sort(),
+    ['haiku_E_pwverify_r3', 'sonnet_N_pwverify_r1']);
+  // seven appear between gcc-10 and gcc-11; the eighth, at -O3, holds one rung
+  // longer and appears between gcc-11 and gcc-12
+  const at = s.observed.map((o) => o.firstAt).sort();
+  assert.deepEqual(at, [11, 11, 11, 11, 11, 11, 11, 12]);
+  const late = s.observed.find((o) => o.firstAt === 12);
+  assert.equal(late.opt, '-O3');
+  assert.equal(late.id, 'haiku_E_pwverify_r3');
+  // and every one of them really is a transition: a lower rung was obtained and
+  // kept the wipe. Inferring from the bottom of the ladder is `none-below`.
+  for (const o of s.observed) {
+    const lower = Object.keys(o.cells).map(Number).filter((m) => m < o.firstAt);
+    assert.ok(lower.length > 0, `${o.id} ${o.opt} has no rung below ${o.firstAt}`);
+    for (const m of lower) assert.equal(o.cells[String(m)], 'WIPE_SURVIVED');
+    assert.equal(o.cells[String(o.firstAt)], 'WIPE_ELIMINATED');
+  }
+});
+
+test('-O0 removed nothing anywhere in the corpus, on either vendor', () => {
+  const s = JSON.parse(readFileSync(SWEEP, 'utf8'));
+  // The spike lane found that -O0 cannot discriminate between a wipe that
+  // survives and one that does not, on its two hand-written subjects. At corpus
+  // scale the same configuration eliminates zero of 1,463 cells. A run that
+  // reports agreement at -O0 is reporting that neither instrument can see the
+  // phenomenon there.
+  assert.equal(s.byVendorLevel['clang -O0'].eliminated, 0);
+  assert.equal(s.byVendorLevel['gcc -O0'].eliminated, 0);
+  assert.equal(s.byVendorLevel['clang -O0'].survived + s.byVendorLevel['gcc -O0'].survived, 133 * 11);
+});
+
+test('the sweep record carries the resolved compiler identities and no machine path', () => {
+  const text = readFileSync(SWEEP, 'utf8');
+  assert.deepEqual(absolutePathHits(text), []);
+  const s = JSON.parse(text);
+  assert.equal(s.versions.length, 11);
+  for (const v of s.versions) {
+    assert.equal(v.obtained, true);
+    assert.match(v.resolvedSha256, /^[0-9a-f]{64}$/);
+    assert.ok(v.version, `${v.cc} has no resolved version`);
+  }
+  assert.equal(s.cellRows.tracked, false, 'the 7,315 cell rows are deliberately not tracked');
+  assert.equal(s.cellRows.count, 7315);
+});

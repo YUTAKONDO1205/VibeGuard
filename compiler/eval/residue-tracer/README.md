@@ -359,18 +359,88 @@ readable secret. What it shows is that the instrument distinguishes the two
 directions, that it agrees across vendors, and that the eliminated-wipe case is
 readable in full.
 
+## The full matrix, both arms — 2026-09-12
+
+The run above was six graded cells. The whole matrix has since been run, with a
+repair plugin for **each** vendor:
+
+```
+node compiler/eval/residue-tracer/run-residue-tracer.mjs     --out "$HOME/vg-lab/residue-tracer/both" --jobs 4     --plugin     <build>/libWipePin.so     --plugin-gcc <build>/libWipePinGcc.so
+```
+
+3 idioms × {clang-18, gcc-13} × {-O0,-O1,-O2,-O3,-Os} × {stock, wipepin} = **60
+graded cells, `excluded: none`**, exit 0, all three controls held (retain FULL
+over 10 cells, nosecret NONE over 10, o0-wiped NONE over 2).
+
+```
+confirm verdict          residue NONE   PARTIAL      FULL
+WIPE_SURVIVED                     53         0         0
+WIPE_ELIMINATED                    0         0         7
+graded cells: 60   excluded: none
+```
+
+### The repair plugin changes residue: 7 of 7
+
+Of the 30 stock subject cells, **seven leave the secret fully readable** on the
+dead frame. All seven are the `memset` idiom; both vendors reach it, at different
+levels:
+
+| cell | stock | wipepin |
+|---|---|---|
+| clang-18 -O2 memset | `WIPE_ELIMINATED` / **FULL 32/32** | `WIPE_SURVIVED` / NONE |
+| clang-18 -O3 memset | `WIPE_ELIMINATED` / **FULL** | `WIPE_SURVIVED` / NONE |
+| clang-18 -Os memset | `WIPE_ELIMINATED` / **FULL** | `WIPE_SURVIVED` / NONE |
+| gcc-13 -O1 memset | `WIPE_ELIMINATED` / **FULL** | `WIPE_SURVIVED` / NONE |
+| gcc-13 -O2 memset | `WIPE_ELIMINATED` / **FULL** | `WIPE_SURVIVED` / NONE |
+| gcc-13 -O3 memset | `WIPE_ELIMINATED` / **FULL** | `WIPE_SURVIVED` / NONE |
+| gcc-13 -Os memset | `WIPE_ELIMINATED` / **FULL** | `WIPE_SURVIVED` / NONE |
+
+**30 stock subject cells, 7 readable. The same 30 cells under WipePin, 0
+readable.** Every cell the repair arm was asked about flipped, on both vendors.
+
+This is the find→fix→confirm loop of `repair-loop/` asked in the other question.
+There, "fixed" means the differential compile stops saying the wipe was removed.
+Here it means an attached process cannot read the secret off the dead frame any
+more. The two answers agree on all seven cells — which they did not have to, and
+the point of measuring is that they did not have to. `clang-18` and `gcc-13` at
+`-O0`, and both vendors' `volatile`-loop and `explicit_bzero` idioms at every
+level, were never readable in either arm, so the repair changed nothing there and
+is correctly reported as changing nothing.
+
+### The plugin is per vendor, and asking otherwise is a configuration error
+
+`--plugin` takes `libWipePin.so` (an LLVM pass plugin, `-fpass-plugin=`) and
+`--plugin-gcc` takes `libWipePinGcc.so` (a GCC plugin, `-fplugin=`). Handing gcc
+the LLVM binary produces
+
+```
+cc1: error: cannot load plugin .../libWipePin.so:
+     undefined symbol: _ZN4llvm17PreservedAnalyses14AllAnalysesKeyE
+```
+
+on every cell. A single-`--plugin` run of the whole matrix therefore used to end
+`graded cells: 45   excluded: 15 x compile-failed`, which is fifteen honest
+records of a mistake that should have been one. The basenames are now checked
+against the vendors **before anything is compiled** and the run exits 4 naming
+what to pass instead. A vendor given no plugin at all is still `plugin-absent`
+per cell — that is a statement about what was run, not an error — and the header
+now says which plugin each vendor got, because "plugin-absent" alone could not
+distinguish "no repair arm" from "repair arm on clang only".
+
 ### What is UNMEASURED, and why
 
-- **`-O1`, `-O3`, `-Os`** — planned in the matrix, not run. The box is shared with
-  other agents and `compile()` in `ablation-cell.mjs` returns `null` on its 90 s
-  timeout, which `verdictOf` maps to `COMPILE_ERROR`; a loaded machine therefore
-  manufactures rows saying the compiler failed when it did not.
-- **The WipePin arm, entirely.** No plugin `.so` was passed. All 12 such cells in
-  the runs above are `plugin-absent`. Nothing is known about whether the repair
-  plugin changes residue.
+- **~~`-O1`, `-O3`, `-Os`~~ — run 2026-09-12, see the full matrix above.** The
+  hazard that kept them out is real and unchanged: `compile()` in
+  `ablation-cell.mjs` returns `null` on its 90 s timeout and `verdictOf` maps that
+  to `COMPILE_ERROR`, so a loaded machine manufactures rows saying the compiler
+  failed when it did not. The full-matrix run was made with nothing else
+  compiling, and its `excluded: none` is the evidence that no cell timed out.
+- **~~The WipePin arm, entirely.~~ Run 2026-09-12 on both vendors, 7 of 7.** What
+  remains unknown is whether the repair holds for idioms and shapes outside this
+  lane's three fixtures, and what it costs.
 - **No `data/` directory exists in this lane and no tracked data file was written.** `--write-data` was
-  not passed and is refused on a controls-only run. Six graded cells per vendor
-  is an instrument check, not a dataset.
+  not passed. The numbers above are quoted from the run log and reproduce with
+  the command printed with them.
 - **A second machine.** Everything above is one WSL kernel, one libc.
 - **Real cryptographic code.** Every number here is about this lane's own
   fixtures.

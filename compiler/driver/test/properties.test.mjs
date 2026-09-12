@@ -130,16 +130,72 @@ test('a candidate property is not usable — the catalogue says it must not be q
   assert.match(r.findings[0].detail, /candidate/);
 });
 
+// Rewritten 2026-09-12, the same way and for the same reason as the block below:
+// this test used a REAL catalogue entry as its example of an unreadable status,
+// and the catalogue's preamble had declared that status since 2026-08-18. The
+// driver's stated rule is "act on the vocabulary the preamble declares, refuse
+// what it does not", and while this file read three and the preamble said four,
+// `partial` was being refused for the wrong reason -- `status-not-in-vocabulary`
+// says the catalogue is malformed, and it was not. Both readings refused, so no
+// pass/fail ever moved; only the message a reader was sent to debug did.
+//
+// So the two questions are separated here as well.
+
 test('a status outside the declared vocabulary is refused rather than guessed at', () => {
-  // The catalogue's preamble declares three statuses. `notappear.forbidden-external-call`
-  // carries a fourth. Guessing what it is worth is how a partial check becomes
-  // a whole one, so the driver refuses it by name.
-  const entry = CATALOGUE.byId.get('notappear.forbidden-external-call');
-  assert.ok(entry);
-  assert.equal(DECLARED_STATUSES.includes(entry.status), false, `status ${entry.status} is now declared; update this test`);
-  const r = checkProperties([{ id: entry.id, kind: entry.kind }], CATALOGUE);
+  // MECHANISM, on a synthetic catalogue, so that no catalogue edit can make this
+  // test stop testing anything. `implausible` is not one of the four and never
+  // will be; the driver may not decide what it is worth.
+  const synthetic = {
+    kindCoverage: { 'must-survive': 'partial -- one extractor, measured' },
+    byId: new Map([['synth.odd-status', {
+      id: 'synth.odd-status', kind: 'must-survive', status: 'implausible', checkpoints: [],
+    }]]),
+  };
+  const r = checkProperties([{ id: 'synth.odd-status', kind: 'must-survive' }], synthetic);
   assert.equal(r.entries[0].verdict, 'status-not-in-vocabulary');
   assert.equal(r.findings[0].id, 'VG-CFG-018');
+  assert.match(r.findings[0].detail, /will not guess/);
+});
+
+test('the four statuses this driver acts on are the four the catalogue declares', () => {
+  // FACT. If the catalogue grows a fifth, this fails rather than silently
+  // refusing every property that carries it for a reason that is not true.
+  assert.deepEqual([...DECLARED_STATUSES].sort(), ['candidate', 'implemented', 'partial', 'unimplemented']);
+  const inCatalogue = [...new Set([...CATALOGUE.byId.values()].map((e) => e.status))].sort();
+  assert.deepEqual(inCatalogue, [...DECLARED_STATUSES].sort(),
+    `the catalogue uses statuses this driver does not declare: ${inCatalogue.join(', ')}`);
+});
+
+test('a partial property is refused, and told it is half-measured rather than unbuilt', () => {
+  // FACT, and the point of the whole change: `partial` is REFUSED. An extractor
+  // exists and has measured something; the policy is asking for the whole claim.
+  // Two entries carry it -- one of them, unobservable.secret-buffer-residue, is
+  // the one compiler/eval/residue-tracer measured on 2026-09-12.
+  for (const id of ['notappear.forbidden-external-call', 'unobservable.secret-buffer-residue']) {
+    const entry = CATALOGUE.byId.get(id);
+    assert.ok(entry, `${id} is no longer in the catalogue`);
+    assert.equal(entry.status, 'partial', `${id} is ${entry.status}, not partial; update this test`);
+    const r = checkProperties([{ id: entry.id, kind: entry.kind }], CATALOGUE);
+    assert.equal(r.entries[0].verdict, 'property-partial', `${id} was not refused as partial`);
+    assert.equal(r.findings[0].id, 'VG-CFG-018');
+    // and the reason must not claim there is no extractor, because there is one
+    assert.match(r.findings[0].detail, /part of what the entry claims/);
+    assert.doesNotMatch(r.findings[0].detail, /there is no extractor/);
+  }
+});
+
+test('declaring partial did not make any property reachable that was not', () => {
+  // The danger a vocabulary change carries is that it turns a refusal into a
+  // pass. Measured over the whole catalogue rather than argued: exactly seven
+  // entries are reachable, and none of them is a partial one.
+  const reachable = [...CATALOGUE.byId.values()]
+    .filter((e) => checkProperties([{ id: e.id, kind: e.kind }], CATALOGUE).entries[0].verdict === 'reachable')
+    .map((e) => e.id).sort();
+  assert.equal(reachable.length, 7, `reachable: ${reachable.join(', ')}`);
+  for (const id of reachable) {
+    assert.equal(CATALOGUE.byId.get(id).status, 'implemented',
+      `${id} is reachable but its status is not implemented`);
+  }
 });
 
 // Rewritten 2026-09-12. This test used to assert
@@ -411,4 +467,108 @@ test('a skip has to be authorised by name, and every skipped case is listed', ()
   const r = runTool([fx.src], { VG_CHECK_GATES_SKIP: 'src' });
   assert.match(r.stdout, /^skip src — authorised by VG_CHECK_GATES_SKIP$/m);
   assert.match(r.stdout, /^inputs=1 checked=0 skipped=1$/m);
+});
+
+// --- asking for two checkpoints and getting one -------------------------------
+//
+// Added 2026-09-12, after measuring something else. `checkProperties` filtered
+// the catalogue's implemented checkpoints by the ones the policy named and asked
+// only whether the result was EMPTY. So a policy naming two checkpoints, one of
+// which nothing observes this property at, was answered at the other one and
+// reported `reachable`, complete, with no finding -- and the unanswered half
+// left no trace in the record for anything downstream to notice.
+//
+// How it surfaced is worth keeping. Adding `process` to the checkpoint enum made
+// `["pre-opt-ir","process"]` schema-VALID where it had been rejected as
+// malformed, so it reached this gate for the first time and passed: exit 4 to
+// exit 0, which is the one thing properties.json's `_grant` promises a
+// vocabulary word cannot do. Measured against HEAD it turned out not to be the
+// enum's doing -- `["pre-opt-ir","object"]`, both words legal all along, passed
+// here before the change too. The widening exposed an older leniency through a
+// new path. Both are closed below, and the second is the one that proves the
+// first was not a regression.
+
+test('a checkpoint the policy names and nothing answers is a finding, even when another is answered', () => {
+  const e = CATALOGUE.byId.get('survive.secure-wipe');
+  // the shape of the catalogue this rests on, asserted rather than assumed
+  const impl = e.checkpoints.filter((c) => c.status === 'implemented' && c.extractor);
+  assert.deepEqual(impl.map((c) => c.checkpoint), ['pre-opt-ir', 'after-pass']);
+  assert.ok(e.checkpoints.some((c) => c.checkpoint === 'object' && c.status !== 'implemented'));
+
+  const r = checkProperties([{ id: e.id, kind: e.kind, observeAt: ['pre-opt-ir', 'object'] }], CATALOGUE);
+  assert.equal(r.entries[0].verdict, 'some-requested-checkpoints-unreachable');
+  assert.equal(r.complete, false);
+  assert.equal(r.usable, 0);
+  assert.equal(r.findings[0].id, 'VG-CFG-018');
+  // the record has to carry BOTH numbers: what was answered and what was not
+  assert.deepEqual(r.entries[0].reachableCheckpoints, ['pre-opt-ir']);
+  assert.deepEqual(r.entries[0].unansweredCheckpoints, ['object']);
+  assert.match(r.findings[0].detail, /is not answering the policy/);
+});
+
+test('the same holds for `process`, which is the path the enum widening opened', () => {
+  const r = checkProperties(
+    [{ id: 'survive.secure-wipe', kind: 'must-survive', observeAt: ['pre-opt-ir', 'process'] }], CATALOGUE);
+  assert.equal(r.entries[0].verdict, 'some-requested-checkpoints-unreachable');
+  assert.equal(r.complete, false);
+  assert.equal(r.findings[0].id, 'VG-CFG-018');
+  assert.deepEqual(r.entries[0].unansweredCheckpoints, ['process']);
+  // order must not matter: a policy is a set of questions, not a sequence
+  const flipped = checkProperties(
+    [{ id: 'survive.secure-wipe', kind: 'must-survive', observeAt: ['process', 'pre-opt-ir'] }], CATALOGUE);
+  assert.equal(flipped.entries[0].verdict, 'some-requested-checkpoints-unreachable');
+});
+
+test('naming only checkpoints that ARE answered is still complete, and naming none still means all', () => {
+  // The refusal must not have become universal. Both implemented checkpoints,
+  // and each alone, still pass; so does omitting observeAt entirely.
+  for (const observeAt of [['pre-opt-ir'], ['after-pass'], ['pre-opt-ir', 'after-pass']]) {
+    const r = checkProperties([{ id: 'survive.secure-wipe', kind: 'must-survive', observeAt }], CATALOGUE);
+    assert.equal(r.entries[0].verdict, 'reachable', JSON.stringify(observeAt));
+    assert.equal(r.complete, true, JSON.stringify(observeAt));
+    assert.deepEqual(r.entries[0].unansweredCheckpoints, []);
+  }
+  const any = checkProperties([{ id: 'survive.secure-wipe', kind: 'must-survive' }], CATALOGUE);
+  assert.equal(any.entries[0].verdict, 'reachable');
+  assert.equal(any.complete, true);
+});
+
+test('naming no answerable checkpoint at all is still the older, narrower word', () => {
+  // `no-reachable-checkpoint` and `some-requested-checkpoints-unreachable` are
+  // different facts and must stay different words: nothing was answered, versus
+  // some of it was.
+  const r = checkProperties(
+    [{ id: 'survive.secure-wipe', kind: 'must-survive', observeAt: ['object', 'ast'] }], CATALOGUE);
+  assert.equal(r.entries[0].verdict, 'no-reachable-checkpoint');
+  assert.deepEqual(r.entries[0].reachableCheckpoints, []);
+  assert.deepEqual(r.entries[0].unansweredCheckpoints, ['object', 'ast']);
+});
+
+test('the widening still cannot turn a refusal into a pass, measured over every catalogue entry', () => {
+  // The guarantee 2.20(f) and properties.json `_grant` both state. Measured over
+  // every entry and every checkpoint the enum allows, in every one-and-two-word
+  // combination with an implemented checkpoint -- not just the bare `(any)` ask,
+  // which is what the first version of this check looked at and why it missed
+  // the case above.
+  const enumWords = ['invocation', 'ast', 'pre-opt-ir', 'after-pass', 'object', 'linked', 'artifact', 'process'];
+  let reachable = 0;
+  for (const e of CATALOGUE.byId.values()) {
+    for (const a of [null, ...enumWords, ...enumWords.map((w) => ['pre-opt-ir', w])]) {
+      const ask = a === null ? { id: e.id, kind: e.kind }
+        : { id: e.id, kind: e.kind, observeAt: Array.isArray(a) ? a : [a] };
+      const r = checkProperties([ask], CATALOGUE);
+      if (r.entries[0].verdict !== 'reachable') continue;
+      reachable += 1;
+      // Everything that passes must be an implemented property, and every
+      // checkpoint it was asked about must be one it is implemented at.
+      assert.equal(CATALOGUE.byId.get(e.id).status, 'implemented', `${e.id} ${JSON.stringify(a)}`);
+      assert.deepEqual(r.entries[0].unansweredCheckpoints, [], `${e.id} ${JSON.stringify(a)}`);
+      if (ask.observeAt) {
+        for (const c of ask.observeAt) {
+          assert.ok(r.entries[0].reachableCheckpoints.includes(c), `${e.id} passed while ${c} was unanswered`);
+        }
+      }
+    }
+  }
+  assert.ok(reachable > 0, 'nothing passes at all, so this check is vacuous');
 });

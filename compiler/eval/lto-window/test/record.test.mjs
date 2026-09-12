@@ -25,10 +25,17 @@ import fs from 'node:fs';
 import {
   SKIP_FLAG, SKIP_WHY, skippedRecord, skipSummaryLines,
   linkGuardRecord, ABSOLUTE_PATH_RE, scrubbed, exitDecision,
+  INTERVENTION, ABSORBED_FILL, interventionAbsentReading, absorbedFillReading, interventionPairVerdict,
+  WHICH_WIPE, whichWipeSurvived,
 } from '../lib/record.mjs';
-import { MEASUREMENT, STATE } from '../lib/cell.mjs';
+import { MEASUREMENT, STATE, REASON } from '../lib/cell.mjs';
 
 const cell = (over = {}) => ({ id: 'xtu.full.link', measurement: MEASUREMENT.OK, state: STATE.LOST, ...over });
+
+/** A full-LTO clang link cell, the shape the per-cell checks below are about. */
+const linkCell = (over = {}) => cell({
+  window: 'link', vendor: 'clang', form: 'full', guards: { byteIdentical: true }, ...over,
+});
 
 /* ------------------------------------------------------------- skipping -- */
 
@@ -104,6 +111,192 @@ test('the codes that outrank 3 still outrank it', () => {
   assert.equal(
     exitDecision({ cells: clean, skipped: { negativeControl: true }, negativeControls: { xtu: skippedRecord('negativeControl', SKIP_WHY.negativeControl) } }).code,
     3);
+});
+
+test('a family that reached the cells but not the negative control cannot pass', () => {
+  // The shape section 2.20(d) caught in A2: a configuration keeps its clean word
+  // while the thing that establishes the word has gone quiet. A fixture family
+  // is added by editing one table, and every PER-FAMILY check has to be reached
+  // from that table separately -- so the way this comes back is a new family
+  // whose cells are all there and whose negative control never ran. It is
+  // detected by ABSENCE, because a check that did not run writes no field.
+  const cells = [linkCell({ id: 'xtu.full.link' }), linkCell({ id: 'xtu-inline.full.link' })];
+  const fired = { ran: true, fired: true };
+
+  assert.equal(exitDecision({
+    cells, families: ['xtu', 'xtu-inline'], negativeControls: { xtu: fired, 'xtu-inline': fired },
+  }).code, 0);
+
+  const missing = exitDecision({
+    cells, families: ['xtu', 'xtu-inline'], negativeControls: { xtu: fired },
+  });
+  assert.equal(missing.code, 2, 'a measured family with no negative-control record is a finding, not a skip');
+  assert.ok(missing.messages.some((m) => m.includes('xtu-inline')), JSON.stringify(missing.messages));
+
+  // A family skipped BY FLAG is a different thing: that record exists, says so,
+  // and is already 3 rather than 2.
+  const byFlag = exitDecision({
+    cells,
+    families: ['xtu', 'xtu-inline'],
+    skipped: { negativeControl: true },
+    negativeControls: {
+      xtu: skippedRecord('negativeControl', SKIP_WHY.negativeControl),
+      'xtu-inline': skippedRecord('negativeControl', SKIP_WHY.negativeControl),
+    },
+  });
+  assert.equal(byFlag.code, 3);
+});
+
+test('a full-LTO link cell whose bytes were never compared cannot pass either', () => {
+  // `byteFinding` covers byteIdentical === false. `null` is the check never
+  // having run on that cell -- the same silent omission, and the one a new
+  // family produces if it reaches the cell path by a route that skips the stock
+  // link. Scoped to the cells the check is defined for: no plugin is loaded on a
+  // ThinLTO link, a gcc link or a compile.
+  const nc = { xtu: { ran: true, fired: true } };
+  assert.equal(exitDecision({ cells: [linkCell()], negativeControls: nc }).code, 0);
+
+  const never = exitDecision({ cells: [linkCell({ guards: { byteIdentical: null } })], negativeControls: nc });
+  assert.equal(never.code, 2);
+  assert.ok(never.messages.some((m) => m.includes('non-invasive')), JSON.stringify(never.messages));
+
+  // The cells that are not about this check are left alone.
+  for (const other of [
+    cell({ id: 'xtu.thin.link', window: 'link', vendor: 'clang', form: 'thin', guards: { byteIdentical: null } }),
+    cell({ id: 'xtu.gcc.link', window: 'link', vendor: 'gcc', form: 'full', guards: { byteIdentical: null } }),
+    cell({ id: 'xtu.full.compile', window: 'compile', vendor: 'clang', form: 'full' }),
+  ]) {
+    assert.equal(exitDecision({ cells: [linkCell(), other], negativeControls: nc }).code, 0, other.id);
+  }
+});
+
+/* ----------------------------------------------- the intervention pair -- */
+
+test('a broken measurement without the intervention is a fault, not the family\'s result', () => {
+  // THE point of the xtu-inline family, and the way it can lie. A link cell
+  // carrying no attribution is what the expected outcome looks like AND what a
+  // shredded observer log looks like; in a results table they are the same row.
+  // Only one of them is a reading of the intervention.
+  for (const m of [MEASUREMENT.BROKEN_MEASUREMENT, MEASUREMENT.UNSUPPORTED]) {
+    const r = interventionAbsentReading({
+      measurement: m, state: STATE.NOT_OBSERVED, reasons: [REASON.OBSERVER_LOG_NOT_INTACT],
+    });
+    assert.equal(r.reading, INTERVENTION.INSTRUMENT_FAULT, m);
+    assert.equal(r.usable, false, m);
+    assert.ok(/says nothing|NOT the family/i.test(r.why), r.why);
+  }
+
+  // The expected outcome: the instrument was established and there is no unit
+  // under the subject's name to attribute anything to.
+  const absorbed = interventionAbsentReading({
+    measurement: MEASUREMENT.OK, state: STATE.NOT_OBSERVED, reasons: [REASON.NO_SUBJECT_READING],
+  });
+  assert.equal(absorbed.reading, INTERVENTION.ABSORBED);
+  assert.equal(absorbed.usable, true);
+
+  // And the outcome that contradicts the pair's expectation, which is a result
+  // rather than a disappointment: the unit survived without the attribute.
+  const survived = interventionAbsentReading({
+    measurement: MEASUREMENT.OK, state: STATE.LOST, attribution: { pass: 'DSEPass', unit: 'handle' },
+  });
+  assert.equal(survived.reading, INTERVENTION.UNIT_SURVIVED);
+  assert.equal(survived.usable, true);
+  assert.ok(survived.why.includes('DSEPass'));
+});
+
+test('once both wipes are in one body it is the byte count that discriminates', () => {
+  // With the subject and the control absorbed into `main`, the verdict WORD
+  // stops separating them: `PRESENT in main` is what one surviving wipe and two
+  // surviving wipes both produce. 32B where the source asks for two 32B wipes is
+  // one wipe gone -- and byte counting still cannot say WHICH, which is why this
+  // reading is stated as necessary and not sufficient.
+  const one = absorbedFillReading({ bytes: 32, memsetCalls: 0, bufferBytes: 32 });
+  assert.equal(one.reading, ABSORBED_FILL.ONE);
+  assert.equal(one.discriminating, true);
+  assert.ok(/not on its own proof/.test(one.why), one.why);
+
+  assert.equal(absorbedFillReading({ bytes: 64, memsetCalls: 0, bufferBytes: 32 }).reading, ABSORBED_FILL.TWO);
+
+  // A call covers a length this reading cannot see, so it is checked BEFORE the
+  // byte comparison: a memset call plus one inline wipe would otherwise read as
+  // "one wipe left".
+  const call = absorbedFillReading({ bytes: 32, memsetCalls: 1, bufferBytes: 32 });
+  assert.equal(call.reading, ABSORBED_FILL.MEMSET_CALL);
+  assert.equal(call.discriminating, false);
+
+  // No fill at all is a blind reading, not an elimination: the control did not
+  // survive either, and "the store is gone" and "there is nothing to read here"
+  // are then the same sentence.
+  const none = absorbedFillReading({ bytes: 0, memsetCalls: 0, bufferBytes: 32 });
+  assert.equal(none.reading, ABSORBED_FILL.NONE);
+  assert.equal(none.discriminating, false);
+
+  for (const bad of [{ bytes: 48, memsetCalls: 0, bufferBytes: 32 }, { bytes: null, bufferBytes: 32 }, {}]) {
+    assert.equal(absorbedFillReading(bad).discriminating, false, JSON.stringify(bad));
+  }
+});
+
+test('the pair is only supported when both halves were read, from two instruments', () => {
+  const intervened = { attribution: { pass: 'DSEPass', unit: 'handle' } };
+  const absorbed = interventionAbsentReading({
+    measurement: MEASUREMENT.OK, state: STATE.NOT_OBSERVED, reasons: [REASON.NO_SUBJECT_READING],
+  });
+  const oneWipeLeft = absorbedFillReading({ bytes: 32, memsetCalls: 0, bufferBytes: 32 });
+
+  const ok = interventionPairVerdict({ intervenedCell: intervened, plainReading: absorbed, plainFill: oneWipeLeft });
+  assert.equal(ok.supported, true);
+
+  // The fault must not be laundered into the pair's expected outcome. This is
+  // the assertion the whole family exists to make possible.
+  const faulted = interventionAbsentReading({
+    measurement: MEASUREMENT.BROKEN_MEASUREMENT, state: STATE.NOT_OBSERVED, reasons: [REASON.CONTROL_DID_NOT_HOLD],
+  });
+  const fault = interventionPairVerdict({ intervenedCell: intervened, plainReading: faulted, plainFill: oneWipeLeft });
+  assert.equal(fault.supported, null, 'an instrument fault is not evidence for the claim');
+  assert.ok(fault.why.includes('must not be reported'), fault.why);
+
+  // The observer half alone is not the pair: without the artifact half, all that
+  // has been shown is that removing the attribute blinded the observer.
+  const blind = interventionPairVerdict({
+    intervenedCell: intervened, plainReading: absorbed,
+    plainFill: absorbedFillReading({ bytes: 32, memsetCalls: 2, bufferBytes: 32 }),
+  });
+  assert.equal(blind.supported, null);
+  assert.ok(blind.why.includes('Half a pair'), blind.why);
+
+  // Two contradictions, and they contradict different halves of the claim.
+  const survived = interventionAbsentReading({ measurement: MEASUREMENT.OK, state: STATE.LOST });
+  assert.equal(interventionPairVerdict({ intervenedCell: intervened, plainReading: survived }).supported, false);
+  assert.equal(interventionPairVerdict({
+    intervenedCell: intervened, plainReading: absorbed,
+    plainFill: absorbedFillReading({ bytes: 64, memsetCalls: 0, bufferBytes: 32 }),
+  }).supported, false);
+
+  // And a run that never put the question says so rather than answering it.
+  assert.equal(interventionPairVerdict({}).supported, null);
+  assert.equal(interventionPairVerdict({ intervenedCell: { attribution: null }, plainReading: absorbed }).supported, null);
+});
+
+test('the generator emits the pair from one template, and the harness knows both halves', () => {
+  // The two families are a pair only while they differ by exactly the
+  // intervention. That is a property of the GENERATOR -- one template, two seds
+  // -- and this test is what keeps a later edit from adding a second difference
+  // by touching one heredoc and not the other.
+  const generator = fs.readFileSync(new URL('../tools/make-lto-fixtures.sh', import.meta.url), 'utf8');
+  assert.ok(/xtu_use_c\(\)/.test(generator), 'use.c must be emitted from one shared function');
+  assert.ok(/xtu_use_c \| sed 's\/\^@NOINLINE@\$\/__attribute__\(\(noinline\)\)\//.test(generator),
+    'family xtu substitutes the attribute in');
+  assert.ok(/xtu_use_c \| sed '\/\^@NOINLINE@\$\/d'/.test(generator), 'family xtu-inline deletes those lines');
+  // The other three units are copied, not re-emitted, so they cannot drift.
+  assert.ok(/for f in io\.c wipe\.c main\.c; do cp /.test(generator));
+  assert.equal(generator.split('\n').filter((l) => l === '@NOINLINE@').length, 2,
+    'exactly two markers in the template: the subject and the control, and nothing else');
+
+  const harness = fs.readFileSync(new URL('../run-lto-window.mjs', import.meta.url), 'utf8');
+  assert.ok(/fixtures: \['xtu', 'xtu-inline', 'erasure'\]/.test(harness),
+    'a family measured only when someone remembers to name it is a family whose result nobody has');
+  assert.ok(/'xtu-inline': \{/.test(harness), 'the harness must carry the un-intervened family in its table');
+  assert.ok(/pairedWith: 'xtu'/.test(harness));
 });
 
 /* --------------------------------------------------------------- guards -- */
@@ -198,4 +391,123 @@ test('the README\'s by-hand xorb count matches the fixture it was taken from', (
   assert.ok(declared, 'the generator must declare the subject buffer');
   assert.equal(Number(claimed[1]), Number(declared[1]),
     'one xorb per byte of the buffer: full LTO promotes the buffer out of memory and the wipe has nothing left to wipe');
+});
+
+/* --- which of the two absorbed wipes is gone --------------------------------
+ *
+ * absorbedFillReading() gets as far as "one of them is gone" and says in its own
+ * `why` that byte counting cannot say which. These tests are for the step that
+ * can: delete each wipe from the source in turn, rebuild, and see which deletion
+ * the linked program notices.
+ *
+ * Measured on this machine 2026-09-12, clang-18 -O2 full LTO, fill bytes inside
+ * the absorbed `main`: as written 32, subject's wipe deleted 32, control's wipe
+ * deleted 0. That is the first case below, and it is what makes the pair's claim
+ * a measurement rather than a consistency argument.
+ */
+
+test("deleting the subject's wipe and changing nothing is the subject already being gone", () => {
+  const r = whichWipeSurvived({ asWritten: 32, subjectCut: 32, controlCut: 0 });
+  assert.equal(r.reading, WHICH_WIPE.SUBJECT_GONE);
+  assert.match(r.proves, /does not depend on the intervention/);
+});
+
+test("deleting the subject's wipe and losing fill is the subject still being there", () => {
+  const r = whichWipeSurvived({ asWritten: 64, subjectCut: 32, controlCut: 32 });
+  assert.equal(r.reading, WHICH_WIPE.SUBJECT_PRESENT);
+  assert.match(r.proves, /DID depend on the intervention/);
+});
+
+test('a control deletion that does not move the fill makes the whole reading blind', () => {
+  // The positive control of this reading. Without it, "deleting the subject
+  // changed nothing" is equally consistent with a build whose output does not
+  // respond to the source at all -- which is the failure mode that would make
+  // every cell agree with whatever was hoped for.
+  for (const controlCut of [32, 64]) {
+    const r = whichWipeSurvived({ asWritten: 32, subjectCut: 32, controlCut });
+    assert.equal(r.reading, WHICH_WIPE.BLIND, `controlCut=${controlCut}`);
+    assert.equal(r.proves, null);
+  }
+});
+
+test('the blind check runs BEFORE the subject comparison, so a dead instrument never proves anything', () => {
+  // Same numbers that would otherwise read SUBJECT_GONE, with a control that did
+  // not respond. The order matters: read the other way round this returns the
+  // strongest word in the vocabulary from a build that measured nothing.
+  const r = whichWipeSurvived({ asWritten: 32, subjectCut: 32, controlCut: 32 });
+  assert.notEqual(r.reading, WHICH_WIPE.SUBJECT_GONE);
+  assert.equal(r.reading, WHICH_WIPE.BLIND);
+});
+
+test('a missing or nonsensical byte count is inconclusive, never one of the two answers', () => {
+  for (const bad of [{}, { asWritten: 32 }, { asWritten: 32, subjectCut: 32, controlCut: null },
+    { asWritten: 32, subjectCut: -1, controlCut: 0 }, { asWritten: '32', subjectCut: 32, controlCut: 0 }]) {
+    const r = whichWipeSurvived(bad);
+    assert.equal(r.reading, WHICH_WIPE.INCONCLUSIVE, JSON.stringify(bad));
+    assert.equal(r.proves, null);
+  }
+});
+
+test('fill that GROWS when a wipe is deleted is reported, not rounded to a neighbouring word', () => {
+  const r = whichWipeSurvived({ asWritten: 32, subjectCut: 64, controlCut: 0 });
+  assert.equal(r.reading, WHICH_WIPE.INCONCLUSIVE);
+  assert.match(r.why, /RAISED/);
+});
+
+test('every reading this function can return is one of the four declared words', () => {
+  const words = new Set(Object.values(WHICH_WIPE));
+  assert.equal(words.size, 4);
+  const cases = [
+    { asWritten: 32, subjectCut: 32, controlCut: 0 },
+    { asWritten: 64, subjectCut: 32, controlCut: 32 },
+    { asWritten: 32, subjectCut: 32, controlCut: 32 },
+    { asWritten: 32, subjectCut: 64, controlCut: 0 },
+    {},
+  ];
+  for (const c of cases) assert.ok(words.has(whichWipeSurvived(c).reading), JSON.stringify(c));
+});
+
+/* --- a cell that was never measured has no equality check to have failed ----
+ *
+ * Added 2026-09-12. The per-cell byteIdentical guard ran BEFORE the incomplete
+ * tally and asked only whether `byteIdentical === true`, so a clang full-LTO
+ * link cell that came back UNSUPPORTED (no lld) or BROKEN_MEASUREMENT (nothing
+ * readable from the observed link) exited 2 saying "the sha256 equality check
+ * did not establish non-invasiveness here" -- asserting a check ran on an
+ * executable that was never produced. Measured against HEAD, both were 3 there.
+ *
+ * Codes 2 and 3 are kept apart in interfaces.md section 7 for exactly this: 3 is
+ * the code that stops "we did not look" from being reported as anything else.
+ *
+ * The reason the suite missed it is worth keeping too: every link cell in this
+ * file is built by `cell()`, which hard-codes `measurement: OK`, so the one
+ * combination that mattered -- a link cell that is NOT OK and has a null
+ * byteIdentical -- could not be constructed by the helper. These build it
+ * explicitly.
+ */
+
+test('an unmeasured link cell is 3, not a failed non-invasiveness check', () => {
+  const nc = { xtu: { ran: true, fired: true } };
+  for (const measurement of [MEASUREMENT.UNSUPPORTED, MEASUREMENT.BROKEN_MEASUREMENT]) {
+    const c = linkCell({ measurement, state: STATE.NOT_OBSERVED, guards: { byteIdentical: null } });
+    const d = exitDecision({ cells: [c], negativeControls: nc, families: ['xtu'] });
+    assert.equal(d.code, 3, `${measurement} should be incomplete, not a finding`);
+    assert.match(d.messages.join(' '), /could not be completed/);
+    assert.doesNotMatch(d.messages.join(' '), /non-invasiveness/,
+      `${measurement} was reported as a failed equality check on a link that never happened`);
+  }
+});
+
+test('a MEASURED link cell with no equality check is still 2 -- the guard did not go soft', () => {
+  // The other half. Skipping unmeasured cells must not skip the case the guard
+  // exists for: the link ran, the observer ran, and nobody compared the bytes.
+  const nc = { xtu: { ran: true, fired: true } };
+  for (const byteIdentical of [null, false]) {
+    const d = exitDecision({
+      cells: [linkCell({ guards: { byteIdentical } })], negativeControls: nc, families: ['xtu'],
+    });
+    assert.equal(d.code, 2, `byteIdentical ${JSON.stringify(byteIdentical)} must still be a finding`);
+    assert.match(d.messages.join(' '), /non-invasiveness/);
+  }
+  assert.equal(exitDecision({ cells: [linkCell()], negativeControls: nc, families: ['xtu'] }).code, 0);
 });

@@ -441,6 +441,11 @@ jobs:
           run_suite version-ladder       compiler/eval/version-ladder/test/*.test.mjs
           run_suite actuarial            compiler/eval/actuarial/test/*.test.mjs
           run_suite lto-window           compiler/eval/lto-window/test/*.test.mjs
+          # oracle-agreement compares the shared differential oracle against the
+          # IR observer. Its suite is the same shape as the four above: the table
+          # arithmetic, the exclusion rule and the -O0 separation over synthetic
+          # rows, plus the README guards. Nothing here loads the plugin.
+          run_suite oracle-agreement     compiler/eval/oracle-agreement/test/*.test.mjs
           # WipePinGcc's Node suites need no plugin and no gcc: asm-presence
           # reads synthetic listings through the shared oracle, corpus-smoke
           # tests the smoke runner's pure row selection and body delta. The
@@ -672,6 +677,34 @@ jobs:
       # first, so it cannot stand in for this one. The fixtures are generated
       # into the lab, never into the checkout. This log is public, so the runner
       # paths in what the harness prints are replaced by placeholders.
+      # Two suites that reach no other runner and cannot run in the job above.
+      #
+      # Found 2026-09-12 by scripts/ci-suite-coverage.test.mjs, which asserts
+      # that every directory under compiler/ holding a *.test.mjs is named
+      # somewhere in this file. It found these two immediately, and they had been
+      # unwired for as long as they have existed -- the same silence that let
+      # compiler/eval/oracle-agreement ship with 109 tests and no runner.
+      #
+      # They are HERE and not in native-toolchain's run_suite list because they
+      # spawn `ld.lld-18` as well as `clang-18`, and they do NOT skip when a tool
+      # is absent -- they fail (measured: 17 failures between them on a machine
+      # with no compiler, 0 skips). native-toolchain installs clang-18 and
+      # clang-17 and no linker; this job installs lld-18.
+      #
+      # NOT YET SEEN GREEN ON A RUNNER. They pass on the development machine
+      # under WSL with clang-18 18.1.3 and LLD 18.1.3. That is a different
+      # toolchain from this job's, and the same caution the native-toolchain job
+      # states about its own late additions applies here.
+      - name: compiler/fingerprint and compiler/link-wrapper (need clang-18 and ld.lld-18)
+        run: |
+          set -eu
+          for suite in compiler/fingerprint compiler/link-wrapper; do
+            files=$(ls "$suite"/test/*.test.mjs 2>/dev/null || true)
+            [ -n "$files" ] || { echo "::error::${suite}: no test files"; exit 1; }
+            echo "--- ${suite}"
+            node --test $files
+          done
+
       - name: Property observer non-invasiveness (noninvasive.mjs, 21 checks)
         run: |
           set -u

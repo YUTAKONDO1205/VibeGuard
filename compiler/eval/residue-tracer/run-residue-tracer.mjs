@@ -54,6 +54,7 @@ import { CONTROLS, gradeCell, gradeControl, runValidity, assertPairing, crossTab
 import { parseFrame, requiredBelow, FRAME_MARGIN_BYTES, WINDOW_MAX_BYTES } from './lib/frame.mjs';
 import {
   OPTS, VENDORS, IDIOMS, ARMS, plannedCells, buildRow, assertIntegers, assertNoPaths, renderCrossTab,
+  pluginMismatch, vendorOf,
 } from './lib/manifest.mjs';
 
 const run = promisify(execFile);
@@ -72,9 +73,15 @@ const USAGE = `residue-tracer -- is the secret still in the process after the fr
   --cc <list>          comma-separated compilers. Default ${VENDORS.join(',')}
   --opt <list>         comma-separated levels. Default ${OPTS.join(',')}
   --idiom <list>       comma-separated idioms. Default ${IDIOMS.join(',')}
-  --plugin <so>        the WipePin repair plugin, for the second arm. Without it
-                       every wipepin cell is BROKEN_MEASUREMENT/plugin-absent --
-                       never silently dropped and never reported as stock.
+  --plugin <so>        libWipePin.so, the LLVM repair plugin, for the clang half
+                       of the second arm.
+  --plugin-gcc <so>    libWipePinGcc.so, the GCC repair plugin, for the gcc half.
+                       The two are different binaries and neither compiler can
+                       load the other's, so they are separate options and the
+                       basename is checked against the vendor before any compile.
+                       A vendor with no plugin has every wipepin cell recorded
+                       BROKEN_MEASUREMENT/plugin-absent -- never silently dropped
+                       and never reported as stock.
   --controls-only      run the three controls and stop. The instrument check on
                        its own, which is what a first run on a new box wants.
   --below N            stack bytes below rsp in the window. Default 4096. This is
@@ -102,7 +109,8 @@ function parseArgs(argv) {
   const a = {
     out: join(process.env.HOME || '.', 'vg-lab', 'residue-tracer'),
     ccs: [...VENDORS], opts: [...OPTS], idioms: [...IDIOMS],
-    plugin: null, controlsOnly: false, below: 4096, above: 64, jobs: 2, writeData: false, autoWindow: true,
+    plugin: null, pluginGcc: null,
+    controlsOnly: false, below: 4096, above: 64, jobs: 2, writeData: false, autoWindow: true,
   };
   for (let i = 2; i < argv.length; i++) {
     const k = argv[i];
@@ -113,6 +121,7 @@ function parseArgs(argv) {
     else if (k === '--opt') a.opts = next().split(',').map((s) => s.trim()).filter(Boolean);
     else if (k === '--idiom') a.idioms = next().split(',').map((s) => s.trim()).filter(Boolean);
     else if (k === '--plugin') a.plugin = next();
+    else if (k === '--plugin-gcc') a.pluginGcc = next();
     else if (k === '--controls-only') a.controlsOnly = true;
     else if (k === '--no-auto-window') a.autoWindow = false;
     else if (k === '--below') a.below = Number(next());
@@ -223,6 +232,34 @@ async function main() {
     }
   }
 
+  // The repair plugin is per VENDOR, not per run. WipePin is an LLVM pass plugin
+  // and WipePinGcc is a GCC plugin; they are different binaries built from
+  // different sources, and neither compiler can load the other's. Handing gcc the
+  // LLVM `.so` with -fplugin= is not a measurement that failed, it is a run that
+  // was configured wrong -- and it used to spend fifteen cells finding that out,
+  // one COMPILE_ERROR at a time:
+  //
+  //   cc1: error: cannot load plugin .../libWipePin.so:
+  //        undefined symbol: _ZN4llvm17PreservedAnalyses14AllAnalysesKeyE
+  //
+  // Those fifteen were honestly recorded (the lane has never reported a wipepin
+  // cell as stock) but they are noise where a refusal belongs, and a reader who
+  // skims "excluded: 15 x compile-failed" learns nothing about the arm. So the
+  // basename is checked against the vendor before anything is compiled, which is
+  // the guard repair-loop's runner already has for the same two binaries.
+  const pluginFor = (cc) => (vendorOf(cc) === 'clang' ? args.plugin : args.pluginGcc ?? null);
+  if (!args.controlsOnly) {
+    for (const cc of ccs) {
+      const so = pluginFor(cc);
+      if (!so) continue;
+      if (!existsSync(so)) die(5, `--plugin${vendorOf(cc) === 'gcc' ? '-gcc' : ''}: ${basename(so)} does not exist`);
+      const bad = pluginMismatch(cc, basename(so));
+      if (bad) die(4, bad.message);
+    }
+  }
+  // A cell's arm is measurable iff ITS vendor has a plugin. With only --plugin
+  // the clang wipepin cells are measured and the gcc ones stay plugin-absent --
+  // which is a statement about what was run, not a failure.
   const pluginPresent = !!(args.plugin && existsSync(args.plugin));
 
   // --- the matrix ---------------------------------------------------------
@@ -263,14 +300,14 @@ async function main() {
       planned: p, confirm: null, obs: null, digests: {}, needleLen: A.length, controlNeedleLen: K.length,
       graded: gradeCell(null, { needleLen: A.length, controlNeedleLen: K.length, notRun: reason }),
     });
-    if (p.arm === 'wipepin' && !pluginPresent) return notObserved('plugin-absent');
+    if (p.arm === 'wipepin' && !pluginFor(p.cc)) return notObserved('plugin-absent');
 
     const src = readFileSync(join(FX, `target-${p.target}.c`), 'utf8');
     const { spans } = cell.wipeSpans(src, SUBJECT_FN);
     const tag = p.cell.replace(/[^A-Za-z0-9]+/g, '_');
     const pluginOn = p.arm === 'wipepin';
     const env = pluginOn ? { WPIN_OUT: join(BUILD, `${tag}.pin.json`), WPIN_SCOPE: 'module' } : undefined;
-    const extra = pluginOn ? [p.opt, `${/clang/.test(basename(p.cc)) ? '-fpass-plugin=' : '-fplugin='}${args.plugin}`] : [p.opt];
+    const extra = pluginOn ? [p.opt, `${/clang/.test(basename(p.cc)) ? '-fpass-plugin=' : '-fplugin='}${pluginFor(p.cc)}`] : [p.opt];
 
     // The listing that is judged is the listing that is assembled. The control
     // function from ablation-cell.mjs is appended exactly as the corpus
@@ -388,8 +425,17 @@ async function main() {
   L.push(`window floor      [rsp-${args.below}, rsp+${args.above})   partial floor ${PARTIAL_FLOOR} bytes`);
   L.push(`frame bound       ${args.autoWindow ? 'window grown per cell' : 'window NOT grown (--no-auto-window)'} `
     + `to cover the subject frame objdump reports, + ${FRAME_MARGIN_BYTES} B margin`);
-  L.push(`arms              ${args.controlsOnly ? 'controls only' : ARMS.join(', ')}`
-    + `${!args.controlsOnly && !pluginPresent ? '  (wipepin: plugin-absent, every such cell NOT observed)' : ''}`);
+  L.push(`arms              ${args.controlsOnly ? 'controls only' : ARMS.join(', ')}`);
+  if (!args.controlsOnly) {
+    // Per vendor, because that is how the plugin is per vendor. A line that said
+    // only "plugin-absent" could not distinguish "no repair arm was measured at
+    // all" from "it was measured on clang and not on gcc", and those are
+    // different runs.
+    for (const cc of ccs) {
+      const so = pluginFor(cc);
+      L.push(`  ${cc.padEnd(10)} ${so ? `wipepin via ${basename(so)}` : 'wipepin: plugin-absent, every such cell NOT observed'}`);
+    }
+  }
   L.push('');
   L.push('controls');
   for (const g of controlGrades) {

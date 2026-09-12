@@ -1,0 +1,192 @@
+{
+ "tool": "lto-window intervention pair",
+ "optLevel": "-O1",
+ "toolchain": {
+  "cc": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+  "lld": "Ubuntu LLD 18.1.3 (compatible with GNU linkers)",
+  "gcc": "gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "objdump": "GNU objdump (GNU Binutils for Ubuntu) 2.42",
+  "bcanalyzer": "Ubuntu LLVM version 18.1.3",
+  "host": "Linux 6.6.87.2-microsoft-standard-WSL2 x86_64"
+ },
+ "plugin": {
+  "basename": "libPropertyObserver.so",
+  "sha256": "94d6f95697c3705bbb245c02de6c130740e18fac5dc01a6164e265d9f987b64c"
+ },
+ "negativeControl": {
+  "xtu": {
+   "ran": true,
+   "fired": true,
+   "measurement": "BROKEN_MEASUREMENT",
+   "reasons": [
+    "not-an-lto-link",
+    "use.o is elf, not LLVM bitcode: this link is not an LTO link",
+    "wipe.o is elf, not LLVM bitcode: this link is not an LTO link",
+    "main.o is elf, not LLVM bitcode: this link is not an LTO link",
+    "io.o is elf, not LLVM bitcode: this link is not an LTO link"
+   ],
+   "inputKinds": [
+    "elf",
+    "elf",
+    "elf",
+    "elf"
+   ],
+   "lldRunningPassLines": 0,
+   "observerEvRecords": 0
+  },
+  "xtu-inline": {
+   "ran": true,
+   "fired": true,
+   "measurement": "BROKEN_MEASUREMENT",
+   "reasons": [
+    "not-an-lto-link",
+    "use.o is elf, not LLVM bitcode: this link is not an LTO link",
+    "wipe.o is elf, not LLVM bitcode: this link is not an LTO link",
+    "main.o is elf, not LLVM bitcode: this link is not an LTO link",
+    "io.o is elf, not LLVM bitcode: this link is not an LTO link"
+   ],
+   "inputKinds": [
+    "elf",
+    "elf",
+    "elf",
+    "elf"
+   ],
+   "lldRunningPassLines": 0,
+   "observerEvRecords": 0
+  },
+  "erasure": {
+   "ran": true,
+   "fired": true,
+   "measurement": "BROKEN_MEASUREMENT",
+   "reasons": [
+    "not-an-lto-link",
+    "target.o is elf, not LLVM bitcode: this link is not an LTO link",
+    "opaque.o is elf, not LLVM bitcode: this link is not an LTO link",
+    "main.o is elf, not LLVM bitcode: this link is not an LTO link"
+   ],
+   "inputKinds": [
+    "elf",
+    "elf",
+    "elf"
+   ],
+   "lldRunningPassLines": 0,
+   "observerEvRecords": 0
+  }
+ },
+ "cells": [
+  {
+   "id": "xtu.full.link",
+   "measurement": "OK",
+   "state": "ABSENT",
+   "stage": "lto-backend",
+   "attribution": null,
+   "controlHeld": true,
+   "byteIdentical": true
+  },
+  {
+   "id": "xtu-inline.full.link",
+   "measurement": "OK",
+   "state": "ABSENT",
+   "stage": "lto-backend",
+   "attribution": null,
+   "controlHeld": true,
+   "byteIdentical": true
+  },
+  {
+   "id": "xtu.full.compile",
+   "measurement": "OK",
+   "state": "ABSENT",
+   "stage": "compile",
+   "attribution": null,
+   "controlHeld": true,
+   "byteIdentical": null
+  },
+  {
+   "id": "xtu-inline.full.compile",
+   "measurement": "OK",
+   "state": "ABSENT",
+   "stage": "compile",
+   "attribution": null,
+   "controlHeld": true,
+   "byteIdentical": null
+  }
+ ],
+ "interventionPairs": [
+  {
+   "withIntervention": "xtu",
+   "withoutIntervention": "xtu-inline",
+   "intervention": "noinline",
+   "optLevel": "-O1",
+   "claim": "the elimination does not depend on the intervention; the intervention is required only to have a (pass, unit) to attribute the elimination TO",
+   "attributionWithIntervention": null,
+   "readingWithoutIntervention": {
+    "reading": "unit-survived-attribution-still-possible",
+    "usable": true,
+    "why": "the subject still has a unit of its own (state ABSENT): at this optimisation level the intervention was not what made the attribution possible, which contradicts the pair's expectation and is a result in its own right."
+   },
+   "artifactWithIntervention": {
+    "subject": "PRESENT in secure_wipe (0 store(s)/0B/1 memset call(s))",
+    "control": "PRESENT in wipe_kept (2 store(s)/32B)",
+    "inlined": false,
+    "readAt": {
+     "subject": "handle",
+     "control": "wipe_kept"
+    },
+    "fill": {
+     "verdict": "PRESENT",
+     "where": "secure_wipe",
+     "bytes": 0,
+     "stores": 0,
+     "memsetCalls": 1
+    }
+   },
+   "artifactWithoutIntervention": {
+    "subject": "ABSENT in main (0 store(s)/0B)",
+    "control": "ABSENT in main (0 store(s)/0B)",
+    "inlined": true,
+    "readAt": {
+     "subject": "main",
+     "control": "main"
+    },
+    "fill": {
+     "verdict": "ABSENT",
+     "where": "main",
+     "bytes": 0,
+     "stores": 0,
+     "memsetCalls": 0
+    },
+    "absorbedFill": {
+     "reading": "no-fill-at-all-the-control-did-not-survive-either-so-this-reading-is-blind",
+     "discriminating": false,
+     "why": "no zero fill at all: the control did not survive either, so \"the subject's store is gone\" and \"this executable has no fill to read\" are the same reading"
+    }
+   },
+   "verdict": {
+    "supported": null,
+    "why": "the intervened family produced no (pass, unit) attribution in this run, so there is nothing for the pair to be about"
+   }
+  }
+ ],
+ "counts": {
+  "cells": 15,
+  "ok": 9,
+  "okNothingRead": 0,
+  "completed": 9,
+  "brokenMeasurement": 3,
+  "unsupported": 3,
+  "linkTimeAttributions": 0,
+  "okShare": {
+   "num": 9,
+   "den": 15
+  },
+  "completedShare": {
+   "num": 9,
+   "den": 15
+  }
+ },
+ "fullResult": {
+  "tracked": false,
+  "cells": 15,
+  "why": "the whole result is a lab artefact; the pair is what this file keeps. See README.md for the command."
+ }
+}
