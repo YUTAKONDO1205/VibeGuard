@@ -15,11 +15,31 @@
  * from a row that is missing. Exit 0 iff the multisets are equal, 1 if they are
  * not, 2 on a usage or input error.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { basename } from 'node:path';
+import { createHash } from 'node:crypto';
 
-const [aPath, bPath] = process.argv.slice(2);
+// --record <path> writes the comparison itself, so that "the two runs held the
+// same multiset" is a file a test can read back rather than a sentence in a
+// README. It carries the two files' sha256 and their BASENAMES only: the whole
+// point of the record is that it can be tracked, and a lab path names the
+// machine that ran it (scripts/check-disclosure-shape.mjs).
+const argv = process.argv.slice(2);
+const positional = [];
+let recordPath = null;
+for (let i = 0; i < argv.length; i++) {
+  if (argv[i] === '--record') {
+    if (i + 1 >= argv.length || argv[i + 1].startsWith('--')) {
+      process.stderr.write('--record needs a value\n'); process.exit(2);
+    }
+    recordPath = argv[++i];
+  } else if (argv[i].startsWith('--')) {
+    process.stderr.write(`unknown argument ${argv[i]}\n`); process.exit(2);
+  } else positional.push(argv[i]);
+}
+const [aPath, bPath] = positional;
 if (!aPath || !bPath) {
-  process.stderr.write('usage: node compare-rows.mjs <a.json> <b.json>\n');
+  process.stderr.write('usage: node compare-rows.mjs <a.json> <b.json> [--record <path>]\n');
   process.exit(2);
 }
 
@@ -92,4 +112,26 @@ if (!out.equal) {
 }
 
 process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+
+if (recordPath) {
+  const digest = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
+  const record = {
+    tool: 'compare-rows', generatedAt: new Date().toISOString(), node: process.version,
+    a: { file: basename(aPath), sha256: digest(aPath), rows: a.length },
+    b: { file: basename(bPath), sha256: digest(bPath), rows: b.length },
+    identical, only_in_a: onlyA.length, only_in_b: onlyB.length, equal: out.equal,
+  };
+  if (!out.equal) {
+    record.differing_fields = out.differing_fields ?? {};
+    record.verdict_transitions = out.verdict_transitions ?? {};
+    record.paired_by_cell = out.paired_by_cell ?? 0;
+  }
+  const text = JSON.stringify(record, null, 2) + '\n';
+  for (const re of [/\/home\//, /\/root\//, /\/mnt\//, /\/Users\//, /\b[A-Za-z]:[\\/]/]) {
+    if (re.test(text)) { process.stderr.write(`a path naming this machine would have been recorded (${re}); nothing written\n`); process.exit(2); }
+  }
+  writeFileSync(recordPath, text, 'utf8');
+  process.stderr.write(`wrote the comparison to ${basename(recordPath)}\n`);
+}
+
 process.exit(out.equal ? 0 : 1);

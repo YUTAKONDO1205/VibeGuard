@@ -23,15 +23,20 @@
  * This file is the measurement: it owns the corpus, the scratch directory and the
  * output, and it is the only one of the two with side effects.
  */
-import { readFileSync, writeFileSync, readdirSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { createHash } from 'node:crypto';
 import {
   CONTROL, maskNonCode, wipeSpans, ablateSpans, bodyOf, compile, pool, verdictOf,
 } from './ablation-cell.mjs';
+import { pathHits } from './span-summary.mjs';
 import { runSpikeGate, summarise as summariseSpikeGate } from '../../spike/lib/gate.mjs';
 import { homedir } from 'node:os';
+const run = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 const ROOT = resolve(HERE, '..');
@@ -43,6 +48,54 @@ const SCEN = JSON.parse(readFileSync(join(ROOT, 'scenarios.json'), 'utf8'));
 
 const VENDORS = ['clang-18', 'gcc-13'];
 const OPTS = ['-O0', '-O1', '-O2', '-O3', '-Os'];
+const DATA_OUT = join(ROOT, 'data', 'r2-build-rows.json');
+
+// ---- where the rows go, and what it takes to overwrite the tracked ones -----
+//
+// Until 2026-09-12 this file ended with an unconditional write to
+// data/r2-build-rows.json. Two things were wrong with that. The rows are pushed
+// in pool completion order, so a re-run that measures exactly the same thing
+// writes a different byte sequence, and data/r2-span-results.txt pins the
+// tracked file's sha256 -- a re-run therefore broke a test whatever it found.
+// And a run has no way to be a rehearsal: looking at what the corpus does today
+// meant overwriting the record of what it did the day it was reviewed.
+//
+// So --out is required and takes the rows, --write-data is what reaches the
+// repository, and ../lib/compare-rows.mjs is how a lab file and the tracked one
+// are compared (multiset, not bytes). This is build-spans.mjs's arrangement,
+// spelled the same way on purpose.
+const USAGE = `usage: node build-analyze.mjs --out <dir> [--write-data]
+
+  --out <dir>     lab directory for the rows and the manifest (required, outside the repository)
+  --write-data    also overwrite data/r2-build-rows.json with this run's rows
+  -h, --help      this
+
+exit: 0 the run completed; 3 the spike/recovery gate did not hold and nothing
+was written; 4 bad arguments; 5 a path that names this machine would have been
+written, and nothing was.
+`;
+
+function die(code, msg) { process.stderr.write(`build-analyze: ${msg}\n`); process.exit(code); }
+
+function parseArgs(argv) {
+  const a = { out: null, writeData: false };
+  for (let i = 0; i < argv.length; i++) {
+    const f = argv[i];
+    if (f === '--out') {
+      if (i + 1 >= argv.length || argv[i + 1].startsWith('--')) die(4, '--out needs a value');
+      a.out = argv[++i];
+    } else if (f === '--write-data') a.writeData = true;
+    else if (f === '-h' || f === '--help') { process.stdout.write(USAGE); process.exit(0); }
+    else die(4, `unknown argument ${f}`);
+  }
+  if (!a.out) die(4, '--out is required: the rows of a run go to a lab directory, and --write-data is what reaches data/');
+  a.out = resolve(a.out);
+  if (a.out === ROOT || a.out.startsWith(join(ROOT, 'data'))) die(4, '--out must not be the repository\'s own data directory');
+  return a;
+}
+
+const args = parseArgs(process.argv.slice(2));
+mkdirSync(args.out, { recursive: true });
 
 // ---- spike/recovery gate, before the corpus ---------------------------------
 //
@@ -157,5 +210,48 @@ await pool(cfg, async (j) => {
 });
 process.stderr.write(`configguard done (${rows.length} rows)\n`);
 
-writeFileSync(join(ROOT, 'data', 'r2-build-rows.json'), JSON.stringify(rows), 'utf8');
-process.stderr.write(`wrote ${rows.length} rows\n`);
+// ---- output ------------------------------------------------------------------
+const rowsText = JSON.stringify(rows);
+
+// What the instrument was, beside what it read. The gate's own numbers are here
+// because "these rows were taken with the gate holding" is a claim about the run
+// and nowhere else records it; the toolchain versions are here because a row
+// that differs between two runs is a toolchain difference or a measurement
+// difference, and nothing below can tell them apart afterwards.
+const versions = {};
+for (const cc of VENDORS) {
+  try { versions[cc] = (await run(cc, ['--version'], { timeout: 30000 })).stdout.split('\n')[0].trim(); }
+  catch { versions[cc] = null; }
+}
+const manifestText = JSON.stringify({
+  tool: 'build-analyze', generatedAt: new Date().toISOString(), node: process.version,
+  vendors: VENDORS, opts: OPTS, versions,
+  files: files.length, rows: rows.length, rowsSha256: createHash('sha256').update(rowsText).digest('hex'),
+  spikeGate: {
+    established: spike.established,
+    configurations: spike.verdict.configurations,
+    discriminating: spike.verdict.discriminating,
+    // `injected` is the run whose subject name is misspelt; the gate must refuse
+    // it. null means it was not performed, which is itself a red gate.
+    injectionHeld: spike.injected ? spike.injected.held === true : null,
+  },
+}, null, 2) + '\n';
+
+const hits = [];
+for (const [name, t] of [['r2-build-rows.json', rowsText], ['manifest.json', manifestText]]) {
+  const h = pathHits(t);
+  if (h.length) hits.push(`${name}: ${h.join(', ')}`);
+}
+if (hits.length) die(5, `a path that names this machine would have been written (${hits.join('; ')}); nothing was written`);
+
+writeFileSync(join(args.out, 'r2-build-rows.json'), rowsText, 'utf8');
+writeFileSync(join(args.out, 'manifest.json'), manifestText, 'utf8');
+process.stderr.write(`wrote ${rows.length} rows to the lab\n`);
+
+if (args.writeData) {
+  if (!existsSync(dirname(DATA_OUT))) die(5, 'the data directory is missing');
+  writeFileSync(DATA_OUT, rowsText, 'utf8');
+  process.stderr.write(`wrote ${rows.length} rows to data/r2-build-rows.json\n`);
+} else {
+  process.stderr.write('data/r2-build-rows.json was not touched (no --write-data)\n');
+}

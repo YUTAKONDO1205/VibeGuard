@@ -480,7 +480,9 @@ would discard the evidence for every number above.
 ```bash
 # needs clang-18 and gcc-13 on the path (this lane is developed under WSL)
 cd compiler/eval/ai-generated/lib
-node build-analyze.mjs            # 4,689 rows -> ../data/r2-build-rows.json
+node build-analyze.mjs --out <lab dir>                # 4,689 rows -> the lab, nothing touched here
+node build-analyze.mjs --out <lab dir> --write-data   # ... and -> ../data/r2-build-rows.json
+node compare-rows.mjs ../data/r2-build-rows.json <lab dir>/r2-build-rows.json --record <lab dir>/regate-record.json
 node configguard-direction.mjs    #           -> ../data/r2-configguard-direction.json
 python3 analyze.py                # tables    -> ../data/r2-results.txt
 
@@ -501,6 +503,59 @@ bad arguments; 5 a compiler or an input could not be used.
 `_build/` is scratch and is ignored. Generation itself is not scripted here: it
 was 720 subagent calls, and the protocol records the prompts verbatim so the
 design is auditable even though the sampling is not repeatable.
+
+Until 2026-09-12 `build-analyze.mjs` took no arguments and ended with an
+unconditional write to `data/r2-build-rows.json`. Two things were wrong with
+that, and both are why `--out` is now required. The rows are pushed in pool
+completion order, so a re-run that measures exactly the same thing writes a
+different byte sequence, and `data/r2-span-results.txt` pins the tracked file's
+sha256 — a re-run broke a test whatever it found. And there was no way to
+rehearse: looking at what the corpus does today meant overwriting the record of
+what it did the day it was reviewed.
+
+## Measured again under the gate — 2026-09-12
+
+`compiler/eval/spike`'s spike/recovery gate was wired into this harness on
+2026-09-12 (`lib/build-analyze.mjs:33`), but the tracked rows were measured
+before the gate existed. The code was gated; **the rows were not**. So the
+corpus was measured again with the gate in front of it. `data/r2-regate.json` is
+the record and `test/regate.test.mjs` holds this section to it.
+
+```
+node build-analyze.mjs --out ~/vg-lab/regate          # gate first, then 720 files
+node compare-rows.mjs ../data/r2-build-rows.json ~/vg-lab/regate/r2-build-rows.json
+```
+
+**4,689 rows, 720 files, 1 m 29 s, exit 0.** The gate held first:
+`configurations 10/10`, `discriminating 8/10` (the two `-O0` cells, where both
+spikes are registered to read the same word), injection RED as required. The
+comparison against the tracked rows is `identical 4689, only_in_a 0, only_in_b
+0, equal true`, exit 0. **The gate does not change what the corpus reads, and
+the tracked rows reproduce under it.** The lab file's own sha256 differs from
+the tracked one (`0b956eb4…` against `cb93551f…`) and is expected to: that is
+the completion-order point above, which is why the comparison is a multiset and
+not a digest.
+
+Two negative controls, run rather than described, both exit 3 with nothing
+written anywhere:
+
+| control | what it is | what the gate said |
+|---|---|---|
+| vendor-absent | a `gcc-13` first on `PATH` that exits 1 | `not installed on this host: gcc-13` |
+| never-optimises | a `gcc-13` wrapper that rewrites every `-O` flag to `-O0` and execs the real compiler | `WRONG_VERDICT(disappearing)` at `gcc-13` `-O1`, `-O2`, `-O3`, `-Os`, recovery 1/2 each |
+
+The second is the one worth keeping. The first only shows the probe works. The
+second is an instrument that runs, compiles, answers, and answers **wrong** —
+the failure this corpus cannot see in its own rows, because a wipe that survived
+and a wipe the instrument failed to read are the same row. It was refused before
+a single corpus file was compiled.
+
+What this does **not** say: that the tracked rows were originally taken with a
+gate (they were not — they predate it), or that byte equality holds (it does
+not, and is not expected to). The two negative controls are `lab-run`: typed
+from their run logs, recomputed by nothing. `test/regate.test.mjs` recomputes
+what can be recomputed — the tracked file's digest and row count — and holds the
+rest of this section to the record.
 
 ## What this does not claim
 
