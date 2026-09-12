@@ -14,12 +14,20 @@ configuration makes the whole run INVALID and no measurement in it may be
 written as data — and so does a run in which *no* configuration ever required
 the two spikes to read differently.
 
-It exists because of a sentence in
-`compiler/pass-instrumentation/observer/README.md`:
+It exists because of a sentence that used to be in
+`compiler/pass-instrumentation/observer/README.md`, quoted here as it stood on
+2026-08-17:
 
 > **No harness in this repository invokes `check-subject-resolution.mjs`.** As of
 > 2026-08-17 its only caller is `test/subject-resolution.test.mjs`;
 > `scripts/run-all.sh` does not run it, and it is not wired into CI.
+
+**That sentence is no longer in that file.** This lane is why: on 2026-09-12
+`scripts/run-all.sh` was wired to run this gate's observer channel on the
+plugin it builds, and the paragraph was rewritten to say so
+(`../../pass-instrumentation/observer/README.md:179-205`). The quote above is
+kept as the reason this lane was built, dated, and is not a claim about the
+file as it stands today.
 
 The third silent failure — a subject name that resolves to nothing — was made
 *audible* and *recorded*, and then nothing was made to listen. A checker nobody
@@ -413,12 +421,18 @@ before 2026-09-12.
 
 ```
 $ node --test compiler/eval/spike/test/*.test.mjs
-# tests 48
-# pass 48
+# tests 66
+# pass 66
 # fail 0
 # skipped 0
 # todo 0
 ```
+
+(48 when this block was first pasted, three files ago: `data.test.mjs` and
+`wiring.test.mjs` are the difference. A pasted count is a number nothing
+recomputes — this one went stale for a day before an adversarial read caught
+it, and it is kept because what it reports, that the suite runs with nothing
+skipped, is worth stating.)
 
 Both directions: the grader is tested on the readings that must hold and on
 every reading that must not — each `NOT_A_READING` word, a missing reading, a
@@ -474,7 +488,7 @@ a reason rather than a backlog.
 | harness | gated? | file:line |
 |---|---|---|
 | `compiler/eval/ai-generated/lib/build-analyze.mjs` | **yes** | import `:37`, gate `:118`, `process.exit(3)` `:123` — refuses to write rows |
-| `compiler/eval/repair-loop/run-repair-loop.mjs` | **yes** | import `:82`, gate `:335`, `die(2)` `:340` for `--write-data`, `die(3)` `:343` |
+| `compiler/eval/repair-loop/run-repair-loop.mjs` | **yes** | import `:82`, gate `:348`, `die(2)` `:353` for `--write-data`, `die(3)` `:356` |
 | `compiler/eval/repair-loop/tools/lto-probe.mjs` | **yes** | import `:58`, gate `:289`, `die(3)` `:293` — no LTO cell run |
 | `compiler/eval/repair-loop/tools/lto-probe-gcc.mjs` | **yes** | import `:61`, gate `:320`, `die(3)` `:324` — no LTO cell run |
 | `compiler/pass-instrumentation/observer/scripts/run-all.sh` | **yes, 2026-09-12** | `:80-92` — the observer channel on the plugin it just built, before the five harnesses, exiting with this lane's own code |

@@ -79,6 +79,18 @@ other bytes** are different states of the world, and a caller that could not tel
 them apart would re-run the wrong thing. `lib/controls-receipt.mjs` holds the
 comparison and `test/controls-receipt.test.mjs` exercises it in both directions.
 
+**What has actually been run, and what has not.** The refusing direction was
+measured on 2026-09-12: with no receipt in `--out`, `run-second-vendor.mjs`
+exits 3, compiles nothing and leaves neither a work directory nor an output
+file. **The accepting direction has not been run**: it needs a fixture set
+carrying all five of `erasure`, `nullcheck`, `signedovf`, `authz` and
+`configguard`, and the machine this was written on has no such set, so no
+`run-controls.mjs` run has produced a green receipt for `run-second-vendor.mjs`
+to accept. The both-directions claim in the paragraph above is about
+`test/controls-receipt.test.mjs`, which is a unit test over synthetic receipts;
+it is not a run. Anyone with the full fixture set should run the pair and
+replace this paragraph with what happened.
+
 `run-controls.mjs` also now exits **2** rather than 1 when a control fails.
 `interfaces.md` §7 spends 1 on "the underlying tool failed (compile error, link
 error)" and 2 on findings; a control that did not hold is a finding about the

@@ -451,7 +451,13 @@ The honest split, because the automation is new and the corpus is old:
   `zero-occurrences`. That the routing sends them to `VG-MEM-006` when a
   counter *does* fire is shown by synthetic rows in `../test/routing.test.mjs`
   and by nothing else. It has not been observed on a compiler.
-- **Not exercised end to end.** The functions were run against the tracked
-  rows; the runner's own routing section, `routing.json` and the `routing`
-  block of `pin-plan.json` were not produced by a lab run in this change,
-  because that needs a compiler and the repair plugin.
+- **~~Not exercised end to end.~~ Run on 2026-09-12**, three times with
+  `libWipePin.so` and once with `libWipePinGcc.so`: a two-file subset and the
+  two full runs that produced `data/r2-regate.json`. Each printed the routing
+  section, wrote `routing.json` and carried the `routing` block in
+  `pin-plan.json`, with `absolutePathHits` empty and the tracked rows and
+  results text untouched. What those runs could **not** exercise is the erasure
+  side of the table: every shape counter read 0 over the r2 corpus, which is
+  the same zero `test/pin-families.test.mjs` pins, so the routed rows in them
+  are the configguard ones and the erasure routing remains demonstrated only by
+  the synthetic rows in `test/routing.test.mjs`.

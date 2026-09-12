@@ -307,6 +307,19 @@ async function main() {
     planSha = sha256(args.plan);
   }
 
+  // The pin-family table is read BEFORE anything is compiled, and a table that
+  // cannot be read is exit 4 -- interfaces.md §7 spends 4 on "the policy is
+  // malformed. Nothing else runs", and this table is the policy for where a
+  // repair belongs. Read at the end of the run instead, as it was until
+  // 2026-09-12, an unreadable table and a shape the table does not know both
+  // arrived as the same exit 2 after a full run had already been paid for.
+  let pinTable;
+  try {
+    pinTable = JSON.parse(readFileSync(TABLE_PATH, 'utf8'));
+  } catch (e) {
+    die(4, `pin-families.json could not be read as JSON (${e && e.message ? e.message : e}); nothing was run`);
+  }
+
   mkdirSync(BUILD, { recursive: true });
   mkdirSync(join(args.out, 'records'), { recursive: true });
 
@@ -670,8 +683,10 @@ async function main() {
   let routing = null;
   let routingError = null;
   try {
-    const table = JSON.parse(readFileSync(TABLE_PATH, 'utf8'));
-    routing = routeRun({ table, rows, cc: ccName, cfgNote });
+    // The table itself was read and parsed before the first compile; what can
+    // fail here is the routing, and the case it exists for is a signal the
+    // table has no row for. That is a finding (exit 2), not a malformed policy.
+    routing = routeRun({ table: pinTable, rows, cc: ccName, cfgNote });
   } catch (e) {
     routingError = String(e && e.message ? e.message : e);
   }
@@ -735,6 +750,17 @@ async function main() {
     die(5, `an absolute path would be written (${pathHits.join('; ')}); nothing was written to data/`);
   }
   if (args.writeData) {
+    // A refused routing refuses the write, the way a red spike gate does five
+    // hundred lines above. Until 2026-09-12 this block ran regardless and the
+    // run exited 2 afterwards, so a run whose plugin counted a shape
+    // pin-families.json has no row for -- the substitution that table exists to
+    // prevent -- still rewrote the tracked rows and results text on its way out.
+    if (routingError) {
+      process.stdout.write(text);
+      process.stdout.write(routingText);
+      die(2, `--write-data refused: the routing was refused (${routingError}), so this run could not `
+        + 'say where the fix for every shape it saw belongs. The lab copy at --out is written.');
+    }
     // Per compiler (lib/vendor.mjs dataFileNames): clang-18 keeps the names the
     // tracked data was first written under; any other --cc writes its own pair,
     // so one compiler's run can never overwrite another's.

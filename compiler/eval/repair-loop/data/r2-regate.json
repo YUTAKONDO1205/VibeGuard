@@ -1,6 +1,6 @@
 {
   "schemaVersion": "repair-regate/1",
-  "readMeFirst": "run-repair-loop.mjs has called compiler/eval/spike's gate since 2026-09-12 (run-repair-loop.mjs:318). The rows beside it were measured before the gate existed, so the sentence 'these rows were taken with the instrument shown to be reading' was true of the code and not of the data. This file is the re-measurement, one run per vendor, and unlike the corpus lane this one is byte-deterministic: the digests below are the digests of the tracked files, not merely the same multiset.",
+  "readMeFirst": "run-repair-loop.mjs has called compiler/eval/spike's gate since 2026-09-12 (run-repair-loop.mjs:348). The rows beside it were measured before the gate existed, so the sentence 'these rows were taken with the instrument shown to be reading' was true of the code and not of the data. This file is the re-measurement, one run per vendor, and unlike the corpus lane this one is byte-deterministic: the digests below are the digests of the tracked files, not merely the same multiset.",
   "question": "do the tracked repair-loop rows reproduce with the spike/recovery gate in front of the run, on both vendors?",
   "measuredOn": "2026-09-12",
   "toolchain": {
