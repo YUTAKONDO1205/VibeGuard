@@ -387,3 +387,71 @@ existing property ids (`survive.audit-record`, `survive.bounds-check`,
 share — *a defence present only when a build macro is defined* — is a shape and
 not a property, and it lives in this table's `shape` column where it belongs.
 No new checkpoint word is needed either, for the reason in *Limits* above.
+
+## Reading this table during a run (A5, automated)
+
+Until 2026-09-12 this table was read by a person. A run printed its cells and
+outcomes; someone then opened `pin-families.json`, found the shape, and carried
+the sentence *"this one is not repairable in the compiler, send it to the
+source"* across by eye. `../lib/routing.mjs` does that step now, and every run
+of `../run-repair-loop.mjs` prints a **routing** section and writes
+`<out>/routing.json`, with the summary repeated in `pin-plan.json` so the
+find → fix hand-off carries it.
+
+**The mapping is derived from this table, not written in the code.** A second
+copy of *"`libcallMemset` means the `libcall-memset` shape"* in a module would
+be exactly the hand-transcription this table exists to remove: it would go
+stale the first time a row was renamed, and nothing would fail. So the routing
+reads the rows' own `evidence.cite`. Two claims name something a run row
+carries, and they are the entire vocabulary:
+
+| claim | field | what a run row carries |
+|---|---|---|
+| `unhandled-shape-occurrences` | `counter` | a counter in a plugin record's `unhandled` block |
+| `configguard-default-equals-enabled` | `scen` | a `configguard` row's scenario id |
+
+Every other claim counts outcomes of a repair, not occurrences of a shape, and
+cannot key a decision. A (property, shape) group reached by neither claim has
+**no shape signal**, and the section prints that with a count instead of
+omitting the group.
+
+Two refusals carry the weight:
+
+- A counter, or a `scen`, that no row of this table names is an **exception**,
+  and the run exits 2. Dropping it silently is the substitution this whole
+  document is written against: *nobody looked at that shape* becoming *that
+  shape did not occur*.
+- A signal that fired **zero** times routes nothing, and the reason is counted
+  separately — `zero-occurrences`, `not-measured` (a `--plan` run measures no
+  `configguard` cell, so 0 rows there is an absent measurement and not an
+  absent shape) or `no-signal-defined`.
+
+`shapeVerdicts()`' `routed-to-source` is split one step further, because this
+table's own `appliesToThisShape` makes the distinction and throwing it away at
+the last step would undo it: `route-to-source` needs a rule whose scope was
+checked to cover the shape, `route-to-source-unverified` is a rule that names
+where to look, and `no-source-rule-covers-it` is a rule that explicitly does
+not cover it. The last one is printed with `unrouted` and `open` as **not held
+by either side**.
+
+### What this is measured on, and what it is not
+
+The honest split, because the automation is new and the corpus is old:
+
+- **Measured, on the tracked rows.** The five `defence-behind-a-build-macro`
+  groups. `data/r2-repair-rows.json` holds `configguard` rows for all five
+  scenarios, the plugin turned none of them into the enabled build, and the
+  routing over those rows reads four `unrouted` and one
+  `route-to-source-unverified` (`VG-AUTH-001`, `survive.input-validation`).
+  `../test/routing.test.mjs` asserts exactly that against the tracked file.
+- **Not measured. Synthetic rows only.** Every `survive.secure-wipe` group the
+  routing could reach. All five `unhandled` counters read 0 in both tracked
+  runs — the pin two sections above — so over the r2 corpus no erasure-side
+  signal has ever fired, and the routing reports those five groups as
+  `zero-occurrences`. That the routing sends them to `VG-MEM-006` when a
+  counter *does* fire is shown by synthetic rows in `../test/routing.test.mjs`
+  and by nothing else. It has not been observed on a compiler.
+- **Not exercised end to end.** The functions were run against the tracked
+  rows; the runner's own routing section, `routing.json` and the `routing`
+  block of `pin-plan.json` were not produced by a lab run in this change,
+  because that needs a compiler and the repair plugin.

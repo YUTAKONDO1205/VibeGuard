@@ -397,6 +397,71 @@ the compiler it was observed with (`cc`), and `--plan` refuses a plan written
 for another one (exit 5): gcc-13 and clang-18 lose different wipes at different
 levels.
 
+### Routing: compiler or source? (`routing.json`)
+
+`pin-families.json` already records, per (property, disappearance shape), which
+repair candidate retains the shape and — where none does — the source-side
+VibeGuard rule the shape goes to instead. Until `lib/routing.mjs` existed,
+nothing read that table during a run: a person carried the sentence "this one is
+not repairable in the compiler, send it to the source" across by eye. Every run
+now prints a **routing** section after the results text and writes
+`<out>/routing.json`; `pin-plan.json` carries the summary, so the find → fix
+hand-off says not only *where to pin* but *which shapes pinning cannot hold*.
+
+The mapping from a run to the table is **derived from the table**, not written
+in `routing.mjs`. Two of the table's claims cite something a run row can be
+matched against, and those two are the whole vocabulary:
+
+| claim cited by a row | the signal it names | where the run carries it |
+|---|---|---|
+| `unhandled-shape-occurrences` | `cite.counter` | `recordW.unhandled.<counter>` / `recordWo.unhandled` / a no-wipe row's `record.unhandled` |
+| `configguard-default-equals-enabled` | `cite.scen` | a `kind: "configguard"` row's `scen` |
+
+Every other claim counts outcomes of a repair rather than occurrences of a
+shape, so it cannot key a routing decision. A cell reached by neither has **no
+shape signal**, which is a state the section prints and counts rather than
+hides.
+
+Two refusals, both deliberate:
+
+* An `unhandled` counter, or a configguard `scen`, that the table names no row
+  for **throws**, and the run exits 2. Skipping the key is how "nobody looked at
+  that shape" turns into "that shape did not occur": the plugin would be
+  counting a shape it does not pin, the run would read the number, and the
+  routing would say nothing at all.
+* A cell whose signal fired **zero** times is not routed, and the count is
+  printed with its reason — `zero-occurrences`, `not-measured` (the signal
+  exists but this run did not measure it, e.g. a `--plan` run measures no
+  configguard cell) or `no-signal-defined`.
+
+The decisions, loudest first: `unrouted` / `open` / `no-source-rule-covers-it`
+are the shapes **neither side holds**, and they are printed above everything
+else. `no-source-rule-covers-it` is separated from `route-to-source` on purpose:
+four rows in the table name a rule and record `appliesToThisShape: "no"`, and
+calling those "routed to source" would be the quiet overclaim
+`PIN-FAMILIES.md` exists to prevent. `route-to-source-unverified` is a rule that
+names *where to look*, not coverage.
+
+**What this is backed by, and what it is not.** Over the r2 corpus all five
+`unhandled` counters read 0 in both tracked runs (`test/pin-families.test.mjs`
+pins that, and `test/routing.test.mjs` re-reads it). So the **erasure side of
+the routing has never fired on real data**: in a tracked clang-18 run its five
+cells come out as `zero-occurrences`, and the only evidence that they route
+correctly when a counter *does* fire is the synthetic rows in
+`test/routing.test.mjs`. What is measured is the **configguard side**: over
+`data/r2-repair-rows.json` the five build-macro cells all carry configguard rows,
+the plugin brought none of them back, four are `unrouted` and one is
+`route-to-source-unverified` (`VG-AUTH-001`). The section's counts over the
+tracked clang-18 rows are 4 `unrouted`, 1 `route-to-source-unverified`, 13
+`not-routed-no-signal` (5 `zero-occurrences`, 8 `no-signal-defined`) — four of
+those thirteen are shapes the table calls `repairable-in-compiler`, and the
+section says so rather than letting them read as unhandled.
+
+The routing is never added to the tracked rows or the results text: `--write-data`
+copies those into `data/`, whose bytes `test/tracked-data.test.mjs` pins by
+sha256. `routing.json` and the printed section are a reading *of* a run, beside
+it.
+
 ## Limits of the find step's labelling
 
 This lane re-uses the find step's `wipeSpans` and does not fix it. One limit
@@ -879,7 +944,7 @@ compile (`NOT_SCORED`).
 
 | path | what |
 |---|---|
-| `run-repair-loop.mjs` | the runner: preflight, the four-compile cell, the per-span compiles, no-wipe files, configguard, results, manifest, pin plan; one compiler per run, clang or gcc |
+| `run-repair-loop.mjs` | the runner: preflight, the four-compile cell, the per-span compiles, no-wipe files, configguard, results, manifest, pin plan, routing; one compiler per run, clang or gcc |
 | `lib/vendor.mjs` | the vendor from the `--cc` basename, its plugin flag and record component, the per-compiler data file names, the `_FORTIFY_SOURCE` reading, the full-run check of a tracked rows file, the refusal of a `--cc` the tracked rows do not name; pure |
 | `lib/outcome.mjs` | the outcome table and its precedence, and the red-control grading; pure |
 | `lib/pin-record.mjs` | strict reader for the `wipe-pin-v2` record, from either repair plugin (`WipePin` or `WipePinGcc`); `followedByUseCounts` (listed vs actually pinned) |
@@ -892,6 +957,8 @@ compile (`NOT_SCORED`).
 | `lib/stage-gate.mjs` | the out-of-reach families; pure |
 | `lib/corpus.mjs` | the selection: the corpus files, what each one is, the erasure family; imported by the runner and by `tools/fbu-levels.mjs`; pure |
 | `pin-families.json`, `lib/pin-families.mjs`, `PIN-FAMILIES.md` | the per-property pin-family table: one row per (property, disappearance shape, repair candidate), its claim definitions and its validator; pure |
+| `lib/routing.mjs` | the routing of a run against that table: the signal vocabulary derived from the rows' citations, the per-cell decision (compiler / source / neither side holds it / no signal), and the refusal of a signal the table cannot name; pure |
+| `test/routing.test.mjs` | the routing over synthetic rows and over the tracked clang-18 rows, including that an unknown counter throws and that every unsignalled cell is counted |
 | `tools/intervene.mjs` | the second repair candidate: delete the attributed pass from the pipeline clang printed and replay under opt and llc, reading the IR and the asm channel; lab output only, never `data/` |
 | `test/pin-families.test.mjs` | recomputes every measured number in `pin-families.json` from the tracked rows, and re-runs the intervention gate over every claim that uses it |
 | `tools/lto-probe.mjs`, `tools/lib/lto.mjs`, `tools/LTO.md` | the LTO probe: the same cell judged on the assembly a full or thin LTO link writes; lab output only, never `data/` |
