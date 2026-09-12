@@ -49,16 +49,55 @@ Run in this order. Nothing here writes to `_results/`; output goes to
 `_results-wave2/second-vendor/`.
 
 ```sh
-node run-controls.mjs        # must pass before the table means anything
+node run-controls.mjs        # must pass before the table means anything -- ENFORCED, see below
 node run-second-vendor.mjs   # the 80-cell envelope + correspondence table
 node run-crosscheck.mjs      # replication check against the prior envelope (read-only)
 node run-gcc-dump-probe.mjs  # EXPLORATORY, see the warning below
 ```
 
+### The controls receipt — why the first line above is not advice
+
+"Must pass before the table means anything" was true and enforced by nothing until
+2026-09-12. `run-second-vendor.mjs` never opened `second-vendor-controls.json`,
+never looked at its verdict, and built the 80-cell envelope whether the controls
+had passed, had failed, or had never been run. The order was a convention, and a
+convention is a thing a person remembers.
+
+`run-controls.mjs` now writes a `controlsReceipt` block naming **what it validated
+the oracle on**: the sha-256 of `spec.json`, the vendor ids, and the sha-256 of
+every fixture `target.c` it compiled. `run-second-vendor.mjs` refuses — exit 3,
+before the first compile, leaving the previous envelope in place — unless a receipt
+saying `ALL_CONTROLS_PASSED` **over exactly those bytes** is sitting in `--out`.
+Digests rather than a flag: a receipt a stale run could satisfy is a checkbox, and
+a control demonstrated on a fixture somebody has since edited was demonstrated on
+something else. The controls delete the defence by *line number*, so an edited
+fixture is exactly the case where a stale receipt would be most wrong.
+
+Three refusals, deliberately three different sentences rather than one "controls
+failed": **nobody ran them**, **they ran and something failed**, and **they ran on
+other bytes** are different states of the world, and a caller that could not tell
+them apart would re-run the wrong thing. `lib/controls-receipt.mjs` holds the
+comparison and `test/controls-receipt.test.mjs` exercises it in both directions.
+
+`run-controls.mjs` also now exits **2** rather than 1 when a control fails.
+`interfaces.md` §7 spends 1 on "the underlying tool failed (compile error, link
+error)" and 2 on findings; a control that did not hold is a finding about the
+oracle, not a compiler that fell over.
+
+**This is not `compiler/eval/spike`'s gate, and is not offered as one.** That gate
+grades two known translation units with the *differential-compilation* verdict;
+this lane's instrument is `lib/asm-oracle.mjs`. Wiring spike in from outside would
+hang a green tick for one instrument over a table produced by another — which is
+what `compiler/eval/spike/README.md`'s own table says not to do about this lane.
+What spike closes elsewhere (a known positive, a known negative, a self-test on
+every run) is closed here by C1–C4 below, on this lane's own oracle, with the
+receipt making the table depend on them.
+
 ### `run-controls.mjs`
 
-Four controls per property per vendor. Exits non-zero if any fails; a failure
-invalidates the corresponding rows rather than being worked around.
+Four controls per property per vendor. Exits 2 if any fails (`interfaces.md` §7);
+a failure invalidates the corresponding rows rather than being worked around, and
+the receipt it writes then says `CONTROLS_FAILED`, which stops the envelope.
 
 - **C1 positive** — a *witness* configuration must exist in which the unmodified
   subject reads `PRESENT`. The search starts at the property's reference

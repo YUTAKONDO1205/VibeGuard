@@ -44,7 +44,24 @@
  *                    removed subject are different findings and must stay
  *                    different words.
  *
- * Exit code: 0 all controls passed, 1 at least one failed.
+ * THE RECEIPT
+ *
+ * This file also writes a `controlsReceipt` block naming what it validated the
+ * oracle ON: the sha-256 of spec.json, the vendor ids, and the sha-256 of every
+ * fixture `target.c` it compiled. `run-second-vendor.mjs` refuses to build the
+ * envelope unless a receipt saying ALL_CONTROLS_PASSED over exactly those bytes is
+ * there. README.md always said to run this first; until the receipt existed,
+ * nothing checked that anyone had, and the 80-cell table was produced whether
+ * these four controls had passed, had failed, or had never been run.
+ *
+ * Exit code (interfaces.md section 7): 0 all controls passed, 2 at least one
+ * failed. Two, not one: section 7 spends 1 on "the underlying tool failed
+ * (compile error, link error)" and 2 on findings, and a control that did not hold
+ * is a finding ABOUT THE ORACLE rather than a compiler that refused. This file
+ * exited 1 until the receipt gate was added, which would have told a caller that
+ * clang had fallen over when what happened was that the instrument could not be
+ * shown to work.
+ *
  * A failure here invalidates the main table; it does not get worked around.
  */
 
@@ -54,6 +71,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { observeEffect, classifyCell, extractFunctionBody } from './lib/asm-oracle.mjs';
+import { receiptOf, subjectOf, CONTROLS_FILE } from './lib/controls-receipt.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -129,7 +147,14 @@ function main() {
   const workRoot = args.work || '$LAB/_work-wave2/second-vendor-controls';
   const outRoot = args.out || '$LAB/_results-wave2/second-vendor';
 
-  const spec = JSON.parse(fs.readFileSync(path.join(HERE, 'spec.json'), 'utf8'));
+  const specPath = path.join(HERE, 'spec.json');
+  const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
+  // Taken BEFORE the mutant is written, so the receipt digests the fixtures as
+  // they were measured rather than as the C2 red demonstration left them. The
+  // mutant goes to the work tree and not to the fixture, so this is belt and
+  // braces -- and belt and braces is the right amount for the one value the gate
+  // downstream compares against.
+  const subject = subjectOf(spec, specPath, fixturesRoot);
   fs.rmSync(workRoot, { recursive: true, force: true });
   fs.mkdirSync(workRoot, { recursive: true });
   fs.mkdirSync(outRoot, { recursive: true });
@@ -267,7 +292,11 @@ function main() {
       'A failed block means the oracle could not be shown to distinguish present from absent in that vendor/property. The corresponding rows of the main table are not evidence and must be reported as VERIFICATION_INCOMPLETE.',
   };
 
-  const outPath = path.join(outRoot, 'second-vendor-controls.json');
+  // Recomputed from report.controls rather than from `failures`, so that the
+  // receipt cannot say ALL_CONTROLS_PASSED because a counter was not incremented.
+  report.controlsReceipt = receiptOf(subject, report.controls);
+
+  const outPath = path.join(outRoot, CONTROLS_FILE);
   fs.writeFileSync(outPath, JSON.stringify(report, null, 2));
   console.log('WROTE ' + outPath);
   for (const c of report.controls) {
@@ -283,7 +312,13 @@ function main() {
     );
   }
   console.log(JSON.stringify(report.summary, null, 2));
-  process.exit(failures === 0 ? 0 : 1);
+  console.log('receipt: ' + report.controlsReceipt.verdict
+    + ' over ' + report.controlsReceipt.blocks + ' block(s), spec '
+    + String(subject.specSha256).slice(0, 12)
+    + ', ' + Object.keys(subject.fixtures).length + ' fixture file(s)');
+  // interfaces.md section 7: a control that did not hold is a finding (2), never
+  // "the underlying tool failed" (1).
+  process.exit(failures === 0 ? 0 : 2);
 }
 
 main();

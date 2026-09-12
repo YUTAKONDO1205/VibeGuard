@@ -27,6 +27,30 @@ WHAT IS GRADED, AND WHY EACH ONE IS AN INVARIANT RATHER THAN A READING
     `off-axis-landing` and is exit 2, because either the classification or the
     discriminator is wrong and either way it is a finding about the instrument.
 
+  * THE SURVIVAL AXIS WAS EXPRESSED SOMEWHERE IN THE SET SWEPT. Only R2b asks the
+    instrument to tell a loss from a survival, and that is the discrimination this
+    whole lane exists to make. At -O0 nothing is folded, so every R2b cell reads
+    PRESENT->PRESENT, every one of them grades `not-expressed`, and a sweep of a
+    results directory holding only the -O0 document exits 0 -- which is also what
+    a sweep would do for an extractor that had been made incapable of ever
+    reporting a loss. The R2a and R2c cells still `pass` there, because they are
+    source deletions and say nothing about the optimiser; that is what makes this
+    green so convincing. So when the set swept contains no R2b cell that moved, it
+    is exit 3 naming the rule, not 0.
+
+    It is exit 3 and not exit 2 because nothing was falsified: the run simply never
+    asked the question. It is the same finding, one layer out, as the cross-vendor
+    rule below -- an unreadable comparison with no readable comparison of the same
+    shape beside it -- and it carries the same code for the same reason.
+
+    THIS FENCE GUARDS THE SWEEP ONLY. Grading a named document is a legitimate act:
+    it is what the -O0-only demonstrations do and what scripts/falsify-meta.py does
+    on every corruption, and a fence that fired there would make the falsifier's
+    own baseline unclean. `scripts/check-battery.py` draws the line in the same
+    place and says so at its `if not argv`, for the same reason. `not-expressed` at
+    -O0 beside `pass` at -O2 remains the expected shape of this lane, and a sweep
+    that holds both documents satisfies this rule without anything else changing.
+
   * NO TOTAL ORDER ON THE SIX STATES. Only R2b is graded on the two-point survival
     axis PRESENT > LOST. R2a lands on ABSENT, R2c lands on NOT_APPLICABLE, and the
     forbidden polarity has no survival axis at all -- so `survivalAxisGraded` must
@@ -84,8 +108,9 @@ Exit codes follow interfaces.md section 7:
   3  a document could not be looked at, or a cell could not be graded: a missing
      document, an unknown schemaVersion, a digest that does not recompute, a
      catalogue that has moved since the run, a side that produced no reading, a
-     base that was not at its declared origin, or an invariance over a base that
-     never established the property
+     base that was not at its declared origin, an invariance over a base that
+     never established the property, or a SWEEP in which no R2b cell moved, so
+     nothing in it asked the instrument to tell a loss from a survival
 
 2 outranks 3 when both are present, and both are printed. A falsified invariant is
 a positive finding about the instrument; an ungradeable cell is an absence, and
@@ -320,6 +345,35 @@ def grade_cell(cell, op):
                       "classification of this operator or the extractor's "
                       "discriminator is wrong, and either way it is a finding."
                       % (origin, target, mutant))
+
+
+def survival_axis_movers(grades, cat):
+    """The R2b operators that actually moved along their edge in one document.
+
+    R2b is the only class on the two-point survival axis, so this is the set of
+    cells in which the instrument was asked to tell PRESENT from LOST and said
+    LOST. Everything else in the document -- an R1 that stayed put, an R2a source
+    deletion that landed on ABSENT, an R2c that landed on NOT_APPLICABLE -- passes
+    identically for an extractor that can no longer report a loss at all.
+
+    Taken from the CATALOGUE's class field, never from the document's
+    `survivalAxisGraded`, which is a copy the grader has just finished checking
+    rather than the thing it is checked against.
+    """
+    classes = {op["operatorId"]: op.get("class") for op in cat["operators"]}
+    return sorted(op_id for op_id, (word, _detail) in grades.items()
+                  if classes.get(op_id) == "R2b" and word == PASS)
+
+
+def graded_r2b_operators(cat):
+    """Every R2b operator the catalogue declares AND grades.
+
+    Empty is a real answer: a catalogue with no graded R2b operator has no survival
+    axis to express, and the fence below says nothing about such a run rather than
+    refusing every sweep of it.
+    """
+    return sorted(op["operatorId"] for op in cat["operators"]
+                  if op.get("class") == "R2b" and op.get("graded"))
 
 
 def rederive_agreement(cmp_row):
@@ -694,6 +748,13 @@ def print_table(name, doc, cat, grades):
         counts[word] = counts.get(word, 0) + 1
     print("grades: " + ", ".join("%s=%d" % kv for kv in sorted(counts.items())))
 
+    movers = survival_axis_movers(grades, cat)
+    declared = graded_r2b_operators(cat)
+    print("survival axis: %d of %d graded R2b operator(s) moved%s"
+          % (len(movers), len(declared),
+             (" -- " + ", ".join(movers)) if movers
+             else " -- nothing in this document told a loss from a survival"))
+
     cross = doc.get("crossVendor") or {}
     print("cross-vendor %s: %s"
           % (cross.get("status"),
@@ -755,6 +816,7 @@ def main(argv):
 
     problems = []
     graded = 0
+    movers = set()
     for path in paths:
         name = os.path.basename(path)
         doc, why = load(path, catalogue_sha)
@@ -765,9 +827,31 @@ def main(argv):
         print_table(name, doc, cat, grades)
         problems.extend(p)
         ungradeable.extend(u)
+        movers.update(survival_axis_movers(grades, cat))
         graded += 1
 
     print("%d document(s) graded of %d found." % (graded, len(paths)))
+
+    # --- the survival axis, over the whole set swept --------------------------
+    #
+    # Skipped when the caller named documents: grading one on purpose is what the
+    # -O0-only demonstrations do and what falsify-meta.py does on every corruption,
+    # and a fence that fired there would make that harness's own baseline unclean
+    # and every refusal below it meaningless. check-battery.py's whole-set fence is
+    # drawn in exactly the same place and says so at its own `if not argv`.
+    declared_r2b = graded_r2b_operators(cat)
+    if not argv and graded and declared_r2b and not movers:
+        ungradeable.append(
+            "no cell on the survival axis moved anywhere in the %d document(s) swept. The "
+            "catalogue grades %d R2b operator(s) (%s) and every one of them is `not-expressed` "
+            "here, so nothing in this set ever asked the instrument to tell PRESENT from LOST -- "
+            "which is what the lane is for. The R1 cells that stayed put and the R2a/R2c cells "
+            "that moved are exactly what an extractor incapable of ever reporting a loss would "
+            "also produce, so they do not stand in for it. This is the shape of a sweep of a "
+            "results directory holding only the -O0 run: at -O0 nothing is folded and every R2b "
+            "cell reads PRESENT->PRESENT. Measure and assemble a level at which the optimiser "
+            "folds -- the lane's own README runs O0 and O2 -- and grade both."
+            % (graded, len(declared_r2b), ", ".join(declared_r2b)))
 
     if problems:
         print("\n%d disagreement(s):" % len(problems), file=sys.stderr)

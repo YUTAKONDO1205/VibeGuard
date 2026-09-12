@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Corrupt a metamorphic report in eight named ways and check that check-meta.py
-REFUSES each one, with the exit code interfaces.md section 7 assigns to it.
+"""Corrupt a metamorphic report in eight named ways -- plus one way that can only
+be done to a SET -- and check that check-meta.py REFUSES each one, with the exit
+code interfaces.md section 7 assigns to it.
 
     python3 compiler/eval/metamorphic/scripts/falsify-meta.py [report.json]
 
@@ -32,6 +33,17 @@ unreadable cross-vendor comparison relabelled as a split, the last readable
 comparison of a shape removed so that nothing in the run witnesses the oracle
 working, an R2c cell put on the survival axis, and a float in a document whose
 digest is defined over integers.
+
+The ninth is about the SET rather than about a document, and it is the one the
+other eight cannot reach. Every R2b cell is made `not-expressed` -- the reading a
+-O0 run legitimately produces -- and the result is swept ALONE. Each half is
+checked: named on its own the document is still accepted, because a -O0 document
+is a real document; swept as the whole set it is refused at 3, because then
+nothing anywhere asked the instrument to tell PRESENT from LOST and a sweep that
+exits 0 over it would be reporting the health of an extractor incapable of
+reporting a loss. That pair is the demonstration -- one corruption that shows the
+fence firing would not show that it is conditional, and an unconditional fence
+here would be wrong.
 
 Each corruption REDIGESTS unless the point of it is the digest, because a
 corruption that also breaks the digest would be caught by the precondition and
@@ -241,9 +253,53 @@ CORRUPTIONS = (
 )
 
 
+def c_survival_axis_never_expressed(doc):
+    """Every R2b cell made `not-expressed`: the mutant put back where the base is.
+
+    This is not a malformed document and is not meant to be -- it is EXACTLY the
+    shape a legitimate -O0 run produces, which is what makes it the right
+    corruption. The R1 cells still hold, the R2a source deletions still land on
+    ABSENT, the R2c cells still land on NOT_APPLICABLE, and nothing in it is
+    self-contradictory. What is gone is the only class that asks the instrument to
+    tell a loss from a survival, and an extractor that could no longer report one
+    at all would produce this same document.
+
+    The transition string is moved with the state, so the document's own arithmetic
+    still recomputes and the ONLY thing left for the grader to notice is that the
+    survival axis was never expressed.
+    """
+    moved = 0
+    for cell in doc["cells"]:
+        if not cell.get("survivalAxisGraded") or not cell.get("transitionReadable"):
+            continue
+        base = cell["base"]["state"]
+        if cell["mutant"]["state"] == base:
+            continue
+        cell["mutant"]["state"] = base
+        cell["transition"] = "%s->%s" % (base, base)
+        moved += 1
+    if moved == 0:
+        return None, "no R2b cell in this document had moved, so there is nothing to put back"
+    return redigest(doc), None
+
+
 def run_checker(path):
     proc = subprocess.run([sys.executable, CHECKER, path],
                           capture_output=True, text=True)
+    return proc.returncode, proc.stdout + proc.stderr
+
+
+def sweep_checker(out_dir):
+    """check-meta.py in the mode a caller trusts: no arguments, one directory.
+
+    The whole-set fence is deliberately not applied to a named document, so it can
+    only be exercised through this entry point. check-battery.py's own set-level
+    corruption is run the same way, through VG_CAL_LAB.
+    """
+    env = dict(os.environ)
+    env["VG_META_OUT"] = out_dir
+    proc = subprocess.run([sys.executable, CHECKER],
+                          capture_output=True, text=True, env=env)
     return proc.returncode, proc.stdout + proc.stderr
 
 
@@ -315,6 +371,58 @@ def main(argv):
             print("%-30s %-14s %-8d %-8d %s"
                   % (cname, os.path.basename(report), expect, rc,
                      "refused" if ok else "WRONG"))
+
+    # --- the one corruption that is about the SET ---------------------------
+    #
+    # Both halves are asserted, because only the pair says what the fence is. A
+    # -O0 document is a real document and is still accepted when it is named; it is
+    # a sweep of NOTHING BUT such documents that has asked no question, and that is
+    # what must be refused. A fence that fired on the named document too would be
+    # refusing a legitimate act and would also make every baseline above unclean.
+    for report in reports:
+        with open(report, "r", encoding="utf-8") as fh:
+            original = json.load(fh)
+        doc, why_not = c_survival_axis_never_expressed(copy.deepcopy(original))
+        base_name = os.path.basename(report)
+        if doc is None:
+            print("%-30s %-14s %-8s %-8s SKIPPED (%s)"
+                  % ("survival-axis-never-expressed", base_name, 3, "-", why_not))
+            skipped += 1
+            continue
+        sweep_dir = os.path.join(WORK, "sweep-%s" % base_name[:-5])
+        os.makedirs(sweep_dir, exist_ok=True)
+        target = os.path.join(sweep_dir, base_name)
+        with open(target, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, indent=1, sort_keys=True, ensure_ascii=False)
+            fh.write("\n")
+
+        named_rc, _out = run_checker(target)
+        applied += 1
+        named_ok = named_rc == 0
+        if not named_ok:
+            wrong.append(
+                "survival-axis-never-expressed on %s: NAMED, the grader exited %d and 0 is "
+                "contracted. A document in which no R2b cell moved is exactly what a -O0 run "
+                "produces and grading one on purpose is legitimate; a fence that refuses it "
+                "here would also make this harness's own baseline unclean."
+                % (base_name, named_rc))
+        print("%-30s %-14s %-8d %-8d %s"
+              % ("survival-axis (named)", base_name, 0, named_rc,
+                 "accepted" if named_ok else "WRONG"))
+
+        sweep_rc, _out = sweep_checker(sweep_dir)
+        applied += 1
+        sweep_ok = sweep_rc == 3
+        if not sweep_ok:
+            wrong.append(
+                "survival-axis-never-expressed on %s: SWEPT ALONE, expected exit 3 and the "
+                "grader exited %d%s. Nothing in that set told a loss from a survival, so a 0 "
+                "there is the health of an extractor that could no longer report one."
+                % (base_name, sweep_rc,
+                   " -- IT ACCEPTED THE SET" if sweep_rc == 0 else ""))
+        print("%-30s %-14s %-8d %-8d %s"
+              % ("survival-axis (swept alone)", base_name, 3, sweep_rc,
+                 "refused" if sweep_ok else "WRONG"))
 
     print("\n%d corruption(s) applied, %d skipped as not applicable to the "
           "document." % (applied, skipped))

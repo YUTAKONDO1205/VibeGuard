@@ -44,6 +44,31 @@ scripts/falsify-battery.py     corrupts real reports and asserts check-battery.p
 test/witness-asm.test.mjs      unit tests for the structural witness. No compiler needed.
 ```
 
+### Why no spike/recovery gate is wired in here
+
+`compiler/eval/spike` mixes two translation units of registered behaviour into a
+run and grades them with the *differential-compilation* verdict. This battery's
+instrument is `libIrCheckpoints.so` read through `scripts/run-battery.sh`, plus the
+independent assembly leg. Wiring spike in from outside would hang a green tick for
+one instrument over a battery produced by another, and
+`compiler/eval/spike/README.md`'s own table says so of this lane by name.
+
+The same three jobs are done here, on this battery's own instrument, and they are
+worth naming because "no gate" reads as "no self-test":
+
+| spike's part | this lane's part |
+|---|---|
+| the spike registered to be ELIMINATED | the **reference** cells, graded against `claims/expected.json`'s known true values — `scripts/check-battery.py:409`, exit 2 on a misread |
+| the spike registered to SURVIVE | the **known-BROKEN** cells, graded in **both** directions — `check-battery.py:401`: a cell that reported a broken apparatus at every configuration is indistinguishable from a harness that always says so |
+| `NO_DISCRIMINATING_CONFIGURATION` | the whole-set configuration fence — `check-battery.py:637-650`, which names `-O0` as the column where nothing is folded and no discrimination is exercised, and refuses a sweep that found only the others |
+| the injection the gate must refuse | `scripts/falsify-battery.py`, run last on the reports this run produced — `run-all.sh:107` |
+
+One hole was found while checking that, and it is closed rather than described:
+`--no-falsify` skipped the injection and the run's **last line was identical** to a
+full run's. It now prints `NOT ESTABLISHED` naming what the flag turned off. The
+exit code does not move — a flag a caller passed on purpose is not a fault — which
+is this directory's own convention, set at `check-battery.py:672` and stated there.
+
 Two of those exist because of what was missing rather than what was planned.
 `falsify-battery.py` is the repeatable half of "the graders are shown to fail": the
 refusals were demonstrated once, by hand, in a session whose output scrolled away,

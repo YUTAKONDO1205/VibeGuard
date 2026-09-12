@@ -7,8 +7,38 @@
  * it does not claim pass-level attribution for gcc. Both of those are recorded
  * as UNSUPPORTED in the output rather than left to the reader's imagination.
  *
+ * THE CONTROLS RECEIPT, AND WHY IT IS A GATE AND NOT A NOTE
+ *
+ * README.md says "Run in this order" and, of run-controls.mjs, "must pass before
+ * the table means anything". That was true and enforced by nothing: this file
+ * never opened second-vendor-controls.json, and it produced the 80-cell envelope
+ * whether the controls had passed, had failed, or had never been run. An order
+ * kept by convention is kept until somebody is in a hurry.
+ *
+ * So this file now refuses unless run-controls.mjs left a receipt saying
+ * ALL_CONTROLS_PASSED over THE SAME spec, THE SAME vendors and THE SAME fixture
+ * bytes this run is about to measure. Digests rather than a flag, because a
+ * receipt that a stale run could satisfy is a checkbox: the four controls are
+ * what make PRESERVED and LOST mean anything here, and a control demonstrated on
+ * a fixture somebody has since edited has been demonstrated on something else.
+ *
+ * This is deliberately NOT compiler/eval/spike's gate. That gate grades two known
+ * translation units with the differential-compilation verdict, and this lane's
+ * instrument is lib/asm-oracle.mjs; wiring it in from outside would hang a green
+ * tick for one instrument over a table produced by another, which is the thing
+ * compiler/eval/spike/README.md's own table says not to do about this lane. The
+ * hole spike closes elsewhere -- known positive, known negative, self-test every
+ * run -- is closed here by C1..C4 in run-controls.mjs, on this lane's own oracle,
+ * and by this receipt making the table depend on them.
+ *
  * Usage:
  *   node run-second-vendor.mjs --fixtures <dir> --work <dir> --out <dir>
+ *
+ * Exit codes (interfaces.md section 7): 3 when the receipt is absent, not green,
+ * or not about these bytes -- a check that could not be completed, and never 0.
+ * run-metamorphic.sh reports a digest that moved between two readings the same
+ * way (generator-digest-moved / catalogue-digest-moved, both `finish 3`), so a
+ * caller does not have to learn a second convention for the same event.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -18,6 +48,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { observeEffect, classifyCell } from './lib/asm-oracle.mjs';
+import { readReceipt, receiptProblems, subjectOf } from './lib/controls-receipt.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -131,7 +162,33 @@ function main() {
   const workRoot = args.work || '$LAB/_work-wave2/second-vendor';
   const outRoot = args.out || '$LAB/_results-wave2/second-vendor';
 
-  const spec = JSON.parse(fs.readFileSync(path.join(HERE, 'spec.json'), 'utf8'));
+  const specPath = path.join(HERE, 'spec.json');
+  const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
+
+  // ---- the controls receipt, before the first compile ----------------------
+  //
+  // Before anything, so that a refused run leaves the previous envelope alone:
+  // the rmSync below would otherwise have destroyed the last good one on the way
+  // to refusing, and a lane with neither a new table nor the old one is worse
+  // off than one that simply stopped.
+  const subject = subjectOf(spec, specPath, fixturesRoot);
+  const found = readReceipt(outRoot);
+  const where = found.unreadable
+    ? `${found.path} (unreadable: ${found.unreadable})`
+    : found.path;
+  const gate = receiptProblems(found.unreadable ? null : found.receipt, subject, where);
+  if (gate.length) {
+    process.stderr.write('run-second-vendor.mjs: refusing to build the envelope.\n');
+    for (const why of gate) process.stderr.write('  ' + why + '\n');
+    process.stderr.write(
+      '  Nothing was compiled and no file was written. Run:\n'
+      + `    node run-controls.mjs --fixtures ${fixturesRoot} --out ${outRoot}\n`);
+    process.exit(3);
+  }
+  process.stderr.write(
+    `run-second-vendor.mjs: controls receipt ${found.receipt.verdict} over `
+    + `${found.receipt.blocks} block(s), spec ${String(subject.specSha256).slice(0, 12)}, `
+    + `${Object.keys(subject.fixtures).length} fixture file(s) -- proceeding.\n`);
 
   fs.rmSync(workRoot, { recursive: true, force: true });
   fs.mkdirSync(workRoot, { recursive: true });

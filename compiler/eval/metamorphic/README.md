@@ -207,8 +207,9 @@ that produces a reading is never the thing that reads it.**
 | `scripts/run-metamorphic.sh` | PRODUCER. One configuration → records + manifest. **Decides nothing** — it never compares a base against its mutant |
 | `scripts/build-meta-report.py` | ASSEMBLER. `vibeguard.metamorphic-report/1`: canonical, integer-only, digested, refuses rather than redacting an absolute path |
 | `scripts/check-meta.py` | GRADER. R1 invariance and R2 declared direction, and nothing else |
-| `scripts/falsify-meta.py` | corrupts a report in eight named ways and checks that the grader refuses each one |
+| `scripts/falsify-meta.py` | corrupts a report in eight named ways, plus one way that can only be done to a SET, and checks that the grader refuses each one |
 test/catalogue.test.mjs   static fence over catalogue.json. No compiler, no lab, no document.
+test/test_check_meta_survival_axis.py  the survival-axis fence, both directions. No compiler, no lab.
 
 ## The observer's three silent failure modes, and where each is fenced
 
@@ -281,10 +282,43 @@ nobody offered.
 - the object, linked and artefact checkpoints. The IR channel stops at the end of the
   IR optimiser; the asm channel reads one listing.
 
+## The survival axis has to be expressed somewhere in the set
+
+`R2b` is the only class on the two-point survival axis `PRESENT > LOST`, and it is
+the only one that asks the instrument to tell a loss from a survival. At `-O0`
+nothing is folded, so all three graded R2b cells read `PRESENT->PRESENT` and grade
+`not-expressed` — while every R1 invariance still holds, every R2a source deletion
+still lands on `ABSENT`, and every R2c still lands on `NOT_APPLICABLE`. Until
+2026-09-12 a sweep of a results directory holding only that document exited 0 with
+*"all 1 document(s) satisfy the relations declared in catalogue.json"*, which is
+also exactly what it would print for an extractor made incapable of ever reporting
+a loss. Measured, not imagined: the previous `check-meta.py` was run on such a
+document and returned 0.
+
+`check-meta.py` now reports that as **exit 3** and names the R2b operators that did
+not move. Exit 3 and not 2, because nothing was falsified — the run never asked the
+question; it is the same finding, one layer out, as the cross-vendor rule that
+refuses an unreadable comparison with no readable comparison of the same shape
+beside it, and it carries the same code.
+
+**The fence guards the sweep only.** Grading a named document is legitimate — it is
+what the `-O0`-only demonstrations do and what `falsify-meta.py` does on every
+corruption — so it applies when `check-meta.py` is invoked with no arguments over
+`$VG_META_OUT`. `check-battery.py` draws the line in the same place, at its own
+`if not argv`, for the same reason. `not-expressed` at `-O0` beside `pass` at `-O2`
+remains the expected shape of this lane: a sweep holding both documents is clean.
+
+`falsify-meta.py`'s ninth corruption is the demonstration, and it asserts **both**
+halves — the flattened document is still accepted when named, and refused at 3 when
+it is the whole sweep. One half alone would not show that the fence is conditional,
+and an unconditional fence here would be wrong.
+
 ## Running it
 
 ```sh
 # 1. produce. One configuration per invocation. Decides nothing.
+#    BOTH of these, and for a reason: a sweep of O0 alone is refused, because at
+#    -O0 no R2b cell moves and nothing in the set tells a loss from a survival.
 bash compiler/eval/metamorphic/scripts/run-metamorphic.sh O0 -O0
 bash compiler/eval/metamorphic/scripts/run-metamorphic.sh O2 -O2
 
@@ -296,6 +330,10 @@ python3 compiler/eval/metamorphic/scripts/check-meta.py
 
 # 4. show the grader failing. A grader never shown to fail has not been shown to work.
 python3 compiler/eval/metamorphic/scripts/falsify-meta.py
+
+# the two suites. Neither needs a compiler or a lab.
+node --test compiler/eval/metamorphic/test/*.test.mjs
+python3 compiler/eval/metamorphic/test/test_check_meta_survival_axis.py
 ```
 
 Environment: `VG_META_LAB` (default `~/vg-lab/metamorphic`), `VG_META_OUT` (default
