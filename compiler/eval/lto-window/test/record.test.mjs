@@ -466,3 +466,48 @@ test('every reading this function can return is one of the four declared words',
   ];
   for (const c of cases) assert.ok(words.has(whichWipeSurvived(c).reading), JSON.stringify(c));
 });
+
+/* --- a cell that was never measured has no equality check to have failed ----
+ *
+ * Added 2026-09-12. The per-cell byteIdentical guard ran BEFORE the incomplete
+ * tally and asked only whether `byteIdentical === true`, so a clang full-LTO
+ * link cell that came back UNSUPPORTED (no lld) or BROKEN_MEASUREMENT (nothing
+ * readable from the observed link) exited 2 saying "the sha256 equality check
+ * did not establish non-invasiveness here" -- asserting a check ran on an
+ * executable that was never produced. Measured against HEAD, both were 3 there.
+ *
+ * Codes 2 and 3 are kept apart in interfaces.md section 7 for exactly this: 3 is
+ * the code that stops "we did not look" from being reported as anything else.
+ *
+ * The reason the suite missed it is worth keeping too: every link cell in this
+ * file is built by `cell()`, which hard-codes `measurement: OK`, so the one
+ * combination that mattered -- a link cell that is NOT OK and has a null
+ * byteIdentical -- could not be constructed by the helper. These build it
+ * explicitly.
+ */
+
+test('an unmeasured link cell is 3, not a failed non-invasiveness check', () => {
+  const nc = { xtu: { ran: true, fired: true } };
+  for (const measurement of [MEASUREMENT.UNSUPPORTED, MEASUREMENT.BROKEN_MEASUREMENT]) {
+    const c = linkCell({ measurement, state: STATE.NOT_OBSERVED, guards: { byteIdentical: null } });
+    const d = exitDecision({ cells: [c], negativeControls: nc, families: ['xtu'] });
+    assert.equal(d.code, 3, `${measurement} should be incomplete, not a finding`);
+    assert.match(d.messages.join(' '), /could not be completed/);
+    assert.doesNotMatch(d.messages.join(' '), /non-invasiveness/,
+      `${measurement} was reported as a failed equality check on a link that never happened`);
+  }
+});
+
+test('a MEASURED link cell with no equality check is still 2 -- the guard did not go soft', () => {
+  // The other half. Skipping unmeasured cells must not skip the case the guard
+  // exists for: the link ran, the observer ran, and nobody compared the bytes.
+  const nc = { xtu: { ran: true, fired: true } };
+  for (const byteIdentical of [null, false]) {
+    const d = exitDecision({
+      cells: [linkCell({ guards: { byteIdentical } })], negativeControls: nc, families: ['xtu'],
+    });
+    assert.equal(d.code, 2, `byteIdentical ${JSON.stringify(byteIdentical)} must still be a finding`);
+    assert.match(d.messages.join(' '), /non-invasiveness/);
+  }
+  assert.equal(exitDecision({ cells: [linkCell()], negativeControls: nc, families: ['xtu'] }).code, 0);
+});

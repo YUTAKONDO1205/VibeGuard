@@ -447,12 +447,22 @@ function propertyFrom(propertyId, readings) {
 /* ------------------------------------------------------------- envelope -- */
 
 /**
- * The `../schema/interfaces.md` §5 blocks the lane result does not carry.
+ * The two blocks a lane result does not carry, and where each is required.
  *
- * `toolchain` there is `{digest, clang|gcc, packages}` where `digest` is the
- * sha256 of the PINNED SET — a measurement `record-run.mjs` takes by hashing
- * each binary. A lane result carries version strings and a plugin hash and no
- * such digest, and `command.argv` it carries not at all. Both are therefore
+ * They come from DIFFERENT places, and the distinction is worth the six lines it
+ * costs: a comment that attributes both to the governing document is quoting a
+ * requirement the governing document does not make.
+ *
+ *   `toolchain`     `../schema/interfaces.md` §5, which does require it outside
+ *                   `context` on every record. There it is `{digest, clang|gcc,
+ *                   packages}` and `digest` is the sha256 of the PINNED SET — a
+ *                   measurement `record-run.mjs` takes by hashing each binary.
+ *   `command.argv`  NOT interfaces.md, which does not contain the string `argv`
+ *                   anywhere. It is `verify.mjs`'s own rule — VG-ART-052, "A
+ *                   record describes a compilation; its argv is never empty."
+ *
+ * A lane result carries version strings and a plugin hash and no pinned-set
+ * digest, and `command.argv` it carries not at all. Both are therefore
  * inputs to this producer rather than derivations from the lane: there is
  * nothing to derive them from, and a producer that filled them in with what was
  * to hand would be writing a claim about a toolchain nobody hashed.
@@ -463,8 +473,9 @@ function propertyFrom(propertyId, readings) {
 export function readEnvelope(envelope) {
   if (!isObject(envelope)) {
     throw new ProducerError(
-      'no envelope was given. interfaces.md §5 requires `toolchain` and a non-empty `command.argv` on '
-        + 'every record, a lane result carries neither in that shape, and nothing here will invent them. '
+      'no envelope was given. interfaces.md §5 requires `toolchain` on every record and verify.mjs '
+        + 'requires a non-empty `command.argv` (VG-ART-052); a lane result carries neither in that shape, '
+        + 'and nothing here will invent them. '
         + 'Pass --envelope <file> holding {"toolchain": {...}, "command": {"argv": [...]}}.',
     );
   }
@@ -490,7 +501,7 @@ export function readEnvelope(envelope) {
  * @param {object} args
  * @param {object} args.lane         the lane's own result document
  * @param {object} args.declaration  an `evidence-declaration-v1` document. REQUIRED.
- * @param {object} args.envelope     interfaces.md §5's `toolchain` and `command`
+ * @param {object} args.envelope     §5's `toolchain` and verify.mjs's `command`
  * @param {object} [args.context]    passed to `sealRecord`; omitted, `clock.mjs` decides
  * @returns {{record: object, counts: {inputs: number, checked: number, skipped: number}, imbalances: object[]}}
  */
@@ -560,6 +571,58 @@ export function produceRecord({ lane, declaration, envelope, context } = {}) {
   // question about the plan by editing what happened.
   const properties = [];
   const declaredIds = new Set(decl.properties.map((p) => p.propertyId));
+
+  // A READING THE DECLARATION DID NOT PLAN FOR IS A REFUSAL, NOT A FILTER.
+  //
+  // The line below used to be `.filter((c) => byCheckpoint.has(c))` on the
+  // planned list, which keeps the planned checkpoints that were measured and
+  // drops — with no trace anywhere — every measured checkpoint that was not
+  // planned. Found 2026-09-12 by an adversarial review and reproduced here
+  // before being believed. A policy naming `observeAt: ["after-pass"]` on a lane
+  // that measures at compile AND at link maps both readings into the record, one
+  // at `ir-pre` and one at `ir-post`; the declaration plans only `ir-post`; the
+  // `ir-pre` PRESENT reading vanished. What came out was not a smaller record,
+  // it was a DIFFERENT claim:
+  //
+  //     measured   PRESENT at ir-pre, LOST at ir-post, DSEPass on handle
+  //     emitted    firstLoss {stage: "compile", pass: null, unit: "handle"}
+  //     counts     checked=2 skipped=0      ledger 1/1      verify.mjs exit 0
+  //
+  // because `propertyFrom` computes the loss interval from the states it is
+  // given: with the PRESENT gone, `lastSeen` is null, the interval is not
+  // `ir-pass`, `mayNamePass` goes false, and the pass name is stripped while the
+  // unit is kept. A run that measured "DSEPass removed it in the LTO backend"
+  // was emitted as "lost somewhere in compile, by nothing", and every check in
+  // this directory passed.
+  //
+  // Dropping it quietly is the exact bug `counting.mjs` exists for, one level
+  // down: reporting success over an input nobody looked at. And it cannot be
+  // fixed by recording the drop either, because the REMAINING states then still
+  // produce the weakened firstLoss. So the producer refuses, the way it refuses
+  // two observeAt words that land on one checkpoint: a component that cannot
+  // express what it was given reports the problem instead of emitting it.
+  const outOfPlan = [];
+  for (const p of decl.properties) {
+    const byCheckpoint = readings.get(p.propertyId);
+    if (byCheckpoint === undefined) continue;
+    const planned = new Set(p.plannedCheckpoints);
+    for (const c of byCheckpoint.keys()) {
+      if (!planned.has(c)) outOfPlan.push({ propertyId: p.propertyId, checkpoint: c, id: byCheckpoint.get(c)?.id ?? null });
+    }
+  }
+  if (outOfPlan.length) {
+    const lines = outOfPlan.map((o) => `  ${o.id ?? '(unnamed cell)'} -> ${o.propertyId} at ${o.checkpoint}`);
+    throw new ProducerError(
+      `${outOfPlan.length} measured cell(s) landed at a record checkpoint the declaration did not plan for:\n`
+        + `${lines.join('\n')}\n`
+        + 'The declaration is the plan, and it is written from the policy BEFORE the run, so this is the plan '
+        + 'and the measurement disagreeing. Emitting the planned readings alone would not be a smaller record: '
+        + 'the loss interval is computed from the states present, so dropping an earlier PRESENT moves the '
+        + 'interval and strips the pass attribution, and the result verifies clean. Widen the policy\'s '
+        + '`observeAt` for the property, or measure only what it plans.',
+    );
+  }
+
   for (const p of decl.properties) {
     const byCheckpoint = readings.get(p.propertyId);
     if (byCheckpoint === undefined) continue;
@@ -670,8 +733,10 @@ export function produceRecord({ lane, declaration, envelope, context } = {}) {
       declarationSource: isObject(declaration.source) ? (declaration.source.kind ?? 'declaration') : 'declaration',
       plannedCheckpoints: [...decl.plannedCheckpoints],
       entries,
-      // interfaces.md §5: "The producer maps between them and records which
-      // mapping it used". Only the rows that were applied.
+      // Which mapping was applied. This is THIS lane's rule, not interfaces.md's
+      // -- see checkpoint-map.mjs's header for why the earlier comment here,
+      // which quoted §5 for it, was quoting a sentence §5 has never carried.
+      // Only the rows that were actually used.
       checkpointMapping: mappingRecord(laneName, used),
     },
     properties,
@@ -707,8 +772,9 @@ const USAGE = [
   'pass to `verify.mjs --record <evidence.json> --declared <declaration.json>`,',
   'which is the only source that can catch a record that shrank both of its books.',
   '',
-  'The envelope holds what interfaces.md §5 requires and a lane result does not',
-  'carry: {"toolchain": {...}, "command": {"argv": [...]}, "artifact": {...}?}.',
+  'The envelope holds what a record needs and a lane result does not carry:',
+  '{"toolchain": {...}, "command": {"argv": [...]}, "artifact": {...}?}. toolchain is',
+  'interfaces.md §5; a non-empty argv is verify.mjs VG-ART-052, not §5.',
   '',
   'Exit codes (interfaces.md §7): 0 written, 3 an input could not be read or',
   'nothing was produced, 4 a refusal — nothing is written after one.',

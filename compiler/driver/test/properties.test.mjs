@@ -468,3 +468,107 @@ test('a skip has to be authorised by name, and every skipped case is listed', ()
   assert.match(r.stdout, /^skip src — authorised by VG_CHECK_GATES_SKIP$/m);
   assert.match(r.stdout, /^inputs=1 checked=0 skipped=1$/m);
 });
+
+// --- asking for two checkpoints and getting one -------------------------------
+//
+// Added 2026-09-12, after measuring something else. `checkProperties` filtered
+// the catalogue's implemented checkpoints by the ones the policy named and asked
+// only whether the result was EMPTY. So a policy naming two checkpoints, one of
+// which nothing observes this property at, was answered at the other one and
+// reported `reachable`, complete, with no finding -- and the unanswered half
+// left no trace in the record for anything downstream to notice.
+//
+// How it surfaced is worth keeping. Adding `process` to the checkpoint enum made
+// `["pre-opt-ir","process"]` schema-VALID where it had been rejected as
+// malformed, so it reached this gate for the first time and passed: exit 4 to
+// exit 0, which is the one thing properties.json's `_grant` promises a
+// vocabulary word cannot do. Measured against HEAD it turned out not to be the
+// enum's doing -- `["pre-opt-ir","object"]`, both words legal all along, passed
+// here before the change too. The widening exposed an older leniency through a
+// new path. Both are closed below, and the second is the one that proves the
+// first was not a regression.
+
+test('a checkpoint the policy names and nothing answers is a finding, even when another is answered', () => {
+  const e = CATALOGUE.byId.get('survive.secure-wipe');
+  // the shape of the catalogue this rests on, asserted rather than assumed
+  const impl = e.checkpoints.filter((c) => c.status === 'implemented' && c.extractor);
+  assert.deepEqual(impl.map((c) => c.checkpoint), ['pre-opt-ir', 'after-pass']);
+  assert.ok(e.checkpoints.some((c) => c.checkpoint === 'object' && c.status !== 'implemented'));
+
+  const r = checkProperties([{ id: e.id, kind: e.kind, observeAt: ['pre-opt-ir', 'object'] }], CATALOGUE);
+  assert.equal(r.entries[0].verdict, 'some-requested-checkpoints-unreachable');
+  assert.equal(r.complete, false);
+  assert.equal(r.usable, 0);
+  assert.equal(r.findings[0].id, 'VG-CFG-018');
+  // the record has to carry BOTH numbers: what was answered and what was not
+  assert.deepEqual(r.entries[0].reachableCheckpoints, ['pre-opt-ir']);
+  assert.deepEqual(r.entries[0].unansweredCheckpoints, ['object']);
+  assert.match(r.findings[0].detail, /is not answering the policy/);
+});
+
+test('the same holds for `process`, which is the path the enum widening opened', () => {
+  const r = checkProperties(
+    [{ id: 'survive.secure-wipe', kind: 'must-survive', observeAt: ['pre-opt-ir', 'process'] }], CATALOGUE);
+  assert.equal(r.entries[0].verdict, 'some-requested-checkpoints-unreachable');
+  assert.equal(r.complete, false);
+  assert.equal(r.findings[0].id, 'VG-CFG-018');
+  assert.deepEqual(r.entries[0].unansweredCheckpoints, ['process']);
+  // order must not matter: a policy is a set of questions, not a sequence
+  const flipped = checkProperties(
+    [{ id: 'survive.secure-wipe', kind: 'must-survive', observeAt: ['process', 'pre-opt-ir'] }], CATALOGUE);
+  assert.equal(flipped.entries[0].verdict, 'some-requested-checkpoints-unreachable');
+});
+
+test('naming only checkpoints that ARE answered is still complete, and naming none still means all', () => {
+  // The refusal must not have become universal. Both implemented checkpoints,
+  // and each alone, still pass; so does omitting observeAt entirely.
+  for (const observeAt of [['pre-opt-ir'], ['after-pass'], ['pre-opt-ir', 'after-pass']]) {
+    const r = checkProperties([{ id: 'survive.secure-wipe', kind: 'must-survive', observeAt }], CATALOGUE);
+    assert.equal(r.entries[0].verdict, 'reachable', JSON.stringify(observeAt));
+    assert.equal(r.complete, true, JSON.stringify(observeAt));
+    assert.deepEqual(r.entries[0].unansweredCheckpoints, []);
+  }
+  const any = checkProperties([{ id: 'survive.secure-wipe', kind: 'must-survive' }], CATALOGUE);
+  assert.equal(any.entries[0].verdict, 'reachable');
+  assert.equal(any.complete, true);
+});
+
+test('naming no answerable checkpoint at all is still the older, narrower word', () => {
+  // `no-reachable-checkpoint` and `some-requested-checkpoints-unreachable` are
+  // different facts and must stay different words: nothing was answered, versus
+  // some of it was.
+  const r = checkProperties(
+    [{ id: 'survive.secure-wipe', kind: 'must-survive', observeAt: ['object', 'ast'] }], CATALOGUE);
+  assert.equal(r.entries[0].verdict, 'no-reachable-checkpoint');
+  assert.deepEqual(r.entries[0].reachableCheckpoints, []);
+  assert.deepEqual(r.entries[0].unansweredCheckpoints, ['object', 'ast']);
+});
+
+test('the widening still cannot turn a refusal into a pass, measured over every catalogue entry', () => {
+  // The guarantee 2.20(f) and properties.json `_grant` both state. Measured over
+  // every entry and every checkpoint the enum allows, in every one-and-two-word
+  // combination with an implemented checkpoint -- not just the bare `(any)` ask,
+  // which is what the first version of this check looked at and why it missed
+  // the case above.
+  const enumWords = ['invocation', 'ast', 'pre-opt-ir', 'after-pass', 'object', 'linked', 'artifact', 'process'];
+  let reachable = 0;
+  for (const e of CATALOGUE.byId.values()) {
+    for (const a of [null, ...enumWords, ...enumWords.map((w) => ['pre-opt-ir', w])]) {
+      const ask = a === null ? { id: e.id, kind: e.kind }
+        : { id: e.id, kind: e.kind, observeAt: Array.isArray(a) ? a : [a] };
+      const r = checkProperties([ask], CATALOGUE);
+      if (r.entries[0].verdict !== 'reachable') continue;
+      reachable += 1;
+      // Everything that passes must be an implemented property, and every
+      // checkpoint it was asked about must be one it is implemented at.
+      assert.equal(CATALOGUE.byId.get(e.id).status, 'implemented', `${e.id} ${JSON.stringify(a)}`);
+      assert.deepEqual(r.entries[0].unansweredCheckpoints, [], `${e.id} ${JSON.stringify(a)}`);
+      if (ask.observeAt) {
+        for (const c of ask.observeAt) {
+          assert.ok(r.entries[0].reachableCheckpoints.includes(c), `${e.id} passed while ${c} was unanswered`);
+        }
+      }
+    }
+  }
+  assert.ok(reachable > 0, 'nothing passes at all, so this check is vacuous');
+});

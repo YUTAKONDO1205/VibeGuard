@@ -514,3 +514,86 @@ test('the record seals through canon.mjs and its digest re-derives', () => {
     cleanup(dir);
   }
 });
+
+/* --- a reading the declaration did not plan for is refused, not dropped ------
+ *
+ * Added 2026-09-12, after reproducing it. `produceRecord` built each property's
+ * states from `plannedCheckpoints.filter(c => measured.has(c))` -- which keeps
+ * the planned checkpoints that were measured and silently drops every measured
+ * checkpoint that was not planned. Not in `skipped`, not in `unresolved[]`, no
+ * stderr line, while `counts` still said the cell was checked.
+ *
+ * The damage is not a missing row. `propertyFrom` derives the loss interval from
+ * the states it is handed, so removing an earlier reading moves the interval,
+ * `mayNamePass` goes false, and the pass name is stripped while the unit is
+ * kept. Measured: a lane result whose real reading was PRESENT at ir-pre, LOST
+ * at ir-post, DSEPass on handle came out as
+ * `firstLoss {stage:"compile", pass:null, unit:"handle"}` -- and verified clean.
+ */
+
+test('a cell at an unplanned checkpoint makes the producer refuse, naming it', async () => {
+  const lane = {
+    lane: 'lto-window',
+    cells: [
+      {
+        id: 'xtu.full.compile', fixture: 'xtu', form: 'full', vendor: 'clang', window: 'compile',
+        stage: 'compile', checkpoint: 'after-pass', measurement: 'OK', state: 'PRESENT',
+        controlHeld: true, attribution: null, reasons: [],
+      },
+      {
+        id: 'xtu.full.link', fixture: 'xtu', form: 'full', vendor: 'clang', window: 'link',
+        stage: 'lto-backend', checkpoint: 'after-pass', measurement: 'OK', state: 'LOST',
+        controlHeld: true, attribution: { pass: 'DSEPass', unit: 'handle' },
+        subjectHistory: { firstLoss: { seq: 7 } }, reasons: [],
+      },
+    ],
+  };
+  const narrow = declarationFromPolicy(
+    { policyVersion: 'policy-v0', properties: [{ id: 'lto-window.xtu.full.clang', kind: 'must-survive', observeAt: ['after-pass'] }] },
+    { lane: 'lto-window' },
+  );
+  assert.deepEqual(narrow.properties[0].plannedCheckpoints, ['ir-post']);
+
+  assert.throws(
+    () => produceRecord({ lane, declaration: narrow, envelope: envelope() }),
+    (e) => /did not plan for/.test(e.message)
+      && /xtu\.full\.compile/.test(e.message)
+      && /ir-pre/.test(e.message),
+    'the compile reading was dropped instead of refused',
+  );
+});
+
+test('planning both checkpoints keeps the reading, and with it the pass attribution', async () => {
+  // The other half: the refusal must be escapable by widening the plan, and the
+  // record that results must carry what was measured.
+  const lane = {
+    lane: 'lto-window',
+    cells: [
+      {
+        id: 'xtu.full.compile', fixture: 'xtu', form: 'full', vendor: 'clang', window: 'compile',
+        stage: 'compile', checkpoint: 'after-pass', measurement: 'OK', state: 'PRESENT',
+        controlHeld: true, attribution: null, reasons: [],
+      },
+      {
+        id: 'xtu.full.link', fixture: 'xtu', form: 'full', vendor: 'clang', window: 'link',
+        stage: 'lto-backend', checkpoint: 'after-pass', measurement: 'OK', state: 'LOST',
+        controlHeld: true, attribution: { pass: 'DSEPass', unit: 'handle' },
+        subjectHistory: { firstLoss: { seq: 7 } }, reasons: [],
+      },
+    ],
+  };
+  const wide = declarationFromPolicy(
+    { policyVersion: 'policy-v0', properties: [{ id: 'lto-window.xtu.full.clang', kind: 'must-survive', observeAt: ['pre-opt-ir', 'after-pass'] }] },
+    { lane: 'lto-window' },
+  );
+  assert.deepEqual(wide.properties[0].plannedCheckpoints, ['ir-pre', 'ir-post']);
+
+  const { record } = produceRecord({ lane, declaration: wide, envelope: envelope() });
+  const p = record.properties[0];
+  assert.deepEqual(p.states.map((s) => `${s.checkpoint}:${s.state}`), ['ir-pre:PRESENT', 'ir-post:LOST']);
+  // the thing the drop was destroying
+  assert.equal(p.firstLoss.stage, 'ir-pass');
+  assert.equal(p.firstLoss.pass, 'DSEPass');
+  assert.equal(p.firstLoss.unit, 'handle');
+  assert.equal(p.firstLoss.occurrence, 7);
+});

@@ -248,6 +248,12 @@ export function checkProperties(policyProperties, catalogue) {
         ? implemented.filter((c) => askedFor.includes(c.checkpoint))
         : implemented;
       record.reachableCheckpoints = wanted.map((c) => c.checkpoint);
+      // Which of the checkpoints the policy NAMED nothing answers. Recorded
+      // whether or not any of them is answered, because the count of questions
+      // asked and the count answered are two numbers and only one of them was
+      // ever reported here.
+      const unanswered = askedFor.filter((c) => !wanted.some((w) => w.checkpoint === c));
+      record.unansweredCheckpoints = unanswered;
       if (wanted.length === 0) {
         record.verdict = 'no-reachable-checkpoint';
         reason = askedFor.length > 0
@@ -255,6 +261,36 @@ export function checkProperties(policyProperties, catalogue) {
             + `(${askedFor.join(', ')}); the catalogue implements it at `
             + `${implemented.map((c) => c.checkpoint).join(', ') || 'no checkpoint at all'}`
           : `${record.id} has no implemented extractor at any checkpoint`;
+      } else if (unanswered.length > 0) {
+        // ASKING FOR TWO CHECKPOINTS AND GETTING ONE IS NOT COMPLETE.
+        //
+        // This branch did not exist until 2026-09-12, and its absence was
+        // load-bearing in the wrong direction: `wanted` was non-empty as soon as
+        // ONE named checkpoint had an extractor, so a policy asking for
+        // `["pre-opt-ir", "object"]` -- where nothing observes this property at
+        // `object` -- was answered at one of the two and reported `reachable`,
+        // complete, with no finding at all. The unanswered half left no trace in
+        // the record, so nothing downstream could have noticed either.
+        //
+        // It surfaced while measuring something else. Adding `process` to the
+        // checkpoint enum made `["pre-opt-ir", "process"]` a schema-VALID policy
+        // where it had been rejected as malformed (exit 4), and it then arrived
+        // here and passed -- which looked like the vocabulary change turning a
+        // refusal into a pass, the one thing properties.json's `_grant` promises
+        // it does not do. Measured against HEAD, it was not: `["pre-opt-ir",
+        // "object"]`, both words already legal, passed here before the change
+        // too. The enum widening exposed an older leniency through a new path
+        // rather than creating it.
+        //
+        // A policy naming a checkpoint is asking a question at it. One that
+        // nothing answers is exit 3, exactly as it is when it is the only one
+        // named; the number of OTHER questions that were answered does not make
+        // an unanswered one answered.
+        record.verdict = 'some-requested-checkpoints-unreachable';
+        reason = `${record.id} is observed at ${wanted.map((c) => c.checkpoint).join(', ')}, but the policy also `
+          + `asked for it at ${unanswered.join(', ')}, where nothing observes it. The catalogue implements it at `
+          + `${implemented.map((c) => c.checkpoint).join(', ') || 'no checkpoint at all'}. Answering some of the `
+          + 'checkpoints a policy names is not answering the policy';
       }
     }
 

@@ -420,43 +420,95 @@ are plausible rather than measured. So:
 | Claim | Status |
 |---|---|
 | The producer converts the lane's cell shape into a record the verifier accepts, and a missing cell makes it a record the verifier refuses | measured, `node --test compiler/evidence/test/*.test.mjs` |
-| A real `lto-window` run produces a record that verifies | **measured 2026-09-12**, see below |
+| A real `lto-window` run produces a record that verifies | **measured 2026-09-12 and it does NOT** — exit 2, VG-ART-064 and VG-ART-056, both of them the verifier working. See below; the earlier exit 0 was produced by a producer defect and is corrected there |
 | A record that has been altered after the fact is refused, on three different paths | **measured 2026-09-12**, see below |
+| A measured cell the declaration did not plan for is refused, not dropped | **measured 2026-09-12** — exit 4, naming each cell and checkpoint |
 
 ### Measured, 2026-09-12 — a real `lto-window` result through the whole pipe
 
-The lane result is the `-O2` full-LTO run of `compiler/eval/lto-window`
-(clang-18 18.1.3, LLD 18.1.3, on WSL2). The policy names the nine subject keys
-`subjectKeyOf` derives from that result. The envelope carries the lane's own
-recorded `toolchain` block and the compile command.
+The lane result is the `-O2` full-LTO run of `compiler/eval/lto-window` (clang-18
+18.1.3, LLD 18.1.3, on WSL2): 15 cells, 9 subject keys. The envelope carries the
+lane's own recorded `toolchain` block and the compile command.
+
+**The end-to-end exits 2, and that is the result.** An earlier version of this
+section reported exit 0 and was wrong for a reason worth keeping, because it is
+the same shape of error twice in one directory.
+
+The first attempt used a policy with `observeAt: ["after-pass"]`, so the
+declaration opened accounts at `ir-post` only. The lane measures at compile AND
+at link; both map into the record, at `ir-pre` and `ir-post`. The producer then
+kept the planned checkpoints that were measured and **dropped every measured
+checkpoint that was not planned, with no trace** — not in `skipped`, not in
+`unresolved[]`, not on stderr, while `counts` still said `checked=15 skipped=0`.
+What came out verified clean. It was also a different claim from the one that was
+measured: the loss interval is computed from the states present, so removing an
+earlier reading moves the interval and `mayNamePass` goes false, stripping the
+pass name while keeping the unit. A run that measured *DSEPass removed it in the
+LTO backend* emitted *lost somewhere in compile, by nothing*.
+
+That is now a refusal (`produce.mjs`, exit 4), naming each cell and checkpoint:
 
 ```
-$ node produce.mjs --declare --policy policy.json --lane lto-window --out declaration.json
-inputs=9 checked=9 skipped=0
-wrote declaration.json: 9 account(s) over ir-post
+produce: 3 measured cell(s) landed at a record checkpoint the declaration did not plan for:
+  xtu.full.compile        -> lto-window.xtu.full.clang        at ir-pre
+  xtu.thin.compile        -> lto-window.xtu.thin.clang        at ir-pre
+  xtu-inline.full.compile -> lto-window.xtu-inline.full.clang at ir-pre
+```
 
-$ node produce.mjs --lane .../lto-window.json --declaration declaration.json                    --envelope envelope.json --out evidence.json
-inputs=15 checked=15 skipped=0
-wrote evidence.json: 9 property(ies), digest 22c52470e90664ba…
+With the policy widened to `["pre-opt-ir", "after-pass"]` the record is written —
+and the **verifier refuses it, at exit 2, with two high findings**:
 
-$ node verify.mjs --record evidence.json --declared declaration.json
-checked: evidenceDigest, pathHygiene, command.argv, properties, coverage, ledger,
-         ledger.entries, ledger.declaration
-ledger: external declaration, 9 declared properties, 9 planned cell(s)
+```
+ledger: external declaration, 9 declared properties, 18 planned cell(s)
+        - ir-pre  present=0 absent=6 unobserved=0 unresolved=0 of 9
         - ir-post present=1 absent=1 unobserved=7 unresolved=0 of 9
-inputs=1 checked=1 skipped=0        # exit 0
+
+[high] VG-ART-064  The ledger does not balance at a planned checkpoint
+  ir-pre: the declaration opens 9 accounts here and 6 are posted. 3 cells are in
+  none of the four accounts: lto-window.{xtu,xtu-inline,erasure}.full.gcc
+[high] VG-ART-056  A property reappears as PRESENT after a loss without a REINTRODUCED marker
+  lto-window.xtu-inline.full.clang: checkpoint "ir-post" is PRESENT again
 ```
 
-The books balance: 1 + 1 + 7 + 0 = 9 = the number the **declaration** opens, and
-the declaration was written from the policy before the record existed.
+**Both are the verifier working, and neither is noise.**
 
-**The first attempt failed, and the failure is the more useful half.** Run
-without `--envelope`, the producer exited 4 rather than emitting:
+`VG-ART-064` is a policy that asked for something the lane does not measure. The
+gcc subjects have a link cell and no compile cell, so an account opened for them
+at `ir-pre` can never be posted to. The ledger's whole purpose is to notice a
+planned checkpoint that nobody mentioned, and it noticed. Under the narrow policy
+this was invisible.
+
+`VG-ART-056` is a **producer gap**, and the honest place for it is here rather
+than in a policy tweak. `xtu-inline.full.clang` reads `ir-pre: ABSENT` then
+`ir-post: PRESENT`: at compile the observer sees no wipe in `handle` because the
+wipe is a call into another translation unit, and at link — after inlining — it
+is there. Nothing was removed and put back; the record vocabulary has one word
+(`ABSENT`) where the lane distinguishes *not applicable here* from *it was taken
+away*, and `produce.mjs` has no way to emit the `REINTRODUCED` marker that would
+say so. The verifier is right to refuse a chain it cannot read, and the fix is a
+producer that can mark a reappearance. **Not implemented; open.**
+
+The state chains, in full, so the two findings can be read against them:
 
 ```
-produce: no envelope was given. interfaces.md §5 requires `toolchain` and a
-non-empty `command.argv` on every record, a lane result carries neither in that
-shape, and nothing here will invent them.
+lto-window.xtu.full.clang          ir-pre:ABSENT -> ir-post:LOST
+lto-window.xtu.thin.clang          ir-pre:ABSENT -> ir-post:NOT_OBSERVED
+lto-window.xtu.full.gcc                             ir-post:NOT_OBSERVED
+lto-window.xtu-inline.full.clang   ir-pre:ABSENT -> ir-post:PRESENT      <- VG-ART-056
+lto-window.xtu-inline.thin.clang   ir-pre:ABSENT -> ir-post:NOT_OBSERVED
+lto-window.xtu-inline.full.gcc                      ir-post:NOT_OBSERVED
+lto-window.erasure.full.clang      ir-pre:LOST   -> ir-post:NOT_OBSERVED
+lto-window.erasure.thin.clang      ir-pre:LOST   -> ir-post:NOT_OBSERVED
+lto-window.erasure.full.gcc                         ir-post:NOT_OBSERVED
+```
+
+**The first attempt without `--envelope` failed too, and that failure is the more
+useful half:**
+
+```
+produce: no envelope was given. interfaces.md §5 requires `toolchain` on every
+record and verify.mjs requires a non-empty `command.argv` (VG-ART-052); a lane
+result carries neither in that shape, and nothing here will invent them.
 ```
 
 A producer that filled those in from what it could see would have written a
@@ -581,7 +633,7 @@ Every claim below was produced by running the code, not by reading it.
 | `--fail-on critical` suppresses every ledger finding and exits 0, and the run prints which findings it suppressed | `--record testdata/records/v1-unbalanced.json --fail-on critical` → exit 0 with `VG-ART-064` printed; `--fail-on high` → exit 2 |
 | A `declares` block in the manifest becomes the declaration in force, and the report says so | `--bundle testdata/bundles/v1-manifest-declared` → exit 0, source `manifest` |
 | The fixture builder rebuilds all 23 fixture files byte-identically — 15 records (3 of them a bundle's `evidence.json`), 3 artefacts, 3 manifests, 2 declarations | `node testdata/make-fixtures.mjs`, then `diff -rq` against a copy taken first → the 19 that existed before are unchanged, the 4 new ones are the only additions |
-| The clock audit still passes over the enlarged directory, the fixture builder included | `--clock-audit` → 19 of 20 files, 0 reads, exit 0 |
+| The clock audit still passes over the enlarged directory, the fixture builder included | `--clock-audit .` → **23 of 24 files, 0 reads, exit 0** (re-measured 2026-09-12; this row read `19 of 20` from an earlier, smaller directory and was left standing beside the row below, which had the right number all along — two readings of one command in one table) |
 | The vectors still reproduce and the store validator still self-tests clean | `--self-test` → 22/22 + 8/8, `canon.mjs` agrees on 30, exit 0; `validate-store.mjs --self-test` → 14/14 fired, 3/3 silent, exit 0 |
 | The producer's output verifies: `produce` -> `verify --record --declared` exits 0 with **nothing** on the unchecked list, over a [SPEC-INPUT] lane result | `test/produce.test.mjs`, "produce -> verify --record --declared exits 0" |
 | Taking one cell out of the lane result makes the same producer, over the same declaration, emit a record that exits 2 with `VG-ART-064` naming the property — and `VG-ART-065` stays silent, so it is the declaration that caught it and not the record disagreeing with itself | same file, "drop one cell and the producer emits a record the verifier refuses" |
@@ -590,7 +642,7 @@ Every claim below was produced by running the code, not by reading it.
 | The whole suite after the producer: 143 cases, 0 failures | `node --test compiler/evidence/test/*.test.mjs` → exit 0 |
 | The clock audit is still clean over the enlarged directory, and the vectors still reproduce | `--clock-audit .` → 23 of 24 files, 0 reads, exit 0; `--self-test` → 22/22 + 8/8, `canon.mjs` agrees on 30, exit 0 |
 | The disclosure check reads all four new files rather than skipping any as binary — which is what a stray NUL byte in the source would cost, and is why `SEP` is built from a code point | `check-disclosure-shape.mjs --paths <the four>` → scanned 4, hits 0, skipped 0 |
-| The repository-wide packaging check passes over the new files, and the disclosure check is clean over this directory | `check-packaging-invariants.mjs` → exit 0; `check-disclosure-shape.mjs --paths <every file under compiler/evidence>` → 0 hits over 46 files. Run over the whole repository it now reports 3 hits and exit 1, all three in `compiler/eval/lto-window/test/record.test.mjs`, which is not this directory's file and was not touched here |
+| The repository-wide packaging check passes over the new files, and the disclosure check is clean over this directory | `check-packaging-invariants.mjs` → exit 0; `check-disclosure-shape.mjs --paths <every file under compiler/evidence>` → 0 hits over 46 files. Run over the whole repository it reports **0 hits over 2,756 files, exit 0** (re-measured 2026-09-12). This row used to say `3 hits and exit 1` in `compiler/eval/lto-window/test/record.test.mjs`; those were the account-name strings §2.20(c)4 records as replaced with placeholders, so the sentence was stale on the day it was written into a table whose premise is that its rows had just been run |
 
 ## Compatibility: what the new schema version cost
 

@@ -27,10 +27,12 @@ window.**
 
 That fixture carries a deliberate intervention — `__attribute__((noinline))` on
 the subject and the control — so the second thing this lane owes a reader is what
-happens without it. The `xtu-inline` family is that, and it is measured in a
-default run; the claim it exists to separate, and the slots waiting for the
-numbers, are under [The intervention, and the family that removes
-it](#the-intervention-and-the-family-that-removes-it).
+happens without it. The `xtu-inline` family is that. It is in a default run and
+was measured at `-O1`, `-O2`, `-O3` and `-Os` on 2026-09-12; the claim it exists
+to separate, the numbers, and the deletion test that settles which of the two
+absorbed wipes is gone, are under [The intervention, and the family that removes
+it](#the-intervention-and-the-family-that-removes-it). The short answer is that
+the elimination does not depend on the intervention.
 
 ## Running it
 
@@ -683,10 +685,14 @@ WSL2, `-O2`. Plugin `libPropertyObserver.so`
 sha256 `ee6c8555…60173c32`, built from
 `compiler/pass-instrumentation/observer` at this commit.
 
-**This run predates the `xtu-inline` family.** It is ten cells from the two
-families that existed then; the default run is now fifteen, and the five cells of
-the pair's second half — and the `interventionPairs` record they feed — are **not
-yet measured**, here or anywhere. The table below is not to be extended by hand.
+**The table below predates the `xtu-inline` family.** It is ten cells from the
+two families that existed then. The default run is fifteen now, and the five
+cells of the pair's second half — and the `interventionPairs` record they feed —
+**were measured on 2026-09-12 at four levels**; they are reported in their own
+section above (*Measured, 2026-09-12 — all four levels*) rather than appended
+here, because this table is one run's output and is not extended by hand. The
+fifteen-cell shape at -O2 is 8 OK, 7 incomplete, exit 3 (the ThinLTO evidence was
+skipped, which is what the 3 is).
 
 ```
 xtu.full.compile         compile      OK                  ABSENT        -
@@ -760,8 +766,10 @@ effect. Both are link-time, both are inside `ld-temp.o`, and the control is
 - **Three fixtures, one shape of loss.** A dead-store wipe, twice with the
   `noinline` intervention and once without it. Nothing here says anything about
   the authz or configguard families at link time.
-- **No corpus.** Ten cells, deliberately. The box is shared and a compile timeout
-  is recorded as a failure, which would manufacture data.
+- **No corpus.** Fifteen cells, deliberately — ten until the `xtu-inline` family
+  was added on 2026-09-12, and this line said ten for long enough to contradict
+  the sentence 77 lines above it. The box is shared and a compile timeout is
+  recorded as a failure, which would manufacture data.
 - **The `erasure` link cell has no working control**, so this lane has measured
   nothing about `handle_request` at link time. It is `NOT_OBSERVED`, not
   `ABSENT`, even though the by-hand disassembly says the wipe is not there —

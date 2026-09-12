@@ -4,12 +4,22 @@
 //
 //   Two reasons, and the second is the one that lasts.
 //
-//   The first is procedural. `../schema/interfaces.md` asks for exactly this
-//   table — its §5 note on `evidence-v1` ends "A canonical mapping table
-//   belongs in this section" — and the same file's opening rule is that nobody
-//   edits it while implementing against it. So §5 is where the REQUIREMENT for
-//   the table is written down, and this is where the table is. When §5 is next
-//   opened for editing, the rows below are what goes into it, unchanged.
+//   The first is procedural, and the sentence that used to be here got its
+//   attribution wrong, so read this one carefully. `../schema/interfaces.md`
+//   does NOT ask for this table. Grep it: the file is 313 lines and contains
+//   "mapping" zero times, "evidence-v1" zero times and "argv" zero times. The
+//   sentence "A canonical mapping table belongs in this section" is real, but it
+//   is at `README.md` in THIS directory, under a heading that says exactly what
+//   it is — "Suggested text, to be appended to §5". It is a request this lane
+//   wrote and §5 has never carried.
+//
+//   That distinction is the whole point of the rule it was invoking. Quoting the
+//   governing document for a requirement the governing document does not make is
+//   how a lane's own preference becomes, two readers later, a constraint nobody
+//   can find the origin of. What is true is narrower and enough: §5's rule is
+//   that nobody edits it while implementing against it, so a table needed NOW
+//   cannot go there now. When §5 is next opened for editing, the rows below are
+//   the proposal — and it is a proposal, not a deferred obligation.
 //
 //   The second is that a mapping written in prose is a mapping nobody executes.
 //   `produce.mjs` imports this file, so a row that is wrong is a failing test
@@ -273,13 +283,34 @@ export function recordCheckpointOrder(checkpoint) {
  *   observation vocabulary the same reading would be that pipeline's
  *   `pre-opt-ir`.
  *
- *   What that buys is not tidiness. `STAGE_TABLE` maps ir-pre -> ir-post to
- *   `ir-pass`, and `ir-pass` is the only interval `verify.mjs` lets a record
- *   name a pass at (VG-ART-055). The lane's entire output is a pass attribution
- *   at link time. Under any other placement of these two readings the interval
- *   is one that may not name a pass, and the producer would have to drop the
- *   attribution — the measurement the lane was built for — to get a record that
- *   verifies.
+ *   WHY, IN THE ORDER THAT MATTERS. An adversarial review of this file read the
+ *   paragraph that used to be here and asked the right question: is this row
+ *   chosen because of what the verifier will accept? The answer is no, and the
+ *   reason it used to look like yes is that this paragraph led with the
+ *   consequence instead of the reason. Measured, the two are separable:
+ *
+ *     GENERAL TABLE   (after-pass, compile)     -> ir-post
+ *                     (after-pass, lto-backend) -> ir-post
+ *
+ *   Both readings land on ONE record checkpoint. For `xtu.full` the compile
+ *   reading is `ABSENT` and the link reading is `LOST`, so such a record asserts
+ *   two different states at a single point in the pipeline. That is incoherent
+ *   on its own terms, before any check is consulted: the whole finding of this
+ *   lane is a state CHANGE, and a change needs two points. The general table has
+ *   exactly one word for "after a pass" and this lane observes two pass
+ *   pipelines, so the general table cannot express what was measured.
+ *
+ *   THEN the consequence, which is real but is not the reason. `STAGE_TABLE`
+ *   maps ir-pre -> ir-post to `ir-pass`, and `ir-pass` is the only interval
+ *   `verify.mjs` lets a record name a pass at (VG-ART-055). Distinguishing the
+ *   two readings — which the paragraph above requires independently — also makes
+ *   the interval one that may name a pass. Had the general table been able to
+ *   hold the two readings apart in some other way, that placement would have
+ *   been the right one and this row would not exist.
+ *
+ *   The test `the general table cannot hold this lane's two readings apart` in
+ *   test/checkpoint-map.test.mjs pins the first paragraph, so the justification
+ *   is checkable rather than argued.
  */
 export const LANE_CHECKPOINT_MAPS = Object.freeze({
   'lto-window': Object.freeze([
@@ -350,8 +381,10 @@ const SEP = String.fromCharCode(0);
 /**
  * The mapping a producer used, in the shape it writes into a record.
  *
- * `../schema/interfaces.md` §5 asks a producer to record which mapping it used,
- * and that is not decoration: every `near` row above loses a distinction, and a
+ * Recording which mapping was used is this lane's own rule, proposed for §5 in
+ * `README.md` and not yet part of it (see the header: `interfaces.md` says
+ * nothing about mappings). It is not decoration: every `near` row above loses a
+ * distinction, and a
  * reader who needs it back has to know which row was applied. Only the rows that
  * were actually used are written — a record carrying the whole table would say
  * nothing about that record.
@@ -374,7 +407,14 @@ export function mappingRecord(lane, used) {
     to: 'record',
     lane,
     table: 'compiler/evidence/checkpoint-map.mjs',
-    contract: 'compiler/schema/interfaces.md section 5',
+    // Not `interfaces.md section 5`, which this field said until 2026-09-12.
+    // Section 5 fixes the canonicalisation rules and the `toolchain` block and
+    // says nothing about checkpoint vocabularies or mappings between them (grep
+    // it for "mapping": zero). Naming it here put a citation to an unratified
+    // proposal inside every record this producer writes, where it would have
+    // outlived the comment that made the same claim. The rule this record obeys
+    // is this directory's own, and the field says so.
+    contract: 'compiler/evidence/checkpoint-map.mjs (this lane\'s rule; proposed for interfaces.md section 5 in compiler/evidence/README.md, not part of it)',
     rows,
   };
 }

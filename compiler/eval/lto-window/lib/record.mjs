@@ -427,8 +427,29 @@ export function exitDecision({
   // cell, which is the same silent omission as the one above and is refused with
   // the same code. Scoped to the cells the check is defined for: the plugin is
   // only loaded on a clang full-LTO link.
+  //
+  // DEFENSIVE, AND NOT YET REACHED. An adversarial review pointed out that the
+  // runner cannot currently produce an input for this branch, and measuring the
+  // 2026-09-12 -O2 run agrees: all three clang/full/link cells came back
+  // `byteIdentical: true` (including `erasure.full.link`, which is
+  // BROKEN_MEASUREMENT for an unrelated reason but did link and was compared),
+  // because `linkWindowCell` assigns a boolean before returning and the `false`
+  // case is caught earlier by `byteFinding`. So this is a guard against a future
+  // shape, not a defect it has caught. Saying so here rather than letting the
+  // test suite's synthetic inputs read as evidence that a real class of silent
+  // omission was closed.
   for (const c of cells) {
     if (c.window !== 'link' || c.vendor !== 'clang' || c.form !== 'full') continue;
+    // A cell that was not measured has nothing to compare, and saying its
+    // equality check "did not establish non-invasiveness" asserts a check ran.
+    // UNSUPPORTED means no lld; BROKEN_MEASUREMENT means the observed link
+    // produced nothing readable. Either way there was no observed executable, so
+    // `byteIdentical` is null for the same reason the cell is incomplete -- and
+    // incomplete is code 3, below, which is the code interfaces.md section 7
+    // fixes to keep "we did not look" out of "it is not clean". Without this
+    // line the loop ran before the incomplete tally and answered 2 for both,
+    // measured against HEAD: BROKEN and UNSUPPORTED were 3 there and 2 here.
+    if (c.measurement !== MEASUREMENT.OK) continue;
     if (c.guards && c.guards.byteIdentical === true) continue;
     return {
       code: 2,
