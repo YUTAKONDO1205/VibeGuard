@@ -280,7 +280,8 @@ jobs:
   # components — the Clang frontend gate, the two LLVM observer passes and the
   # repair plugin under compiler/llvm-repair — need cmake and llvm-18-dev and are
   # NOT built here. A green tick on this job means the Node side is exercised, not
-  # that the toolchain is.
+  # that the toolchain is. The native-plugins job below is the other half: it
+  # builds every C++ component and runs the plugins' fixture loops.
   # NOTE ON THE JOB NAME. It does not repeat the directory's name, and that is
   # not stylistic: the naming guard treats that word as legitimate only under the
   # directory itself and in the two git dotfiles that have to spell it, so a job
@@ -419,3 +420,272 @@ jobs:
           run_suite ai-generated          compiler/eval/ai-generated/test/*.test.mjs
           run_suite repair-loop           compiler/eval/repair-loop/test/*.test.mjs
           run_suite elf-verifier          compiler/elf-verifier/test/*.test.mjs
+          # WipePinGcc's Node suites need no plugin and no gcc: asm-presence
+          # reads synthetic listings through the shared oracle, corpus-smoke
+          # tests the smoke runner's pure row selection and body delta. The
+          # suites that do need the plugin run in native-plugins below.
+          run_suite gcc-repair            compiler/gcc-repair/test/*.test.mjs
+
+  # The native plugins, built and run.
+  #
+  # native-toolchain above runs the Node suites and says in its own comment
+  # that the C++ components are NOT built there. This job is the other half:
+  # it builds the IR observer (compiler/llvm-pass), the LLVM repair plugin
+  # WipePin (compiler/llvm-repair) and the GCC repair plugin WipePinGcc
+  # (compiler/gcc-repair), and runs each plugin's fixture loop, whose checker
+  # grades every cell against a fixed expectation table. Most expectations
+  # were written from what the cell is for before it first ran; the ones taken
+  # from a measurement say so beside them (check-gcc-fixture-loop.py's
+  # `chkconst`, the level at which gcc-13 removes the stock wipe, and
+  # check-fixture-loop.py's XTU_HELPER_DEFINED, whether an xtu executable still
+  # defines the helper), and so does the one that changed after a first run (the
+  # xtu cells' control, which changed with the fixture; both checkers' xtu
+  # comments say why). Until
+  # this job, those loops had only ever run on the machine that wrote them.
+  #
+  # It also builds the property observer (compiler/pass-instrumentation/observer)
+  # and runs that plugin's non-invasiveness measurement, scripts/noninvasive.mjs,
+  # which no workflow ran before; it had only been run by hand. Its 21 checks,
+  # over the three translation units of the erasure fixture: at each of
+  # -O0..-O3, that two plugin-free compiles agree (NI-01), that every object
+  # file and the linked executable are byte-identical with and without the
+  # plugin in a build where it recorded an observation (NI-02, NI-03), and that
+  # at least one unit's identity is backed by one (NI-03b); that
+  # -opt-bisect-limit=40 does change the -O2 object of target.c, so identity is
+  # a result and not an artefact (NI-04, the negative control); that under that
+  # limit the plugin still changes nothing and still observes (NI-05) and its
+  # skipped-pass callback fires, at least one skipped-pass record (NI-06); that
+  # clang-18, opt and libLLVM.so.1 have the same sha256 after the run as before
+  # it (NI-07); and that ldd lists the plugin's libraries and none of them is a
+  # libLLVM of its own (NI-08; an ldd that lists nothing fails it). The step
+  # takes its verdict from the harness's JSON report as well as its exit code,
+  # and the report has to name the .so this job built.
+  #
+  # The other four C++ components under compiler/ are built here too, and
+  # only built: the AST gate (compiler/clang-plugin, IntentGate, which is why
+  # libclang-18-dev is installed), the observer's synthetic ground truth
+  # (pass-instrumentation/observer/rq2), the marker pass and the introduction
+  # observer (pass-instrumentation/marker, /introduction). Nothing below runs
+  # them; what this job shows for them is that they still build against the
+  # pinned LLVM 18, so that no C++ component under compiler/ builds only on the
+  # machine that wrote it.
+  #
+  # PINNED TO ubuntu-24.04, not ubuntu-latest, on purpose. The fixture loops'
+  # expectations are measurements of clang 18.1.3 and gcc 13.3.0 as the 24.04
+  # archive ships them — which level deletes the fixture's wipe, which form a
+  # pinned zero fill takes (pxor + movaps, or rep stos at -Os on gcc), that
+  # gcc-13 predefines _FORTIFY_SOURCE=3 when it optimises. A runner image that
+  # moved to another release would move those, and the job would go red for a
+  # reason that has nothing to do with the plugins; worse, a GCC plugin loads
+  # only into the GCC it was built against.
+  #
+  # lld-18 is for the WipePin fixture loop's link-time cells (lto-full-linkline,
+  # lto-thin-linkline, lto-thin-linkline-O0, lto-full-linkline-nofile): they
+  # link LTO bitcode with -fuse-ld=lld and grade the one stderr line WipePin
+  # prints when an LTO link loads it. The same loop's xtu cells (xtu-nolto,
+  # xtu-full-*, xtu-thin-*) link executables from four units with it: a wipe
+  # helper in another unit, which only the LTO link can inline.
+  #
+  # objdump comes from binutils, which gcc-13 depends on. Both loops' checkers
+  # run it on their xtu executables (compiler/gcc-repair/scripts/objdump_fill.py
+  # reads its output), and the WipePinGcc runner uses it for its lto group.
+  # llvm-bcanalyzer-18 comes from llvm-18, which llvm-18-dev depends on. The
+  # WipePin loop's checker runs it on the xtu cells' -flto objects: the block
+  # each module summary is in says whether a cell was built thin or full, which
+  # the bitcode magic alone does not.
+  #
+  # Every build goes to $RUNNER_TEMP, never into the checkout, so nothing a
+  # build writes can show up as an untracked file or be picked up by a later
+  # step as if it were source. A .so that is missing after its build is a
+  # failure here, not something a later step discovers by skipping.
+  native-plugins:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      # The two fixture-loop checkers read listings through the repository's
+      # assembly oracle, which is Node.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+
+      - name: Install clang-18, llvm-18-dev, libclang-18-dev, lld-18, gcc-13 and the GCC plugin headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 llvm-18-dev libclang-18-dev lld-18 cmake ninja-build python3 gcc-13 g++-13 gcc-13-plugin-dev
+
+      # Printed, so a red run can be read against the versions the fixture
+      # expectations were measured with (clang 18.1.3, gcc 13.3.0).
+      - name: Toolchain versions
+        run: |
+          set -u
+          clang-18 --version | head -1
+          gcc-13 --version | head -1
+          for p in clang-18 llvm-18-dev libclang-18-dev lld-18 cmake ninja-build python3 gcc-13 g++-13 gcc-13-plugin-dev; do
+            dpkg-query -W -f='${Package} ${Version}\n' "$p"
+          done
+
+      - name: Build the IR observer (llvm-pass)
+        run: |
+          set -u
+          cmake -S compiler/llvm-pass -B "$RUNNER_TEMP/build/llvm-pass" -G Ninja -DLLVM_DIR="$(llvm-config-18 --cmakedir)"
+          ninja -C "$RUNNER_TEMP/build/llvm-pass"
+
+      - name: Build the property observer (pass-instrumentation/observer)
+        run: |
+          set -u
+          cmake -S compiler/pass-instrumentation/observer -B "$RUNNER_TEMP/build/pass-observer" -G Ninja -DLLVM_DIR="$(llvm-config-18 --cmakedir)"
+          ninja -C "$RUNNER_TEMP/build/pass-observer"
+
+      - name: Build WipePin (llvm-repair)
+        run: |
+          set -u
+          cmake -S compiler/llvm-repair -B "$RUNNER_TEMP/build/llvm-repair" -G Ninja -DLLVM_DIR="$(llvm-config-18 --cmakedir)"
+          ninja -C "$RUNNER_TEMP/build/llvm-repair"
+
+      # CXX picks g++-13 the way the component's README does with its cmake
+      # flag: a GCC plugin has to be built by the GCC it will load into, and
+      # the CMakeLists refuses any other C++ front end.
+      - name: Build WipePinGcc (gcc-repair)
+        env:
+          CXX: g++-13
+        run: |
+          set -u
+          cmake -S compiler/gcc-repair -B "$RUNNER_TEMP/build/gcc-repair" -G Ninja
+          ninja -C "$RUNNER_TEMP/build/gcc-repair"
+
+      # Built only (see the job comment). clang-plugin needs Clang's CMake
+      # package as well as LLVM's, from libclang-18-dev.
+      - name: Build the other C++ components (build only)
+        run: |
+          set -u
+          llvm_dir="$(llvm-config-18 --cmakedir)"
+          cmake -S compiler/clang-plugin -B "$RUNNER_TEMP/build/clang-plugin" -G Ninja -DLLVM_DIR="$llvm_dir" -DClang_DIR=/usr/lib/llvm-18/lib/cmake/clang
+          ninja -C "$RUNNER_TEMP/build/clang-plugin"
+          for d in observer/rq2 marker introduction; do
+            b="$RUNNER_TEMP/build/pi-$(printf '%s' "$d" | tr '/' '-')"
+            cmake -S "compiler/pass-instrumentation/$d" -B "$b" -G Ninja -DLLVM_DIR="$llvm_dir"
+            ninja -C "$b"
+          done
+
+      - name: Assert every plugin and the digest calibrator exist
+        run: |
+          set -u
+          missing=0
+          for f in "$RUNNER_TEMP/build/llvm-pass/libIrCheckpoints.so" \
+                   "$RUNNER_TEMP/build/pass-observer/libPropertyObserver.so" \
+                   "$RUNNER_TEMP/build/llvm-repair/libWipePin.so" \
+                   "$RUNNER_TEMP/build/gcc-repair/libWipePinGcc.so" \
+                   "$RUNNER_TEMP/build/gcc-repair/canon-vectors" \
+                   "$RUNNER_TEMP/build/clang-plugin/libIntentGate.so" \
+                   "$RUNNER_TEMP/build/pi-observer-rq2/libSyntheticGroundTruth.so" \
+                   "$RUNNER_TEMP/build/pi-marker/libMarkerPass.so" \
+                   "$RUNNER_TEMP/build/pi-introduction/libIntroductionObserver.so"; do
+            if [ -s "$f" ]; then
+              echo "$(sha256sum "$f" | cut -d' ' -f1)  $(basename "$f")"
+            else
+              echo "::error::$(basename "$f") was not built"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ]
+
+      # The runner decides nothing and the checker builds nothing: the checker's
+      # exit code is the verdict (0 every expectation held, 2 one did not, 3 a
+      # record was missing). The runner's own exit is checked too, because a
+      # cell that produced no record is reported there first.
+      - name: WipePin fixture loop (run, then check)
+        run: |
+          set -u
+          lab="$RUNNER_TEMP/lab/llvm-repair"
+          bash compiler/llvm-repair/scripts/run-fixture-loop.sh --lab "$lab" \
+               --observer "$RUNNER_TEMP/build/llvm-pass/libIrCheckpoints.so" \
+               --wipepin "$RUNNER_TEMP/build/llvm-repair/libWipePin.so"
+          python3 compiler/llvm-repair/scripts/check-fixture-loop.py --lab "$lab"
+
+      - name: WipePinGcc fixture loop (run, then check)
+        run: |
+          set -u
+          lab="$RUNNER_TEMP/lab/gcc-repair"
+          bash compiler/gcc-repair/scripts/run-gcc-fixture-loop.sh --lab "$lab" \
+               --plugin "$RUNNER_TEMP/build/gcc-repair/libWipePinGcc.so"
+          python3 compiler/gcc-repair/scripts/check-gcc-fixture-loop.py --lab "$lab"
+
+      # WipePinGcc cannot link libLLVM, so it has a second writer of the
+      # canonical record text; the shared vectors are what keep the two
+      # writers, and the Node reader, agreeing.
+      - name: WipePinGcc digest calibration (canon-vectors)
+        run: |
+          "$RUNNER_TEMP/build/gcc-repair/canon-vectors" compiler/evidence/testdata/digest-vectors.json
+
+      # Run as files: the directory name is not a Python package name, so
+      # `python3 -m unittest` cannot address them. A 0-byte file would run as
+      # a script that does nothing and exit 0, and a file that no longer calls
+      # unittest.main() would too, so each file must be non-empty AND its run
+      # must print unittest's "Ran N tests" with N > 0 and exit 0. An emptied
+      # file, or one that runs no test, fails here.
+      - name: WipePinGcc Python tests
+        run: |
+          set -u
+          for t in compiler/gcc-repair/test/test_wpin_gcc_record.py compiler/gcc-repair/test/test_check_gcc_fixture_loop.py; do
+            [ -s "$t" ] || { echo "::error::no test file, or an empty one, at $t"; exit 1; }
+            echo "--- $t"
+            if out=$(python3 "$t" 2>&1); then rc=0; else rc=$?; fi
+            printf '%s\n' "$out"
+            [ "$rc" -eq 0 ] || { echo "::error::$t exited $rc"; exit 1; }
+            ran=$(printf '%s\n' "$out" | sed -n 's/^Ran \([0-9][0-9]*\) tests\{0,1\} in .*/\1/p' | tail -n 1)
+            [ -n "$ran" ] && [ "$ran" -gt 0 ] || { echo "::error::$t ran no test (no \"Ran N tests\" with N > 0)"; exit 1; }
+            echo "$t: $ran test(s) ran"
+          done
+
+      # The harness exits 0 only when every check passed, and that is half of
+      # the verdict. The other half is its report, read back: exactly the 21
+      # checks named in the header above, every one passing, and a pluginSha256
+      # equal to the sha256 of the .so the build step wrote, taken before the
+      # harness runs. That is what fails a harness that exits 0 and writes no
+      # report, a report measured on some other plugin, and a check that quietly
+      # stopped running. The report left over from an earlier run is deleted
+      # first, so it cannot stand in for this one. The fixtures are generated
+      # into the lab, never into the checkout. This log is public, so the runner
+      # paths in what the harness prints are replaced by placeholders.
+      - name: Property observer non-invasiveness (noninvasive.mjs, 21 checks)
+        run: |
+          set -u
+          lab="$RUNNER_TEMP/lab/pass-observer"
+          so="$RUNNER_TEMP/build/pass-observer/libPropertyObserver.so"
+          report="$lab/rq2/results/noninvasive.json"
+          sanitise() { sed -e "s#$lab#<lab dir>#g" -e "s#$RUNNER_TEMP#<runner temp>#g" -e "s#$PWD#<checkout>#g"; }
+          [ -s "$so" ] || { echo "::error::libPropertyObserver.so is missing or empty, so there is nothing to measure"; exit 1; }
+          want=$(sha256sum "$so" | cut -d' ' -f1)
+          rm -f "$report"
+          OBS_LAB="$lab" bash compiler/pass-instrumentation/observer/tools/make-fixtures.sh >/dev/null || { echo "::error::make-fixtures.sh failed"; exit 1; }
+          if out=$(OBS_LAB="$lab" OBS_PLUGIN="$so" node compiler/pass-instrumentation/observer/scripts/noninvasive.mjs 2>&1); then rc=0; else rc=$?; fi
+          printf '%s\n' "$out" | sanitise
+          [ "$rc" -eq 0 ] || { echo "::error::noninvasive.mjs exited $rc (2: a check failed, 3: the harness could not run)"; exit 1; }
+          [ -s "$report" ] || { echo "::error::noninvasive.mjs exited 0 but left no report"; exit 1; }
+          NI_REPORT="$report" NI_WANT_SHA256="$want" node -e '
+            const fs = require("node:fs");
+            let r;
+            try { r = JSON.parse(fs.readFileSync(process.env.NI_REPORT, "utf8")); }
+            catch (e) { console.log(`::error::the report could not be read (${e.code || e.name})`); process.exit(1); }
+            if (r === null || typeof r !== "object") { console.log("::error::the report is not a JSON object"); process.exit(1); }
+            const want = process.env.NI_WANT_SHA256;
+            const ids = ["-O0", "-O1", "-O2", "-O3"]
+              .flatMap((o) => ["NI-01", "NI-02", "NI-03", "NI-03b"].map((n) => n + o))
+              .concat(["NI-04", "NI-05", "NI-06", "NI-07", "NI-08"]);
+            const checks = Array.isArray(r.checks) ? r.checks : [];
+            const passing = checks.filter((c) => c && c.pass === true).length;
+            const bad = [];
+            if (r.schemaVersion !== "noninvasive-v1") bad.push(`schemaVersion is ${r.schemaVersion}, not noninvasive-v1`);
+            if (checks.length !== 21) bad.push(`it holds ${checks.length} checks, not 21`);
+            if (checks.map((c) => c && c.id).sort().join(" ") !== ids.sort().join(" ")) bad.push("its check ids are not NI-01..NI-03b at -O0..-O3 plus NI-04..NI-08");
+            if (r.passed !== 21 || passing !== 21) bad.push(`passed is ${r.passed} (${passing} checks with pass: true), not 21`);
+            if (r.failed !== 0) bad.push(`failed is ${r.failed}, not 0`);
+            if (r.pluginSha256 !== want) bad.push(`pluginSha256 is ${r.pluginSha256}, not ${want}, the sha256 of the .so this job built`);
+            for (const b of bad) console.log(`::error::noninvasive.json: ${b}`);
+            if (bad.length > 0) process.exit(1);
+            console.log(`noninvasive.json: ${checks.length} checks, ${r.passed} passed, ${r.failed} failed; pluginSha256 ${r.pluginSha256} is the libPropertyObserver.so this job built`);
+          '

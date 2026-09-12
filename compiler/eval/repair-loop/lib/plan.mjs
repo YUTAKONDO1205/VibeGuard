@@ -52,6 +52,20 @@ export function planMismatch(entry, { fn, helpers }) {
 }
 
 /**
+ * Was the plan written for the compiler this run drives? A pin plan lists the
+ * levels at which ONE compiler's observation says a wipe is gone (the runner
+ * writes `cc` into it); gcc-13 and clang-18 lose different wipes at different
+ * levels, so a plan replayed on the other one would pin cells whose loss is not
+ * there. A plan with no `cc` (written by hand) is not checked. Returns a
+ * problem string, or null.
+ */
+export function planCompilerMismatch(obj, ccName) {
+  if (!obj || typeof obj !== 'object' || obj.cc === undefined) return null;
+  if (obj.cc !== ccName) return `the plan was written for ${JSON.stringify(obj.cc)}; this run drives ${JSON.stringify(ccName)}`;
+  return null;
+}
+
+/**
  * What a plan-driven run established, from its rows (erasure rows only; every
  * row of such a run is a planned cell).
  *  - cellPlanned / cellRetained: cells planned because the cell verdict is eliminated

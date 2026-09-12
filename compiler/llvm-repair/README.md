@@ -37,6 +37,12 @@ refusal, and whether or not the pass later runs — whatever is at `WPIN_OUT` is
 removed. "No record" after a compile therefore always means "no record from
 this compile".
 
+An LTO link that loads the plugin (`-Wl,--load-pass-plugin=`) removes it too,
+and there the file may be the record the compile step wrote. The link's
+pipeline never runs pipeline start, so the pass never runs there; the plugin
+says so on stderr, once, and says whether its load removed a file (see *The
+silent failures* and *The link-time line* under *Measured*).
+
 Pipeline start is the only place this can work. It runs before SROA,
 InstCombine and DSE ever see the memset; a pass placed after them would find
 nothing left to pin in exactly the cases it exists for. `isRequired()` keeps it
@@ -58,11 +64,13 @@ One of `WPIN_TARGET_FNS` / `WPIN_SCOPE=module` is required. If both are set,
 
 ## The record
 
+The record, field by field for both plugins, is specified in `../schema/wipe-pin.md`.
+
 One clang invocation, one source file, one record, written at the end of the
 pass's single run and overwriting whatever was at `WPIN_OUT`:
 
 ```json
-{ "schemaVersion": "wipe-pin-v1", "component": "WipePin", "module": "<basename>",
+{ "schemaVersion": "wipe-pin-v2", "component": "WipePin", "module": "<basename>",
   "toolchain": {"clang": "18.1.3", "packages": [{"name": "llvm", "version": "18.1.3"}],
                 "digest": "<sha256>"},
   "optLevel": {"speedup": 2, "size": 0}, "scope": "functions",
@@ -80,6 +88,17 @@ pass's single run and overwriting whatever was at `WPIN_OUT`:
   "evidenceDigest": "...", "context": {"generatedAt": ..., "timeSource": ..., "sourceDateEpoch": ...} }
 ```
 
+What `wipe-pin-v2` changed from `v1`, for this plugin: `schemaVersion`, and how
+`followedByUse` is computed. Its three values and its meaning are the same; what
+no longer counts as a path to a later use is an edge of clang's cleanup dispatch
+that the path being followed cannot take (see *What `followedByUse` can and
+cannot say*). Every other field is computed exactly as in v1, and the code the
+plugin emits is the same (measured below). The v2 contract also admits a second
+writer, the GCC plugin `WipePinGcc` (`../gcc-repair/`), whose `toolchain` block
+carries `gcc` where this one carries `clang`; one reader,
+`../eval/repair-loop/lib/pin-record.mjs`, reads both, and takes the component
+the caller loaded (`WipePin` here) as part of what the record must match.
+
 What `wipe-pin-v1` added to `v0`; apart from `schemaVersion`, nothing else
 changed:
 
@@ -96,7 +115,8 @@ changed:
   shape of a wipe before the buffer dies. `null` when the underlying object is not an alloca (a parameter,
   a global, a pointer reloaded from memory) — the question has no answer inside
   this function. Computed at pipeline start for every recorded site, in a dry
-  run as well, before anything is changed.
+  run as well, before anything is changed. (v2 asks the reachability question a
+  second time where the first answer is `true`; see below.)
 - **`resolution[].exact`** — for a resolved name, `Function::isDefinitionExact()`:
   `false` for `linkonce_odr` (C++ inline and template functions), `weak`,
   `available_externally` (a C99 inline definition, which clang emits only when
@@ -189,7 +209,8 @@ succeeded and looks repaired. Each one is turned into something audible.
 |---|---|
 | not installed: `WPIN_OUT` unset, no target, or `WPIN_DRY_RUN` neither `0` nor `1` | stderr `WipePin: refusing to install: <reason>`; no record, so `pin.sh` exits **3**. clang's rc is unaffected. |
 | a record from an earlier compile at `WPIN_OUT` | removed when the plugin loads, before any refusal — so a refused compile and a compile whose pass never ran leave **no** record, not the old one (measured: `stale-refused`, `stale-nopasses` below). If it cannot be removed (a directory, a non-regular file, an unlink error other than "not there"): `WipePin: refusing to install: <reason>`, and the IR is not touched. |
-| installed, but the pass never ran (`-Xclang -disable-llvm-passes` — measured here: rc 0, no record; a plugin on an LTO link line, where pipeline start does not fire, per `../docs/toolchain-probes.md` §2, was not re-measured) | no record → `pin.sh` exits **3** |
+| installed, but the pass never ran: a compile under `-Xclang -disable-llvm-passes` | no record → `pin.sh` exits **3**. On stderr it depends on the output: with `-c` or `-S` nothing (rc 0, 0 bytes — clang runs no pass-manager pass at all, so nothing the plugin hooks fires; a direct clang user sees nothing); with `-emit-llvm` the link-time line below, because the bitcode writer or IR printer still runs as a pass (measured). The bitcode step of `-save-temps` is this case: clang runs it with `-disable-llvm-passes` and the line appears (`there was no file …`), and the next step builds the whole pipeline from the `.bc`, where WipePin runs and writes the record (`module` `t.bc`, measured). |
+| installed, but the pass never ran: **WipePin on an LTO link line** (`-Wl,--load-pass-plugin=<so>`, full or thin LTO) with `WPIN_OUT` / `WPIN_TARGET_FNS` in the link's environment — a build that exports them to every step | An LTO link's pipeline never runs pipeline start, so the pass is never added. The load-time callback still removes the file at `WPIN_OUT`, which here is the record the compile step wrote. Until this change that link exited 0 with 0 bytes on stderr and the record gone (measured again below, full and thin, `-O0`..`-Os`). Now the first pass the link runs makes the plugin print, once per process, `WipePin: loaded into a pipeline built without the pipeline-start extension point (an LTO link, or a compile under -disable-llvm-passes), where this pass does not run; nothing was pinned in this process, and the file at WPIN_OUT was removed when the plugin loaded` (or `… and there was no file at WPIN_OUT when the plugin loaded`). The removal is kept (why: *The link-time line*). `pin.sh` does not link and is not involved; the fixture loop's `lto-*-linkline` cells and the LTO probe's configuration (ii) grade the line. |
 | a misspelt name | `resolution: not-in-module` in the record **and** `WipePin: target <name> not-in-module` on stderr; `pin.sh` exits **4** |
 | the right name, nothing eligible in it | stderr `WipePin: nothing to pin in scope …` with the `unhandled` counts; `pin.sh` exits **4** |
 | **something was pinned, but not the wipe** — an `= {0}` initialiser or a clear-before-fill memset pinned while the wipe is a zeroing loop or sits in a helper | the site's `followedByUse: true`, and one stderr line, `WipePin: partial: pinned <P> site(s) in <module>; <K> followed by a later use of the same buffer (initialiser-like, not a wipe); unhandled in scope: libcallMemset=.. memsetChk=.. nonZeroFill=.. atomicMemset=.. inlineWrapperMemset=..`. `pin.sh` still exits **0** (something was pinned) and writes `followedByUseCount` to its manifest. |
@@ -203,21 +224,147 @@ succeeded and looks repaired. Each one is turned into something audible.
 ### What `followedByUse` can and cannot say
 
 It is a hint that points one way. `true` means "some use of this buffer is
-reachable in the CFG after this site"; `false` means "none is". Neither says the
-wipe survives — that is still the confirm step's question.
+reachable in the CFG after this site, not counting a cleanup-dispatch edge the
+path cannot take"; `false` means "none is". Neither says the wipe survives —
+that is still the confirm step's question.
 
-- **It over-approximates, and that is measured.** Reachability is asked of the
-  IR as the front end wrote it, which at `-O1` and above contains clang's
-  cleanup dispatch: a `return` from inside a loop body that declares a local
-  goes through a shared cleanup block whose `switch` has an edge back to the
-  loop. On `fable_N_token_r3.c` (`send_session_token`), the error-path wipe
-  `memset(token, …); return -1;` inside the `while` loop (line 17) is
-  `followedByUse: false` at `-O0` and `true` at `-O1` and `-O2`, because the CFG
-  path 17 → cleanup → loop header → `write(fd, token + total, …)` exists even
-  though no execution takes it. The partial line is printed for that file at
-  `-O1`/`-O2`. An over-approximation of this kind can add a partial line; it can
-  never remove one. `isPotentiallyReachable` also answers `true` when it gives
-  up on a large CFG.
+- **v2 no longer counts the cleanup-dispatch edge a path cannot take.**
+  Reachability is asked of the IR as the front end wrote it, which at `-O1` and
+  above contains clang's cleanup dispatch: a scope that declares a local has a
+  cleanup (its lifetime markers), and every jump out of it — a `return` inside a
+  loop body, a `break`, falling off the end of the body — goes through one shared
+  cleanup block. Which way the jump was going is kept in an `i32` stack slot
+  (`cleanup.dest.slot` in a build that keeps value names): each jump stores its
+  own constant there, the shared block loads it, and a `switch` on the load
+  sends control on. On `fable_N_token_r3.c` (`send_session_token`, front-end IR
+  at `-O1`) the `return -1` path stores `1`, the fall-through path stores `0`,
+  and the switch sends `0` back to the loop header and everything else to the
+  exit. So the CFG has a path from the error-path wipe `memset(token, …);
+  return -1;` (line 17) back to `write(fd, token + total, …)`, which no
+  execution takes. v1 answered reachability with `isPotentiallyReachable` alone
+  and read that site `true` at `-O1` and above (`false` at `-O0`, where that
+  scope has no dispatch), and printed the partial line for it.
+
+  v2 asks twice. First `isPotentiallyReachable`, exactly as v1; a `false` there
+  is final. Only where it says `true`, a second search follows the CFG from the
+  memset, carrying for each **modelled slot** the constant last stored into it
+  on the current path, and at a `switch` whose condition is a load from such a
+  slot, read on the current walk of that block, it follows only the edge that
+  constant selects (the default when no case matches). Every other edge, and
+  every edge of any other terminator, is followed. A slot is modelled only when
+  every one of its users is a non-volatile store *into* it of a `ConstantInt` of
+  its own type, or a non-volatile load *from* it of its type — nothing else can
+  write it and its address goes nowhere, so its value on a path is the constant
+  last stored on that path. At the memset every slot is "unknown" (the search
+  does not look backwards), and an unknown slot keeps all of its switch's edges.
+  The model goes by that shape, not by clang's slot name: a source variable of
+  the same shape switched on directly is pruned the same way, and for the same
+  reason just as soundly (in the corpus sweep below no site changed for that
+  reason).
+
+  **The soundness rule:** v2 turns `true` into `false` only when every CFG path
+  from the memset to every use goes through a modelled switch edge that is
+  infeasible on that path. It never turns `false` into `true` (the first
+  question is v1's, unchanged). Past 65 536 explored (block, slot values) pairs
+  the search gives up and answers `true` — the direction `isPotentiallyReachable`
+  gives up in. The fixture loop has a guard for exactly the wrong answer this
+  could give: `loopbreakuse`, where the memset is followed by `break` and the
+  buffer is read after the loop; the break reaches the read *through* the
+  dispatch switch, on the edge its own constant selects, and must stay `true`. A
+  deliberately unsound build that took the switch's default edge instead reads
+  it `false` and the checker exits 2 (measured below).
+
+  Measured over the whole erasure corpus (below): the refinement changed 16
+  sites, all `true` → `false`, all at `-O1`..`-Os`, in exactly
+  `fable_N_token_r3`, `sonnet_N_token_r1` and `sonnet_S_pwverify_r1` (the
+  `return` inside the loop, and in the last file the two `return 0` inside the
+  nested hex-decoding loop), and each now reads what it reads at `-O0`.
+- **What it still over-approximates.** Everything the dispatch model does not
+  describe is plain reachability, as in v1:
+  - any other correlation between a stored value and a later branch — a flag
+    (`ok = 0; … if (ok) use(buf);`), a loop counter, the return-value slot
+    compared in an `if`, a condition on an ordinary variable. Only a `switch`
+    on a load is ever pruned, and only on a slot of the shape above;
+  - a slot whose constant was stored *before* the memset (the search starts
+    with every slot unknown), and a switch whose load sits in another block;
+  - a dispatch slot with any other user (a lifetime marker, a GEP, a call, its
+    address stored somewhere) — clang's own slot has none, measured on the
+    three files above; a different front end or a later clang might;
+  - `isPotentiallyReachable` giving up on a large CFG, and the second search
+    giving up past its bound: both answer `true` (how close any search in the
+    corpus came to the bound was not measured).
+
+  Each of these can add a partial line; none can remove one. The repair loop's
+  results still call `followedByUse` "a hint that can over-approximate", and
+  after the measurement below that is still true in the sense that needs no
+  change of level: a flag tested before a use, a constant stored before the
+  memset into a slot the source itself switches on, and the search bounds can
+  make a site read `true` at `-O0` as well as above it. The items that concern
+  clang's own dispatch — its slot holding a constant stored before the memset,
+  another user of that slot, a switch whose load sits in another block — exist
+  only where the dispatch does: where lifetime markers give a scope its
+  cleanup, which is at `-O1` and above (and at `-O0` under a sanitizer that
+  writes the markers there, `-fsanitize=address` with its default
+  use-after-scope among them), and where a scope has a cleanup of another kind, at
+  every level (two items down). In this corpus none of them made any site read
+  differently from `-O0`, which says nothing about a front end, or a later
+  clang, that emits those shapes.
+- **On the r2 corpus, site by site, v2 reads at `-O1`..`-Os` what it reads at
+  `-O0`.** The v1
+  against v2 table below shows the per-level counts agreeing; this is the claim
+  for each site. Measured 2026-09-12 with
+  `../eval/repair-loop/tools/fbu-levels.mjs`, plugin `db3298cf…73a4c8`, clang
+  18.1.3: the 360 erasure-family files the repair loop measures (its own
+  selection, `../eval/repair-loop/lib/corpus.mjs`), the find step's `FLAGS` plus
+  `-gline-tables-only` so that every site carries a line, module scope, dry
+  run, `-O0`..`-Os`; 3960 compiles, every record accepted by
+  `../eval/repair-loop/lib/pin-record.mjs`. 251 sites at each level. At each of
+  `-O1`, `-O2`, `-O3` and `-Os`, all 251 join their `-O0` site on (file,
+  function, index) with the same line: 0 sites on one side only, 0 lines
+  differing, 0 duplicate keys, 0 files not compared. Of the 1004 joined
+  (site, level) pairs, 0 read a different `followedByUse` — 0 `false` → `true`,
+  0 `true` → `false`, 0 into or out of `null` — and `lengthBytes`, `destKind`
+  and `alreadyVolatile` agree in all of them. Two controls in the same run:
+  `-O0` compiled twice gives 0 differences and the same `evidenceDigest` in
+  360/360 files; every level compiled again without `-gline-tables-only`
+  gives records equal on every field but `pinned[].line` in 1800/1800 — with
+  `context` (a clock) and `evidenceDigest` (which covers the line) dropped
+  before the comparison — and a line on 1255 of 1255 (site, level) pairs with
+  the flag, on none without. The v1 plugin
+  through the same tool — `aa7329c3…f0a66` again, rebuilt from
+  `git archive 1ae6438~1` of this directory and of `../llvm-pass/src`, which
+  its build compiles in, its records read by that commit's `pin-record.mjs`
+  because this tree's refuses `wipe-pin-v1` — gives exactly the 16 sites
+  listed below, the four error-path sites `false` at `-O0` and `true` at each
+  of `-O1`..`-Os`, and no other difference: the join finds the level
+  dependence it is there to find. What this does not cover: `-O0` is the
+  reference, not the truth, so a site the list above makes wrong at every
+  level alike does not show, nor would a reading through a dispatch that `-O0`
+  has as well (next item; this corpus has none); one corpus, one clang, x86-64.
+- **Where `-O0` has the dispatch too.** clang 18.1.3 writes no lifetime markers
+  at `-O0` in these compiles (it does under `-fsanitize=address`, below), so a
+  scope whose only cleanup would be its markers has no dispatch there; the
+  three files of v1's 16 sites are that case. A scope with a cleanup of another
+  kind has the dispatch at `-O0` as well, and a reading through it can then be
+  the same at every level, which a comparison with `-O0` cannot show. Measured
+  2026-09-12 with v1 `aa7329c3…` and v2 `db3298cf…` on three probes generated
+  into the lab, each an error-path wipe (`memset`, then `return -1`) inside a
+  loop whose body declares the buffer: front-end IR from the find step's
+  `FLAGS`, the level and `-emit-llvm -Xclang -disable-llvm-passes
+  -fno-discard-value-names`; records from the same `FLAGS` plus
+  `-gline-tables-only`, module scope, dry run, each read by the
+  `pin-record.mjs` of its own schema. With a VLA in that body, or a local
+  carrying `__attribute__((cleanup))`, the `-O0` IR already has a
+  `cleanup.dest.slot` and a switch on it, and v1 reads the wipe `true` at all
+  five levels; the same body with neither has no slot at `-O0`, and v1 reads it
+  `false` there and `true` at `-O1`..`-Os`. v2 reads all three `false` at all
+  five levels. With `-fsanitize=address` the plain probe has lifetime markers,
+  the slot and the switch at `-O0` too, and reads `true` on v1 there, `false`
+  on v2. The site-by-site measurement above does not meet this case: the `-O0`
+  IR of the 360 erasure-family files has no `cleanup.dest.slot`, no switch on
+  one, no `llvm.stacksave` and no lifetime marker in any file, while at each of
+  `-O1`..`-Os` 248 files have the slot, 39 a switch on it (the three files of
+  v1's 16 sites among them) and all 360 lifetime markers.
 - **It follows the address through stack slots, and nowhere else in memory.**
   When the buffer's address is stored into a stack slot (`unsigned char *p =
   key;`), loads from that slot count as the address again, and so on for any
@@ -247,9 +394,9 @@ WPIN_TARGET_FNS=encrypt_blob \
 
 | exit | meaning |
 |---|---|
-| `0` | clang succeeded; a `wipe-pin-v1` record was written; it pinned at least one site; every requested name resolved. **Not** "the wipe survived", and not even "the wipe was pinned": a pinned initialiser counts. `followedByUseCount` and the partial line are where that shows. |
+| `0` | clang succeeded; a `wipe-pin-v2` record was written; it pinned at least one site; every requested name resolved. **Not** "the wipe survived", and not even "the wipe was pinned": a pinned initialiser counts. `followedByUseCount` and the partial line are where that shows. |
 | `1` | clang failed |
-| `3` | clang succeeded and there is no usable record: the plugin refused to install, its pass never ran, the record could not be written, or what was written is not a `wipe-pin-v1` record `python3` can read |
+| `3` | clang succeeded and there is no usable record: the plugin refused to install, its pass never ran, the record could not be written, or what was written is not a `wipe-pin-v2` record `python3` can read (a v1 record from an older build is one) |
 | `4` | clang succeeded and a record was written, but nothing was repaired: `pinnedCount` is 0 (a dry run, a misspelt name, nothing eligible in scope) or a requested name did not resolve |
 
 `pin.sh` reads the record with `python3` (no `jq`), and writes
@@ -275,6 +422,7 @@ record.
 | `WipePin: partial: pinned <P> site(s) in <module>; <K> followed by a later use of the same buffer (initialiser-like, not a wipe); unhandled in scope: libcallMemset=.. memsetChk=.. nonZeroFill=.. atomicMemset=.. inlineWrapperMemset=..` | some site in `pinned[]` has `followedByUse: true` (K > 0), or `pinnedCount` > 0 while an in-scope `unhandled` counter is > 0. One line. In a dry run P is 0. |
 | `WipePin: cannot write the record to WPIN_OUT (…); the IR was changed/not changed and nothing records it` | the record could not be opened |
 | `WipePin: a second module (…) reached this pass in one process; …` | a host handed the pass two modules |
+| `WipePin: loaded into a pipeline built without the pipeline-start extension point (an LTO link, or a compile under -disable-llvm-passes), where this pass does not run; nothing was pinned in this process, and the file at WPIN_OUT was removed when the plugin loaded` | the plugin installed, and a pass ran in this process through a pipeline that was built without the pipeline-start extension point: an LTO link (full or thin, any level), or a `-disable-llvm-passes` compile that writes IR. Once per process. The ending is `… and there was no file at WPIN_OUT when the plugin loaded` when the load-time callback found nothing to remove. |
 | notes about `WPIN_TARGET_FNS` / `WPIN_SCOPE` / duplicates | configuration notes, printed at load |
 
 A compile whose record has only exact targets, a `followedByUse: false` site
@@ -293,21 +441,58 @@ Every observer+WipePin cell is also compiled through `pin.sh` with the same
 `WPIN_*` settings and WipePin alone, so the exit code a `pin.sh` caller would
 see is graded per cell, and the two WipePin records (with and without the
 observer loaded first) must have the same `evidenceDigest`. Two more cells run
-`pin.sh` alone where it must exit 3. Then two groups that do not involve the
+`pin.sh` alone where it must exit 3. Then four groups that do not involve the
 observer, generated into the lab:
 
-- **shapes**: small sources, each compiled `-O2 -g` through `pin.sh`, whose
-  record and stderr have a known right answer — an `= {0}` initialiser followed
-  by a zeroing loop (`initloop`), the same initialiser with the wipe in a
-  helper (`inithelper`), a clear-before-fill memset and a trailing wipe memset
+- **shapes**: small sources, each compiled `-g` through `pin.sh` at `-O2`,
+  whose record and stderr have a known right answer — an `= {0}` initialiser
+  followed by a zeroing loop (`initloop`), the same initialiser with the wipe in
+  a helper (`inithelper`), a clear-before-fill memset and a trailing wipe memset
   on one buffer (`initwipe`), a clear-before-fill memset whose later uses all
   go through a copied pointer (`aliasinit`), a trailing memset only
-  (`trailing`), a C99 inline target (`c99inline`) and a C++ inline target
-  (`cxxinline`);
+  (`trailing`), a C99 inline target (`c99inline`), a C++ inline target
+  (`cxxinline`), and, each also at `-O0` and `-O1`, the error-path wipe inside
+  a loop (`loopreturn`: `memset; return -1;` in the body, which also reads the
+  buffer, plus a trailing memset — `false`, `false`, no partial line) and its
+  soundness guard (`loopbreakuse`: `memset; break;` with the buffer read after
+  the loop — `true` and the partial line);
 - **stale records**: clang run directly (not `pin.sh`, which deletes the path
   itself) with a file that is not this compile's record already at `WPIN_OUT`:
   a refused compile, a `-Xclang -disable-llvm-passes` compile, a normal compile,
-  and a directory at `WPIN_OUT`.
+  and a directory at `WPIN_OUT`;
+- **lto**: the `trailing` shape at `-O2` compiled `-flto` with WipePin
+  (`lto-full-compile`: a valid record, a bitcode object, no WipePin line), and
+  the same compile followed by a link with WipePin on the link line and the
+  same `WPIN_OUT`, full and thin (`lto-full-linkline`, `lto-thin-linkline`:
+  link rc 0, the link-time line exactly once in its "removed" form, nothing at
+  `WPIN_OUT` afterwards, and the linked shared object byte-identical to a stock
+  link of the same bitcode);
+- **xtu**: a wipe helper in another translation unit, the loss only a link can
+  create. `secure_wipe(void *p, size_t n) { memset(p, 0, n); }` in `wipe.c`;
+  `handle()` in `use.c`, the helper's one caller, fills a 32-byte local
+  (`derive`), reads it (`use`) and calls `secure_wipe(key, sizeof key)` as its
+  last use; `main.c` calls it; `io.c` holds `derive` and `use` and is never
+  compiled `-flto`, so no link sees into them. `wipe_kept()` beside `handle` is
+  the control: a memset of its own on a buffer `use` reads afterwards, which no
+  build may remove. Linked into an executable at `-O2` (`-fuse-ld=lld`):
+  stock without LTO (`xtu-nolto`: the call stays and the helper's memset with
+  it), and for full and thin LTO a stock build (`xtu-*-stock`: the link inlines
+  the helper, and the fill is a dead store), a build with WipePin at the
+  compile of `wipe.c` only, `WPIN_TARGET_FNS=secure_wipe` (`xtu-*-pin`: the
+  volatile memset is inlined and kept), and the same as a dry run (`xtu-*-dry`:
+  as stock, byte for byte). The checker disassembles each executable itself
+  (`objdump -d`) with `../gcc-repair/scripts/objdump_fill.py` — imported, not
+  copied; the WipePinGcc loop reads its own xtu cells with it — and reads
+  whether a call to `secure_wipe` is left in `handle` (a cell whose helper was
+  not inlined, where inlining is the point, disagrees rather than passes), and
+  where the 32-byte fill is. What a cell was built as is read from what the
+  build left, not from the runner's word: the LTO form from the block each
+  `-flto` object's module summary is in (`llvm-bcanalyzer-18 -dump`:
+  `GLOBALVAL_SUMMARY_BLOCK` for thin, `FULL_LTO_GLOBALVAL_SUMMARY_BLOCK` for
+  full), the linker from the executable's `.comment`, where lld writes
+  `Linker: <version>`, and the link from whether the executable still defines
+  `secure_wipe` (measured: a ThinLTO link of this fixture keeps it, a full-LTO
+  link does not).
 
 ```sh
 cmake -S compiler/llvm-pass -B ~/vg-build/llvm-pass -G Ninja \
@@ -318,14 +503,378 @@ bash compiler/llvm-repair/scripts/run-fixture-loop.sh --lab <lab> \
 python3 compiler/llvm-repair/scripts/check-fixture-loop.py --lab <lab>   # 0 / 2 / 3
 ```
 
-The runner decides nothing and the checker compiles nothing. The fixtures and
-the shape sources are generated into the lab on every run, never into this
-tree. There are no default lab or build paths in either script.
+The runner decides nothing and the checker compiles nothing (it runs `objdump`
+on the xtu executables and `llvm-bcanalyzer-18` on their objects, so binutils
+and llvm-18 are needed besides `python3`; `--bcanalyzer` names another
+llvm-bcanalyzer). The fixtures and the shape sources are generated into the lab
+on every run, never into this tree. There are no default lab or build paths in
+either script.
 
 ## Measured
 
 clang 18.1.3, Ubuntu 24.04 (WSL), plugin built with g++ 13.3.0, 2026-09-11.
 Every number below was copied from a run, not from reasoning.
+
+### A wipe helper in another translation unit
+
+Measured 2026-09-12, same toolchain, `ld.lld` 18.1.3, GNU objdump 2.42,
+`llvm-bcanalyzer-18` (LLVM 18.1.3). `libWipePin.so` built from this tree:
+sha256 `db3298cf…73a4c8`, the build of *The link-time line* below (the plugin
+did not change; the loop did). Every object of the LTO probe
+(`../eval/repair-loop/tools/LTO.md`) is linked alone, so no helper from another
+unit was ever inlined there. The xtu cells are that case, on one generated
+fixture (*The second instrument: the fixture loop*, above).
+
+**Fixture loop** (`run-fixture-loop.sh` rc 0, `check-fixture-loop.py` exit 0,
+"all 42 cells as expected"). For the 35 cells from before, the checker's output
+is byte-identical to that of a run of the loop as it was before these cells,
+in another lab; only the new table and the total differ:
+
+```
+xtu (-O2, executable)  form  mode   rc  objects             summary  linker             secure_wipe  wipe.c record         inlined  subject: handle                                          control: wipe_kept                     ==stock
+xtu-nolto              none  stock  0   elf (io.o elf)      -        Ubuntu LLD 18.1.3  yes          -                     no       PRESENT in secure_wipe (0 store(s)/0B/1 memset call(s))  PRESENT in wipe_kept (2 store(s)/32B)  -        ok
+xtu-full-stock         full  stock  0   bitcode (io.o elf)  full     Ubuntu LLD 18.1.3  no           -                     yes      ABSENT in handle (0 store(s)/0B)                         PRESENT in wipe_kept (2 store(s)/32B)  -        ok
+xtu-full-pin           full  pin    0   bitcode (io.o elf)  full     Ubuntu LLD 18.1.3  no           wipe-pin-v2/1/1/live  yes      PRESENT in handle (2 store(s)/32B)                       PRESENT in wipe_kept (2 store(s)/32B)  no       ok
+xtu-full-dry           full  dry    0   bitcode (io.o elf)  full     Ubuntu LLD 18.1.3  no           wipe-pin-v2/0/1/dry   yes      ABSENT in handle (0 store(s)/0B)                         PRESENT in wipe_kept (2 store(s)/32B)  yes      ok
+xtu-thin-stock         thin  stock  0   bitcode (io.o elf)  thin     Ubuntu LLD 18.1.3  yes          -                     yes      ABSENT in handle (0 store(s)/0B)                         PRESENT in wipe_kept (2 store(s)/32B)  -        ok
+xtu-thin-pin           thin  pin    0   bitcode (io.o elf)  thin     Ubuntu LLD 18.1.3  yes          wipe-pin-v2/1/1/live  yes      PRESENT in handle (2 store(s)/32B)                       PRESENT in wipe_kept (2 store(s)/32B)  no       ok
+xtu-thin-dry           thin  dry    0   bitcode (io.o elf)  thin     Ubuntu LLD 18.1.3  yes          wipe-pin-v2/0/1/dry   yes      ABSENT in handle (0 store(s)/0B)                         PRESENT in wipe_kept (2 store(s)/32B)  yes      ok
+```
+
+What the executables hold (`objdump -d`):
+
+- `xtu-nolto`: `handle` ends with `call <secure_wipe>`, and `secure_wipe` is
+  `mov %rsi,%rdx; xor %esi,%esi; jmp <memset@plt>`. The length is a register
+  that nothing in `wipe.c` can know, and the memset is a tail call.
+- `xtu-full-stock`, `xtu-thin-stock`: `handle` is `call derive`, `call use` and
+  the return. No call to `secure_wipe` is left, and no zero is stored. The same
+  source keeps the wipe without LTO; the LTO link removes it.
+- `xtu-full-pin`, `xtu-thin-pin`: the same `handle` with `xorps %xmm0,%xmm0`
+  and two `movaps %xmm0` to the stack after `call use`: the 32 bytes, inlined.
+  The record of the `wipe.c` compile: one site, in `secure_wipe`, `destKind`
+  `argument`, `lengthBytes` null, `followedByUse` null, `pinnedCount` 1; the
+  compile printed nothing.
+- `xtu-full-dry`, `xtu-thin-dry`: the stock executable, byte for byte (sha256
+  `a4b80c06…` full, `b1ad112a…` thin), and the dry-run line on the compile's
+  stderr. Every object of the dry-run builds is byte-identical to the stock
+  build's (8/8 over both forms); in the pinned builds only `wipe.o` differs.
+- Under thin LTO, `secure_wipe` is still a global symbol of the executable,
+  its body the tail call to memset, and no instruction anywhere branches to it;
+  under full LTO there is no such symbol. A reading of the whole program would
+  find a memset under thin LTO in all three builds; the reading is of `handle`.
+  The table's `secure_wipe` column is this.
+- The control's 32-byte fill (two 16-byte stores of a zeroed register) is in
+  `wipe_kept` in all seven.
+- A second run into another lab gave the same checker output and the same
+  seven executables, byte for byte. The runs after the change below gave the
+  same seven executables again; the checker output differs only in the xtu
+  table and its footer.
+
+**The first fixture.** The first version routed the control through
+`secure_wipe` as well (`wipe_kept` called it on a buffer `use` read
+afterwards), so the helper had two callers. With it this loop read all 42 cells
+as expected, the control's call inlined along with the subject's in every LTO
+cell; the WipePinGcc loop's pinned cell did not read as expected (gcc-13 kept
+the pinned helper out of line, `../gcc-repair/README.md`, the xtu cells). The
+fixture was changed, for both loops, to the shape above: one caller, and a
+control of its own. The subject's expectations are the ones written before the
+first run.
+
+**What a cell was built as.** The first version of this checker took a cell's
+LTO form from the runner's `form=` and from the objects' four-byte magic, which
+is the same for `-flto` and `-flto=thin`. A review found that it could not tell
+the thin cells from the full ones, and runs of it showed the same: with the
+runner's thin line reduced to plain `-flto` (compile and link),
+`run-fixture-loop.sh` rc 0 and "all 42 cells as expected"; with the thin
+cells' directories replaced by copies of the full ones in a copy of the lab,
+the same; and with `-fuse-ld=lld` taken out of the xtu link, and
+`-Wl,--thinlto-jobs=1` out of the thin one (GNU ld refuses it: `/usr/bin/ld:
+unrecognized option '--thinlto-jobs=1'`), every executable was GNU ld's and it
+still read all 42 cells as expected. The checker now reads three things the
+build left:
+
+- the block each `-flto` object's module summary is in (`llvm-bcanalyzer-18
+  -dump`): `GLOBALVAL_SUMMARY_BLOCK` in each of the 9 objects of the thin
+  cells, `FULL_LTO_GLOBALVAL_SUMMARY_BLOCK` in each of the 9 of the full ones
+  (`io.o` and the objects of `xtu-nolto` are ELF, with no summary). That
+  block, not the flag on the link line, decides what lld runs: linked again
+  with `-Wl,--save-temps`, the thin objects ran a ThinLTO backend per module
+  (`wipe.o.3.import.bc`, `prog.index.bc`) under plain `-flto` too, the full
+  ones one merged module (`prog.0.4.opt.bc`) under `-flto=thin` too, and each
+  executable was the lab's of the objects' form, byte for byte;
+- the linker, from the executable's `.comment`: `Linker: Ubuntu LLD 18.1.3` in
+  all seven; the GNU ld executables above had no `Linker:` string;
+- whether the executable still defines `secure_wipe`: measured, not predicted
+  (the bullet above), and it is what ties a cell to its executable rather than
+  to the objects beside it. The same `--save-temps` links show why: under
+  ThinLTO, `wipe.o`'s backend keeps `secure_wipe` external while `use.o`'s
+  imports a copy (`available_externally`) and inlines it; under full LTO the
+  merged module makes it `internal` and drops it once inlined. Without this
+  check, the three thin executables replaced by the full ones, their objects
+  left, still read all 42 cells as expected.
+
+The expectations written before the first run did not change; the first two
+checks expect what the cells were defined as, and the third is added beside
+them from the measurement. The lto group's `-flto` objects are now read the
+same way: each cell's object must hold its module summary in the block of the
+form the cell is named for (the checker prints the five after the lto table:
+full, full, thin, thin, full). Before, `lto-thin-linkline` and
+`lto-thin-linkline-O0` read only the magic, and with their objects replaced by
+a full one both still read as expected; now both disagree (`the object's module
+summary is full, expected thin`), exit 2. `lto-thin-linkline-O0` is the cell
+that shows a ThinLTO link at `-O0` running no extension point, so that is the
+check that keeps it a ThinLTO link.
+
+**The checker was shown to fail**, one corruption at a time on a copy of the
+lab: `xtu-full-pin`'s executable replaced by `xtu-full-stock`'s → exit 2
+(`subject ABSENT in handle (0 store(s)/0B), expected PRESENT`; `pinned, yet
+the executable is byte-identical to xtu-full-stock's`), and the same with the
+thin pair; `xtu-nolto`'s executable replaced by `xtu-full-stock`'s → exit 2
+(`secure_wipe was inlined into handle: the helper was not opaque to its caller
+here, …`; `subject ABSENT …, expected PRESENT`; and, since the change above,
+`the executable does not define secure_wipe, …`); `xtu-full-dry`'s replaced by
+`xtu-full-pin`'s → exit 2 (`subject PRESENT …, expected ABSENT`; `told to
+change nothing, yet the executable differs from xtu-full-stock's`);
+`xtu-thin-pin`'s `wipe.o` replaced by the non-LTO one → exit 2 (`wipe.o is elf,
+expected bitcode`); `xtu-full-pin`'s record deleted → exit 3; `xtu-thin-stock`'s
+executable deleted → exit 3. For what a cell was built as: the thin cells'
+directories replaced by the full ones → exit 2 (`main.o, use.o, wipe.o: a full
+module summary, expected a thin module summary: …` and `the executable does
+not define secure_wipe, which a ThinLTO link of these units keeps (measured):
+…`, for each); only the thin executables replaced → exit 2 (the second line,
+for each); `xtu-thin-pin`'s `wipe.o` replaced by a plain `-O2 -emit-llvm -c` of
+`wipe.c` → exit 2 (`wipe.o: no module summary, …`); no `llvm-bcanalyzer-18`
+where `--bcanalyzer` points → exit 3. And the runner itself changed, a copy at
+a time: the thin line reduced to plain `-flto` → rc 0, exit 2 (both lines, for
+each thin cell); only its compile reduced → the same; `-fuse-ld=lld` and
+`--thinlto-jobs=1` taken out → rc 0, exit 2 (`the executable's .comment names
+no linker …`, in all seven); `-fuse-ld=lld` alone taken out → rc 3, the three
+thin links failed as above, exit 3, and the four other rows read DISAGREES (no
+linker named).
+
+**The reader.** The four WipePin records of the xtu cells are accepted by
+`../eval/repair-loop/lib/pin-record.mjs`, with everything the compile asked for
+as `expect` (`component: "WipePin"`, functions scope, `requested:
+["secure_wipe"]`, the dry run, `-O2`, `module: "wipe.c"`): 4/4.
+
+**What this does not cover.** One fixture: one `external` helper, one call site
+passing a constant length, `-O2`, an executable, x86-64, `ld.lld` 18.1.3. Not
+`-shared`, not `-fvisibility=hidden`, not a helper with several callers as a
+cell (the first fixture had two, above), not a `static inline` helper in a
+header, not the corpus. The executables are disassembled and never run: that
+the stores execute is read from the instructions, not observed.
+
+### The link-time line
+
+Measured 2026-09-12, same toolchain, `ld.lld` 18.1.3. The record is still
+`wipe-pin-v2`, byte for byte (below); what changed is one stderr line and the
+code that decides when to print it.
+
+**How it decides.** The plugin cannot tell at load time whether it is in a
+compile or an LTO link; both call the same registration callback with the same
+environment. The pipelines differ. With a probe plugin that puts a pass on each
+of the six module-level extension points (built in the lab, not in this tree):
+every compile, `-O0`..`-Os`, plain, `-flto` and `-flto=thin`, ran
+pipeline start first, then early-simplification, optimizer-early and
+optimizer-last; a full-LTO link ran only the two
+full-link-time ones, at every level; a ThinLTO link ran early-simplification,
+optimizer-early and optimizer-last at `-O1`..`-O3` and **none at all** at
+`-O0`; a `-disable-llvm-passes` compile ran none. So a pass on the link-time
+extension points would miss a ThinLTO link at `-O0`. The plugin instead sets a
+flag when its pipeline-start callback is invoked (at pipeline *build* time) and
+registers a pass-instrumentation callback that, at the first pass the process
+runs with that flag unset, prints the line once. A second probe measured the
+first instrumented pass: in every compile tried (`-O0`, `-O2`, plain and
+`-flto=thin`) the pipeline-start callback had already been invoked, and in every
+link (full and thin, `-O0` and `-O2`) the first pass, `VerifierPass`, ran with it
+never invoked. The callback reads three flags and prints; it is handed the IR
+and does not look at it.
+
+**Why the load-time removal is kept.** It is the only thing that makes "no
+record" mean "no record from this compile" in a compile that builds no pipeline
+(`-disable-llvm-passes`): no pass and no extension point runs there, so a
+removal deferred until the plugin knows it is a compile would never happen, and
+the old record would stand in for this one (the `stale-nopasses` cell). The
+only later hook such a compile has is process exit, and a guarantee that
+depends on static destructors is weaker than one that runs at load: clang did
+run the probe's static destructor, lld did not (in no link did it print), and a
+crash runs neither. Moving the file aside at load and putting it back once a
+link-time pipeline is seen was considered and not built: a second path next to
+`WPIN_OUT` to own, and in a multi-module ThinLTO link, one registration per
+backend thread racing the restores. So the link still removes the file, and the
+line says whether it did.
+
+**Build.** `-Wall -Wextra`: 0 warnings. `libWipePin.so` sha256
+`db3298cfb30d14200fe0822261eaa1c35aa51aed4aef869a0edd3151f073a4c8`, the same
+bytes from two builds into separate directories. "Before" below is the
+`wipe-pin-v2` build from the parent commit, `e89e07fd…cbad6`.
+
+**Where the line appears** (`trailing` shape, target `handle`; for each link, the
+compile step first wrote its record at the same `WPIN_OUT`; "nofile" deletes it
+before the link):
+
+| host | before | after |
+|---|---|---|
+| compile, `-O0` `-O1` `-O2` `-O3` `-Os`, plain / `-flto` / `-flto=thin`, functions and module scope (30) | 0 bytes on stderr, record written | the same: 0 bytes, record written, in 30/30 |
+| full-LTO link, WipePin on the link line, `-O0`..`-Os` (5) | rc 0, 0 bytes, the compile's record gone | rc 0, the "removed" line exactly once and nothing else, record gone, linked `.so` byte-identical to a stock link, 5/5 |
+| ThinLTO link, `--thinlto-jobs=1`, `-O0`..`-Os` (5) | the same as full | the same as full, 5/5 |
+| ThinLTO link, default jobs, `-O0`..`-Os` (5) | the same as full | the same as full, 5/5 |
+| each link above with nothing at `WPIN_OUT` first (15) | rc 0, 0 bytes | the "there was no file" line exactly once, 15/15 |
+| `-O2 -Xclang -disable-llvm-passes`, `-c` and `-S`, stale file first | rc 0, 0 bytes, file gone | the same |
+| the same with `-c -emit-llvm` and `-S -emit-llvm` | rc 0, 0 bytes, file gone | the "removed" line once, file gone |
+| `-O2 -save-temps -c` | 0 bytes, record written (`module` `t.bc`) | the "there was no file" line once (the bitcode step), record written |
+
+**Same code, same record.** With the before and after plugins loaded into the
+same compile of the same file at the same path, `-S` at `-O0`, `-O1`, `-O2`,
+`-O3` and `-Os`: the erasure fixture's three WipePin configurations (pin, dry
+run, misspelt name), the nine shape sources at `-g` with their targets, and
+`fable_N_token_r3`, `sonnet_S_pinpad_r1` and `fable_N_aeskey_r3` with the find
+step's `FLAGS` in functions scope (their targets) and in module scope — 90
+(configuration, level) pairs: `-S` output byte-identical 90/90, stderr
+byte-identical 90/90, records equal once `context` is dropped 90/90 (so
+`evidenceDigest` too). The objects of the fixture loop run with each plugin:
+18/18 byte-identical.
+
+**Fixture loop** (`run-fixture-loop.sh` + `check-fixture-loop.py`, exit 0, "all
+35 cells as expected"; every cell above the new group reads exactly as in the
+`wipe-pin-v2` table below). The group was first three cells at `-O2`; three
+were added after a review pointed out that the case the design rests on — a
+ThinLTO link at `-O0`, where no extension point runs at all — and the "there was
+no file" ending were exercised nowhere:
+
+```
+lto / no pipeline start   form  opt  compile rc  bitcode  compile record  WPIN_OUT before link  link rc  no-pipeline-start line  WPIN_OUT after  output==stock
+lto-full-compile          full  -O2  0           yes      wipe-pin-v2/1   not-run               not-run  -                       not-run         -              ok
+lto-full-linkline         full  -O2  0           yes      wipe-pin-v2/1   file                  0        1 (removed)             absent          yes            ok
+lto-thin-linkline         thin  -O2  0           yes      wipe-pin-v2/1   file                  0        1 (removed)             absent          yes            ok
+lto-thin-linkline-O0      thin  -O0  0           yes      wipe-pin-v2/1   file                  0        1 (removed)             absent          yes            ok
+lto-full-linkline-nofile  full  -O2  0           yes      wipe-pin-v2/1   absent                0        1 (no file)             absent          yes            ok
+nopasses-ir-O2            none  -O2  0           -        -               not-run               not-run  1 (no file)             absent          -              ok
+```
+
+`nopasses-ir-O2` is a `-Xclang -disable-llvm-passes -S -emit-llvm` compile: no
+record, the line once, and the unoptimised IR still holds the non-volatile
+`llvm.memset`.
+
+The before plugin through the first three cells of this group: exit 2, and the
+only disagreements are the two `linkline` cells, `link stderr WipePin lines [],
+expected exactly ['WipePin: loaded into a pipeline built without …']`.
+
+**LTO probe** (`../eval/repair-loop/tools/lto-probe.mjs`, all 113 files, `-O2`,
+full and thin, exit 0): configuration (ii) now reads the linker's stderr as
+exactly the "removed" line once in 452/452 links, with the sentinel removed, no
+record and the assembly equal to the stock link in all; `RETAINED` 113/113 under
+both forms, dry run `HELD`, 904/904 relinks byte-identical. The before plugin on
+3 files: exit 2, (ii) `FAILED` with the line 0 times in each of its 12 links.
+Details in `../eval/repair-loop/tools/LTO.md`.
+
+### `wipe-pin-v2`
+
+**Build.** `-Wall -Wextra`: 0 warnings. `libWipePin.so` sha256
+`e89e07fd54c397058d9a9ee28eb1faa2b879d27b060dc7a251231bccb11cbad6`, the same
+bytes from two builds into separate directories. The v1 plugin rebuilt from the
+parent commit in a different checkout directory gave v1's
+`aa7329c3…f0a66` again; that build is the "v1" of every comparison below.
+
+**Same code as `v1`.** The refinement is read-only and runs before the pin.
+Measured: over every erasure-family file of the r2 corpus (the 360 ids the
+tracked find-step rows list as `erasure`), with the find step's `FLAGS`, at
+`-O0`, `-O1`, `-O2`, `-O3` and `-Os`, the plugin live in module scope, v1 and v2
+gave the same `-S` output in 1800/1800 (file, level) pairs, with the same
+`pinnedCount` in all; in functions scope on the three files whose answer
+changed (target `send_session_token`, `send_session_token`, `verify_password`)
+the `-S` output is identical at all five levels (15/15); the six WipePin cells
+of the fixture loop produce byte-identical objects.
+
+**`followedByUse`, v1 against v2, whole erasure corpus** (same 360 files, five
+levels, dry run, module scope so that every zero-fill site of every function is
+listed; 3600 compiles, 0 failures; 251 sites per level, compared by (file,
+level, function, index)). Sites reading `true`:
+
+| | `-O0` | `-O1` | `-O2` | `-O3` | `-Os` |
+|---|---|---|---|---|---|
+| v1 | 59 | 63 | 63 | 63 | 63 |
+| v2 | 59 | 59 | 59 | 59 | 59 |
+
+The 16 sites whose value changed, every one `true` → `false`, none at `-O0`,
+and nothing else in any record differing but `schemaVersion` and the digests:
+
+| file | function / site | line | changed at | reads at `-O0` |
+|---|---|---|---|---|
+| `fable_N_token_r3` | `send_session_token` #0 | 17 | `-O1` `-O2` `-O3` `-Os` | `false` |
+| `sonnet_N_token_r1` | `send_session_token` #0 | 17 | `-O1` `-O2` `-O3` `-Os` | `false` |
+| `sonnet_S_pwverify_r1` | `verify_password` #2 | 35 | `-O1` `-O2` `-O3` `-Os` | `false` |
+| `sonnet_S_pwverify_r1` | `verify_password` #3 | 49 | `-O1` `-O2` `-O3` `-Os` | `false` |
+
+Each is a wipe followed by `return` inside a loop whose body declares a local;
+each now reads at `-O1`..`-Os` what it reads at `-O0`. Every other site kept
+its v1 value at every level, including `sonnet_S_pwverify_r1` line 12, a
+clear-before-fill memset, which is `true` at all five.
+
+**Fixture loop** (`run-fixture-loop.sh` + `check-fixture-loop.py`, exit 0,
+"all 29 cells as expected"; the loop and stale cells as in v1, the shape table
+with the six new cells):
+
+```
+cell          opt  WipePin  verdict  effect pre->post  firstZero  ctl held  volatile@post  pinned/would/mode/res   followedByUse  obj!=base  pin.sh
+base-O0       -O0  no       PRESENT  1->1              -          yes       0              -                       -              -          -       ok
+base-O1       -O1  no       PRESENT  1->1              -          yes       0              -                       -              -          -       ok
+base-O2       -O2  no       LOST     1->0              DSEPass    yes       0              -                       -              -          -       ok
+base-O3       -O3  no       LOST     1->0              DSEPass    yes       0              -                       -              -          -       ok
+pin-O0        -O0  yes      PRESENT  1->1              -          yes       1              1/1/live/resolved       false          yes        0       ok
+pin-O1        -O1  yes      PRESENT  1->1              -          yes       1              1/1/live/resolved       false          yes        0       ok
+pin-O2        -O2  yes      PRESENT  1->1              -          yes       1              1/1/live/resolved       false          yes        0       ok
+pin-O3        -O3  yes      PRESENT  1->1              -          yes       1              1/1/live/resolved       false          yes        0       ok
+dry-O2        -O2  yes      LOST     1->0              DSEPass    yes       0              0/1/dry/resolved        false          no         4       ok
+wrongname-O2  -O2  yes      LOST     1->0              DSEPass    yes       0              0/0/live/not-in-module  -              no         4       ok
+
+pin.sh alone     rc  clang rc  record
+notarget-O2      3   0         -       ok
+nollvmpasses-O2  3   0         -       ok
+
+shape (-g)       opt  pin.sh  pinned  followedByUse  exact/linkage               partial line  non-exact line
+initloop         -O2  0       1       true           True/external               yes           no              ok
+inithelper       -O2  0       1       true           True/external               yes           no              ok
+initwipe         -O2  0       2       true,false     True/external               yes           no              ok
+aliasinit        -O2  0       1       true           True/external               yes           no              ok
+trailing         -O2  0       1       false          True/external               no            no              ok
+c99inline        -O2  0       1       false          False/available_externally  no            yes             ok
+cxxinline        -O2  0       1       false          False/linkonce_odr          no            yes             ok
+loopreturn-O0    -O0  0       2       false,false    True/external               no            no              ok
+loopreturn-O1    -O1  0       2       false,false    True/external               no            no              ok
+loopreturn       -O2  0       2       false,false    True/external               no            no              ok
+loopbreakuse-O0  -O0  0       1       true           True/external               yes           no              ok
+loopbreakuse-O1  -O1  0       1       true           True/external               yes           no              ok
+loopbreakuse     -O2  0       1       true           True/external               yes           no              ok
+
+stale record    before  clang rc  after   WipePin stderr
+stale-refused   file    0         absent  WipePin: refusing to install: no target                ok
+stale-nopasses  file    0         absent  -                                                      ok
+stale-live      file    0         file    -                                                      ok
+stale-dir       dir     0         dir     WipePin: refusing to install: WPIN_OUT is a directory  ok
+```
+
+In the `-O1` front-end IR of `loopbreakuse` the break path stores `3` into the
+dispatch slot and the switch reads `[0 → loop header, 3 → the block that calls
+use()]`, default `unreachable`: the `true` is reached through the modelled
+switch, on the edge `3` selects. In `loopreturn` the return path stores `1` and
+the switch reads `[0 → loop header]`, default the exit.
+
+**The checker was shown to fail.** The v1 plugin through the same loop → exit 2:
+`loopreturn-O1` and `loopreturn` read `true,false` with the partial line
+(`pinned 2 site(s) in loopreturn.c; 1 followed by …`), besides `schemaVersion`
+`wipe-pin-v1` on every record and `pin.sh` exiting 3 on every one of them.
+A deliberately unsound build (at a modelled switch, take the default edge
+instead of the selected one; built from a copy outside this tree) → exit 2,
+with exactly two cells disagreeing: `loopbreakuse-O1` and `loopbreakuse` read
+`false`, with `followedByUseCount=0` and no partial line; every other cell,
+`loopreturn*` included, still read as expected.
+
+**The reader.** Every WipePin record of that fixture-loop run (6 loop, 6
+`pin.sh`, 13 shapes) is accepted by `../eval/repair-loop/lib/pin-record.mjs`
+with `expect.component: "WipePin"` (25/25), so the C++ writer's toolchain
+digest and the reader's re-derivation agree; the 13 v1 shape records are all
+refused (`unknown-schemaVersion`).
 
 ### `wipe-pin-v1`
 
@@ -481,5 +1030,27 @@ and changing nothing, the plugin changes nothing (re-measured with v1: the
 loop's `obj!=base` column).
 
 **Other forms.** `-flto` and `-flto=thin` compiles: a record is written and the
-bitcode carries the volatile memset (what the LTO backend then does was not
-measured). `-g`: `line` 19, the memset's source line.
+bitcode carries the volatile memset; what the LTO backend then does is measured
+by `../eval/repair-loop/tools/lto-probe.mjs` (`LTO.md` there). `-g`: `line` 19,
+the memset's source line.
+
+Measured with the current plugin (*The link-time line*, above):
+
+- **On an LTO link line** (`-Wl,--load-pass-plugin=`), full or thin, any
+  level: the pass does not run, nothing is pinned, the linked output is the
+  stock link's, and the file at `WPIN_OUT` is removed at load. The link prints
+  the link-time line once. Load WipePin at compile time; if the build exports
+  `WPIN_*` to every step, keep the plugin off the link line, or give the link a
+  different `WPIN_OUT`.
+- **`-Xclang -disable-llvm-passes`**: no record. Silent with `-c`/`-S`; the
+  link-time line with `-emit-llvm`.
+- **`-save-temps`**: the record is written by the step that compiles the `.bc`
+  (`module` is `<name>.bc`, not `<name>.c`), after the bitcode step, which runs
+  under `-disable-llvm-passes`, has printed the "there was no file" form of the
+  link-time line.
+- **A refused link** (the link's environment has `WPIN_OUT` but no target;
+  measured, full and thin, `-O2`): rc 0, `WipePin: refusing to install: no
+  target` and the hint line, and the compile's record at `WPIN_OUT` is gone —
+  removed at load, before the refusal, as in a compile. The link-time line does
+  not appear (nothing was installed), and the refusal line does not say a file
+  was removed. Not changed here.

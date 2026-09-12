@@ -40,7 +40,10 @@ C++ target names in use, so that two components do not claim one:
 invasive experiment plugin), `IntentGate` (Clang AST plugin), `IrCheckpoints`
 (pre/post optimisation observer), `WipePin` (the deliberately invasive repair
 plugin under `compiler/llvm-repair/`; it changes the object file on purpose, so
-the non-invasiveness claims made for the observers are measured without it).
+the non-invasiveness claims made for the observers are measured without it),
+`WipePinGcc` (its GCC twin under `compiler/gcc-repair/`, a GCC plugin that is
+deliberately invasive in the same way and writes the same `wipe-pin-v2` record).
+The `wipe-pin-v2` record both write is described field by field in `wipe-pin.md`.
 
 ## 1. Where things live
 
@@ -273,6 +276,10 @@ Every record additionally carries, outside `context`:
 ```json
 "toolchain": { "digest": "<sha256 of the pinned set>", "clang": "18.1.3", "packages": [ … ] }
 ```
+
+The compiler key names the vendor: `clang` for a component that runs inside
+clang/LLVM, `gcc` for one that runs inside GCC (`"gcc": "13.3.0"`). A record
+carries exactly one of the two.
 
 Absolute paths must not appear anywhere in a record. Write paths relative to
 the fixture root. A component that cannot avoid one reports the problem instead

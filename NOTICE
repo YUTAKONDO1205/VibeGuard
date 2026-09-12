@@ -33,6 +33,30 @@ No LLVM source is copied into this repository. compiler/ includes LLVM headers
 from a locally installed toolchain at build time; the headers and libraries stay
 where the system package manager put them.
 
+One component, compiler/gcc-repair/ (the GCC plugin WipePinGcc), builds
+against GCC's plugin headers instead of LLVM's. GCC is distributed under the
+GNU General Public License. The copyright file of the Ubuntu package that
+provides the headers (gcc-13-plugin-dev 13.3.0-6ubuntu2~24.04.1,
+/usr/share/doc/gcc-13-plugin-dev/copyright) states:
+
+  "GCC is free software; you can redistribute it and/or modify it under the
+  terms of the GNU General Public License as published by the Free Software
+  Foundation; either version 3, or (at your option) any later version."
+
+and applies version 3.1 of the GCC Runtime Library Exception to the runtime
+libraries it lists (libgcc and some of GCC's own headers among them), not to
+GCC as a whole. Of the headers WipePinGcc includes directly, gcc-plugin.h,
+tree.h, gimple.h and the others carry the same "version 3, or (at your option)
+any later version" notice; the two generated ones, plugin-version.h and
+options.h, carry no licence notice. GCC loads a plugin only if the plugin
+declares the symbol plugin_is_GPL_compatible, and WipePinGcc declares it.
+compiler/ remains under the Apache License 2.0 with LLVM Exception; the Free
+Software Foundation's licence list names the Apache License 2.0 as compatible
+with version 3 of the GNU GPL
+(https://www.gnu.org/licenses/license-list.html#apache2). No GCC source is
+copied into this repository; the headers stay where the system package manager
+put them. This section describes the terms; it is not legal advice.
+
 --------------------------------------------------------------------------------
 Third-party components
 --------------------------------------------------------------------------------
@@ -43,3 +67,7 @@ are reproduced in the installed node_modules tree rather than here.
 
 LLVM/Clang (https://llvm.org/) — Apache License 2.0 with LLVM Exception.
 Used as a build-time and link-time dependency of compiler/ only.
+
+GCC plugin headers (https://gcc.gnu.org/, installed as gcc-13-plugin-dev) —
+GNU General Public License, version 3 or any later version (see above). Used
+as a build-time dependency of compiler/gcc-repair/ only.

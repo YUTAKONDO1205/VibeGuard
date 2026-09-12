@@ -19,7 +19,7 @@
 # <out.json> without its .json suffix.
 #
 # Exit codes follow compiler/schema/interfaces.md section 7, plus 4:
-#   0  clang succeeded, a wipe-pin-v1 record was written, it pinned at least one
+#   0  clang succeeded, a wipe-pin-v2 record was written, it pinned at least one
 #      site, and every requested name resolved. This is NOT "the wipe survived"
 #      -- only the stock observation, re-run with the plugin, can say that -- and
 #      not even "the wipe was pinned": a pinned `= {0}` initialiser counts too.
@@ -28,7 +28,7 @@
 #   1  clang failed (its diagnostics pass through)
 #   3  clang succeeded and no usable record was written -- the plugin refused to
 #      install, or its pass never ran (-Xclang -disable-llvm-passes), or the
-#      record could not be written, or what was written is not a wipe-pin-v1
+#      record could not be written, or what was written is not a wipe-pin-v2
 #      record python3 can read. Never reported as 0: a build that loaded a
 #      repair plugin which did nothing is indistinguishable, by rc alone, from
 #      one that was repaired.
@@ -88,7 +88,7 @@ rc=$?
 cat "$ERRFILE" >&2
 
 # What the record says it did, as key=value lines. Anything that is not a
-# well-formed wipe-pin-v1 record makes this print one `error=` line instead.
+# well-formed wipe-pin-v2 record makes this print one `error=` line instead.
 read_record() {
   python3 - "$1" <<'PY'
 import json, sys
@@ -104,8 +104,8 @@ except (OSError, ValueError) as e:
     fail("unreadable: %s" % type(e).__name__)
 if not isinstance(rec, dict):
     fail("not an object")
-if rec.get("schemaVersion") != "wipe-pin-v1":
-    fail("schemaVersion %r is not wipe-pin-v1" % (rec.get("schemaVersion"),))
+if rec.get("schemaVersion") != "wipe-pin-v2":
+    fail("schemaVersion %r is not wipe-pin-v2" % (rec.get("schemaVersion"),))
 
 def count(key):
     v = rec.get(key)

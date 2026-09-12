@@ -27,7 +27,11 @@
 // translation unit is compiled separately here, with its own OBS_OUT, and the
 // objects are linked afterwards -- which is also how a build system does it.
 //
-// Usage:  node ~/vg-lab/pass-observer/noninvasive.mjs
+// Usage:  node compiler/pass-instrumentation/observer/scripts/noninvasive.mjs
+//         OBS_LAB=<lab dir> OBS_PLUGIN=<libPropertyObserver.so> node .../noninvasive.mjs
+//         OBS_LAB defaults to ~/vg-lab/pass-observer and OBS_PLUGIN to
+//         ~/vg-build/pass-observer/libPropertyObserver.so. The native-plugins
+//         job in ci.yml sets both, so what it measures is the .so it built.
 // Exit:   0 all checks passed, 2 a check failed, 3 the harness could not run.
 
 import { spawnSync } from 'node:child_process';
@@ -41,7 +45,7 @@ const LAB = process.env.OBS_LAB || path.join(HOME, 'vg-lab', 'pass-observer');
 const WORK = path.join(LAB, 'noninvasive');
 const RESULTS = path.join(LAB, 'rq2', 'results');
 const RUNLOG = path.join(LAB, 'run-log.txt');
-const OBS = path.join(HOME, 'vg-build', 'pass-observer', 'libPropertyObserver.so');
+const OBS = process.env.OBS_PLUGIN || path.join(HOME, 'vg-build', 'pass-observer', 'libPropertyObserver.so');
 const FIX = path.join(LAB, 'fixtures', 'erasure');
 
 const TARGET = 'handle_request';
@@ -210,13 +214,18 @@ check('NI-07',
 // The plugin links no LLVM library: it resolves against the process that loads
 // it. If it did link one it would carry a second copy of LLVM's globals, and
 // "the compiler was not modified" would be a much weaker statement.
+// An ldd that could not run, or printed no listing, says nothing about what the
+// plugin links, and "no libLLVM in an empty listing" would pass vacuously; so the
+// listing has to exist and to name at least one library (libc, for any .so).
 const ldd = sh('ldd', [OBS]);
 const linksLLVM = /libLLVM|libclang/.test(ldd.stdout);
+const lddListed = ldd.code === 0 && /^\s*\S+\.so/m.test(ldd.stdout);
 check('NI-08',
   'the plugin links no LLVM library of its own',
-  'no libLLVM / libclang in ldd output',
-  ldd.stdout.trim().split('\n').map((l) => l.trim().split(' ')[0]).join(' '),
-  !linksLLVM);
+  'ldd exits 0 and lists the plugin\'s libraries, and none is libLLVM / libclang',
+  lddListed ? ldd.stdout.trim().split('\n').map((l) => l.trim().split(' ')[0]).join(' ')
+    : `ldd exit=${ldd.code}, no listing`,
+  lddListed && !linksLLVM);
 
 const failed = checks.filter((c) => !c.pass);
 const report = {

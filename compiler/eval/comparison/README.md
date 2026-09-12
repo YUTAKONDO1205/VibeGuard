@@ -29,7 +29,7 @@ Defaults, all overridable (`--fixtures`, `--out`, `--repo`, `--observer`,
 |---|---|
 | fixtures | `$LAB/fixtures` |
 | results | `$LAB/_results-wave2/comparison/comparison.json` |
-| observer plugin | `/root/vg-build/observer-mainverify/libPropertyObserver.so` |
+| observer plugin | `~/vg-build/observer-mainverify/libPropertyObserver.so` |
 | scratch | `$LAB/_work/cmp-run` (wiped each run) |
 
 Linux only: it drives `clang-18`, `scan-build-18`, `checksec`, `strings` and
