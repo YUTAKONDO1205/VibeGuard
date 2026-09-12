@@ -12,8 +12,13 @@
  *   node compiler/eval/spike/run-spike.mjs --cc clang-18,gcc-13 --opt -O0,-O2 --out ~/vg-lab/spike
  *   node compiler/eval/spike/run-spike.mjs --out ~/vg-lab/spike --json
  *
- * This lane writes no tracked data. Everything -- sources, listings, the
- * results file -- goes under --out, which must lie outside the repository.
+ * Everything a run produces -- sources, listings, the results file -- goes under
+ * --out, which must lie outside the repository. The one exception is
+ * `--write-data`, which additionally writes `data/spike-gate.json` inside the
+ * lane: the matrix of what the gate read, kept in the tree so that the numbers
+ * in README.md are checked by test/data.test.mjs on every run of the suite
+ * instead of being prose that cannot fail. It is refused for anything but a
+ * full run (see lib/data-record.mjs).
  *
  * EXIT CODES (interfaces.md section 7)
  *   0  every requested configuration recovered 2/2, at least one of them
@@ -28,8 +33,14 @@
  *      section 3.1 defines that word for a toolchain that refused an invocation
  *      and does not settle whether an absent one is covered
  *   4  the pre-registered expectations are missing or malformed, the arguments
- *      were bad, the lab is inside the repository, or the report would carry an
- *      absolute path and was refused
+ *      were bad, the lab is inside the repository, the report would carry an
+ *      absolute path and was refused, or `--write-data` was asked of an
+ *      otherwise green run that is not the full matrix (the missing pieces are
+ *      named). A RED run refused a data write keeps the gate's own 2 or 3: the
+ *      verdict is the more fundamental fact about it
+ *   5  `--write-data` built a record carrying a value a tracked file may not
+ *      carry -- a non-integer number, or a string naming a machine -- and wrote
+ *      nothing. The lab report at --out is unaffected and was already written
  *
  * A compile failure of a spike lands at 2, not at 1. The gate's business is
  * whether this run may be believed, and a run whose own spike would not compile
@@ -39,11 +50,16 @@
  * Licence: Apache-2.0 WITH LLVM-exception (see compiler/LICENSE).
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 
 import { runSpikeGate, summarise, INCOMPLETE } from './lib/gate.mjs';
+import { loadExpected } from './lib/claims.mjs';
+import { DATA_FILE, spikeDataRecord, unwritableValues, writeDataRefusals } from './lib/data-record.mjs';
 import { absolutePathHits } from '../repair-loop/lib/provenance.mjs';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 const DEFAULT_CCS = ['clang-18', 'gcc-13'];
 const DEFAULT_OPTS = ['-O0', '-O2'];
@@ -52,7 +68,13 @@ function usage(msg) {
   if (msg) process.stderr.write(`run-spike.mjs: ${msg}\n`);
   process.stderr.write(
     'usage: run-spike.mjs --out <lab dir> [--cc a,b] [--opt -O0,-O2] [--inject-at -O2] [--json] [--no-write]\n'
-    + '                     [--observer <libPropertyObserver.so>] [--observer-opt -O2] [--observer-cc clang-18]\n',
+    + '                     [--observer <libPropertyObserver.so>] [--observer-opt -O2] [--observer-cc clang-18]\n'
+    + '                     [--write-data]\n'
+    + '\n'
+    + `  --write-data  also write the tracked record data/${DATA_FILE}: the matrix of what the gate\n`
+    + '                read, which test/data.test.mjs checks the README\'s numbers against. Refused\n'
+    + '                for anything but a full run -- every registered configuration, both channels,\n'
+    + '                the injection graded on each -- and refused with --no-write.\n',
   );
   process.exit(4);
 }
@@ -60,7 +82,7 @@ function usage(msg) {
 function parseArgs(argv) {
   const args = {
     ccs: DEFAULT_CCS, opts: DEFAULT_OPTS, out: process.env.SPIKE_LAB || null,
-    json: false, write: true, injectAt: null,
+    json: false, write: true, writeData: false, injectAt: null,
     observer: null, observerOpt: '-O2', observerCc: 'clang-18',
   };
   for (let i = 0; i < argv.length; i++) {
@@ -75,6 +97,7 @@ function parseArgs(argv) {
     else if (a === '--observer-cc') args.observerCc = next();
     else if (a === '--json') args.json = true;
     else if (a === '--no-write') args.write = false;
+    else if (a === '--write-data') args.writeData = true;
     else if (a === '-h' || a === '--help') usage(null);
     else usage(`unknown option ${a}`);
   }
@@ -174,8 +197,10 @@ if (args.write) {
 }
 if (args.json) process.stdout.write(text + '\n');
 
+const summaryLine = summarise(gate);
+
 // ------------------------------------------------------------------ report ---
-process.stdout.write(`${summarise(gate)}\n`);
+process.stdout.write(`${summaryLine}\n`);
 for (const c of gate.configurations || []) {
   process.stdout.write(`  ${c.vendor} ${c.opt} [${c.channel}]  recovery ${c.grade.recovery}\n`);
   for (const r of c.readings) {
@@ -211,6 +236,55 @@ if (!gate.established) {
   for (const why of gate.verdict.reasons) process.stdout.write(`  - ${why}\n`);
 }
 
+// ------------------------------------------------------------ tracked data ---
+//
+// The one thing this runner puts inside the repository, and the only place the
+// README's numbers can be checked from. Refused unless the run is the full
+// matrix: a subset, or a run one of whose two channels never ran, written to
+// this path would be read as THE result by everyone who reads data/ rather than
+// re-running the lane.
+//
+// It comes after the report on purpose. A refusal is a sentence about what was
+// asked for, and the operator still needs the run beside it -- especially the
+// NOT ESTABLISHED reasons, which are the refusal's usual cause.
+let dataRefused = false;
+if (args.writeData) {
+  let doc = null;
+  try {
+    doc = loadExpected();
+  } catch (err) {
+    process.stderr.write(`run-spike.mjs: --write-data: ${err.message}\n`);
+    process.exit(4);
+  }
+  const why = writeDataRefusals({ gate, args, doc });
+  if (why.length) {
+    dataRefused = true;
+    process.stderr.write(`run-spike.mjs: --write-data refused; data/${DATA_FILE} was not written:\n`);
+    for (const w of why) process.stderr.write(`  - ${w}\n`);
+    process.stderr.write('run-spike.mjs: record it from a run of every registered configuration, with '
+      + '--observer, and the injection graded on each channel -- or do not record this run as the result\n');
+  } else {
+    const record = spikeDataRecord(gate, args, summaryLine);
+    const bad = unwritableValues(record);
+    if (bad.length) {
+      // Named by JSON path and by what was wrong with the value, never by the
+      // value: printing the offending text is the disclosure the scan exists to
+      // prevent.
+      process.stderr.write('run-spike.mjs: --write-data: the record carries a value a tracked file may '
+        + 'not carry, and nothing was written:\n');
+      for (const b of bad) process.stderr.write(`  - ${b}\n`);
+      process.exit(5);
+    }
+    const dataDir = join(HERE, 'data');
+    mkdirSync(dataDir, { recursive: true });
+    writeFileSync(join(dataDir, DATA_FILE), JSON.stringify(record, null, 2) + '\n', 'utf8');
+    process.stderr.write(`run-spike.mjs: wrote data/${DATA_FILE}\n`);
+  }
+}
+
 if (gate.incomplete === INCOMPLETE.BAD_CLAIMS) process.exit(4);
 if (gate.incomplete === INCOMPLETE.NO_COMPILER) process.exit(3);
-process.exit(gate.established ? 0 : 2);
+if (!gate.established) process.exit(2);
+// A refused --write-data on a run that IS established is an argument problem and
+// nothing else, so it gets exit 4 rather than the gate's 0.
+process.exit(dataRefused ? 4 : 0);

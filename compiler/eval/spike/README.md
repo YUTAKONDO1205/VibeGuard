@@ -40,8 +40,9 @@ claim to be a gate on every run.
 A run that is not `established` is reported NOT ESTABLISHED, and **no
 measurement taken in it may be written as data**. The run's own report,
 `spike-gate.json`, is still written to the lab — for a red run too, which is the
-copy a reader needs — unless `--no-write` is passed; nothing in the repository
-consumes it. Four things are deliberately *not* treated as passes:
+copy a reader needs — unless `--no-write` is passed. The tracked twin under
+`data/` is a different matter: `--write-data` is refused for a red run, and for
+a green one that graded less than the whole matrix. Four things are deliberately *not* treated as passes:
 
 * **A spike that did not compile is FAILED, never "held".** `COMPILE_ERROR`,
   `ABLATION_DID_NOT_COMPILE`, `NOT_OBSERVED`, `NO_WIPE_WRITTEN`,
@@ -65,21 +66,28 @@ consumes it. Four things are deliberately *not* treated as passes:
 ## What is here
 
 ```
-run-spike.mjs                  the CLI; measures, grades, prints, exits 0/2/3/4
+run-spike.mjs                  the CLI; measures, grades, prints, exits 0/2/3/4/5
 lib/measure.mjs                produces readings. Cannot see the answers.
 lib/claims.mjs                 the only module that opens the registered answers
 lib/spike.mjs                  gradeSpike / gradeInjected / gateVerdict. PURE.
 lib/gate.mjs                   runSpikeGate(): the function other harnesses call
 lib/observer.mjs               the second channel, under libPropertyObserver.so
+lib/data-record.mjs            what --write-data may write, and what it refuses. PURE.
 claims/spike-expected.json     the answers, registered per (vendor, level)
+data/spike-gate.json           the full run, tracked: the numbers this README quotes
 subjects/spike-disappearing.c  the wipe the optimiser may delete
 subjects/spike-surviving.c     the wipe it may not
 tools/make-spike-lab.sh        materialise both spikes for reproduction by hand
 test/spike.test.mjs            the grader, in both directions
 test/lane.test.mjs             separation, subject shape, claims
+test/data.test.mjs             the record, re-graded, and this README held to it
 ```
 
-Nothing is written under `compiler/`. Sources, listings and the report go to a
+Nothing is written under `compiler/` except `data/spike-gate.json`, and only
+when `--write-data` is passed on a run that graded the whole matrix (both
+vendors, all five levels, the observer channel, the injection performed) — a
+partial or red run is refused and told what is missing. Sources, listings and
+the report go to a
 lab directory outside the repository, and a lab inside it is refused
 (`interfaces.md` §1; `scripts/check-packaging-invariants.mjs` line 1274 refuses a
 tracked path with a `fixtures` or `_results` segment, and this lane has neither).
@@ -311,12 +319,16 @@ channel that left no trace would be indistinguishable from one that passed.
 ## What was measured
 
 Measured 2026-09-12 on Ubuntu-24.04 under WSL2, clang-18 18.1.3 / gcc-13 13.3.0,
-with `libPropertyObserver.so` as built at `~/vg-build/pass-observer`.
+with `libPropertyObserver.so` as built from
+`compiler/pass-instrumentation/observer` at this commit. The run below is the
+one that wrote `data/spike-gate.json`, which `test/data.test.mjs` grades this
+section against; `--write-data` is refused for anything less than the full
+matrix on both vendors with both channels and the injection performed.
 
 ```
 $ node compiler/eval/spike/run-spike.mjs --out ~/vg-lab/spike-final \
     --cc clang-18,gcc-13 --opt -O0,-O1,-O2,-O3,-Os --inject-at -O0,-O2 \
-    --observer ~/vg-build/pass-observer/libPropertyObserver.so
+    --observer <build>/libPropertyObserver.so --write-data
 spike gate: ESTABLISHED -- clang-18-O0 2/2 | clang-18-O1 2/2 | clang-18-O2 2/2 | clang-18-O3 2/2 | clang-18-Os 2/2 | gcc-13-O0 2/2 | gcc-13-O1 2/2 | gcc-13-O2 2/2 | gcc-13-O3 2/2 | gcc-13-Os 2/2 | clang-18-O2[obs] 2/2 -- injection RED (as required) -- 9/11 discriminating
   clang-18 -O0 [differential]  recovery 2/2
     disappearing  verdict=WIPE_SURVIVED control=PRESENT spans=1
@@ -793,8 +805,14 @@ two spikes are registered to read different words — not to relax the rule.
   CI is not something this lane can report. Until a CI run says otherwise, the
   48/48 below is local evidence: node 18.19.1 under WSL2 and node 24.14.1 on
   Windows, both green.
-* **`spike-gate.json` is not tracked and nothing consumes it.** It is a lab
-  artefact for a reader.
+* **~~`spike-gate.json` is not tracked and nothing consumes it.~~ Tracked since
+  2026-09-12 as `data/spike-gate.json`, and `test/data.test.mjs` consumes it.**
+  The lab copy is still written on every run, red ones included, and is still
+  the copy a reader of a failed run wants. What changed is that the full green
+  run's record now has a tracked twin, the test re-grades the readings in it
+  with the current grader and the current registered answers — so an expectation
+  edited to fit a reading fails there — and every number this README quotes in
+  *What was measured* is read back out of the prose and compared to it.
 
 ## Findings worth keeping
 

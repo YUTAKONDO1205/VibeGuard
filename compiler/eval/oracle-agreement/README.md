@@ -82,18 +82,33 @@ corpus cell — and until this lane there was nothing that did it.
 ## What is here
 
 ```
-run-oracle-agreement.mjs   the CLI: selects cells, runs O2, tabulates, exits 0/2/3/4
+run-oracle-agreement.mjs   the CLI: selects cells, runs O2, tabulates, exits 0/2/3/4/5
 lib/agreement.mjs          the 2x2 table and every rule about what enters it. PURE.
 lib/rows.mjs               the O1 side: the tracked rows, read; and the selection
 lib/observe.mjs            the O2 side: one corpus cell under libPropertyObserver.so
+lib/callsites.mjs          were there any wipe call sites to watch? -O0 IR, counted
+lib/record.mjs             the tracked record: what may go in it, and what may not
+data/                      one record per compiler, written only by a full --write-data run
 test/agreement.test.mjs    the arithmetic, over synthetic rows
 test/rows.test.mjs         indexing and selection, plus facts re-derived from the rows
+test/callsites.test.mjs    the counting rule, over IR text and no compiler
+test/record.test.mjs       the three fences on the record, each tested by trying to pass it
+test/data.test.mjs         the record against the numbers printed in THIS file
 test/lane.test.mjs         hygiene, the plugin configuration, and the four-oracle map
 ```
 
-Nothing is written under `compiler/`. The copied sources, the object files, the
-plugin logs and the report all go to a lab directory outside the repository, and
-a lab inside it is refused (`../../schema/interfaces.md` §1).
+The only thing written under `compiler/` is the record in `data/`. The copied
+sources, the object files, the plugin logs, the emitted IR and the report all go
+to a lab directory outside the repository, and a lab inside it is refused
+(`../../schema/interfaces.md` §1).
+
+**The record is integers, booleans and short strings — never a rate.** A ratio
+is carried as `{num, den}`, `lib/record.mjs` refuses to write a record
+containing a number that is not an integer, and it scans the text for a home
+directory, a mount point or a drive letter before it opens the file (exit 5,
+nothing written). The reason is the one this lane's own result section gives:
+`24/25` with the refusal beside it is a measurement, and `0.96` in a JSON file
+is that measurement with both of the things that make it readable removed.
 
 **The tracked rows are opened for reading and never for writing.**
 `../ai-generated/data/r2-build-rows.json` is a frozen record: it is what the
@@ -303,7 +318,28 @@ node compiler/eval/oracle-agreement/run-oracle-agreement.mjs \
      --observer ~/vg-build/pass-observer/libPropertyObserver.so \
      --ids fable_E_aeskey_r1 --cc clang-18 --opt -O2 \
      --out ~/vg-lab/oracle-agreement --json
+
+# THE RUN THIS FILE'S RESULT SECTION IS OF, and the one that writes the record.
+node compiler/eval/oracle-agreement/run-oracle-agreement.mjs \
+     --observer ~/vg-build/pass-observer/libPropertyObserver.so \
+     --cc clang-18 --opt -O0,-O2 --per-bucket 24 \
+     --diagnose-callsites --write-data \
+     --out ~/vg-lab/oracle-agreement
 ```
+
+`--write-data` writes `data/oracle-agreement-clang-18.json` — one file per
+compiler, named after it, so a second vendor's run can never overwrite the
+first's. It is **refused for anything but the full run**: `--ids`, a missing
+`-O0` or `-O2`, `--no-write`, more than one `--cc`, a missing `--observer` or a
+missing `--diagnose-callsites` each exit 4 with the reason named, before a
+single compile. A subset in the file whose name says it is the result is the
+failure the refusal exists for, and `../repair-loop/run-repair-loop.mjs` refuses
+its own `--write-data` the same way.
+
+`--diagnose-callsites` counts the `-O0` IR wipe call sites of every selected
+generation — the split the result section below is built on. It is required for
+`--write-data` because without it that split would be recorded with its
+provenance as prose rather than as a count.
 
 `gcc-13` is accepted by `--cc` and will not work: the plugin is an LLVM pass
 plugin and `gcc` does not load it. `../lto-window` hit the same wall from the
@@ -335,8 +371,45 @@ node compiler/eval/oracle-agreement/run-oracle-agreement.mjs      --observer ~/v
 | on the diagonal | **24 / 25 (96.0 %)** |
 | off-diagonal entries, by id | `fable_E_dbpass_r3` `clang-18 -O2`, `idiom=both`, O1 `WIPE_SURVIVED` / O2 `LOST` (`firstLoss=DSEPass`) |
 | excluded | `BROKEN_MEASUREMENT` 0, `NO_READING` 0, **`NOT_COMPARABLE` 23**, all `o2-not-a-reading(ABSENT)` |
-| `-O0` stratum | every cell `NOT_COMPARABLE`; denominator 0 |
+| `-O0` stratum | 23 of 24 cells `NOT_COMPARABLE`; **denominator 1**, agreeing (`SURVIVED`/`PRESENT`) — see the correction below |
 | **exit** | **2 — THE COMPARISON WAS NOT PERFORMED** |
+
+Every figure in that table is now also in
+`data/oracle-agreement-clang-18.json`, and `test/data.test.mjs` reads both sides
+— the record, and these numbers parsed back out of this file — and fails when
+they part company. The test does not check that the run was right; it checks
+that the prose and the artefact are about the same run.
+
+**On the 48, which is two different counts in this table.** The selector draws
+cells at both levels: 24 at `-O0` and 48 above it, 72 in all. The 48 is the
+above-`-O0` stratum — the 23 excluded plus the 25 graded — and it is what the
+exclusion row, the call-site table and the intersection sentence below are all
+counts over. The `-O0` cells are selected and tabulated separately, and are the
+row underneath. The record carries both numbers
+under different names for that reason, and the test asserts the 48 against the
+stratum rather than against the selection.
+
+**Correction, 2026-09-12: the `-O0` stratum's denominator is 1, not 0.** This
+table said "every cell `NOT_COMPARABLE`; denominator 0" from the day it was
+written. `test/data.test.mjs` asserted it against the record on the first run
+that produced one, and failed: 23 of the 24 `-O0` cells are `NOT_COMPARABLE`
+and one is not. The comparable cell is `fable_E_dbpass_r3`, the same file that
+is the off-diagonal above `-O0`, and for the same reason — it is the one
+`idiom=both` file in the selection, so it has an IR call site for O2 to watch
+at every level. At `-O0` the two oracles agree on it: O1 `WIPE_SURVIVED`, O2
+`PRESENT`.
+
+This is a correction to the prose, not a change in a reading. It was checked
+both ways before being written down: the runner as it stands reads
+`O2=PRESENT` for that cell, and so does the runner as it was before this
+lane grew `--write-data` (run from `git show`, same plugin, same command,
+same output). The plugin is the same bytes in both runs
+(`94d6f956…`, and the 2026-08-17 build at `~/vg-build/pass-observer` has that
+digest too), so nothing about the instrument moved. What moved is that a
+sentence nothing could check became one something checks.
+
+A denominator of 1 discriminates nothing, which is the point the stratum was
+separated for in the first place: it is reported, and it is not pooled.
 
 **Read the 96 % as nothing.** The run refuses its own table: above `-O0`, all 25
 graded cells read `LOST` on O2, so the O2 marginal is degenerate and an agreement
@@ -351,6 +424,13 @@ print 96 % and let a reader do the arithmetic later.
 Diagnosed rather than assumed, over all 48 selected cells, by counting
 `@memset` / `@llvm.memset` / `@explicit_bzero` call sites in the `-O0` LLVM IR of
 each corpus file:
+
+<!-- Counted by hand on 2026-09-12 and by `--diagnose-callsites` since. The
+     symbol list the tool counts is the registry's (`wipe-5-observer`), which is
+     the list the plugin itself is configured with and a superset of the three
+     named here; the record carries the per-symbol counts, so the subtotal for
+     those three stays derivable. -->
+
 
 | | IR wipe call sites `== 0` | `>= 1` |
 |---|---|---|

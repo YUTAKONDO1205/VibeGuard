@@ -26,7 +26,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
-import { dirname, resolve, join } from 'node:path';
+import { dirname, resolve, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { absolutePathHits } from '../../repair-loop/lib/provenance.mjs';
@@ -81,14 +81,54 @@ test('nothing in this lane writes under compiler/eval/ai-generated at all', () =
   for (const p of LANE_SOURCES) {
     assert.ok(!/ai-generated\/(data|_build)\/[^']*'\s*,\s*[^)]*\)\s*;?\s*\/\/\s*write/i.test(read(p)), p);
   }
-  // The stronger, simpler statement: the only writeFileSync in the lane writes
-  // into the lab, and the lab is checked to be outside the repository.
+  // The stronger, simpler statement: every writeFileSync in this lane writes
+  // either into the lab -- which is checked to be outside the repository -- or
+  // into this lane's OWN data/ directory, and there are exactly three of them.
+  //
+  // Amended 2026-09-12, when `--write-data` was added. Before it, the sentence
+  // was "the only writeFileSync in the lane writes into the lab", and a test
+  // whose sentence has stopped being true is worse than no test: it reports
+  // green about a guarantee nobody is making any more. The count is kept,
+  // because the count is the part that fires when a fourth write appears.
   const runner = read(join(LANE, 'run-oracle-agreement.mjs'));
   const observe = read(join(LANE, 'lib/observe.mjs'));
+  const record = read(join(LANE, 'lib/record.mjs'));
   assert.equal((runner.match(/writeFileSync\(/g) || []).length, 1);
   assert.equal((observe.match(/writeFileSync\(/g) || []).length, 1);
+  assert.equal((record.match(/writeFileSync\(/g) || []).length, 1);
   assert.match(runner, /insideRepo\(lab\)/);
   assert.match(observe, /insideRepo\(lab\)/);
+  const others = LANE_SOURCES.filter((p) => ![
+    join(LANE, 'run-oracle-agreement.mjs'), join(LANE, 'lib/observe.mjs'), join(LANE, 'lib/record.mjs'),
+  ].includes(p) && !p.includes(`${sep}test${sep}`));
+  for (const p of others) assert.ok(!/writeFileSync\(/.test(read(p)), `${p} writes a file`);
+});
+
+test('the tracked record is written by one function, into this lane’s own data/ and nowhere else', () => {
+  // The write that `--write-data` added is the lane's only tracked output. Three
+  // things have to stay true of it, and none of them is visible at the call
+  // site in the runner: it goes through the lane's own DATA_DIR, the text is
+  // scanned before the file is opened, and a hit means NOTHING is written.
+  const record = read(join(LANE, 'lib/record.mjs'));
+  assert.match(record, /export const DATA_DIR = resolve\(HERE, '\.\.\/data'\)/);
+  assert.match(record, /absolutePathHits\(text\)[\s\S]{0,400}mkdirSync/,
+    'the record is written before its text is scanned');
+  assert.match(record, /if \(hits\.length \|\| floats\.length\) return \{ written: false/);
+  // The refusal is not a warning the runner may ignore.
+  const runner = read(join(LANE, 'run-oracle-agreement.mjs'));
+  assert.match(runner, /written\.written[\s\S]{0,600}process\.exit\(5\)/);
+  assert.match(runner, /writeDataRefusals\(args\)/);
+});
+
+test('a tracked record may carry counts, never a rate', () => {
+  // The rule the README states about this very run -- "read the 96 % as
+  // nothing" -- as a mechanical check rather than as an instruction to whoever
+  // adds the next field. lib/record.mjs refuses to write a record containing a
+  // number that is not an integer; this pins that the refusal is wired into the
+  // write and not merely available next to it.
+  const record = read(join(LANE, 'lib/record.mjs'));
+  assert.match(record, /const floats = nonIntegerNumbers\(record\)/);
+  assert.ok(!/toFixed|\* 100|formatRate/.test(record), 'lib/record.mjs formats a percentage');
 });
 
 // ------------------------------------------------------------ purity ---------

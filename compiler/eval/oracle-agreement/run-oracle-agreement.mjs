@@ -13,9 +13,13 @@
  *        --observer ~/vg-build/pass-observer/libPropertyObserver.so \
  *        --cc clang-18 --opt -O2 --per-bucket 12 --out ~/vg-lab/oracle-agreement
  *
- * This lane writes NO tracked data and never opens the tracked rows for writing.
- * Everything it produces -- the copied sources, the object files, the plugin
- * logs, the report -- goes under `--out`, which must lie outside the repository.
+ * This lane never opens the tracked rows for writing. Everything a run produces
+ * -- the copied sources, the object files, the plugin logs, the report -- goes
+ * under `--out`, which must lie outside the repository. The ONE exception is
+ * `--write-data`, which writes one tracked record of the run itself into
+ * `data/`: integers, booleans and short strings, scanned for machine paths
+ * first, and refused for anything but a full run. See lib/record.mjs for why
+ * that exception was made and what it is fenced with.
  *
  * EXIT CODES (interfaces.md section 7). Read `laneVerdict` in lib/agreement.mjs
  * before changing any of these; the first one is the one that is usually got
@@ -34,25 +38,41 @@
  *      compiler is not installed, the tracked rows could not be read -- or the
  *      run was a `--dry-run`, which measures nothing and must never be readable
  *      as a green lane.
- *   4  the arguments were bad, the lab is inside the repository, or the report
- *      would carry an absolute path and was refused.
+ *   4  the arguments were bad, the lab is inside the repository, the report
+ *      would carry an absolute path and was refused -- or `--write-data` was
+ *      asked for by a run that is not the full one (see writeDataRefusals).
+ *   5  a TRACKED file would have carried something tracked files must not: an
+ *      absolute path, or a number that is not an integer. Nothing was written to
+ *      `data/`. Separate from 4 because 4 is an operator error and 5 is a
+ *      disclosure the run caught in itself; `../repair-loop/lib/provenance.mjs`
+ *      defines the scan and uses the same code for it.
  *
  * Licence: Apache-2.0 WITH LLVM-exception (see compiler/LICENSE).
  */
-import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { basename, join, resolve } from 'node:path';
 import process from 'node:process';
 
 import {
-  tabulate, laneVerdict, formatRate, STRATUM, KIND,
+  tabulate, laneVerdict, formatRate, STRATUM, KIND, stratumOf,
 } from './lib/agreement.mjs';
 import {
   loadRows, indexRows, selectCells, bucketSizes, sourcePathOf, keyOf, o1Of, ROWS_PATH,
 } from './lib/rows.mjs';
 import { observeCell, channelAvailable, effectSymbols } from './lib/observe.mjs';
+import {
+  symbolsOf, countIrCallSites, splitByCallSites, splitIsPerfect, splitTotal, emitIrAtO0,
+} from './lib/callsites.mjs';
+import {
+  buildRecord, writeRecord, writeDataRefusals, versionTriple, dataFileName,
+} from './lib/record.mjs';
 import { insideRepo, vendorLabel, probeCompilers } from '../spike/lib/measure.mjs';
 import { absolutePathHits } from '../repair-loop/lib/provenance.mjs';
 
+const run = promisify(execFile);
 const DEFAULT_CCS = ['clang-18'];
 const DEFAULT_OPTS = ['-O2'];
 
@@ -62,7 +82,13 @@ function usage(msg) {
     'usage: run-oracle-agreement.mjs --out <lab dir> --observer <libPropertyObserver.so>\n'
     + '                               [--cc clang-18] [--opt -O2,-O0] [--per-bucket 8]\n'
     + '                               [--ids a,b,c] [--rows <r2-build-rows.json>] [--json] [--no-write]\n'
-    + '                               [--dry-run]\n',
+    + '                               [--dry-run] [--diagnose-callsites] [--write-data]\n'
+    + '\n'
+    + `  --diagnose-callsites  also count the -O0 IR wipe call sites of every selected\n`
+    + '                        generation, which is what decides whether O2 could be ASKED\n'
+    + `  --write-data          also write the tracked record, data/${dataFileName('clang-18')}\n`
+    + '                        for clang-18 and one named after any other --cc. Refused for\n'
+    + '                        anything but a full run: see writeDataRefusals in lib/record.mjs\n',
   );
   process.exit(4);
 }
@@ -79,6 +105,8 @@ function parseArgs(argv) {
     json: false,
     write: true,
     dryRun: false,
+    diagnoseCallSites: false,
+    writeData: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -93,6 +121,8 @@ function parseArgs(argv) {
     else if (a === '--json') args.json = true;
     else if (a === '--no-write') args.write = false;
     else if (a === '--dry-run') args.dryRun = true;
+    else if (a === '--diagnose-callsites') args.diagnoseCallSites = true;
+    else if (a === '--write-data') args.writeData = true;
     else if (a === '-h' || a === '--help') usage(null);
     else usage(`unknown option ${a}`);
   }
@@ -100,6 +130,17 @@ function parseArgs(argv) {
   if (!args.opts.length) usage('--opt listed no level');
   if (!Number.isInteger(args.perBucket) || args.perBucket < 1) usage('--per-bucket must be a positive integer');
   if (!args.dryRun && !args.out) usage('--out is required (or set OA_LAB); it must be outside the repository');
+  // Refused HERE, before a single compile: a run that is going to be told at the
+  // end that its record cannot be written is a run whose operator waited for
+  // fifty compiles to learn about a typo. The same reason
+  // `../repair-loop/run-repair-loop.mjs` puts its --write-data refusals in
+  // parseArgs rather than beside the write.
+  if (args.writeData) {
+    const why = writeDataRefusals(args);
+    if (why.length) {
+      usage(`--write-data refused: the tracked record is the full run, and this one is not.\n  - ${why.join('\n  - ')}`);
+    }
+  }
   return args;
 }
 
@@ -212,6 +253,80 @@ for (const c of chosen) {
 const tab = tabulate(pairs);
 const verdict = laneVerdict(tab);
 
+// ---- was O2 ASKABLE at all? -------------------------------------------------
+//
+// The diagnosis behind the README's "the 23 exclusions are the boundary of what
+// O2 can be ASKED". O2 watches a CALL SITE; a wipe written as a volatile pointer
+// loop has none, so `ABSENT` there is O2 declining a question rather than
+// answering it. Counted rather than asserted: the first attempt at this split
+// grepped the source for `memset(` and matched the word inside the files' own
+// comments. See lib/callsites.mjs.
+let callSites = null;
+if (args.diagnoseCallSites) {
+  const symbolList = symbolsOf(symbols);
+  const above = tab.strata.find((s) => s.name === STRATUM.ABOVE_O0) || null;
+  const excludedKeys = new Set((above ? above.excluded.cells : []).map((c) => keyOf(c.id, c.cc, c.opt)));
+  const perId = new Map();
+  const bySymbol = Object.fromEntries(symbolList.map((s) => [s, 0]));
+  const cells = [];
+  for (const p of pairs) {
+    if (stratumOf(p.opt) !== STRATUM.ABOVE_O0) continue;
+    const src = sourcePathOf(p.id);
+    if (!existsSync(src)) continue;
+    if (!perId.has(p.id)) {
+      let ir;
+      try {
+        ir = await emitIrAtO0({ cc: p.cc, srcPath: src, lab, id: p.id });
+      } catch (err) {
+        // Exit 3 and not 4: the IR could not be produced, so a check could not
+        // be completed. Writing the record anyway would put a split in a tracked
+        // file that was measured over the cells the compiler happened to manage.
+        process.stderr.write(`run-oracle-agreement.mjs: could not emit -O0 IR for ${p.id}: ${String(err.message).slice(0, 160)}\n`);
+        process.exit(3);
+      }
+      const c = countIrCallSites(ir, symbolList, p.fn);
+      perId.set(p.id, c);
+      for (const s of symbolList) bySymbol[s] += c.bySymbol[s];
+    }
+    const counted = perId.get(p.id);
+    cells.push({
+      id: p.id,
+      excluded: excludedKeys.has(keyOf(p.id, p.cc, p.opt)),
+      count: counted.inFile,
+      inFunction: counted.inFunction,
+      functionSeen: counted.functionSeen,
+    });
+  }
+  const byFile = splitByCallSites(cells);
+  const byFunction = splitByCallSites(cells.map((c) => ({ excluded: c.excluded, count: c.inFunction })));
+  callSites = {
+    // The word the README's table needs, and the one this flag exists to earn:
+    // `tool` means these four figures were counted by this run, `lab-run` means
+    // they were transcribed from a run's prose. There is no third state.
+    provenance: 'tool',
+    scope: 'the -O0 IR of each corpus generation, WITHOUT the appended control',
+    symbols: symbolList,
+    stratum: STRATUM.ABOVE_O0,
+    cells: splitTotal(byFile),
+    generations: perId.size,
+    bySymbol,
+    // The README counts "the -O0 LLVM IR of each corpus file", so `split` is the
+    // file-scoped one its table is about. The function-scoped count is the
+    // closer analogue of what O2 watches and is recorded beside it rather than
+    // instead of it; a disagreement between the two is a finding.
+    split: byFile,
+    splitInSubjectFunction: byFunction,
+    perfect: splitIsPerfect(byFile),
+    perfectInSubjectFunction: splitIsPerfect(byFunction),
+    perGeneration: [...perId.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .map(([id, c]) => ({ id, inFile: c.inFile, inFunction: c.inFunction, subjectFunctionSeen: c.functionSeen })),
+  };
+  process.stdout.write(`\nIR wipe call sites at -O0 (${callSites.generations} generations, ${callSites.cells} cells above -O0):\n`);
+  process.stdout.write(`   excluded cells: ${byFile.excludedZero} with none, ${byFile.excludedNonZero} with at least one\n`);
+  process.stdout.write(`   graded cells:   ${byFile.gradedZero} with none, ${byFile.gradedNonZero} with at least one\n`);
+  process.stdout.write(`   the split is ${callSites.perfect ? 'perfect' : 'NOT perfect -- O2 refused a cell that had a call site to watch, or graded one that had none'}\n`);
+}
+
 // ---- the report -------------------------------------------------------------
 //
 // `compileError` is deliberately NOT carried into the report: it is the driver's
@@ -251,6 +366,53 @@ if (args.write) {
   writeFileSync(join(lab, 'oracle-agreement.json'), `${text}\n`, 'utf8');
 }
 if (args.json) process.stdout.write(`${text}\n`);
+
+// ---- the tracked record -----------------------------------------------------
+//
+// Written LAST, and after the lab copy: a run whose record is refused has to
+// stay debuggable from its own lab directory. The refusals that depend only on
+// the arguments already fired in parseArgs; what is left here are the two that
+// can only be checked against the bytes -- a machine's path, and a number that
+// is not an integer.
+if (args.writeData) {
+  const sha256File = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
+  let ccVersion = null;
+  try {
+    const { stdout } = await run(args.ccs[0], ['--version'], { timeout: 30000 });
+    // The triple only. `clang --version` also prints its InstalledDir, which is
+    // an absolute path on the measuring machine.
+    ccVersion = versionTriple(stdout);
+  } catch { ccVersion = null; }
+
+  const record = buildRecord({
+    tab,
+    verdict,
+    chosen,
+    pairs,
+    args,
+    toolchain: { version: ccVersion, vendor: /^(gcc|g\+\+)/.test(vendorLabel(args.ccs[0])) ? 'gcc' : 'clang' },
+    plugin: { basename: basename(plugin), sha256: sha256File(plugin) },
+    rows: {
+      file: args.rows === ROWS_PATH ? '(tracked default)' : '(a file named on the command line)',
+      sha256: sha256File(args.rows),
+    },
+    callSites,
+    generatedAt: new Date().toISOString(),
+    node: process.version,
+  });
+
+  const written = writeRecord(record, { cc: args.ccs[0] });
+  if (!written.written) {
+    if (written.hits.length) process.stderr.write(`run-oracle-agreement.mjs: the tracked record would carry an absolute path (${written.hits.join(', ')})\n`);
+    if (written.floats.length) {
+      process.stderr.write(`run-oracle-agreement.mjs: the tracked record would carry a number that is not an integer (${written.floats.join(', ')}); `
+        + 'a rate belongs in the record as an integer pair, never as a percentage\n');
+    }
+    process.stderr.write('run-oracle-agreement.mjs: nothing was written to data/\n');
+    process.exit(5);
+  }
+  process.stdout.write(`\ntracked record: compiler/eval/oracle-agreement/data/${dataFileName(args.ccs[0])}\n`);
+}
 
 // ---- print ------------------------------------------------------------------
 process.stdout.write(`\nO1 = verdictOf, differential assembly text (tracked rows)\n`);
