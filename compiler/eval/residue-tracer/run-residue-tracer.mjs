@@ -489,7 +489,14 @@ async function main() {
     }
     const DATA = join(HERE, 'data');
     mkdirSync(DATA, { recursive: true });
-    writeFileSync(join(DATA, `residue-rows-${ccs.join('-')}.json`), `${JSON.stringify(rows, null, 2)}\n`, 'utf8');
+    // VENDORS order, not the order they were typed on the command line: the
+    // refusal above already requires every vendor, so `--cc gcc-13,clang-18`
+    // measures the same matrix as `--cc clang-18,gcc-13` and must not land in
+    // a second file. It used to, and the lane's drift test -- which asserts
+    // there is exactly one tracked rows file -- would have failed on a run
+    // that measured everything it was supposed to.
+    const name = `residue-rows-${VENDORS.filter((v) => ccs.includes(v)).join('-')}.json`;
+    writeFileSync(join(DATA, name), `${JSON.stringify(rows, null, 2)}\n`, 'utf8');
     process.stdout.write(`wrote ${rows.length} rows to data/\n`);
   }
   process.exit(0);

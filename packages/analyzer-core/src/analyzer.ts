@@ -734,6 +734,23 @@ export class Analyzer {
             'corpusId, vendor and optLevel. Findings for this rule are reported without it.',
         });
       }
+      // A well-formed cell keyed to a rule this engine did not load reaches no
+      // finding and, until 2026-09-12, said nothing either: a typo in the
+      // ruleId was indistinguishable from a rule that simply did not fire. The
+      // engine cannot know whether the consumer meant a rule it has, so it
+      // reports rather than guesses, and it does not treat this as a reason to
+      // drop the value — a rule set that grows later is a normal thing.
+      const known = new Set(baseRules.map((r) => r.ruleId));
+      for (const ruleId of compileLoss.keys()) {
+        if (known.has(ruleId)) continue;
+        compileLossRejections.push({
+          ruleId,
+          detail:
+            `compileLossEvidence was supplied for ${ruleId}, which is not a rule this engine ` +
+            'loaded, so no finding can carry it. Check the id against the rule set, or ignore ' +
+            'this if the rule is disabled in this configuration on purpose.',
+        });
+      }
     }
 
     // D2 — the normalization pre-pass. `ctx` deliberately keeps the ORIGINAL

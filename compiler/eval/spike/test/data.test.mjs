@@ -269,17 +269,21 @@ test('README: the discriminating ratio agrees with the record in all three place
   assert.deepEqual([Number(online[1]), Number(online[2])], [num, den]);
 
   // (2) the sentence under the block: "Nine of the eleven configurations discriminate"
-  const prose = /(\w+) of the (\w+) configurations discriminate/.exec(README_FLAT);
+  // Searched inside "What was measured" rather than the whole file: a
+  // sentence of the same shape anywhere above it would be matched first,
+  // and this test would then grade the record against another run's prose.
+  const measured = flat(measuredSection());
+  const prose = /(\w+) of the (\w+) configurations discriminate/.exec(measured);
   assert.ok(prose, 'README.md no longer says how many configurations discriminate');
   assert.deepEqual([numberWord(prose[1]), numberWord(prose[2])], [num, den],
     'the README\'s sentence about discriminating configurations is not the record\'s count');
 
   // (3) the paragraph about what the written report carries
-  const graded = /(\d+) configurations graded/.exec(README_FLAT);
+  const graded = /(\d+) configurations graded/.exec(measured);
   assert.ok(graded, 'README.md no longer says how many configurations were graded');
   assert.equal(Number(graded[1]), r.configurations.length);
-  const cfg = /`verdict\.configurations`\s*`\{num: (\d+), den: (\d+)\}`/.exec(README_FLAT);
-  const disc = /`verdict\.discriminating`\s*`\{num: (\d+), den: (\d+)\}`/.exec(README_FLAT);
+  const cfg = /`verdict\.configurations`\s*`\{num: (\d+), den: (\d+)\}`/.exec(measured);
+  const disc = /`verdict\.discriminating`\s*`\{num: (\d+), den: (\d+)\}`/.exec(measured);
   assert.ok(cfg && disc, 'README.md no longer quotes verdict.configurations and verdict.discriminating');
   assert.deepEqual([Number(cfg[1]), Number(cfg[2])], [r.counting.configurations.num, r.counting.configurations.den]);
   assert.deepEqual([Number(disc[1]), Number(disc[2])], [num, den]);

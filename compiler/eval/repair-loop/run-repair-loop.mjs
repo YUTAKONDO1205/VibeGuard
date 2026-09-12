@@ -75,7 +75,7 @@ import {
   spanSummary, effectVerdict, corroborationSummary, listingChangedWithoutLoss, labelRenumbering, crossVendorCoverage, buildPinPlan,
 } from './lib/summaries.mjs';
 import { readPlan, planMismatch, planCompilerMismatch, planSummary, renderPlanSummary } from './lib/plan.mjs';
-import { routeRun, renderRouting } from './lib/routing.mjs';
+import { routeRun, renderRouting, signalIndex } from './lib/routing.mjs';
 import { sha256Text, absolutePathHits, rowsFileLabel } from './lib/provenance.mjs';
 import { preflightProblems } from './lib/preflight.mjs';
 import { corpusFiles, erasureFamily } from './lib/corpus.mjs';
@@ -318,6 +318,17 @@ async function main() {
     pinTable = JSON.parse(readFileSync(TABLE_PATH, 'utf8'));
   } catch (e) {
     die(4, `pin-families.json could not be read as JSON (${e && e.message ? e.message : e}); nothing was run`);
+  }
+  // And the shape, not only the syntax: signalIndex() is what derives the
+  // signal -> shape map out of the table's own citations, and a table that
+  // parses but whose cites have lost their `counter` or `scen` is as malformed
+  // a policy as one that does not parse. Asked here so it costs nothing;
+  // asked for the first time after the run, it was a full measurement thrown
+  // away on exit 2.
+  try {
+    signalIndex(pinTable);
+  } catch (e) {
+    die(4, `pin-families.json parses but its citations do not name signals (${e && e.message ? e.message : e}); nothing was run`);
   }
 
   mkdirSync(BUILD, { recursive: true });

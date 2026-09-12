@@ -161,3 +161,34 @@ describe('a malformed cell is refused out loud', () => {
     expect(r.summary).toEqual(plain.summary);
   });
 });
+
+describe('a well-formed cell for a rule this engine did not load', () => {
+  it('is reported rather than dropped in silence', async () => {
+    const res = await scan({
+      filePath: 'x.js',
+      language: 'javascript',
+      content: 'const p = "password123";\neval(p);\n',
+      compileLossEvidence: {
+        'VG-NOT-A-RULE': { num: 1, den: 2, corpusId: 'r2', vendor: 'clang-18', optLevel: '-O2' },
+      },
+    });
+    const rejections = res.compileLossEvidenceRejections ?? [];
+    expect(rejections.map((r) => r.ruleId)).toEqual(['VG-NOT-A-RULE']);
+    expect(rejections[0].detail).toMatch(/not a rule this engine loaded/);
+    // And the findings are otherwise untouched: this is a report, not a refusal.
+    expect(res.findings.length).toBeGreaterThan(0);
+    for (const f of res.findings) expect('compileLossEvidence' in f).toBe(false);
+  });
+
+  it('says nothing when the id IS a loaded rule', async () => {
+    const res = await scan({
+      filePath: 'x.js',
+      language: 'javascript',
+      content: 'const p = "password123";\neval(p);\n',
+      compileLossEvidence: {
+        'VG-INJ-004': { num: 113, den: 133, corpusId: 'r2', vendor: 'clang-18', optLevel: '-O2' },
+      },
+    });
+    expect(res.compileLossEvidenceRejections).toBeUndefined();
+  });
+});

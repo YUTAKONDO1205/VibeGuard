@@ -488,7 +488,7 @@ a reason rather than a backlog.
 | harness | gated? | file:line |
 |---|---|---|
 | `compiler/eval/ai-generated/lib/build-analyze.mjs` | **yes** | import `:37`, gate `:118`, `process.exit(3)` `:123` — refuses to write rows |
-| `compiler/eval/repair-loop/run-repair-loop.mjs` | **yes** | import `:82`, gate `:348`, `die(2)` `:353` for `--write-data`, `die(3)` `:356` |
+| `compiler/eval/repair-loop/run-repair-loop.mjs` | **yes** | import `:82`, gate `:359`, `die(2)` `:364` for `--write-data`, `die(3)` `:367` |
 | `compiler/eval/repair-loop/tools/lto-probe.mjs` | **yes** | import `:58`, gate `:289`, `die(3)` `:293` — no LTO cell run |
 | `compiler/eval/repair-loop/tools/lto-probe-gcc.mjs` | **yes** | import `:61`, gate `:320`, `die(3)` `:324` — no LTO cell run |
 | `compiler/pass-instrumentation/observer/scripts/run-all.sh` | **yes, 2026-09-12** | `:80-92` — the observer channel on the plugin it just built, before the five harnesses, exiting with this lane's own code |
@@ -863,10 +863,10 @@ two spikes are registered to read different words — not to relax the rule.
 * **~~No harness's data is gated.~~ Five harnesses are, by file and line in the
   table above, and the two lanes that carry tracked rows have been re-measured
   under it.** The corpus rebuild read the same 4,689 rows
-  (`../ai-generated/data/r2-regate.json`) and the repair loop the same 1,881,
-  byte for byte (`../repair-loop/data/r2-regate.json`). What remains unmeasured
-  is narrower and is written here rather than implied: the **gcc-13 half** of
-  the repair loop, whose tracked rows are a separate file, and every **LTO
+  (`../ai-generated/data/r2-regate.json`) and the repair loop the same rows on
+  **both** vendors, byte for byte — 1,881 for clang-18 and 1,883 for gcc-13
+  (`../repair-loop/data/r2-regate.json`, one entry per vendor). What remains
+  unmeasured is narrower and is written here rather than implied: every **LTO
   probe** sentence, which is lab-only output with no tracked record to compare
   against. **Unmeasured, not "passing".**
 * **The observer channel at levels other than `-O2`, and on gcc.** The plugin is

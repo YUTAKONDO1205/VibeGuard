@@ -329,6 +329,13 @@ python3 compiler/eval/metamorphic/scripts/build-meta-report.py
 python3 compiler/eval/metamorphic/scripts/check-meta.py
 
 # 4. show the grader failing. A grader never shown to fail has not been shown to work.
+#    NOTHING RUNS THIS FOR YOU. Step 4 is a line in this file and a habit, which
+#    is the state compiler/eval/calibration left behind when it grew a run-all.sh
+#    that ends with its own falsifier (calibration/run-all.sh:107) -- this lane
+#    has no run-all.sh, so a run that stops after step 3 is graded by an
+#    ungraded grader and nothing anywhere says so. The unit suite below covers
+#    the survival-axis rule specifically; it is not the same as demonstrating
+#    that THIS run's grader refuses every corruption.
 python3 compiler/eval/metamorphic/scripts/falsify-meta.py
 
 # the two suites. Neither needs a compiler or a lab.

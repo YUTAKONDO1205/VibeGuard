@@ -89,9 +89,14 @@ test('every line the table cites says what it is cited for', () => {
     for (const n of cited) {
       const text = lines[n - 1];
       assert.ok(text !== undefined, `${row.file}:${n} is past the end of the file`);
-      const says = /runSpikeGate|run-spike\.mjs|spike/.test(text)
-        || /exit\(3|die\(3|die\(2|exit \$s|STOPPED/.test(text);
-      assert.ok(says, `${row.file}:${n} is cited by the gating table and reads:\n    ${text.trim()}`);
+      const isSite = (l) => /runSpikeGate|run-spike\.mjs|spike/.test(l)
+        || /exit\(3|die\(3|die\(2|exit \$s|STOPPED/.test(l);
+      // The message carries the lines those sites are actually on: the fix for
+      // this failure is always "copy these numbers into the table", and
+      // hunting for them by hand is how the wrong ones got in twice.
+      const where = lines.map((l, i) => (isSite(l) ? i + 1 : null)).filter(Boolean).join(', ');
+      assert.ok(isSite(text), `${row.file}:${n} is cited by the gating table and reads:\n    ${text.trim()}\n`
+        + `  the gate's lines in that file are: ${where}`);
     }
     // A range like :80-92 is cited as a block; require the block to hold the call.
     for (const m of row.cites.matchAll(/`:(\d+)-(\d+)`/g)) {
