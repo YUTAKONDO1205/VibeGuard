@@ -891,6 +891,9 @@ compile (`NOT_SCORED`).
 | `lib/surgicality.mjs` | the surgicality checks, and the `.L<n>` label canonicalisation they use; pure, `bodyOf` injected |
 | `lib/stage-gate.mjs` | the out-of-reach families; pure |
 | `lib/corpus.mjs` | the selection: the corpus files, what each one is, the erasure family; imported by the runner and by `tools/fbu-levels.mjs`; pure |
+| `pin-families.json`, `lib/pin-families.mjs`, `PIN-FAMILIES.md` | the per-property pin-family table: one row per (property, disappearance shape, repair candidate), its claim definitions and its validator; pure |
+| `tools/intervene.mjs` | the second repair candidate: delete the attributed pass from the pipeline clang printed and replay under opt and llc, reading the IR and the asm channel; lab output only, never `data/` |
+| `test/pin-families.test.mjs` | recomputes every measured number in `pin-families.json` from the tracked rows, and re-runs the intervention gate over every claim that uses it |
 | `tools/lto-probe.mjs`, `tools/lib/lto.mjs`, `tools/LTO.md` | the LTO probe: the same cell judged on the assembly a full or thin LTO link writes; lab output only, never `data/` |
 | `tools/lto-probe-gcc.mjs`, `tools/lib/lto-gcc.mjs` | its gcc-13 twin: the same cell judged on the assembly lto1 writes for an `-flto -shared` link, WipePinGcc records read through `lib/pin-record.mjs`, the compile-stage GIMPLE read back with `lto-dump-13`; lab output only (`tools/LTO.md`, *gcc-13*) |
 | `tools/fbu-levels.mjs`, `tools/lib/fbu.mjs` | `followedByUse` at `-O1`..`-Os` against `-O0`, site by site, both vendors; lab output only, never `data/` |

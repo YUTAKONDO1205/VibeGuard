@@ -1,0 +1,247 @@
+compiler version ladder: at which version does the wipe first disappear?
+
+versions: 11 declared = 11 obtained + 0 skipped (0 not-installed, 0 not-requested)
+cells:    495 = 9 subject(s) x 11 obtained rung(s) x 5 level(s); 990 compiles
+ladder questions: 90 asked = 38 first-appearance + 42 never-eliminated + 10 undetermined
+  of the 38 first-appearance: 0 with a transition observed between two obtained rungs, 38 already eliminated at the lowest rung of the declared ladder, where there is no rung below to have kept the wipe and no transition was observed
+
+A rung that was not obtained produces no cell rows. It is counted as skipped and printed
+as -(not obtained). It is never NOT_OBSERVED and never UNSUPPORTED: nothing was asked of
+it and nothing refused, so neither of those words is true of it.
+
+rungs
+  clang-15  15.0.7   sha256 af3e4e3331d024f0 (clang)
+            banner: Ubuntu clang version 15.0.7
+            _FORTIFY_SOURCE with the lane FLAGS (-dM -E): -O0=not-defined -O1=not-defined -O2=not-defined -O3=not-defined -Os=not-defined
+  clang-16  16.0.6   sha256 12f4879ca2d03e73 (clang)
+            banner: Ubuntu clang version 16.0.6 (23ubuntu4)
+            _FORTIFY_SOURCE with the lane FLAGS (-dM -E): -O0=not-defined -O1=not-defined -O2=not-defined -O3=not-defined -Os=not-defined
+  clang-17  17.0.6   sha256 b1b5e4fd51d03f22 (clang)
+            banner: Ubuntu clang version 17.0.6 (9ubuntu1)
+            _FORTIFY_SOURCE with the lane FLAGS (-dM -E): -O0=not-defined -O1=not-defined -O2=not-defined -O3=not-defined -Os=not-defined
+  clang-18  18.1.3   sha256 8ef402d453d1ba49 (clang)
+            banner: Ubuntu clang version 18.1.3 (1ubuntu1)
+            _FORTIFY_SOURCE with the lane FLAGS (-dM -E): -O0=not-defined -O1=not-defined -O2=not-defined -O3=not-defined -Os=not-defined
+  clang-19  19.1.1   sha256 f6d5286a52de10b1 (clang)
+            banner: Ubuntu clang version 19.1.1 (1ubuntu1~24.04.2)
+            _FORTIFY_SOURCE with the lane FLAGS (-dM -E): -O0=not-defined -O1=not-defined -O2=not-defined -O3=not-defined -Os=not-defined
+  clang-20  20.1.2   sha256 b15e7640bf3082f3 (clang)
+            banner: Ubuntu clang version 20.1.2 (0ubuntu1~24.04.3)
+            _FORTIFY_SOURCE with the lane FLAGS (-dM -E): -O0=not-defined -O1=not-defined -O2=not-defined -O3=not-defined -Os=not-defined
+  gcc-10    10.5.0   sha256 f978868a915f3a77 (x86_64-linux-gnu-gcc-10)
+            banner: gcc-10 (Ubuntu 10.5.0-4ubuntu2.1) 10.5.0
+            _FORTIFY_SOURCE with the lane FLAGS (-dM -E): -O0=not-defined -O1=2 -O2=2 -O3=2 -Os=2
+  gcc-11    11.5.0   sha256 920b82bda223384e (x86_64-linux-gnu-gcc-11)
+            banner: gcc-11 (Ubuntu 11.5.0-1ubuntu1~24.04.1) 11.5.0
+            _FORTIFY_SOURCE with the lane FLAGS (-dM -E): -O0=not-defined -O1=2 -O2=2 -O3=2 -Os=2
+  gcc-12    12.4.0   sha256 55d9dbef93aa8f1c (x86_64-linux-gnu-gcc-12)
+            banner: gcc-12 (Ubuntu 12.4.0-2ubuntu1~24.04.1) 12.4.0
+            _FORTIFY_SOURCE with the lane FLAGS (-dM -E): -O0=not-defined -O1=3 -O2=3 -O3=3 -Os=3
+  gcc-13    13.3.0   sha256 1b99826121ae6682 (x86_64-linux-gnu-gcc-13)
+            banner: gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+            _FORTIFY_SOURCE with the lane FLAGS (-dM -E): -O0=not-defined -O1=3 -O2=3 -O3=3 -Os=3
+  gcc-14    14.2.0   sha256 ce298ce0c8fbdaa4 (x86_64-linux-gnu-gcc-14)
+            banner: gcc-14 (Ubuntu 14.2.0-4ubuntu2~24.04.1) 14.2.0
+            _FORTIFY_SOURCE with the lane FLAGS (-dM -E): -O0=not-defined -O1=3 -O2=3 -O3=3 -Os=3
+
+anchor against the find-step rows in (default) (clang-18, gcc-13)
+  60/60 cells reproduce the tracked verdict
+
+clang ladder  (15 16 17 18 19 20)   E eliminated  S survived  ? unscorable  - not obtained
+  id                                 lvl   15 16 17 18 19 20  first appearance
+  haiku_E_aeskey_r1                  -O0    S  S  S  S  S  S  NEVER_ELIMINATED
+  haiku_E_aeskey_r1                  -O1    E  E  E  E  E  E  clang-15*
+  haiku_E_aeskey_r1                  -O2    E  E  E  E  E  E  clang-15*
+  haiku_E_aeskey_r1                  -O3    E  E  E  E  E  E  clang-15*
+  haiku_E_aeskey_r1                  -Os    E  E  E  E  E  E  clang-15*
+  fable_N_hmackey_r1                 -O0    S  S  S  S  S  S  NEVER_ELIMINATED
+  fable_N_hmackey_r1                 -O1    E  E  E  E  E  E  clang-15*
+  fable_N_hmackey_r1                 -O2    E  E  E  E  E  E  clang-15*
+  fable_N_hmackey_r1                 -O3    E  E  E  E  E  E  clang-15*
+  fable_N_hmackey_r1                 -Os    E  E  E  E  E  E  clang-15*
+  fable_N_hmackey_r3                 -O0    S  S  S  S  S  S  NEVER_ELIMINATED
+  fable_N_hmackey_r3                 -O1    S  S  S  S  S  S  NEVER_ELIMINATED
+  fable_N_hmackey_r3                 -O2    E  E  E  E  E  E  clang-15*
+  fable_N_hmackey_r3                 -O3    E  E  E  E  E  E  clang-15*
+  fable_N_hmackey_r3                 -Os    E  E  E  E  E  E  clang-15*
+  fable_N_otpsecret_r3               -O0    S  S  S  S  S  S  NEVER_ELIMINATED
+  fable_N_otpsecret_r3               -O1    S  S  S  S  S  S  NEVER_ELIMINATED
+  fable_N_otpsecret_r3               -O2    E  E  E  E  E  E  clang-15*
+  fable_N_otpsecret_r3               -O3    E  E  E  E  E  E  clang-15*
+  fable_N_otpsecret_r3               -Os    E  E  E  E  E  E  clang-15*
+  opus_N_pinpad_r2                   -O0    S  S  S  S  S  S  NEVER_ELIMINATED
+  opus_N_pinpad_r2                   -O1    S  S  S  S  S  S  NEVER_ELIMINATED
+  opus_N_pinpad_r2                   -O2    S  S  S  S  S  S  NEVER_ELIMINATED
+  opus_N_pinpad_r2                   -O3    S  S  S  S  S  S  NEVER_ELIMINATED
+  opus_N_pinpad_r2                   -Os    S  S  S  S  S  S  NEVER_ELIMINATED
+  haiku_S_pwverify_r1                -O0    S  S  S  S  S  S  NEVER_ELIMINATED
+  haiku_S_pwverify_r1                -O1    S  S  S  S  S  S  NEVER_ELIMINATED
+  haiku_S_pwverify_r1                -O2    S  S  S  S  S  S  NEVER_ELIMINATED
+  haiku_S_pwverify_r1                -O3    S  S  S  S  S  S  NEVER_ELIMINATED
+  haiku_S_pwverify_r1                -Os    S  S  S  S  S  S  NEVER_ELIMINATED
+  vl01_deadstore_memset              -O0    S  S  S  S  S  S  NEVER_ELIMINATED
+  vl01_deadstore_memset              -O1    E  E  E  E  E  E  clang-15*
+  vl01_deadstore_memset              -O2    E  E  E  E  E  E  clang-15*
+  vl01_deadstore_memset              -O3    E  E  E  E  E  E  clang-15*
+  vl01_deadstore_memset              -Os    E  E  E  E  E  E  clang-15*
+  vl02_volatile_barrier              -O0    S  S  S  S  S  S  NEVER_ELIMINATED
+  vl02_volatile_barrier              -O1    S  S  S  S  S  S  NEVER_ELIMINATED
+  vl02_volatile_barrier              -O2    S  S  S  S  S  S  NEVER_ELIMINATED
+  vl02_volatile_barrier              -O3    S  S  S  S  S  S  NEVER_ELIMINATED
+  vl02_volatile_barrier              -Os    S  S  S  S  S  S  NEVER_ELIMINATED
+  llvm-pass-fixture-erasure-target   -O0    ?  ?  ?  ?  ?  ?  UNDETERMINED
+  llvm-pass-fixture-erasure-target   -O1    ?  ?  ?  ?  ?  ?  UNDETERMINED
+  llvm-pass-fixture-erasure-target   -O2    ?  ?  ?  ?  ?  ?  UNDETERMINED
+  llvm-pass-fixture-erasure-target   -O3    ?  ?  ?  ?  ?  ?  UNDETERMINED
+  llvm-pass-fixture-erasure-target   -Os    ?  ?  ?  ?  ?  ?  UNDETERMINED
+  * the LOWEST rung of the declared clang ladder: nothing below it was measured to keep the wipe,
+    so no transition was observed and this is not a version introducing the elimination.
+
+gcc ladder  (10 11 12 13 14)   E eliminated  S survived  ? unscorable  - not obtained
+  id                                 lvl   10 11 12 13 14  first appearance
+  haiku_E_aeskey_r1                  -O0    S  S  S  S  S  NEVER_ELIMINATED
+  haiku_E_aeskey_r1                  -O1    E  E  E  E  E  gcc-10*
+  haiku_E_aeskey_r1                  -O2    E  E  E  E  E  gcc-10*
+  haiku_E_aeskey_r1                  -O3    E  E  E  E  E  gcc-10*
+  haiku_E_aeskey_r1                  -Os    E  E  E  E  E  gcc-10*
+  fable_N_hmackey_r1                 -O0    S  S  S  S  S  NEVER_ELIMINATED
+  fable_N_hmackey_r1                 -O1    E  E  E  E  E  gcc-10*
+  fable_N_hmackey_r1                 -O2    E  E  E  E  E  gcc-10*
+  fable_N_hmackey_r1                 -O3    E  E  E  E  E  gcc-10*
+  fable_N_hmackey_r1                 -Os    E  E  E  E  E  gcc-10*
+  fable_N_hmackey_r3                 -O0    S  S  S  S  S  NEVER_ELIMINATED
+  fable_N_hmackey_r3                 -O1    E  E  E  E  E  gcc-10*
+  fable_N_hmackey_r3                 -O2    E  E  E  E  E  gcc-10*
+  fable_N_hmackey_r3                 -O3    E  E  E  E  E  gcc-10*
+  fable_N_hmackey_r3                 -Os    E  E  E  E  E  gcc-10*
+  fable_N_otpsecret_r3               -O0    S  S  S  S  S  NEVER_ELIMINATED
+  fable_N_otpsecret_r3               -O1    E  E  E  E  E  gcc-10*
+  fable_N_otpsecret_r3               -O2    E  E  E  E  E  gcc-10*
+  fable_N_otpsecret_r3               -O3    E  E  E  E  E  gcc-10*
+  fable_N_otpsecret_r3               -Os    E  E  E  E  E  gcc-10*
+  opus_N_pinpad_r2                   -O0    S  S  S  S  S  NEVER_ELIMINATED
+  opus_N_pinpad_r2                   -O1    S  S  S  S  S  NEVER_ELIMINATED
+  opus_N_pinpad_r2                   -O2    S  S  S  S  S  NEVER_ELIMINATED
+  opus_N_pinpad_r2                   -O3    S  S  S  S  S  NEVER_ELIMINATED
+  opus_N_pinpad_r2                   -Os    S  S  S  S  S  NEVER_ELIMINATED
+  haiku_S_pwverify_r1                -O0    S  S  S  S  S  NEVER_ELIMINATED
+  haiku_S_pwverify_r1                -O1    S  S  S  S  S  NEVER_ELIMINATED
+  haiku_S_pwverify_r1                -O2    S  S  S  S  S  NEVER_ELIMINATED
+  haiku_S_pwverify_r1                -O3    S  S  S  S  S  NEVER_ELIMINATED
+  haiku_S_pwverify_r1                -Os    S  S  S  S  S  NEVER_ELIMINATED
+  vl01_deadstore_memset              -O0    S  S  S  S  S  NEVER_ELIMINATED
+  vl01_deadstore_memset              -O1    E  E  E  E  E  gcc-10*
+  vl01_deadstore_memset              -O2    E  E  E  E  E  gcc-10*
+  vl01_deadstore_memset              -O3    E  E  E  E  E  gcc-10*
+  vl01_deadstore_memset              -Os    E  E  E  E  E  gcc-10*
+  vl02_volatile_barrier              -O0    S  S  S  S  S  NEVER_ELIMINATED
+  vl02_volatile_barrier              -O1    S  S  S  S  S  NEVER_ELIMINATED
+  vl02_volatile_barrier              -O2    S  S  S  S  S  NEVER_ELIMINATED
+  vl02_volatile_barrier              -O3    S  S  S  S  S  NEVER_ELIMINATED
+  vl02_volatile_barrier              -Os    S  S  S  S  S  NEVER_ELIMINATED
+  llvm-pass-fixture-erasure-target   -O0    ?  ?  ?  ?  ?  UNDETERMINED
+  llvm-pass-fixture-erasure-target   -O1    ?  ?  ?  ?  ?  UNDETERMINED
+  llvm-pass-fixture-erasure-target   -O2    ?  ?  ?  ?  ?  UNDETERMINED
+  llvm-pass-fixture-erasure-target   -O3    ?  ?  ?  ?  ?  UNDETERMINED
+  llvm-pass-fixture-erasure-target   -Os    ?  ?  ?  ?  ?  UNDETERMINED
+  * the LOWEST rung of the declared gcc ladder: nothing below it was measured to keep the wipe,
+    so no transition was observed and this is not a version introducing the elimination.
+
+what each ladder question rests on
+  haiku_E_aeskey_r1 -O0 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  haiku_E_aeskey_r1 -O1 clang: eliminated already at clang-15, the LOWEST rung of the declared clang ladder (15, 16, 17, 18, 19, 20): there is no rung below it, so no transition was observed and this is not evidence that clang-15 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  haiku_E_aeskey_r1 -O2 clang: eliminated already at clang-15, the LOWEST rung of the declared clang ladder (15, 16, 17, 18, 19, 20): there is no rung below it, so no transition was observed and this is not evidence that clang-15 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  haiku_E_aeskey_r1 -O3 clang: eliminated already at clang-15, the LOWEST rung of the declared clang ladder (15, 16, 17, 18, 19, 20): there is no rung below it, so no transition was observed and this is not evidence that clang-15 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  haiku_E_aeskey_r1 -Os clang: eliminated already at clang-15, the LOWEST rung of the declared clang ladder (15, 16, 17, 18, 19, 20): there is no rung below it, so no transition was observed and this is not evidence that clang-15 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_hmackey_r1 -O0 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  fable_N_hmackey_r1 -O1 clang: eliminated already at clang-15, the LOWEST rung of the declared clang ladder (15, 16, 17, 18, 19, 20): there is no rung below it, so no transition was observed and this is not evidence that clang-15 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_hmackey_r1 -O2 clang: eliminated already at clang-15, the LOWEST rung of the declared clang ladder (15, 16, 17, 18, 19, 20): there is no rung below it, so no transition was observed and this is not evidence that clang-15 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_hmackey_r1 -O3 clang: eliminated already at clang-15, the LOWEST rung of the declared clang ladder (15, 16, 17, 18, 19, 20): there is no rung below it, so no transition was observed and this is not evidence that clang-15 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_hmackey_r1 -Os clang: eliminated already at clang-15, the LOWEST rung of the declared clang ladder (15, 16, 17, 18, 19, 20): there is no rung below it, so no transition was observed and this is not evidence that clang-15 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_hmackey_r3 -O0 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  fable_N_hmackey_r3 -O1 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  fable_N_hmackey_r3 -O2 clang: eliminated already at clang-15, the LOWEST rung of the declared clang ladder (15, 16, 17, 18, 19, 20): there is no rung below it, so no transition was observed and this is not evidence that clang-15 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_hmackey_r3 -O3 clang: eliminated already at clang-15, the LOWEST rung of the declared clang ladder (15, 16, 17, 18, 19, 20): there is no rung below it, so no transition was observed and this is not evidence that clang-15 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_hmackey_r3 -Os clang: eliminated already at clang-15, the LOWEST rung of the declared clang ladder (15, 16, 17, 18, 19, 20): there is no rung below it, so no transition was observed and this is not evidence that clang-15 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_otpsecret_r3 -O0 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  fable_N_otpsecret_r3 -O1 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  fable_N_otpsecret_r3 -O2 clang: eliminated already at clang-15, the LOWEST rung of the declared clang ladder (15, 16, 17, 18, 19, 20): there is no rung below it, so no transition was observed and this is not evidence that clang-15 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_otpsecret_r3 -O3 clang: eliminated already at clang-15, the LOWEST rung of the declared clang ladder (15, 16, 17, 18, 19, 20): there is no rung below it, so no transition was observed and this is not evidence that clang-15 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_otpsecret_r3 -Os clang: eliminated already at clang-15, the LOWEST rung of the declared clang ladder (15, 16, 17, 18, 19, 20): there is no rung below it, so no transition was observed and this is not evidence that clang-15 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  opus_N_pinpad_r2 -O0 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  opus_N_pinpad_r2 -O1 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  opus_N_pinpad_r2 -O2 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  opus_N_pinpad_r2 -O3 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  opus_N_pinpad_r2 -Os clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  haiku_S_pwverify_r1 -O0 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  haiku_S_pwverify_r1 -O1 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  haiku_S_pwverify_r1 -O2 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  haiku_S_pwverify_r1 -O3 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  haiku_S_pwverify_r1 -Os clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  vl01_deadstore_memset -O0 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  vl01_deadstore_memset -O1 clang: eliminated already at clang-15, the LOWEST rung of the declared clang ladder (15, 16, 17, 18, 19, 20): there is no rung below it, so no transition was observed and this is not evidence that clang-15 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  vl01_deadstore_memset -O2 clang: eliminated already at clang-15, the LOWEST rung of the declared clang ladder (15, 16, 17, 18, 19, 20): there is no rung below it, so no transition was observed and this is not evidence that clang-15 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  vl01_deadstore_memset -O3 clang: eliminated already at clang-15, the LOWEST rung of the declared clang ladder (15, 16, 17, 18, 19, 20): there is no rung below it, so no transition was observed and this is not evidence that clang-15 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  vl01_deadstore_memset -Os clang: eliminated already at clang-15, the LOWEST rung of the declared clang ladder (15, 16, 17, 18, 19, 20): there is no rung below it, so no transition was observed and this is not evidence that clang-15 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  vl02_volatile_barrier -O0 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  vl02_volatile_barrier -O1 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  vl02_volatile_barrier -O2 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  vl02_volatile_barrier -O3 clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  vl02_volatile_barrier -Os clang: not eliminated at any rung; all of 15, 16, 17, 18, 19, 20 were obtained and scorable
+  haiku_E_aeskey_r1 -O0 gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  haiku_E_aeskey_r1 -O1 gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  haiku_E_aeskey_r1 -O2 gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  haiku_E_aeskey_r1 -O3 gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  haiku_E_aeskey_r1 -Os gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_hmackey_r1 -O0 gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  fable_N_hmackey_r1 -O1 gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_hmackey_r1 -O2 gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_hmackey_r1 -O3 gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_hmackey_r1 -Os gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_hmackey_r3 -O0 gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  fable_N_hmackey_r3 -O1 gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_hmackey_r3 -O2 gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_hmackey_r3 -O3 gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_hmackey_r3 -Os gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_otpsecret_r3 -O0 gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  fable_N_otpsecret_r3 -O1 gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_otpsecret_r3 -O2 gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_otpsecret_r3 -O3 gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  fable_N_otpsecret_r3 -Os gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  opus_N_pinpad_r2 -O0 gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  opus_N_pinpad_r2 -O1 gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  opus_N_pinpad_r2 -O2 gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  opus_N_pinpad_r2 -O3 gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  opus_N_pinpad_r2 -Os gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  haiku_S_pwverify_r1 -O0 gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  haiku_S_pwverify_r1 -O1 gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  haiku_S_pwverify_r1 -O2 gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  haiku_S_pwverify_r1 -O3 gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  haiku_S_pwverify_r1 -Os gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  vl01_deadstore_memset -O0 gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  vl01_deadstore_memset -O1 gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  vl01_deadstore_memset -O2 gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  vl01_deadstore_memset -O3 gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  vl01_deadstore_memset -Os gcc: eliminated already at gcc-10, the LOWEST rung of the declared gcc ladder (10, 11, 12, 13, 14): there is no rung below it, so no transition was observed and this is not evidence that gcc-10 introduced the elimination -- an earlier release might have done it too, and this ladder does not reach one
+  vl02_volatile_barrier -O0 gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  vl02_volatile_barrier -O1 gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  vl02_volatile_barrier -O2 gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  vl02_volatile_barrier -O3 gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  vl02_volatile_barrier -Os gcc: not eliminated at any rung; all of 10, 11, 12, 13, 14 were obtained and scorable
+  5 question(s) undetermined: clang-15 ABLATION_DID_NOT_COMPILE, clang-16 ABLATION_DID_NOT_COMPILE, clang-17 ABLATION_DID_NOT_COMPILE, clang-18 ABLATION_DID_NOT_COMPILE, clang-19 ABLATION_DID_NOT_COMPILE, clang-20 ABLATION_DID_NOT_COMPILE.
+    That is a gap in the ladder, not a finding about the wipe.
+    llvm-pass-fixture-erasure-target -O0; llvm-pass-fixture-erasure-target -O1; llvm-pass-fixture-erasure-target -O2; llvm-pass-fixture-erasure-target -O3; llvm-pass-fixture-erasure-target -Os
+  5 question(s) undetermined: gcc-10 ABLATION_DID_NOT_COMPILE, gcc-11 ABLATION_DID_NOT_COMPILE, gcc-12 ABLATION_DID_NOT_COMPILE, gcc-13 ABLATION_DID_NOT_COMPILE, gcc-14 ABLATION_DID_NOT_COMPILE.
+    That is a gap in the ladder, not a finding about the wipe.
+    llvm-pass-fixture-erasure-target -O0; llvm-pass-fixture-erasure-target -O1; llvm-pass-fixture-erasure-target -O2; llvm-pass-fixture-erasure-target -O3; llvm-pass-fixture-erasure-target -Os
+
+labelsOnly: 0 of 495 cells are a WIPE_SURVIVED whose two bodies differ only in .L<n> label names.
+  Reported, never folded into the verdict: the find step compares bodies as text and this lane
+  does not change what it compares. gcc numbers those labels across the whole translation unit.
+
+NOT measured by this run
+  - docker: NOT DONE. The daemon is not reachable from this machine and the WSL distro has no
+    docker CLI, so a container per upstream release was not available. The ladder above is the
+    distribution apt ladder instead. This is a limit on which versions were REACHED; it is not
+    a statement that no disappearance was found, and the table above says what was found.
+  - the corpus-scale sweep. The counts above are over the selected subjects only.

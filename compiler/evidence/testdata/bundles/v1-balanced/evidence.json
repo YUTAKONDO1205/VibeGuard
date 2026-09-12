@@ -1,0 +1,213 @@
+{
+  "schemaVersion": "evidence-v1",
+  "toolchain": {
+    "digest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "clang": "18.1.3",
+    "packages": [
+      {
+        "name": "llvm-18-dev",
+        "version": "18.1.3"
+      }
+    ]
+  },
+  "command": {
+    "argv": [
+      "cc",
+      "-O2",
+      "-c",
+      "-o",
+      "build/wipe.o",
+      "src/wipe.c"
+    ]
+  },
+  "artifact": {
+    "path": "artifact/wipe-object.txt",
+    "sha256": "b758dbec2bd9ac18eb22a90347dfeab455259e2e0fc0ea972a1dfbf44c8a3279",
+    "kind": "object"
+  },
+  "coverage": {
+    "observed": 4,
+    "planned": 8
+  },
+  "declaredProperties": [
+    {
+      "propertyId": "demo.erasure"
+    },
+    {
+      "propertyId": "demo.authz"
+    },
+    {
+      "propertyId": "demo.fortify"
+    },
+    {
+      "propertyId": "demo.stackprot"
+    }
+  ],
+  "ledger": {
+    "declarationSource": "policy",
+    "plannedCheckpoints": [
+      "ir-pre",
+      "ir-post"
+    ],
+    "entries": [
+      {
+        "checkpoint": "ir-pre",
+        "declared": 4,
+        "present": 2,
+        "absent": 0,
+        "unobserved": 1,
+        "unresolved": 1
+      },
+      {
+        "checkpoint": "ir-post",
+        "declared": 4,
+        "present": 1,
+        "absent": 1,
+        "unobserved": 1,
+        "unresolved": 1
+      }
+    ]
+  },
+  "properties": [
+    {
+      "propertyId": "demo.erasure",
+      "states": [
+        {
+          "checkpoint": "ir-pre",
+          "verdict": "PRESENT",
+          "state": "PRESENT",
+          "measurement": "OK",
+          "effect": 1,
+          "control": 1
+        },
+        {
+          "checkpoint": "ir-post",
+          "verdict": "ABSENT",
+          "state": "LOST",
+          "measurement": "OK",
+          "effect": 0,
+          "control": 1
+        }
+      ],
+      "firstLoss": {
+        "stage": "ir-pass",
+        "pass": "DemoPass",
+        "unit": "wipe",
+        "occurrence": 1
+      },
+      "agreement": {
+        "level": "single",
+        "methods": [
+          "ir"
+        ],
+        "reportedUnits": {
+          "ir": "wipe"
+        }
+      },
+      "confidence": "provisional",
+      "fragility": {
+        "lost": 1,
+        "evaluated": 4
+      }
+    },
+    {
+      "propertyId": "demo.authz",
+      "states": [
+        {
+          "checkpoint": "ir-pre",
+          "verdict": "PRESENT",
+          "state": "PRESENT",
+          "measurement": "OK",
+          "effect": 1,
+          "control": 1
+        },
+        {
+          "checkpoint": "ir-post",
+          "verdict": "PRESENT",
+          "state": "PRESENT",
+          "measurement": "OK",
+          "effect": 1,
+          "control": 1
+        }
+      ],
+      "firstLoss": {
+        "stage": null,
+        "pass": null,
+        "unit": null,
+        "occurrence": null
+      },
+      "agreement": {
+        "level": "not-applicable",
+        "methods": [
+          "ir"
+        ],
+        "reportedUnits": {
+          "ir": "check"
+        }
+      },
+      "confidence": "no-loss-observed",
+      "fragility": {
+        "lost": 0,
+        "evaluated": 4
+      }
+    },
+    {
+      "propertyId": "demo.fortify",
+      "states": [
+        {
+          "checkpoint": "ir-pre",
+          "verdict": "UNOBSERVED",
+          "state": "NOT_OBSERVED",
+          "measurement": "BROKEN_MEASUREMENT",
+          "effect": null,
+          "control": null
+        },
+        {
+          "checkpoint": "ir-post",
+          "verdict": "UNOBSERVED",
+          "state": "NOT_OBSERVED",
+          "measurement": "BROKEN_MEASUREMENT",
+          "effect": null,
+          "control": null
+        }
+      ],
+      "firstLoss": {
+        "stage": null,
+        "pass": null,
+        "unit": null,
+        "occurrence": null
+      },
+      "agreement": {
+        "level": "none",
+        "methods": [],
+        "reportedUnits": {}
+      },
+      "confidence": "unresolved",
+      "fragility": {
+        "lost": 0,
+        "evaluated": 0
+      }
+    }
+  ],
+  "unresolved": [
+    {
+      "propertyId": "demo.stackprot",
+      "checkpoints": [
+        "ir-pre",
+        "ir-post"
+      ],
+      "reason": "the observer for this property never registered, so neither planned checkpoint was reached"
+    }
+  ],
+  "context": {
+    "generatedAt": "2020-01-01T00:00:00.000Z",
+    "timeSource": "SOURCE_DATE_EPOCH",
+    "sourceDateEpoch": 1577836800,
+    "host": {
+      "node": "v20.0.0",
+      "platform": "linux",
+      "arch": "x64"
+    }
+  },
+  "evidenceDigest": "020900eec1d4e2aaca6de837e6d9a8452e84fc1d8264a317cf7a92954ceb2ab1"
+}

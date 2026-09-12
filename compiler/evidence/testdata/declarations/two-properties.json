@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "evidence-declaration-v1",
+  "plannedCheckpoints": [
+    "ir-pre",
+    "ir-post"
+  ],
+  "properties": [
+    {
+      "propertyId": "demo.erasure"
+    },
+    {
+      "propertyId": "demo.authz"
+    }
+  ]
+}

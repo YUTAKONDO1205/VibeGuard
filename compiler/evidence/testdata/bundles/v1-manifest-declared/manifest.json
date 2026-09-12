@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "evidence-bundle-v0",
+  "evidenceDigest": "a669b0bec24aa60bf52d8bf414b98a6735627cda0e9a515f4cea7591700ff0cc",
+  "declares": {
+    "plannedCheckpoints": [
+      "ir-pre",
+      "ir-post"
+    ],
+    "properties": [
+      {
+        "propertyId": "demo.erasure"
+      },
+      {
+        "propertyId": "demo.authz"
+      },
+      {
+        "propertyId": "demo.fortify"
+      },
+      {
+        "propertyId": "demo.stackprot"
+      }
+    ]
+  }
+}

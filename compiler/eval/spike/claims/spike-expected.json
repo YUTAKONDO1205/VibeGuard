@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "vibeguard.spike-expected/1",
+  "title": "What each spike must read, per (vendor, optimisation level), registered before the first run",
+  "preRegisteredOn": "2026-09-12",
+  "readMeFirst": [
+    "These are the answers. The half of this lane that produces a reading -- lib/measure.mjs -- does not import this file and contains no path to it, for the same reason compiler/eval/calibration keeps run-battery.sh away from claims/expected.json: an instrument that can see the expected answer can be tuned until it agrees, and nobody can tell afterwards whether it was tuned or measured. Only lib/claims.mjs opens this file, and only lib/spike.mjs compares against it.",
+    "An expectation is a claim about what the STOCK toolchain does, not about what the instrument should say. When a reading disagrees with an entry here, exactly one of three things is true: the toolchain changed, the instrument broke, or this entry was wrong. All three are results. None of them is repaired by editing this file to match a reading -- an expectation edited to fit its measurement has stopped being an expectation.",
+    "Only configurations listed here can validate a run. An unregistered (vendor, level) is refused with NO_EXPECTATION and the gate goes red, because a spike graded against nothing is a spike that always passes."
+  ],
+  "grounding": {
+    "-O0": "compiler/eval/ai-generated/data/r2-build-rows.json: of the 321 erasure files, at -O0, ZERO read WIPE_ELIMINATED on clang-18 and zero on gcc-13 (319 WIPE_SURVIVED and 2 ABLATION_DID_NOT_COMPILE in each). -O0 is where this instrument has never yet seen an elimination, so an elimination read at -O0 is a reading about the instrument and not about the code.",
+    "-O1..-Os": "the same rows: eliminations start at -O1 and do not change with level above it -- clang-18 62/113/113/113 and gcc-13 108/108/108/108 at -O1/-O2/-O3/-Os. The disappearing spike is the erasure fixture's own `handle_request` shape (compiler/llvm-pass/tools/make-fixtures.sh), whose wipe is the buffer's last use, which is the shape those eliminations are of.",
+    "surviving": "the surviving spike is the erasure fixture's `wipe_kept` shape: the wipe is READ afterwards, so its zeroes are observable and no level of either vendor may remove it. This is the shape the fixture already uses as its non-removable control at -O0..-O3.",
+    "whatIsNotGrounded": "clang-15/16/17/19/20 and gcc-10/11/12/14 are installed on the measurement host and are registered for NOTHING here. The tracked rows are clang-18 and gcc-13 only, and registering a version whose behaviour has not been established would be inventing an expectation. Grounding one means measuring it, writing down what it did, and a person deciding the entry -- in that order."
+  },
+  "controlMustBe": "PRESENT",
+  "expectations": {
+    "clang-18": {
+      "-O0": { "disappearing": "WIPE_SURVIVED", "surviving": "WIPE_SURVIVED" },
+      "-O1": { "disappearing": "WIPE_ELIMINATED", "surviving": "WIPE_SURVIVED" },
+      "-O2": { "disappearing": "WIPE_ELIMINATED", "surviving": "WIPE_SURVIVED" },
+      "-O3": { "disappearing": "WIPE_ELIMINATED", "surviving": "WIPE_SURVIVED" },
+      "-Os": { "disappearing": "WIPE_ELIMINATED", "surviving": "WIPE_SURVIVED" }
+    },
+    "gcc-13": {
+      "-O0": { "disappearing": "WIPE_SURVIVED", "surviving": "WIPE_SURVIVED" },
+      "-O1": { "disappearing": "WIPE_ELIMINATED", "surviving": "WIPE_SURVIVED" },
+      "-O2": { "disappearing": "WIPE_ELIMINATED", "surviving": "WIPE_SURVIVED" },
+      "-O3": { "disappearing": "WIPE_ELIMINATED", "surviving": "WIPE_SURVIVED" },
+      "-Os": { "disappearing": "WIPE_ELIMINATED", "surviving": "WIPE_SURVIVED" }
+    }
+  },
+  "observer": {
+    "readMeFirst": "The second channel reads the same two translation units under libPropertyObserver.so instead of by differential compilation. Its vocabulary is compiler/schema/interfaces.md section 3, not the ablation verdicts above.",
+    "-O2": { "disappearing": "LOST", "surviving": "PRESENT" },
+    "subjectResolutionExit": 0,
+    "grounding": "compiler/pass-instrumentation/observer/README.md: the erasure fixture's handle_request reads LOST at clang-18 -O2 (recorded there as DSEPass) and wipe_kept is the control whose effect cannot be removed at any level."
+  }
+}
