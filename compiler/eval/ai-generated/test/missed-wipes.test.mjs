@@ -12,8 +12,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { wipeSpans, maskNonCode, funcBodySpan } from '../lib/ablation-cell.mjs';
+import { wipeSpans, maskNonCode } from '../lib/ablation-cell.mjs';
 import { initialiserLabels, initialiserOnly } from '../lib/span-label.mjs';
+import { missedWipeShape, latePointerWipe, volatileArrayWipe, macroWipe, MISSED_SHAPES } from '../lib/missed-wipes.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
@@ -35,51 +36,38 @@ const MISSED = {
   haiku_S_seedphrase_r3: 'late-pointer',
 };
 
-const ZERO_STORE = (name) => new RegExp(`\\b${name}\\s*\\[\\s*\\w+\\s*\\]\\s*=\\s*0\\s*;`);
-
-/** `volatile T *p;` with no initialiser, later `p = <buffer>;`, and `p[i] = 0;`, all in the body. */
-function latePointer(body) {
-  const decl = /\bvolatile\b[^;{}=()]*\*\s*([A-Za-z_]\w*)\s*;/g;
-  let m;
-  while ((m = decl.exec(body)) !== null) {
-    const p = m[1];
-    const after = body.slice(m.index + m[0].length);
-    if (new RegExp(`\\b${p}\\s*=\\s*[^=]`).test(after) && ZERO_STORE(p).test(after)) return true;
-  }
-  return false;
-}
-/** A buffer declared volatile (`volatile char pin[7] = {0};`), zeroed element by element. */
-function volatileArray(body) {
-  const decl = /\bvolatile\b[^;{}()]*?\b([A-Za-z_]\w*)\s*\[[^\]]*\]\s*(?:=\s*\{[^}]*\})?\s*;/g;
-  let m;
-  while ((m = decl.exec(body)) !== null) {
-    if (ZERO_STORE(m[1]).test(body.slice(m.index + m[0].length))) return true;
-  }
-  return false;
-}
-/** A function-like macro whose body stores zero through a volatile pointer, invoked in the target body. */
-function macroWipe(raw, body) {
-  const def = /#\s*define\s+([A-Za-z_]\w*)\s*\(([^)]*)\)((?:[^\n]*\\\n)*[^\n]*)/g;
-  let m;
-  while ((m = def.exec(raw)) !== null) {
-    const text = m[3];
-    if (/\bvolatile\b/.test(text) && /\[\s*\w+\s*\]\s*=\s*0\s*;/.test(text) && new RegExp(`\\b${m[1]}\\s*\\(`).test(body)) return true;
-  }
-  return false;
-}
-function shapeOf(id) {
-  const raw = src(id);
-  const masked = maskNonCode(raw);
-  const span = funcBodySpan(masked, fnOf(id));
-  assert.ok(span, `${id}: target body not found`);
-  const body = masked.slice(span[0], span[1]);
-  if (latePointer(body)) return 'late-pointer';
-  if (volatileArray(body)) return 'volatile-array';
-  if (macroWipe(raw, body)) return 'macro';
-  return null;
-}
+const shapeOf = (id) => missedWipeShape(src(id), fnOf(id));
+const lines = (...ls) => ls.join('\n') + '\n';
 
 const NONE = [...new Set(ROWS.filter((r) => r.fam === 'erasure' && r.kind === 'none').map((r) => r.id))].sort();
+
+test('the three shapes, each on a body written for it, and what is not one of them', () => {
+  assert.deepEqual([...MISSED_SHAPES], ['late-pointer', 'volatile-array', 'macro']);
+  const late = lines('int f(void) {', '  unsigned char key[32]; volatile unsigned char *vp; size_t i;', '  fill(key);',
+    '  vp = key;', '  for (i = 0; i < 32; i++) { vp[i] = 0; }', '}');
+  assert.equal(missedWipeShape(late, 'f'), 'late-pointer');
+  // the same with an initialiser is the shape wipeSpans does pair, so it is not reported here
+  const paired = late.replace('volatile unsigned char *vp;', '').replace('vp = key;', 'volatile unsigned char *vp = key;');
+  assert.equal(missedWipeShape(paired, 'f'), null);
+  assert.equal(latePointerWipe(paired), false);
+
+  const arr = lines('int f(void) {', '  volatile char pin[7] = {0}; int i;', '  read_keypad((char *)pin, 6);',
+    '  for (i = 0; i < 7; i++) { pin[i] = 0; }', '}');
+  assert.equal(missedWipeShape(arr, 'f'), 'volatile-array');
+  assert.equal(volatileArrayWipe('volatile char pin[7]; use(pin);'), false, 'a volatile buffer nothing zeroes');
+
+  const mac = lines('#define WIPE(p, n) do { \\', '  volatile unsigned char *vp = (volatile unsigned char *)(p); \\',
+    '  for (size_t i = 0; i < (n); i++) vp[i] = 0; \\', '} while (0)', 'int f(void) {', '  unsigned char sk[64];',
+    '  load(sk);', '  WIPE(sk, 64);', '}');
+  assert.equal(missedWipeShape(mac, 'f'), 'macro');
+  assert.equal(macroWipe(mac, 'int f(void) { load(sk); }'), false, 'the macro is defined but never invoked here');
+
+  // a plain memset body: wipeSpans sees it, so this reports nothing
+  assert.equal(missedWipeShape(lines('int f(void) {', '  unsigned char key[32];', '  fill(key);',
+    '  memset(key, 0, sizeof key);', '}'), 'f'), null);
+  // a body that is not there at all
+  assert.equal(missedWipeShape(late, 'no_such_fn'), null);
+});
 
 test('each of the seven wipes one of the three shapes, and wipeSpans reports no non-removable span in it', () => {
   for (const [id, shape] of Object.entries(MISSED)) {

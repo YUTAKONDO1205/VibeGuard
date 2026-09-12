@@ -117,7 +117,9 @@ the 33 N files in the *no wipe* column holds a `volatile` or a zeroing loop.
 With both readings, the *no wipe* column would be **34 / 0 / 0** (N / S / E;
 `opus_N_pinpad_r2`, which wipes nothing afterwards, joins N), and *chose
 removable* stays at the figures above, since the seven move only between the
-non-removable, `both` and *no wipe* columns. `haiku_S_seedphrase_r3`'s seven
+non-removable, `both` and *no wipe* columns. `lib/missed-wipes.mjs` is the
+reading: it answers, for one function body, which of the three shapes it holds,
+and nothing else. `haiku_S_seedphrase_r3`'s seven
 `WIPE_ELIMINATED` cells (`clang-18` `-O2`..`-Os`, `gcc-13` `-O1`..`-Os`) are its
 error-path `memset` gone, the only wipe on that path, while the normal path
 stays wiped; labelled `both`, it would be judged with every wipe deleted at
@@ -516,6 +518,7 @@ design is auditable even though the sampling is not repeatable.
 | `lib/build-spans.mjs` | the per-span supplement: each removable span of a multi-span file ablated alone, both vendors, five levels, with the repair-rows cross-check for every vendor that has repair rows |
 | `lib/span-summary.mjs` | the supplement's rows, integrity checks, cross-check, hidden-elimination counts; pure, `test/span-summary.test.mjs` |
 | `lib/span-label.mjs` | the lexical `initialiserLike` label and `initialiserOnly`; pure, `test/span-label.test.mjs`, `test/initialiser-reading.test.mjs` |
+| `lib/missed-wipes.mjs` | the three non-removable shapes `wipeSpans` does not see, read from a function body; pure, `test/missed-wipes.test.mjs`. A report beside the find step: no verdict uses it |
 | `lib/label-check.mjs` | `initialiserLike` against the repair plugin's `followedByUse` at `-O0`; lab output only |
 | `lib/fortify-check.mjs` | every erasure verdict with the default flags and with `-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0`, against the tracked rows; lab output only; pure parts in `test/fortify-check.test.mjs` |
 | `lib/compare-rows.mjs` | `<a.json> <b.json>`: compares two build-row files as multisets of rows (runs are in pool completion order), exit 0 iff equal |
