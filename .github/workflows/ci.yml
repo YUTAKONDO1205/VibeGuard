@@ -441,6 +441,11 @@ jobs:
           run_suite version-ladder       compiler/eval/version-ladder/test/*.test.mjs
           run_suite actuarial            compiler/eval/actuarial/test/*.test.mjs
           run_suite lto-window           compiler/eval/lto-window/test/*.test.mjs
+          # oracle-agreement compares the shared differential oracle against the
+          # IR observer. Its suite is the same shape as the four above: the table
+          # arithmetic, the exclusion rule and the -O0 separation over synthetic
+          # rows, plus the README guards. Nothing here loads the plugin.
+          run_suite oracle-agreement     compiler/eval/oracle-agreement/test/*.test.mjs
           # WipePinGcc's Node suites need no plugin and no gcc: asm-presence
           # reads synthetic listings through the shared oracle, corpus-smoke
           # tests the smoke runner's pure row selection and body delta. The

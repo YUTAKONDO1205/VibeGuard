@@ -19,13 +19,22 @@
  *                      this run's work/ directory. Required.
  *   --out <dir>        where the results JSON goes. Refused inside the checkout.
  *   --plugin <path>    libPropertyObserver.so. Required.
- *   --fixtures a,b     default xtu,erasure
+ *   --fixtures a,b     default xtu,xtu-inline,erasure. `xtu` and `xtu-inline`
+ *                      are a PAIR -- the same translation units with and without
+ *                      `__attribute__((noinline))` -- and measuring only one of
+ *                      them leaves the lane unable to say what the intervention
+ *                      buys. See the README's section on the pair.
  *   --forms full,thin  default full,thin. `thin` is measured for its refusal,
  *                      never for an attribution -- see the README.
  *   --cc <clang>       default clang-18. The plugin is built against one LLVM's
  *                      headers and will not load into another's lld.
  *   --gcc <gcc>        default gcc-13. Probed for refusals only.
- *   --opt <level>      default -O2
+ *   --opt <level>      default -O2. Passed through to the compiler and the
+ *                      linker unchanged, so -O0/-O1/-O3/-Os/-Oz are all accepted
+ *                      and nothing here restricts the axis -- what a run is, is
+ *                      ONE level, recorded as `optLevel` in its result. Four
+ *                      levels are four runs with four --out directories; the
+ *                      result file name is fixed, so a shared --out overwrites.
  *   --skip-thinlto-evidence   do not run the ThinLTO link that earns the
  *                      BROKEN_MEASUREMENT word. The cell then says the word was
  *                      not earned in this run, which is not the same claim.
@@ -66,7 +75,10 @@ import { fileURLToPath } from 'node:url';
 import { objectKind, ltoFormFromBcanalyzerDump, gradeInputs } from './lib/lto-inputs.mjs';
 import { parseLldPassLog, parseObserverLog, comparePassReadings } from './lib/pass-log.mjs';
 import { gradeCell, MEASUREMENT, STATE, REASON, STAGE_COMPILE, STAGE_LTO_BACKEND, CHECKPOINT_AFTER_PASS } from './lib/cell.mjs';
-import { skippedRecord, skipSummaryLines, SKIP_WHY, linkGuardRecord, scrubbed, exitDecision } from './lib/record.mjs';
+import {
+  skippedRecord, skipSummaryLines, SKIP_WHY, linkGuardRecord, scrubbed, exitDecision,
+  interventionAbsentReading, absorbedFillReading, interventionPairVerdict,
+} from './lib/record.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..', '..');
@@ -75,7 +87,11 @@ const REPO = path.resolve(HERE, '..', '..', '..');
 
 function parseArgs(argv) {
   const o = {
-    fixtures: ['xtu', 'erasure'], forms: ['full', 'thin'],
+    // The pair is in the DEFAULT run. A family measured only when someone
+    // remembers to name it on the command line is a family whose result nobody
+    // has, and the question it answers -- "you only saw it because of noinline"
+    // -- is the first one a reader asks of this lane.
+    fixtures: ['xtu', 'xtu-inline', 'erasure'], forms: ['full', 'thin'],
     cc: 'clang-18', gcc: 'gcc-13', opt: '-O2',
     skipThinEvidence: false, skipGcc: false, skipNegativeControl: false, keep: false,
   };
@@ -110,6 +126,20 @@ function die(code, msg) {
  * tools/make-lto-fixtures.sh; the generator is the source of the bytes and this
  * is the source of the questions asked about them. Both are tracked, so a drift
  * between them is a diff rather than a mystery.
+ *
+ * `intervention` names the fixture intervention a family carries, or null. It is
+ * not decoration: a family with `intervention: null` beside one that carries it
+ * is a PAIR, and every cell of the un-intervened family is graded as a reading
+ * of what the intervention buys rather than as a repeat of the measurement (see
+ * interventionAbsentReading in lib/record.mjs, and the README's section on the
+ * pair).
+ *
+ * `artifact` says which function the DISASSEMBLY reader should be pointed at.
+ * That is a different question from which function the observer looks for: once
+ * the intervention is removed the subject and the control are absorbed into
+ * `main`, and asking objdump about `handle` in a program that no longer defines
+ * it returns NOT_OBSERVED -- which would read as "the executable cannot be read"
+ * when the truth is "the function is not there any more, which is the point".
  */
 const FIXTURES = {
   xtu: {
@@ -117,13 +147,40 @@ const FIXTURES = {
     subjectTU: 'use.c',
     lto: ['use.c', 'wipe.c', 'main.c'],
     opaque: ['io.c'],
+    intervention: 'noinline',
+    artifact: { subjectCaller: 'handle', controlCaller: 'wipe_kept', absorbed: false },
     expects: 'the wipe is in another unit; only a full-LTO link can inline it and then remove it',
+  },
+  // The same four translation units with `__attribute__((noinline))` deleted and
+  // nothing else changed. NOT a repaired fixture and NOT a second sample: the
+  // expected outcome is that the observer can no longer resolve `handle` as a
+  // unit, so the ATTRIBUTION becomes impossible (OK / NOT_OBSERVED) while the
+  // elimination itself stays demonstrable from the artifact. The claim the pair
+  // supports is "the elimination does not depend on the intervention; the
+  // intervention is required only to have a (pass, unit) to attribute it TO".
+  'xtu-inline': {
+    subject: 'handle', control: 'wipe_kept', helper: 'secure_wipe', bufferBytes: 32,
+    subjectTU: 'use.c',
+    lto: ['use.c', 'wipe.c', 'main.c'],
+    opaque: ['io.c'],
+    intervention: null,
+    pairedWith: 'xtu',
+    // Both wipes end up in `main`, so both readings are taken there. The verdict
+    // word stops discriminating at that point -- one body, two buffers -- and
+    // what carries the reading is the zero-fill BYTE COUNT, graded by
+    // absorbedFillReading(). See lib/record.mjs for why that is a necessary
+    // reading and not a sufficient one.
+    artifact: { subjectCaller: 'main', controlCaller: 'main', absorbed: true },
+    expects: 'without the intervention the link may absorb subject and control into main; '
+      + 'the attribution then has no unit to name, and the elimination has to be read from the artifact',
   },
   erasure: {
     subject: 'handle_request', control: 'wipe_kept', helper: null, bufferBytes: 32,
     subjectTU: 'target.c',
     lto: ['target.c', 'opaque.c', 'main.c'],
     opaque: [],
+    intervention: 'noinline',
+    artifact: { subjectCaller: 'handle_request', controlCaller: 'wipe_kept', absorbed: false },
     expects: 'the loss is complete at compile time; the link-time window must not manufacture a second one',
   },
 };
@@ -311,6 +368,13 @@ function linkWindowCell({ o, fx, name, form, work, plugin, symbols, objects, wit
     inputs,
     linkerPipeline: { runs: lldStock.runs.length, lineKinds: lldStock.lineKinds },
     bytes: { stock: sha256File(appA), passlog: sha256File(appB) },
+    // The STOCK executable's path, for the artifact reading. Kept out of every
+    // record -- it is a machine path, and the scan at the end of main() would
+    // refuse the run if it reached one. The artifact is read from this build and
+    // not from `app.observed` on purpose: a reading of the observed link would
+    // be a reading of a program the build does not produce, which is the thing
+    // the sha256 equality check exists to rule out rather than to assume.
+    exe: { stock: appA },
   };
   shared.debugFlagChangedBytes = shared.bytes.stock !== shared.bytes.passlog;
 
@@ -540,18 +604,66 @@ function gccProbes({ o, name, fx, work, plugin }) {
   };
 }
 
-/** The artifact-level reading, through the shared objdump oracle. */
+/**
+ * The artifact-level reading, through the shared objdump oracle.
+ *
+ * Pointed at `fx.artifact`'s callers rather than at the observer's subject and
+ * control names. In a family without the noinline intervention there is no
+ * `handle` in the linked program at all, and asking objdump about it comes back
+ * NOT_OBSERVED -- a reading that says "the executable cannot be read for this
+ * cell" when the truth is "that function was absorbed, which is the measurement".
+ * The absorbing function is named in the fixture table.
+ *
+ * This is the ONE instrument in this lane that survives the intervention being
+ * removed: it reads the linked bytes, not the pass pipeline, so it still answers
+ * in a family where no unit is left to attribute anything to. That is why the
+ * elimination half of the pair's claim is taken from here and the attribution
+ * half from the observer -- taking both from the observer would be circular.
+ */
 function readWipe(exe, fx) {
+  const where = fx.artifact ?? { subjectCaller: fx.subject, controlCaller: fx.control, absorbed: false };
   const script = path.join(HERE, 'tools', 'read-wipe.py');
-  const r = run('python3', [script, exe, fx.subject, fx.helper ?? '-', String(fx.bufferBytes),
-    fx.control, String(fx.bufferBytes)]);
+  const r = run('python3', [script, exe, where.subjectCaller, fx.helper ?? '-', String(fx.bufferBytes),
+    where.controlCaller, String(fx.bufferBytes)]);
   if (r.rc !== 0) return { unavailable: firstLine(r.stderr) || `read-wipe.py exited ${r.rc}` };
+  let j;
   try {
-    const j = JSON.parse(r.stdout);
-    return { subject: j.subjectDescribed, control: j.controlDescribed, inlined: j.subject.inlined };
+    j = JSON.parse(r.stdout);
   } catch {
     return { unavailable: 'read-wipe.py did not print JSON' };
   }
+  const out = {
+    subject: j.subjectDescribed,
+    control: j.controlDescribed,
+    inlined: j.subject.inlined,
+    readAt: { subject: where.subjectCaller, control: where.controlCaller },
+    // The numbers the words were folded from. `describe()` rounds a reading into
+    // one cell of a table; a byte count that only ever appears inside a sentence
+    // cannot be reconciled against anything, which is the defect lib/record.mjs
+    // was split out over.
+    fill: {
+      verdict: j.subject.verdict,
+      where: j.subject.where,
+      bytes: j.subject.bytes,
+      stores: j.subject.stores,
+      memsetCalls: j.subject.memsetCalls,
+    },
+  };
+  if (!where.absorbed) return out;
+
+  // Both wipes are in one body here, so the verdict WORD stops discriminating --
+  // `PRESENT in main` is what a surviving subject store and a surviving control
+  // store both produce. What still discriminates is how many wipes' worth of
+  // zero fill that body holds.
+  out.absorbedFill = j.subject.where === where.subjectCaller
+    ? absorbedFillReading({ bytes: j.subject.bytes, memsetCalls: j.subject.memsetCalls, bufferBytes: fx.bufferBytes })
+    : {
+      reading: 'fill-read-outside-the-absorbing-body',
+      discriminating: false,
+      why: `the reading resolved to ${j.subject.where} rather than ${where.subjectCaller}: the helper was not `
+        + 'absorbed after all, so this byte count is not the count of both fills in one body',
+    };
+  return out;
 }
 
 /* ----------------------------------------------------------------- main -- */
@@ -587,6 +699,10 @@ function main() {
     effectSymbols: { list: symbols.id, symbols: symbols.symbols },
     observationPoints: [],
     cells: [],
+    // One entry per (family with the intervention, family without it) pair that
+    // this run measured BOTH halves of. Empty is a legal and honest state: a run
+    // given `--fixtures xtu` has not put the question.
+    interventionPairs: [],
     thinLto: {},
     negativeControl: {},
     gcc: {},
@@ -607,6 +723,10 @@ function main() {
 
   let toolFailure = null;
   let byteFinding = false;
+  // Cells from a family without the intervention whose instrument faulted. Kept
+  // as its own list so the run can say, in the words it prints, that those cells
+  // are not the family's result.
+  const interventionFaults = [];
 
   for (const name of o.fixtures) {
     const fx = FIXTURES[name];
@@ -664,14 +784,37 @@ function main() {
 
       if (withPlugin) {
         if (lw.byteIdentical === false) byteFinding = true;
-        results.cells.push({
+        const record = {
           id: `${name}.${form}.link`, fixture: name, form, vendor: 'clang', window: 'link',
           stage: STAGE_LTO_BACKEND, checkpoint: CHECKPOINT_AFTER_PASS,
           moduleId: lw.moduleId,
           ...lw.cell,
           guards: linkGuardRecord(lw),
           counts: lw.counts,
-        });
+          intervention: fx.intervention,
+          // Read from the STOCK executable of this same link, in every family.
+          // The intervened families get it too: a claim about what removing the
+          // attribute costs needs the same reading on both sides of the pair, or
+          // the two sides differ in the instrument as well as in the fixture.
+          artifactReading: readWipe(lw.exe.stock, fx),
+        };
+        if (fx.intervention === null) {
+          // The family WITHOUT the intervention. Its cell is graded as a reading
+          // of what the intervention buys -- not as a repeat of the intervened
+          // family's measurement, and not as the fixture repaired.
+          //
+          // The branch that matters is the one that says nothing: a
+          // BROKEN_MEASUREMENT here is an instrument fault and looks EXACTLY
+          // like the expected outcome in a results table (both are a link cell
+          // that carries no attribution). Reporting one as the other would be
+          // taking a shredded log for evidence about inlining.
+          record.interventionAbsent = interventionAbsentReading(lw.cell);
+          if (!record.interventionAbsent.usable) {
+            results.unobserved.push(`${name}.${form}.what-the-intervention-buys`);
+            interventionFaults.push(`${name}.${form}.link: ${record.interventionAbsent.why}`);
+          }
+        }
+        results.cells.push(record);
         results.observationPoints.push({
           id: `${name}-${form}-lto-backend`, checkpoint: CHECKPOINT_AFTER_PASS, stage: STAGE_LTO_BACKEND,
           reached: completed(lw.cell), optLevel: o.opt, tool: results.toolchain.lld,
@@ -738,6 +881,38 @@ function main() {
     }
   }
 
+  /* --- the intervention pair, once both halves are in ------------------- */
+  //
+  // Assembled from the cells rather than measured separately: the pair is a way
+  // of READING two cells this run already produced, and a third measurement
+  // would be a third thing to keep in step. A pair is only formed when both
+  // halves were asked for; a run given one of them says so by carrying no pair,
+  // which is a different claim from a pair that failed.
+  for (const name of o.fixtures) {
+    const fx = FIXTURES[name];
+    if (fx.intervention !== null || !fx.pairedWith) continue;
+    const plain = results.cells.find((c) => c.id === `${name}.full.link`);
+    const intervened = results.cells.find((c) => c.id === `${fx.pairedWith}.full.link`);
+    if (!plain || !intervened) continue;
+    results.interventionPairs.push({
+      withIntervention: fx.pairedWith,
+      withoutIntervention: name,
+      intervention: FIXTURES[fx.pairedWith].intervention,
+      optLevel: o.opt,
+      claim: 'the elimination does not depend on the intervention; the intervention is required only to have '
+        + 'a (pass, unit) to attribute the elimination TO',
+      attributionWithIntervention: intervened.attribution ?? null,
+      readingWithoutIntervention: plain.interventionAbsent ?? null,
+      artifactWithIntervention: intervened.artifactReading ?? null,
+      artifactWithoutIntervention: plain.artifactReading ?? null,
+      verdict: interventionPairVerdict({
+        intervenedCell: intervened,
+        plainReading: plain.interventionAbsent ?? null,
+        plainFill: plain.artifactReading?.absorbedFill ?? null,
+      }),
+    });
+  }
+
   results.counts = {
     cells: results.cells.length,
     ok: results.cells.filter((c) => c.measurement === MEASUREMENT.OK).length,
@@ -778,12 +953,34 @@ function main() {
   // at is the table that has to say which demonstration behind it was skipped.
   for (const line of skipSummaryLines(results.skipped)) process.stdout.write(`${line}\n`);
 
+  // The pair, in the printed report. A reader who sees `xtu-inline.full.link`
+  // carrying no attribution and nothing else has been shown the shape of the
+  // expected outcome and none of its meaning.
+  for (const p of results.interventionPairs) {
+    const v = p.verdict.supported;
+    process.stdout.write(`\n${p.withIntervention} vs ${p.withoutIntervention} (${p.intervention} present / absent), ${p.optLevel}\n`);
+    process.stdout.write(`  with:    ${p.attributionWithIntervention ? `${p.attributionWithIntervention.pass} on ${p.attributionWithIntervention.unit}` : 'no attribution'}\n`);
+    process.stdout.write(`  without: ${p.readingWithoutIntervention?.reading ?? 'not measured'}\n`);
+    process.stdout.write(`  artifact without the intervention: ${p.artifactWithoutIntervention?.absorbedFill?.reading ?? p.artifactWithoutIntervention?.subject ?? 'not read'}\n`);
+    process.stdout.write(`  claim ${v === true ? 'SUPPORTED' : v === false ? 'CONTRADICTED' : 'NOT ESTABLISHED'}: ${p.verdict.why}\n`);
+  }
+  // Said on its own line, in the report, not only as a `usable: false` field in
+  // the JSON. This is the sentence that keeps a broken instrument from being
+  // published as the finding the family exists to produce.
+  for (const f of interventionFaults) {
+    process.stdout.write(`\nNOT the family's result -- ${f}\n`);
+  }
+
   const decision = exitDecision({
     cells: results.cells,
     skipped: results.skipped,
     toolFailure,
     byteFinding,
     negativeControls: results.negativeControl,
+    // The families this run was ASKED for, so that a family which reached the
+    // cells but not the per-family checks is caught by its absence from the
+    // negative-control record rather than by a field it never wrote.
+    families: o.fixtures,
   });
   for (const m of decision.messages) process.stderr.write(`lto-window: ${m}\n`);
   process.exit(decision.code);

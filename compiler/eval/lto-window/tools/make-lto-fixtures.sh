@@ -11,35 +11,74 @@
 # scripts/check-packaging-invariants.mjs refuses outright (any path segment
 # `fixtures` or `_results`). This script IS the fixture and is reviewable as one.
 #
-# Two families, and the difference between them is the whole point of the lane.
+# Three families, and the differences between them are the whole point of the
+# lane.
 #
-#   xtu      the wipe helper lives in a second translation unit. No compile can
-#            see it; a full-LTO link inlines it and then deletes the store. The
-#            loss exists only inside the link, so only a link-time window can
-#            attribute it.
+#   xtu         the wipe helper lives in a second translation unit. No compile
+#               can see it; a full-LTO link inlines it and then deletes the
+#               store. The loss exists only inside the link, so only a link-time
+#               window can attribute it.
 #
-#   erasure  subject and control in one unit, the shape
-#            compiler/llvm-pass/tools/make-fixtures.sh generates. The loss is
-#            complete before the link starts. It is here as the contrast: a
-#            link-time window must report ABSENT-throughout for it rather than
-#            manufacture a link-time loss.
+#   xtu-inline  the same translation units, WITHOUT the noinline intervention.
+#               See the capitals below: this family exists to be measured, not to
+#               be fixed.
 #
-# Both families carry a positive control beside the subject, because "the wipe
+#   erasure     subject and control in one unit, the shape
+#               compiler/llvm-pass/tools/make-fixtures.sh generates. The loss is
+#               complete before the link starts. It is here as the contrast: a
+#               link-time window must report ABSENT-throughout for it rather than
+#               manufacture a link-time loss.
+#
+# Every family carries a positive control beside the subject, because "the wipe
 # was removed" and "the observer stopped seeing wipes" produce the same number
 # when only the subject is looked at.
 #
-# THE noinline ATTRIBUTES ARE A FIXTURE INTERVENTION AND ARE DECLARED AS ONE.
-# Measured first without them: full LTO inlines both `handle` and `wipe_kept`
-# into `main`, and the linked executable defines neither (`nm` showed only
-# `main`). A (pass, unit) attribution needs a unit for its second half, so the
-# subject and the control are held out of line. Nothing else about the wipes is
-# changed: the helper is still inlined into the subject, which is the merge this
-# lane is about.
+# THIS SCRIPT MAKES EXACTLY ONE INTERVENTION, AND EMITS ONE FAMILY THAT CARRIES
+# IT AND ONE FAMILY THAT DOES NOT.
+#
+#   The intervention is `__attribute__((noinline))` on the subject and on the
+#   control. `xtu` carries it. `xtu-inline` is the same four translation units
+#   with those two lines deleted and nothing else changed -- both are emitted
+#   from one template, by two seds, so "nothing else changed" is checkable with
+#   `diff` rather than asserted (the command is printed at the end of this
+#   script). `erasure` carries the intervention too, for the same reason `xtu`
+#   does.
+#
+#   Why `xtu` carries it: a (pass, unit) attribution needs a unit for its second
+#   half. Without the attribute, full LTO is free to absorb `handle` and
+#   `wipe_kept` into `main`, and an observer that cannot resolve `handle` as a
+#   unit has nothing to hang `DSEPass on handle` on.
+#
+#   Why `xtu-inline` exists anyway, and what it is NOT: it is not the fixture
+#   repaired, and it is not a second sample of the same measurement. It is the
+#   measurement of what the intervention costs. The pair is there to separate two
+#   claims that the intervened family alone cannot separate:
+#
+#     the ELIMINATION    -- the store is gone from the linked program. This does
+#                           not depend on the attribute, and the independent
+#                           disassembly reader (tools/read-wipe.py, through
+#                           gcc-repair's objdump oracle) can be asked about it in
+#                           either family, because it reads the artifact rather
+#                           than the pass pipeline.
+#
+#     the ATTRIBUTION    -- WHICH pass removed it, in WHICH IR unit. This does
+#                           depend on the attribute, and the expected outcome for
+#                           `xtu-inline` is that it becomes impossible: no unit
+#                           named `handle` survives for a (pass, unit) pair to
+#                           name, so the cell is OK with NOT_OBSERVED rather than
+#                           a result.
+#
+#   So a reader who says "you only saw it because of noinline" is half right, and
+#   the pair is what says which half. What the attribute buys is the unit to
+#   attribute TO; what it does not buy is the disappearance.
+#
+#   Nothing else about the wipes is changed in either family: the helper is still
+#   inlined into the subject, which is the merge this lane is about.
 set -u
 
 LAB=${LTOW_LAB:-$HOME/vg-lab/lto-window}
 FX="$LAB/fixtures"
-mkdir -p "$FX/xtu" "$FX/erasure"
+mkdir -p "$FX/xtu" "$FX/xtu-inline" "$FX/erasure"
 
 # ------------------------------------------------------------------ xtu --
 #
@@ -72,7 +111,15 @@ cat > "$FX/xtu/wipe.c" <<'FIXTURE_EOF'
 void secure_wipe(void *p, unsigned long n) { memset(p, 0, n); }
 FIXTURE_EOF
 
-cat > "$FX/xtu/use.c" <<'FIXTURE_EOF'
+# use.c is the ONLY file the intervention touches, so it is written through a
+# function rather than straight to a path: the same bytes are emitted twice, once
+# with @NOINLINE@ replaced by the attribute (family `xtu`) and once with those
+# lines deleted outright (family `xtu-inline`). Emitting both from one template
+# is what makes "the two families differ by exactly the intervention" a property
+# of the generator instead of a claim in a comment -- `diff` on the two files
+# shows two deleted lines and nothing else.
+xtu_use_c() {
+cat <<'FIXTURE_EOF'
 /* Subject and control, in the unit that calls the helper.
  *
  * handle()    SUBJECT. Its wipe is a call into another unit, so at compile time
@@ -89,8 +136,12 @@ cat > "$FX/xtu/use.c" <<'FIXTURE_EOF'
  *             subject's wipe disappears. Its buffer is read afterwards by a
  *             function the link cannot see into, so no level may remove it.
  *
- * noinline: see the header of this script. Without it full LTO inlines both of
- * these into main and there is no unit left for an attribution to name. */
+ * noinline:   see the header of the generator. In family `xtu` the two
+ *             attribute lines below are present; in family `xtu-inline` they are
+ *             deleted and NOTHING else differs. The second family is not the
+ *             first one fixed -- it is the measurement of what the attribute
+ *             buys, which is a unit for an attribution to name, and what it does
+ *             not buy, which is the disappearance itself. */
 
 #include <string.h>
 
@@ -101,7 +152,7 @@ void use(const unsigned char *p, unsigned long n);
 /* wipe.c -- compiled -flto. */
 void secure_wipe(void *p, unsigned long n);
 
-__attribute__((noinline))
+@NOINLINE@
 void handle(void) {
     unsigned char key[32];
     derive(key, sizeof key);
@@ -109,7 +160,7 @@ void handle(void) {
     secure_wipe(key, sizeof key);
 }
 
-__attribute__((noinline))
+@NOINLINE@
 void wipe_kept(void) {
     unsigned char keep[32];
     derive(keep, sizeof keep);
@@ -117,6 +168,9 @@ void wipe_kept(void) {
     use(keep, sizeof keep);
 }
 FIXTURE_EOF
+}
+
+xtu_use_c | sed 's/^@NOINLINE@$/__attribute__((noinline))/' > "$FX/xtu/use.c"
 
 cat > "$FX/xtu/main.c" <<'FIXTURE_EOF'
 void handle(void);
@@ -128,6 +182,22 @@ int main(void) {
     return 0;
 }
 FIXTURE_EOF
+
+# ----------------------------------------------------------- xtu-inline --
+#
+# The same four translation units with the intervention removed, and removed in
+# the one place it lives: `use.c`. The other three files are COPIED rather than
+# re-emitted, so nothing can drift between the families by an edit that touches
+# one heredoc and not the other.
+#
+# This family is expected to produce a WORSE reading than `xtu`, and that is the
+# result it is here for. `handle` and `wipe_kept` are absorbed into `main`, the
+# observer loses the unit it would attribute a loss to, and the link cell comes
+# back OK with NOT_OBSERVED rather than `DSEPass on handle`. What does NOT change
+# is whether the store is in the linked program -- that question is answered from
+# the artifact, by the disassembly reader, in both families.
+for f in io.c wipe.c main.c; do cp "$FX/xtu/$f" "$FX/xtu-inline/$f"; done
+xtu_use_c | sed '/^@NOINLINE@$/d' > "$FX/xtu-inline/use.c"
 
 # -------------------------------------------------------------- erasure --
 #
@@ -197,3 +267,10 @@ int main(void) {
 FIXTURE_EOF
 
 echo "lto-window fixtures written to $FX"
+# The intervention, stated as a command rather than as a sentence. Two deleted
+# lines, both of them the attribute, and nothing else -- if this ever prints
+# anything more, the two families stopped being a pair and the lane's claim about
+# what the attribute buys stopped being about one variable.
+echo "the only difference between the two xtu families:"
+diff "$FX/xtu/use.c" "$FX/xtu-inline/use.c"
+echo "(a diff showing exactly two deleted __attribute__((noinline)) lines is the expected output)"

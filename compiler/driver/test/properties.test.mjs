@@ -130,16 +130,72 @@ test('a candidate property is not usable — the catalogue says it must not be q
   assert.match(r.findings[0].detail, /candidate/);
 });
 
+// Rewritten 2026-09-12, the same way and for the same reason as the block below:
+// this test used a REAL catalogue entry as its example of an unreadable status,
+// and the catalogue's preamble had declared that status since 2026-08-18. The
+// driver's stated rule is "act on the vocabulary the preamble declares, refuse
+// what it does not", and while this file read three and the preamble said four,
+// `partial` was being refused for the wrong reason -- `status-not-in-vocabulary`
+// says the catalogue is malformed, and it was not. Both readings refused, so no
+// pass/fail ever moved; only the message a reader was sent to debug did.
+//
+// So the two questions are separated here as well.
+
 test('a status outside the declared vocabulary is refused rather than guessed at', () => {
-  // The catalogue's preamble declares three statuses. `notappear.forbidden-external-call`
-  // carries a fourth. Guessing what it is worth is how a partial check becomes
-  // a whole one, so the driver refuses it by name.
-  const entry = CATALOGUE.byId.get('notappear.forbidden-external-call');
-  assert.ok(entry);
-  assert.equal(DECLARED_STATUSES.includes(entry.status), false, `status ${entry.status} is now declared; update this test`);
-  const r = checkProperties([{ id: entry.id, kind: entry.kind }], CATALOGUE);
+  // MECHANISM, on a synthetic catalogue, so that no catalogue edit can make this
+  // test stop testing anything. `implausible` is not one of the four and never
+  // will be; the driver may not decide what it is worth.
+  const synthetic = {
+    kindCoverage: { 'must-survive': 'partial -- one extractor, measured' },
+    byId: new Map([['synth.odd-status', {
+      id: 'synth.odd-status', kind: 'must-survive', status: 'implausible', checkpoints: [],
+    }]]),
+  };
+  const r = checkProperties([{ id: 'synth.odd-status', kind: 'must-survive' }], synthetic);
   assert.equal(r.entries[0].verdict, 'status-not-in-vocabulary');
   assert.equal(r.findings[0].id, 'VG-CFG-018');
+  assert.match(r.findings[0].detail, /will not guess/);
+});
+
+test('the four statuses this driver acts on are the four the catalogue declares', () => {
+  // FACT. If the catalogue grows a fifth, this fails rather than silently
+  // refusing every property that carries it for a reason that is not true.
+  assert.deepEqual([...DECLARED_STATUSES].sort(), ['candidate', 'implemented', 'partial', 'unimplemented']);
+  const inCatalogue = [...new Set([...CATALOGUE.byId.values()].map((e) => e.status))].sort();
+  assert.deepEqual(inCatalogue, [...DECLARED_STATUSES].sort(),
+    `the catalogue uses statuses this driver does not declare: ${inCatalogue.join(', ')}`);
+});
+
+test('a partial property is refused, and told it is half-measured rather than unbuilt', () => {
+  // FACT, and the point of the whole change: `partial` is REFUSED. An extractor
+  // exists and has measured something; the policy is asking for the whole claim.
+  // Two entries carry it -- one of them, unobservable.secret-buffer-residue, is
+  // the one compiler/eval/residue-tracer measured on 2026-09-12.
+  for (const id of ['notappear.forbidden-external-call', 'unobservable.secret-buffer-residue']) {
+    const entry = CATALOGUE.byId.get(id);
+    assert.ok(entry, `${id} is no longer in the catalogue`);
+    assert.equal(entry.status, 'partial', `${id} is ${entry.status}, not partial; update this test`);
+    const r = checkProperties([{ id: entry.id, kind: entry.kind }], CATALOGUE);
+    assert.equal(r.entries[0].verdict, 'property-partial', `${id} was not refused as partial`);
+    assert.equal(r.findings[0].id, 'VG-CFG-018');
+    // and the reason must not claim there is no extractor, because there is one
+    assert.match(r.findings[0].detail, /part of what the entry claims/);
+    assert.doesNotMatch(r.findings[0].detail, /there is no extractor/);
+  }
+});
+
+test('declaring partial did not make any property reachable that was not', () => {
+  // The danger a vocabulary change carries is that it turns a refusal into a
+  // pass. Measured over the whole catalogue rather than argued: exactly seven
+  // entries are reachable, and none of them is a partial one.
+  const reachable = [...CATALOGUE.byId.values()]
+    .filter((e) => checkProperties([{ id: e.id, kind: e.kind }], CATALOGUE).entries[0].verdict === 'reachable')
+    .map((e) => e.id).sort();
+  assert.equal(reachable.length, 7, `reachable: ${reachable.join(', ')}`);
+  for (const id of reachable) {
+    assert.equal(CATALOGUE.byId.get(id).status, 'implemented',
+      `${id} is reachable but its status is not implemented`);
+  }
 });
 
 // Rewritten 2026-09-12. This test used to assert

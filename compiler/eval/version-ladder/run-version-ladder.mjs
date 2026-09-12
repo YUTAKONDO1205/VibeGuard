@@ -136,7 +136,7 @@ const TARGET_MARKER = /^\/\*\s*VG-LADDER-TARGET:\s*([A-Za-z_]\w*)\s*\*\/\s*$/m;
 
 /** argv -> options, or {error}. */
 export function parseArgs(argv) {
-  const o = { out: null, ccs: null, opts: [...ALL_OPTS], ids: null, fixture: null, conc: 4, writeData: false, noSubjects: false, rows: null };
+  const o = { out: null, ccs: null, opts: [...ALL_OPTS], ids: null, fixture: null, conc: 4, writeData: false, writeSweep: false, noSubjects: false, rows: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => { const v = argv[++i]; if (v === undefined) throw new Error(`${a} needs a value`); return v; };
@@ -150,6 +150,7 @@ export function parseArgs(argv) {
       else if (a === '--rows') o.rows = next();
       else if (a === '--no-subjects') o.noSubjects = true;
       else if (a === '--write-data') o.writeData = true;
+      else if (a === '--write-sweep') o.writeSweep = true;
       else return { error: `unknown argument ${a}` };
     } catch (e) { return { error: e.message }; }
   }
@@ -174,6 +175,69 @@ export function outIsInsideRepo(out, repoRoot) {
 }
 
 /**
+ * The corpus sweep, small enough to keep.
+ *
+ * The sweep is 7,315 cells and its rows file is 3.1 MB -- two and a half times
+ * the tracked find-step rows it is anchored against, and every byte of it
+ * derived: the corpus is tracked, the compilers are pinned, and the whole thing
+ * rebuilds in under two minutes. Tracking those rows would be tracking a cache.
+ *
+ * What does NOT rebuild by itself is the FINDING, so that is what this keeps:
+ * the accounting (which must add up), the anchor (which is what makes the run
+ * worth believing), the resolved compiler identities (which is what "gcc-11"
+ * meant on the day), and the ladder questions that answered `observed` -- the
+ * ones where a lower rung was obtained AND kept the wipe, so a transition was
+ * actually seen rather than inferred from the bottom of the ladder.
+ *
+ * The `none-below` majority is deliberately reduced to a count. Those are the
+ * questions the ladder cannot answer, and listing 825 of them would bury the 8
+ * it can. The count is kept because it has to add up with the rest.
+ */
+export function sweepRecord({ manifest, rows, appearances }) {
+  const verdictTotals = {};
+  for (const r of rows) verdictTotals[r.verdict] = (verdictTotals[r.verdict] || 0) + 1;
+  const byVendorLevel = {};
+  for (const r of rows) {
+    const k = `${r.vendor} ${r.opt}`;
+    const b = byVendorLevel[k] || (byVendorLevel[k] = { eliminated: 0, survived: 0, other: 0 });
+    if (r.verdict === 'WIPE_ELIMINATED') b.eliminated += 1;
+    else if (r.verdict === 'WIPE_SURVIVED') b.survived += 1;
+    else b.other += 1;
+  }
+  const observed = appearances
+    .filter((a) => a.transition === 'observed')
+    .map((a) => ({ id: a.id, opt: a.opt, vendor: a.vendor, firstAt: a.version, cells: a.cells }))
+    .sort((x, y) => (x.id + x.vendor + x.opt).localeCompare(y.id + y.vendor + y.opt));
+  const transitions = {};
+  for (const a of appearances) {
+    const k = a.transition === null ? 'never-eliminated' : a.transition;
+    transitions[k] = (transitions[k] || 0) + 1;
+  }
+  return {
+    tool: 'version-ladder sweep',
+    what: 'every erasure file the tracked rows call idiom=removable, on every obtained rung, at every level',
+    subjects: manifest.subjects.filter((x) => x.anchorable).length,
+    opts: manifest.opts,
+    versions: manifest.versions,
+    counting: manifest.counting,
+    anchor: manifest.anchor,
+    rowsFile: manifest.rowsFile,
+    trackedRowsSha256: manifest.trackedRowsSha256,
+    docker: manifest.docker,
+    verdictTotals,
+    byVendorLevel,
+    transitions,
+    observed,
+    cellRows: {
+      tracked: false,
+      count: rows.length,
+      why: 'derived and rebuildable in under two minutes; see the sweep command in README.md',
+    },
+  };
+}
+
+
+/**
  * One cell row. Every number is an integer; no path of any kind appears.
  * `labelsOnly` is reported, never folded into the verdict -- see the README.
  */
@@ -195,6 +259,32 @@ export function ladderRow({ id, fn, vendor, cc, major, opt, nSpans, idiom, named
     labelsOnly,
     spellingSeen,
   };
+}
+
+/**
+ * Was this run the corpus-scale sweep, or a selection out of it?
+ *
+ * The report's "NOT measured by this run" list used to say the corpus-scale
+ * sweep was not done UNCONDITIONALLY -- including on the run that had just done
+ * it. A caveat that is printed whether or not it is true teaches a reader to
+ * skip the list, which is the opposite of what the list is for, and it is the
+ * same failure this lane's own `0/0 cells reproduce -> exit 0` was: a number
+ * that cannot distinguish the two cases it is asked about.
+ *
+ * The sweep is the 133 erasure files the tracked rows call idiom=removable --
+ * the same set `--ids removable` expands to, taken from the same rows, so the
+ * two cannot drift apart. Coverage is over the ANCHORABLE subjects only: this
+ * lane's own subjects/ files and the llvm-pass fixture are not corpus files and
+ * neither adds to nor subtracts from the corpus question.
+ */
+export function sweepCoverage(trackedRows, subjects) {
+  const rem = new Set(
+    (Array.isArray(trackedRows) ? trackedRows : [])
+      .filter((r) => r && r.kind === 'erasure' && r.idiom === 'removable')
+      .map((r) => r.id),
+  );
+  const swept = new Set((subjects || []).filter((s) => s && s.anchorable && rem.has(s.id)).map((s) => s.id));
+  return { removableTotal: rem.size, removableSwept: swept.size, complete: rem.size > 0 && swept.size === rem.size };
 }
 
 /**
@@ -559,7 +649,15 @@ async function main() {
   L.push('    docker CLI, so a container per upstream release was not available. The ladder above is the');
   L.push('    distribution apt ladder instead. This is a limit on which versions were REACHED; it is not');
   L.push('    a statement that no disappearance was found, and the table above says what was found.');
-  L.push('  - the corpus-scale sweep. The counts above are over the selected subjects only.');
+  const sweep = sweepCoverage(tracked, prepared);
+  if (sweep.complete) {
+    L.push(`  - (not in this list) the corpus-scale sweep WAS run: all ${sweep.removableTotal} removable erasure`);
+    L.push('    files of the r2 corpus are among the subjects above. What is still not measured is every');
+    L.push('    OTHER family of that corpus -- nonremovable and both -- which this selection does not ask about.');
+  } else {
+    L.push(`  - the corpus-scale sweep. ${sweep.removableSwept} of the ${sweep.removableTotal} removable erasure files of the`);
+    L.push('    r2 corpus are among the subjects above; the counts are over the selected subjects only.');
+  }
 
   const report = L.join('\n') + '\n';
   const manifest = {
@@ -586,6 +684,21 @@ async function main() {
   writeFileSync(join(outDir, 'version-ladder.txt'), report, 'utf8');
   writeFileSync(join(outDir, 'version-ladder.json'), json, 'utf8');
   process.stdout.write(report);
+
+  if (args.writeSweep) {
+    const cov = sweepCoverage(tracked, prepared);
+    if (!cov.complete) {
+      die(4, `--write-sweep records the corpus sweep, and this run swept ${cov.removableSwept} of ${cov.removableTotal} `
+        + 'removable erasure files. Run it with --ids removable, or do not record it as the sweep.');
+    }
+    const dataDir = join(HERE, 'data');
+    mkdirSync(dataDir, { recursive: true });
+    const rec = JSON.stringify(sweepRecord({ manifest, rows, appearances }), null, 1);
+    const hits = absolutePathHits(rec);
+    if (hits.length) die(5, `the sweep record carries an absolute path (${hits.join(', ')}); refusing to write it`);
+    writeFileSync(join(dataDir, 'version-ladder-sweep.json'), rec, 'utf8');
+    process.stderr.write('version-ladder: wrote data/version-ladder-sweep.json\n');
+  }
 
   if (args.writeData) {
     const dataDir = join(HERE, 'data');

@@ -410,22 +410,9 @@ as wipe helpers — their headers say so. See "Edits requested" below.
   found** — what was found is the table above, over the versions listed there.
   A docker ladder would add upstream point releases and non-Ubuntu builds, and
   would let the same version be compared across distributions.
-- **The corpus-scale sweep.** Every number above is over 8 scored subjects. The
-  command exists and was deliberately not run (the box is shared, and a compile
-  timeout is recorded as `COMPILE_ERROR`, which would manufacture false data):
-
-  ```
-  node compiler/eval/version-ladder/run-version-ladder.mjs \
-      --out "$HOME/vg-lab/version-ladder/out-full" --ids removable --conc 8 --write-data
-  ```
-
-  `--ids removable` selects every erasure file the tracked rows call
-  `idiom=removable`: **133 files × 11 rungs × 5 levels = 7,315 cells, 14,630
-  compiles.** That is 14.8× the 990 compiles that took 13 s at `--conc 4` here,
-  so the order is a few minutes — but the extrapolation is from this lane's small
-  subjects to corpus files that are larger, and it has not been checked against a
-  real run. Until it is run, **no corpus-scale first-appearance number exists**
-  and none should be quoted.
+- **~~The corpus-scale sweep.~~ RUN on 2026-09-12 — see "What the corpus sweep
+  found" below.** The numbers in the smoke section above are still over 8 scored
+  subjects; the sweep is a separate record and a separate section.
 - **`clang-21`, `gcc-15`, and anything below clang-15 / gcc-10.** Not apt
   candidates on this distribution. They are not rungs of the declared ladder, so
   they do not appear as gaps either — the ladder's own bounds are its bounds.
@@ -440,12 +427,168 @@ as wipe helpers — their headers say so. See "Edits requested" below.
   produced by a job nobody reviewed is not a measurement anybody should quote.
   The exit-code tests compile at most two files each and compare nothing.
 
+## What the corpus sweep found
+
+Run 2026-09-12. `data/version-ladder-sweep.json` is the record; `--write-sweep`
+is what wrote it and it refuses to write anything else (a run that swept 6 of
+133 files cannot record itself as the sweep — exit 4).
+
+```
+node compiler/eval/version-ladder/run-version-ladder.mjs     --out "$HOME/vg-lab/version-ladder/rec"     --ids removable --no-subjects --conc 8 --write-sweep
+```
+
+**133 files × 11 rungs × 5 levels = 7,315 cells, 14,630 compiles, 1 m 52 s at
+`--conc 8`, exit 0.** The earlier extrapolation ("a few minutes") held.
+
+| | |
+|---|---|
+| cells | 7,315 = 2,758 `WIPE_SURVIVED` + 4,557 `WIPE_ELIMINATED` |
+| **`COMPILE_ERROR` / `ABLATION_DID_NOT_COMPILE`** | **0** |
+| anchor | **1,330 checked, 1,330 agreed, 0 disagreements** |
+| ladder questions | 1,330 = 8 `observed` + 825 `none-below` + 497 `NEVER_ELIMINATED` + 0 undetermined |
+
+The zero in row two is the number this section was most at risk from. The
+compile timeout is 90 s and a timeout is recorded as a failed build; on an
+**anchor** rung that shows up as an anchor disagreement and the run exits 2, but
+on the other nine rungs nothing would have noticed, and a timed-out compile
+would have become a disappearance no compiler performed. `records.test.mjs` pins
+it: the sweep record's verdict totals must contain those two verdicts and
+nothing else.
+
+### The eight transitions
+
+Of 1,330 ladder questions, **8 saw an actual transition** — a lower rung that was
+obtained and still kept the wipe. The other 825 `FIRST_AT` answers are
+`none-below`: eliminated already at the lowest rung of the declared ladder, where
+there is nothing below to have kept it. Those are not evidence that the lowest
+rung introduced anything, and the runner says so on every line it prints.
+
+| subject | level | vendor | kept through | first eliminated at |
+|---|---|---|---|---|
+| `haiku_E_pwverify_r3` | -O1 | gcc | 10 | **11** |
+| `haiku_E_pwverify_r3` | -O2 | gcc | 10 | **11** |
+| `haiku_E_pwverify_r3` | **-O3** | gcc | 10, 11 | **12** |
+| `haiku_E_pwverify_r3` | -Os | gcc | 10 | **11** |
+| `sonnet_N_pwverify_r1` | -O1 | gcc | 10 | **11** |
+| `sonnet_N_pwverify_r1` | -O2 | gcc | 10 | **11** |
+| `sonnet_N_pwverify_r1` | -O3 | gcc | 10 | **11** |
+| `sonnet_N_pwverify_r1` | -Os | gcc | 10 | **11** |
+
+**Every transition is gcc.** Across clang-15 … clang-20 — six consecutive
+releases, 133 files, five levels — the corpus contains *no* file whose wipe a
+newer clang removed and an older one kept. Whatever these two files hit, it
+arrived in gcc between 10 and 11, and at -O3 one of them held one rung longer.
+
+That last row is worth reading twice, because it is the reason a per-level
+ladder exists at all: the same file, the same compiler family, and the answer to
+"at which version" changes with the optimisation level. A ladder that reported
+one version per file would have had to pick one of these two answers and would
+have been wrong about the other.
+
+Verified without this lane's code. `verify_password` compiled at `-O1` as
+written and with its five `memset` calls deleted, and the two function bodies
+compared:
+
+```
+gcc-10 -O1 verify_password : bodies DIFFER (5 lines)   -> the wipe is there
+gcc-11 -O1 verify_password : bodies IDENTICAL          -> the wipe is gone
+
+the five lines gcc-10 has and the ablated form does not:
+        leaq    112(%rsp), %rdx
+        movl    $16, %ecx
+        movl    $0, %eax
+        movq    %rdx, %rdi
+        rep stosq
+```
+
+gcc-10 zeroes 128 bytes of the frame with `rep stosq`. gcc-11 emits nothing at
+all for the same source.
+
+### -O0 eliminated nothing, anywhere
+
+| | -O0 | -O1 | -O2 | -O3 | -Os |
+|---|---|---|---|---|---|
+| clang, eliminated / 798 | **0** | 372 | 678 | 678 | 678 |
+| gcc, eliminated / 665 | **0** | 538 | 538 | 537 | 538 |
+
+The spike lane found on two hand-written subjects that -O0 cannot tell a wipe
+that survives from one that does not, and made that configuration exit 2 rather
+than report `ESTABLISHED` on it. At corpus scale the same configuration removes
+**0 of 1,463** cells. Agreement between two instruments at -O0 is agreement that
+neither can see the phenomenon there, and any table that mixes -O0 into a pooled
+rate is diluting it with a configuration that cannot contribute a positive.
+
+### What the sweep record keeps, and what it does not
+
+The 7,315 cell rows are **not tracked**. They are 3.1 MB — two and a half times
+the tracked find-step rows they are anchored against — and every byte is derived:
+the corpus is tracked, the toolchain is pinned, and the whole thing rebuilds in
+under two minutes. `data/version-ladder-sweep.json` is 9 KB and keeps the
+accounting, the anchor, the eleven resolved compiler identities with their
+sha256s, the per-(vendor, level) totals and the eight observed transitions in
+full. `data/version-ladder.json` is still the **smoke** record and is untouched
+by `--write-sweep`; the two records answer different questions and neither
+overwrites the other.
+
+## Installing the rungs breaks `clang++` unless you also install their headers
+
+Found 2026-09-12, after the corpus sweep, by running the whole `compiler/` suite
+under WSL: four tests failed that are nothing to do with this lane —
+
+```
+compiler/driver/test/driver-e2e.test.mjs         vg++ drives clang++-18
+compiler/pass-instrumentation/introduction/test/live-scan.test.mjs   x3
+  normal_cxx.cpp:36:10: fatal error: 'cstddef' file not found
+```
+
+and they failed identically on an unmodified checkout, so they were not a
+regression in anything that had just been written.
+
+**This lane caused them.** `clang++` picks a GCC installation to take its C++
+standard library from, and it picks the **newest one present**. Installing the
+gcc rungs of this ladder puts `gcc-14` on the machine; `libstdc++-14-dev` is a
+separate package and installing `gcc-14` does not pull it in. So:
+
+```
+$ clang++-18 -v -c normal_cxx.cpp
+Selected GCC installation: /usr/bin/../lib/gcc/x86_64-linux-gnu/14
+$ ls /usr/include/c++/
+13
+```
+
+`clang++` selected a toolchain whose C++ headers are not installed, and every
+C++ compile on the machine began failing — including ones made by components
+that have never heard of this lane. `g++` was unaffected (it uses its own), which
+is why the breakage looked like a clang problem rather than an apt one. Forcing
+`--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13` compiles the same file with
+rc=0, which is what identified it.
+
+**So the rung list has a second half.** For every `gcc-N` rung installed for this
+ladder, install `libstdc++-N-dev` as well:
+
+```bash
+sudo apt-get install -y gcc-14 libstdc++-14-dev      # not just gcc-14
+```
+
+After `libstdc++-14-dev` the four tests pass and the whole `compiler/` suite is
+**1741 / 1741, 0 failed, 0 skipped** under WSL.
+
+This is worth a section rather than a footnote because of its shape: a lane that
+only ever *reads* compilers changed the machine's default C++ toolchain as a side
+effect of being set up, and the damage showed up in a different component's
+tests. Nothing in this lane's own suite could have caught it — its rungs are C
+compilers and it never compiles C++.
+
 ## Running it
 
 ```bash
 # once: put the llvm-pass erasure fixture in the lab (it calls that lane's
 # make-fixtures.sh rather than copying the bytes)
 bash compiler/eval/version-ladder/tools/make-subjects.sh
+
+# the corpus sweep, exactly as recorded in data/version-ladder-sweep.json
+#   133 files x 11 rungs x 5 levels = 7,315 cells; 1 m 52 s at --conc 8
+node compiler/eval/version-ladder/run-version-ladder.mjs     --out "$HOME/vg-lab/version-ladder/rec"     --ids removable --no-subjects --conc 8 --write-sweep
 
 # the smoke run, exactly as recorded in data/
 node compiler/eval/version-ladder/run-version-ladder.mjs \

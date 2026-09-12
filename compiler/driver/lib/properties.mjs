@@ -7,17 +7,39 @@
 // and `policy.properties[]` had no consumer at all — a policy could demand five
 // properties nothing in this tree can observe and the build exited 0.
 //
-// THE THREE STATUS VALUES, AND THE FOURTH
+// THE FOUR STATUS VALUES
 //
-// The catalogue declares three: `implemented`, `candidate`, `unimplemented`.
-// Only `implemented` means "an extractor exists AND a fixture in this
-// repository measures this property in this configuration". `candidate` is
+// The catalogue declares four: `implemented`, `candidate`, `unimplemented`,
+// `partial`. Only `implemented` means "an extractor exists AND a fixture in
+// this repository measures this property in this configuration". `candidate` is
 // explicitly "nothing here has measured it, so nobody should quote it as
 // evidence" — which is precisely the thing a policy is doing when it names the
-// property, so `candidate` is not usable either. A status outside the declared
-// three is treated the same way and reported by name, because a catalogue that
+// property, so `candidate` is not usable either. `partial` means an extractor
+// measures PART of what the entry's title claims and the entry's statusDetail
+// says which part; a policy naming the whole property is asking for the whole
+// claim, so `partial` is not usable either. A status outside the declared four
+// is still treated the same way and reported by name, because a catalogue that
 // has grown a vocabulary its own preamble does not list is a catalogue the
 // driver cannot interpret, and guessing is how a check becomes a claim.
+//
+// `partial` was in the catalogue from 2026-08-18 and in this list from
+// 2026-09-12, and the gap is worth recording because of what it looked like
+// from here. The rule above is "act on the vocabulary the preamble declares,
+// refuse what it does not" — and the preamble had declared four since
+// 2026-08-18 ("status has FOUR values, and this sentence said three until
+// 2026-08-18 while the file below already used the fourth"). So this file was
+// not applying its own rule; it was applying an older reading of the preamble.
+// The effect was invisible in any pass/fail, because both readings REFUSE — but
+// the reason a caller saw was `status-not-in-vocabulary`, which says the
+// catalogue is malformed, when the catalogue was fine and the property was
+// simply half-measured. Whoever read that message was sent to debug the wrong
+// file.
+//
+// NOTHING ABOUT WHAT PASSES CHANGES HERE, and that was measured rather than
+// asserted: every one of the 24 catalogue entries was put to checkProperties
+// before and after, and exactly one line moved —
+// `unobservable.secret-buffer-residue`, from `status-not-in-vocabulary` to
+// `property-partial`. Both are VG-CFG-018. No entry moved to `reachable`.
 //
 // EMPTY IS NOT "ALL REQUIREMENTS MET"
 //
@@ -44,8 +66,8 @@ export const CATALOGUE_RECORD_PATH = 'schema/properties.json';
 
 export const CATALOGUE_VERSION = 'properties-v0';
 
-/** The vocabulary the catalogue's own preamble declares. */
-export const DECLARED_STATUSES = Object.freeze(['implemented', 'candidate', 'unimplemented']);
+/** The vocabulary the catalogue's own preamble declares. Four since 2026-08-18. */
+export const DECLARED_STATUSES = Object.freeze(['implemented', 'candidate', 'unimplemented', 'partial']);
 
 /** The single status that means a policy may rely on the property. */
 export const USABLE_STATUS = 'implemented';
@@ -204,10 +226,22 @@ export function checkProperties(policyProperties, catalogue) {
         + `${DECLARED_STATUSES.join(', ')}; the driver will not guess what a status it cannot read is worth`;
     } else if (cat.status !== USABLE_STATUS) {
       record.verdict = `property-${cat.status}`;
-      reason = cat.status === 'candidate'
-        ? `the catalogue marks ${record.id} candidate: an extractor would take this configuration but nothing here has `
-          + 'measured it, and the catalogue says such a property must not be quoted as evidence'
-        : `the catalogue marks ${record.id} unimplemented: there is no extractor for it`;
+      if (cat.status === 'candidate') {
+        reason = `the catalogue marks ${record.id} candidate: an extractor would take this configuration but nothing here has `
+          + 'measured it, and the catalogue says such a property must not be quoted as evidence';
+      } else if (cat.status === 'partial') {
+        // The one refusal here that is not about an absence. An extractor exists
+        // and has measured something; it has not measured the whole of what the
+        // entry's title claims, and a policy naming the property is asking for
+        // the whole of it. Saying "there is no extractor for it" would be false,
+        // and false in the direction that sends the reader looking for missing
+        // code instead of reading the half that is there.
+        reason = `the catalogue marks ${record.id} partial: an extractor measures part of what the entry claims and `
+          + 'the catalogue\'s statusDetail for it says which part. A policy that names the property is asking for all '
+          + 'of it, so the measured half cannot stand in for the whole';
+      } else {
+        reason = `the catalogue marks ${record.id} unimplemented: there is no extractor for it`;
+      }
     } else {
       const implemented = cat.checkpoints.filter((c) => c.status === USABLE_STATUS && c.extractor !== null && c.checkpoint !== null);
       const wanted = askedFor.length > 0

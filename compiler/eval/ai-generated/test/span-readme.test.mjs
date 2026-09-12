@@ -356,3 +356,51 @@ test('the repair loop\'s clang-18 count the supplement starts from is the rows\'
     [spanRows.filter((r) => r.cc === 'clang-18' && r.measured).length, 0]);
   assert.ok(hidden.every((r) => r.measured));
 });
+
+// --- every row count the README states, against the rows themselves -----------
+//
+// The round-2 build-verdict count was mistyped TWICE in this one file: the
+// summary table said 4,660 where the rows carry 4,650 cells, and the Re-running
+// section said build-analyze.mjs writes 4,698 rows where it writes 4,689. Both
+// were found by recounting, months apart, and neither was reachable by any test
+// -- the prose was simply not joined to the data. It is now. A denominator is the
+// one number a rate table may not be wrong about, and eval/actuarial/ derives its
+// rates from exactly these rows.
+
+test('every row count the README prints is the count the rows file actually has', () => {
+  const rows = Array.isArray(build) ? build : build.rows;
+  const total = rows.length;
+  const withCell = rows.filter((r) => r && r.cc && r.opt).length;
+
+  // the Re-running section: what build-analyze.mjs writes
+  const reRun = README.match(/node build-analyze\.mjs\s+#\s+([\d,]+) rows/);
+  assert.ok(reRun, 'the Re-running section no longer states a row count for build-analyze.mjs');
+  assert.equal(Number(reRun[1].replace(/,/g, '')), total,
+    `README says build-analyze.mjs writes ${reRun[1]} rows; data/r2-build-rows.json has ${total}`);
+
+  // the summary table: build verdicts, which is the (cc, opt) cell count
+  const verdicts = README.match(/\|\s*build verdicts\s*\|[^|]*\|\s*\*\*([\d,]+)\*\*\s*\|/);
+  assert.ok(verdicts, 'the summary table no longer states a build-verdict count');
+  assert.equal(Number(verdicts[1].replace(/,/g, '')), withCell,
+    `README says ${verdicts[1]} build verdicts; ${withCell} rows carry a (cc, opt) cell`);
+
+  // and the two are not the same number, which is the thing the correction note
+  // explains -- if they ever became equal the note would be describing nothing
+  assert.notEqual(total, withCell);
+  assert.equal(total - withCell, rows.filter((r) => r && !(r.cc && r.opt)).length);
+});
+
+test('the corrected numbers are stated in the README, and the wrong ones only as corrections', () => {
+  const rows = Array.isArray(build) ? build : build.rows;
+  const total = String(rows.length).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  // 4,660 and 4,698 may still appear -- the note records what was wrong -- but
+  // each must be inside a sentence that says so, never left standing as a fact.
+  for (const wrong of ['4,660', '4,698']) {
+    const idx = README.indexOf(wrong);
+    if (idx < 0) continue;
+    const around = README.slice(Math.max(0, idx - 400), idx + 400);
+    assert.match(around, /said|Corrected|mistyping|transcription/,
+      `${wrong} appears in README.md outside any correction note`);
+  }
+  assert.ok(README.includes(total), `README.md never states the real row count ${total}`);
+});

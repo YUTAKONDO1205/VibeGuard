@@ -216,3 +216,41 @@ export function renderCrossTab(tab) {
   else for (const [k, n] of ex) L.push(`excluded: ${n} x ${k}`);
   return L.join('\n');
 }
+
+/**
+ * Which repair plugin a compiler loads, and whether it was given the right one.
+ *
+ * WipePin is an LLVM pass plugin and WipePinGcc is a GCC plugin. They are built
+ * from different sources into different binaries and neither compiler can load
+ * the other's: gcc handed the LLVM `.so` answers
+ *
+ *   cc1: error: cannot load plugin .../libWipePin.so:
+ *        undefined symbol: _ZN4llvm17PreservedAnalyses14AllAnalysesKeyE
+ *
+ * on every cell it is asked about. That is not a measurement that failed; it is
+ * a run configured wrong, and the whole-matrix run found it out fifteen times
+ * (`graded cells: 45  excluded: 15 x compile-failed`) before this existed. The
+ * check is the one repair-loop's runner already applies to the same two
+ * binaries, and it is here -- pure, over basenames -- so it can be tested
+ * without either compiler present.
+ *
+ * `null` for a vendor is NOT an error: it means that vendor's wipepin cells are
+ * plugin-absent, which is a true statement about what was run.
+ */
+export const VENDOR_PLUGIN = Object.freeze({ clang: 'libWipePin.so', gcc: 'libWipePinGcc.so' });
+
+export function vendorOf(cc) { return /clang/.test(String(cc)) ? 'clang' : 'gcc'; }
+
+/** The basename the plugin must have for this compiler, or a problem describing the mismatch. */
+export function pluginMismatch(cc, soBasename) {
+  if (!soBasename) return null;
+  const vendor = vendorOf(cc);
+  const want = VENDOR_PLUGIN[vendor];
+  if (soBasename === want) return null;
+  return {
+    cc, vendor, want, got: soBasename,
+    message: `${cc} is a ${vendor} compiler and loads ${want}, but it was given ${soBasename}. `
+      + `${vendor === 'gcc' ? 'Pass the GCC plugin with --plugin-gcc' : 'Pass the LLVM plugin with --plugin'}; `
+      + "the two are different binaries and neither compiler can load the other's.",
+  };
+}

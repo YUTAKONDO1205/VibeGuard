@@ -20,7 +20,7 @@ import {
   vacuousAnchorProblem, anchorProblem, ANCHOR_CCS,
 } from '../lib/anchor.mjs';
 import { ANCHOR_CC, ALL_OPTS, LADDER } from '../lib/ladder.mjs';
-import { SMOKE_IDS, parseArgs, allRungs, outIsInsideRepo, ladderRow, appearancesFrom, spellingIn } from '../run-version-ladder.mjs';
+import { SMOKE_IDS, parseArgs, allRungs, outIsInsideRepo, ladderRow, appearancesFrom, spellingIn, sweepCoverage } from '../run-version-ladder.mjs';
 import { CONTROL_EFFECT } from '../../ai-generated/lib/ablation-cell.mjs';
 import { absolutePathHits } from '../../repair-loop/lib/provenance.mjs';
 
@@ -261,4 +261,48 @@ test('spellingIn is built from the declared effect symbol list, not a literal of
   assert.equal(spellingIn(`\tcall\t${chk}\n`), chk);
   assert.equal(spellingIn('\tcall\tsomething_else\n'), 'none');
   assert.equal(spellingIn(null), null);
+});
+
+// --- the corpus-sweep caveat -------------------------------------------------
+//
+// The report used to print "NOT measured: the corpus-scale sweep" on every run,
+// including the run that had just swept the corpus. These four tests are the
+// reason it cannot say that again, and they are written against the REAL tracked
+// rows so that the sweep's size cannot drift away from what --ids removable
+// expands to.
+
+test('sweepCoverage counts the removable corpus the same way --ids removable expands it', () => {
+  const expanded = [...new Set(TRACKED.filter((r) => r && r.kind === 'erasure' && r.idiom === 'removable').map((r) => r.id))];
+  const all = expanded.map((id) => ({ id, anchorable: true }));
+  const c = sweepCoverage(TRACKED, all);
+  assert.equal(c.removableTotal, expanded.length);
+  assert.equal(c.removableSwept, expanded.length);
+  assert.equal(c.complete, true);
+});
+
+test('a selection out of the corpus is not complete, and says how far it got', () => {
+  const expanded = [...new Set(TRACKED.filter((r) => r && r.kind === 'erasure' && r.idiom === 'removable').map((r) => r.id))];
+  const c = sweepCoverage(TRACKED, expanded.slice(0, 6).map((id) => ({ id, anchorable: true })));
+  assert.equal(c.removableSwept, 6);
+  assert.equal(c.removableTotal, expanded.length);
+  assert.equal(c.complete, false);
+});
+
+test("this lane's own subjects and the fixture never count towards the corpus sweep", () => {
+  const expanded = [...new Set(TRACKED.filter((r) => r && r.kind === 'erasure' && r.idiom === 'removable').map((r) => r.id))];
+  const withExtras = [
+    ...expanded.map((id) => ({ id, anchorable: true })),
+    { id: 'vl01_deadstore_memset', anchorable: false },
+    { id: 'llvm-pass-fixture-erasure-target', anchorable: false },
+  ];
+  const c = sweepCoverage(TRACKED, withExtras);
+  assert.equal(c.removableSwept, expanded.length);
+  assert.equal(c.complete, true);
+  // and non-anchorable subjects cannot make an empty run look complete either
+  assert.equal(sweepCoverage(TRACKED, [{ id: 'vl01_deadstore_memset', anchorable: false }]).complete, false);
+});
+
+test('no rows means no sweep, never a vacuous complete', () => {
+  assert.deepEqual(sweepCoverage([], []), { removableTotal: 0, removableSwept: 0, complete: false });
+  assert.equal(sweepCoverage(undefined, undefined).complete, false);
 });

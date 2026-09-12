@@ -1,0 +1,416 @@
+{
+ "tool": "version-ladder sweep",
+ "what": "every erasure file the tracked rows call idiom=removable, on every obtained rung, at every level",
+ "subjects": 133,
+ "opts": [
+  "-O0",
+  "-O1",
+  "-O2",
+  "-O3",
+  "-Os"
+ ],
+ "versions": [
+  {
+   "cc": "clang-15",
+   "vendor": "clang",
+   "major": 15,
+   "obtained": true,
+   "version": "15.0.7",
+   "banner": "Ubuntu clang version 15.0.7",
+   "dumpversion": "15.0.7",
+   "resolvedBase": "clang",
+   "resolvedSha256": "af3e4e3331d024f02b4349408b6373499dcee479273c61641e0fc9ac49f24190",
+   "fortify": {
+    "-O0": "not-defined",
+    "-O1": "not-defined",
+    "-O2": "not-defined",
+    "-O3": "not-defined",
+    "-Os": "not-defined"
+   }
+  },
+  {
+   "cc": "clang-16",
+   "vendor": "clang",
+   "major": 16,
+   "obtained": true,
+   "version": "16.0.6",
+   "banner": "Ubuntu clang version 16.0.6 (23ubuntu4)",
+   "dumpversion": "16.0.6",
+   "resolvedBase": "clang",
+   "resolvedSha256": "12f4879ca2d03e73e0981eef1e7e007cadd09415371e6dccc3899bd90f6c687e",
+   "fortify": {
+    "-O0": "not-defined",
+    "-O1": "not-defined",
+    "-O2": "not-defined",
+    "-O3": "not-defined",
+    "-Os": "not-defined"
+   }
+  },
+  {
+   "cc": "clang-17",
+   "vendor": "clang",
+   "major": 17,
+   "obtained": true,
+   "version": "17.0.6",
+   "banner": "Ubuntu clang version 17.0.6 (9ubuntu1)",
+   "dumpversion": "17.0.6",
+   "resolvedBase": "clang",
+   "resolvedSha256": "b1b5e4fd51d03f221fca69870d02759403f95becaf13765447e5a0ad69c9f9ee",
+   "fortify": {
+    "-O0": "not-defined",
+    "-O1": "not-defined",
+    "-O2": "not-defined",
+    "-O3": "not-defined",
+    "-Os": "not-defined"
+   }
+  },
+  {
+   "cc": "clang-18",
+   "vendor": "clang",
+   "major": 18,
+   "obtained": true,
+   "version": "18.1.3",
+   "banner": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+   "dumpversion": "18.1.3",
+   "resolvedBase": "clang",
+   "resolvedSha256": "8ef402d453d1ba4902e4ee0f0f847f6cfa01400c95aa43c24e97818b9c0e3f45",
+   "fortify": {
+    "-O0": "not-defined",
+    "-O1": "not-defined",
+    "-O2": "not-defined",
+    "-O3": "not-defined",
+    "-Os": "not-defined"
+   }
+  },
+  {
+   "cc": "clang-19",
+   "vendor": "clang",
+   "major": 19,
+   "obtained": true,
+   "version": "19.1.1",
+   "banner": "Ubuntu clang version 19.1.1 (1ubuntu1~24.04.2)",
+   "dumpversion": "19.1.1",
+   "resolvedBase": "clang",
+   "resolvedSha256": "f6d5286a52de10b1e3e8841457c9903a1ea28f222ac0f58cd616697d0dcd9db3",
+   "fortify": {
+    "-O0": "not-defined",
+    "-O1": "not-defined",
+    "-O2": "not-defined",
+    "-O3": "not-defined",
+    "-Os": "not-defined"
+   }
+  },
+  {
+   "cc": "clang-20",
+   "vendor": "clang",
+   "major": 20,
+   "obtained": true,
+   "version": "20.1.2",
+   "banner": "Ubuntu clang version 20.1.2 (0ubuntu1~24.04.3)",
+   "dumpversion": "20.1.2",
+   "resolvedBase": "clang",
+   "resolvedSha256": "b15e7640bf3082f36ef14321711706b265df3058721e3c2caef3a4b83895d07d",
+   "fortify": {
+    "-O0": "not-defined",
+    "-O1": "not-defined",
+    "-O2": "not-defined",
+    "-O3": "not-defined",
+    "-Os": "not-defined"
+   }
+  },
+  {
+   "cc": "gcc-10",
+   "vendor": "gcc",
+   "major": 10,
+   "obtained": true,
+   "version": "10.5.0",
+   "banner": "gcc-10 (Ubuntu 10.5.0-4ubuntu2.1) 10.5.0",
+   "dumpversion": "10",
+   "resolvedBase": "x86_64-linux-gnu-gcc-10",
+   "resolvedSha256": "f978868a915f3a77bfe02dc43caa15d185e66d4aefa3bbcbb97d28c4592935dd",
+   "fortify": {
+    "-O0": "not-defined",
+    "-O1": "2",
+    "-O2": "2",
+    "-O3": "2",
+    "-Os": "2"
+   }
+  },
+  {
+   "cc": "gcc-11",
+   "vendor": "gcc",
+   "major": 11,
+   "obtained": true,
+   "version": "11.5.0",
+   "banner": "gcc-11 (Ubuntu 11.5.0-1ubuntu1~24.04.1) 11.5.0",
+   "dumpversion": "11",
+   "resolvedBase": "x86_64-linux-gnu-gcc-11",
+   "resolvedSha256": "920b82bda223384ee558b43dd2a6e4c465b40ba268380f12ea59df45eeb7609d",
+   "fortify": {
+    "-O0": "not-defined",
+    "-O1": "2",
+    "-O2": "2",
+    "-O3": "2",
+    "-Os": "2"
+   }
+  },
+  {
+   "cc": "gcc-12",
+   "vendor": "gcc",
+   "major": 12,
+   "obtained": true,
+   "version": "12.4.0",
+   "banner": "gcc-12 (Ubuntu 12.4.0-2ubuntu1~24.04.1) 12.4.0",
+   "dumpversion": "12",
+   "resolvedBase": "x86_64-linux-gnu-gcc-12",
+   "resolvedSha256": "55d9dbef93aa8f1c3c82d861e65550f7cb2162ce0b7b6cfa0d7ea3f7736c6169",
+   "fortify": {
+    "-O0": "not-defined",
+    "-O1": "3",
+    "-O2": "3",
+    "-O3": "3",
+    "-Os": "3"
+   }
+  },
+  {
+   "cc": "gcc-13",
+   "vendor": "gcc",
+   "major": 13,
+   "obtained": true,
+   "version": "13.3.0",
+   "banner": "gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+   "dumpversion": "13",
+   "resolvedBase": "x86_64-linux-gnu-gcc-13",
+   "resolvedSha256": "1b99826121ae6682a634e5efe09bd3e3df58ce58e0b28f849114ab5b89139c26",
+   "fortify": {
+    "-O0": "not-defined",
+    "-O1": "3",
+    "-O2": "3",
+    "-O3": "3",
+    "-Os": "3"
+   }
+  },
+  {
+   "cc": "gcc-14",
+   "vendor": "gcc",
+   "major": 14,
+   "obtained": true,
+   "version": "14.2.0",
+   "banner": "gcc-14 (Ubuntu 14.2.0-4ubuntu2~24.04.1) 14.2.0",
+   "dumpversion": "14",
+   "resolvedBase": "x86_64-linux-gnu-gcc-14",
+   "resolvedSha256": "ce298ce0c8fbdaa4b43f6e0596e37d25a35a07b5c743cb26f11815b76fccf90d",
+   "fortify": {
+    "-O0": "not-defined",
+    "-O1": "3",
+    "-O2": "3",
+    "-O3": "3",
+    "-Os": "3"
+   }
+  }
+ ],
+ "counting": {
+  "versions": {
+   "declared": 11,
+   "obtained": 11,
+   "skipped": 0,
+   "notInstalled": 0,
+   "notRequested": 0,
+   "accountedFor": true
+  },
+  "appearances": {
+   "asked": 1330,
+   "firstAt": 833,
+   "firstAtObserved": 8,
+   "firstAtNoneBelow": 825,
+   "never": 497,
+   "undetermined": 0,
+   "accountedFor": true
+  },
+  "cells": 7315
+ },
+ "anchor": {
+  "checked": 1330,
+  "agreed": 1330,
+  "disagreements": [],
+  "problem": null
+ },
+ "rowsFile": "(default)",
+ "trackedRowsSha256": "cb93551fe438256985fd30533fe0dbef51b51739f4d8c0de5ce5eef7e674bed9",
+ "docker": {
+  "done": false,
+  "reason": "the docker daemon is not reachable and the WSL distro has no docker CLI"
+ },
+ "verdictTotals": {
+  "WIPE_SURVIVED": 2758,
+  "WIPE_ELIMINATED": 4557
+ },
+ "byVendorLevel": {
+  "clang -O0": {
+   "eliminated": 0,
+   "survived": 798,
+   "other": 0
+  },
+  "clang -O1": {
+   "eliminated": 372,
+   "survived": 426,
+   "other": 0
+  },
+  "clang -O2": {
+   "eliminated": 678,
+   "survived": 120,
+   "other": 0
+  },
+  "clang -O3": {
+   "eliminated": 678,
+   "survived": 120,
+   "other": 0
+  },
+  "clang -Os": {
+   "eliminated": 678,
+   "survived": 120,
+   "other": 0
+  },
+  "gcc -O0": {
+   "eliminated": 0,
+   "survived": 665,
+   "other": 0
+  },
+  "gcc -O1": {
+   "eliminated": 538,
+   "survived": 127,
+   "other": 0
+  },
+  "gcc -O2": {
+   "eliminated": 538,
+   "survived": 127,
+   "other": 0
+  },
+  "gcc -O3": {
+   "eliminated": 537,
+   "survived": 128,
+   "other": 0
+  },
+  "gcc -Os": {
+   "eliminated": 538,
+   "survived": 127,
+   "other": 0
+  }
+ },
+ "transitions": {
+  "never-eliminated": 497,
+  "none-below": 825,
+  "observed": 8
+ },
+ "observed": [
+  {
+   "id": "haiku_E_pwverify_r3",
+   "opt": "-O1",
+   "vendor": "gcc",
+   "firstAt": 11,
+   "cells": {
+    "10": "WIPE_SURVIVED",
+    "11": "WIPE_ELIMINATED",
+    "12": "WIPE_ELIMINATED",
+    "13": "WIPE_ELIMINATED",
+    "14": "WIPE_ELIMINATED"
+   }
+  },
+  {
+   "id": "haiku_E_pwverify_r3",
+   "opt": "-O2",
+   "vendor": "gcc",
+   "firstAt": 11,
+   "cells": {
+    "10": "WIPE_SURVIVED",
+    "11": "WIPE_ELIMINATED",
+    "12": "WIPE_ELIMINATED",
+    "13": "WIPE_ELIMINATED",
+    "14": "WIPE_ELIMINATED"
+   }
+  },
+  {
+   "id": "haiku_E_pwverify_r3",
+   "opt": "-O3",
+   "vendor": "gcc",
+   "firstAt": 12,
+   "cells": {
+    "10": "WIPE_SURVIVED",
+    "11": "WIPE_SURVIVED",
+    "12": "WIPE_ELIMINATED",
+    "13": "WIPE_ELIMINATED",
+    "14": "WIPE_ELIMINATED"
+   }
+  },
+  {
+   "id": "haiku_E_pwverify_r3",
+   "opt": "-Os",
+   "vendor": "gcc",
+   "firstAt": 11,
+   "cells": {
+    "10": "WIPE_SURVIVED",
+    "11": "WIPE_ELIMINATED",
+    "12": "WIPE_ELIMINATED",
+    "13": "WIPE_ELIMINATED",
+    "14": "WIPE_ELIMINATED"
+   }
+  },
+  {
+   "id": "sonnet_N_pwverify_r1",
+   "opt": "-O1",
+   "vendor": "gcc",
+   "firstAt": 11,
+   "cells": {
+    "10": "WIPE_SURVIVED",
+    "11": "WIPE_ELIMINATED",
+    "12": "WIPE_ELIMINATED",
+    "13": "WIPE_ELIMINATED",
+    "14": "WIPE_ELIMINATED"
+   }
+  },
+  {
+   "id": "sonnet_N_pwverify_r1",
+   "opt": "-O2",
+   "vendor": "gcc",
+   "firstAt": 11,
+   "cells": {
+    "10": "WIPE_SURVIVED",
+    "11": "WIPE_ELIMINATED",
+    "12": "WIPE_ELIMINATED",
+    "13": "WIPE_ELIMINATED",
+    "14": "WIPE_ELIMINATED"
+   }
+  },
+  {
+   "id": "sonnet_N_pwverify_r1",
+   "opt": "-O3",
+   "vendor": "gcc",
+   "firstAt": 11,
+   "cells": {
+    "10": "WIPE_SURVIVED",
+    "11": "WIPE_ELIMINATED",
+    "12": "WIPE_ELIMINATED",
+    "13": "WIPE_ELIMINATED",
+    "14": "WIPE_ELIMINATED"
+   }
+  },
+  {
+   "id": "sonnet_N_pwverify_r1",
+   "opt": "-Os",
+   "vendor": "gcc",
+   "firstAt": 11,
+   "cells": {
+    "10": "WIPE_SURVIVED",
+    "11": "WIPE_ELIMINATED",
+    "12": "WIPE_ELIMINATED",
+    "13": "WIPE_ELIMINATED",
+    "14": "WIPE_ELIMINATED"
+   }
+  }
+ ],
+ "cellRows": {
+  "tracked": false,
+  "count": 7315,
+  "why": "derived and rebuildable in under two minutes; see the sweep command in README.md"
+ }
+}

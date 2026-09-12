@@ -35,7 +35,14 @@ number and always did: `data/r2-results.txt` line 3 reads
 commit, so this was a transcription error in this table rather than drift between the
 prose and a moving dataset. It is recorded rather than silently patched because a
 denominator is the one number a rate table cannot be wrong about, and
-`eval/actuarial/` now derives rates from these rows.
+`eval/actuarial/` now derives rates from these rows. 
+
+A **second** transcription of the same count was found on 2026-09-12 and corrected
+with it: the Re-running section below said `build-analyze.mjs` writes **4,698**
+rows. The file has 4,689. Two independent mistypings of one number, in one README,
+neither of which any test could see -- which is why `eval/actuarial/` recomputes the
+denominator from the rows rather than reading it from prose, and why its tests
+assert the recomputed value rather than a literal.
 
 The three families are the three of the five properties in the paper's state
 matrix that a lexical generator can be asked for. Same properties, different
@@ -473,7 +480,7 @@ would discard the evidence for every number above.
 ```bash
 # needs clang-18 and gcc-13 on the path (this lane is developed under WSL)
 cd compiler/eval/ai-generated/lib
-node build-analyze.mjs            # 4,698 rows -> ../data/r2-build-rows.json
+node build-analyze.mjs            # 4,689 rows -> ../data/r2-build-rows.json
 node configguard-direction.mjs    #           -> ../data/r2-configguard-direction.json
 python3 analyze.py                # tables    -> ../data/r2-results.txt
 
