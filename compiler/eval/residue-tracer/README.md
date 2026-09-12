@@ -438,9 +438,18 @@ distinguish "no repair arm" from "repair arm on clang only".
 - **~~The WipePin arm, entirely.~~ Run 2026-09-12 on both vendors, 7 of 7.** What
   remains unknown is whether the repair holds for idioms and shapes outside this
   lane's three fixtures, and what it costs.
-- **No `data/` directory exists in this lane and no tracked data file was written.** `--write-data` was
-  not passed. The numbers above are quoted from the run log and reproduce with
-  the command printed with them.
+- **~~No `data/` directory exists in this lane and no tracked data file was
+  written.~~ Written 2026-09-12: `data/residue-rows-clang-18-gcc-13.json`, 82
+  rows (60 subject cells and 22 control cells), from a re-run of the full matrix
+  with `--write-data` on the same two vendors and both repair plugins.** It read
+  the same cross-tab as the run above — 53/0/0, 0/0/7, `excluded: none`, all
+  three controls held — and `test/data.test.mjs` now recomputes every number in
+  this section from those rows, including the 7-of-7 flip, rather than leaving
+  them as quotes from a log. What that test deliberately does **not** pin is
+  named in its header: `longestRunBytes` (redrawn every run), the window and
+  stop addresses (per-run, see *A measured fact about the recorded window
+  bounds*), and every binary's sha256 (they move with the compiler and plugin
+  builds, which is not drift in the measurement).
 - **A second machine.** Everything above is one WSL kernel, one libc.
 - **Real cryptographic code.** Every number here is about this lane's own
   fixtures.
