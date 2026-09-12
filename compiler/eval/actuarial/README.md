@@ -413,10 +413,15 @@ untouched by it, which is the check that the two really were separable.
   observing a build; this lane observes a file that a build already produced. If
   the transfer above is adopted, an id will be needed for the record the product
   consumes — this lane does not claim one in advance.
-- **It is not in CI yet.** See below; until that edit is applied, the drift test
-  runs only when a person runs it. That is the condition the CI step's own comment
-  describes finding elsewhere in this tree: "42 more assertions were running
-  nowhere (observer 22, calibration 10, metamorphic 10)".
+- **~~It is not in CI yet.~~ It is, and was before this bullet was written.**
+  `.github/workflows/ci.yml` carries `run_suite actuarial
+  compiler/eval/actuarial/test/*.test.mjs`, and the run on `main` printed
+  `--- actuarial: 2 file(s)`. The bullet described the condition the CI step's
+  own comment reports finding elsewhere in this tree — "42 more assertions were
+  running nowhere (observer 22, calibration 10, metamorphic 10)" — and this
+  lane was not one of them. Kept struck through rather than deleted, because a
+  lane README that claims to be unwatched when it is watched is the same defect
+  in the other direction.
 
 ## Layout
 
@@ -513,9 +518,14 @@ promising the same thing.
 
 ## Edits requested in files this lane does not own
 
-**1. `.github/workflows/ci.yml`** — the lane's suite reaches no runner. Insert one
-line after line 420 (`run_suite ai-generated`), in the step "compiler/ suites that
-reach no other runner":
+**1. `.github/workflows/ci.yml`** — ~~the lane's suite reaches no runner~~
+**applied, and applied before this request was written**: the line below has
+been in the step "compiler/ suites that reach no other runner" since the lane
+landed, and CI has printed `--- actuarial: 2 file(s)` on `main`. The request
+stayed here, and the bullet above stayed saying "not in CI yet", through a
+96-line rewrite of this file on 2026-09-12; both were corrected when the
+adversarial pass read the workflow instead of the prose. The line, as it
+actually appears:
 
 ```
           run_suite actuarial             compiler/eval/actuarial/test/*.test.mjs

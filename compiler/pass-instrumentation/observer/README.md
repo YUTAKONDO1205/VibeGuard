@@ -178,12 +178,13 @@ both record `not-in-module` and the aggregate exits 2.
 
 ### ⚠ What this calls automatically, and what it still does not
 
-**Until 2026-08-17 no harness in this repository invoked
+**Until 2026-09-12 no harness in this repository invoked
 `check-subject-resolution.mjs`** — its only caller was
 `test/subject-resolution.test.mjs`, `scripts/run-all.sh` did not run it, and it
-was not wired into CI. That sentence is what `compiler/eval/spike` was built out
-of, and it is the sentence that has changed, in one narrow place. State the
-change narrowly or not at all:
+was not wired into CI. That was still true when this section was first written
+on 2026-08-17 and stayed true for most of a month; `compiler/eval/spike` was
+built out of it, and 2026-09-12 is the day it stopped being true, in one narrow
+place. State the change narrowly or not at all:
 
 * **closed** — a misspelt `OBS_TARGET_FN` is *audible* (a line on stderr) and
   *recorded* (`SUBJECTRES … not-in-module`), and a whole run can be judged by a
@@ -329,8 +330,11 @@ What the CI run does **not** cover:
   different `pluginSha256` values;
 * the other four harnesses `scripts/run-all.sh` runs (`rq2/rq2.mjs`,
   `rq2/modes.mjs`, `rq2/broken-controls.mjs`, `scripts/crosscheck.mjs`) are not
-  in CI, and `tools/check-subject-resolution.mjs` is still called by nothing
-  automatic (see above).
+  in CI. `tools/check-subject-resolution.mjs` **is** called automatically since
+  2026-09-12 — by `scripts/run-all.sh:83`, through `compiler/eval/spike`'s
+  observer channel, on two translation units of its own (see the section above)
+  — and **not** on those four harnesses' logs, which is the distinction that
+  section draws and this bullet used to blur by saying "nothing automatic".
 
 ## Measurement harness
 

@@ -453,6 +453,29 @@ jobs:
           # synthetic receipts -- and scripts/ci-suite-coverage.test.mjs is what
           # found that this line was missing.
           run_suite second-vendor        compiler/eval/second-vendor/test/*.test.mjs
+
+      # Python suites that need no toolchain. Same rigour as the WipePinGcc
+      # Python step further down: non-empty file, exit 0, and unittest's
+      # "Ran N tests" with N > 0, so an emptied file or one that stopped
+      # calling unittest.main() fails rather than passing as a script that does
+      # nothing. This step exists because ffacc3e added 290 lines of Python to
+      # compiler/eval/metamorphic/test and the `run_suite` list above globs
+      # *.test.mjs -- the same silence as the second-vendor line above, in a
+      # file extension scripts/ci-suite-coverage.test.mjs could not see until
+      # it was taught to.
+      - name: compiler/ Python suites that need no toolchain
+        run: |
+          set -u
+          for t in compiler/eval/metamorphic/test/test_check_meta_survival_axis.py; do
+            [ -s "$t" ] || { echo "::error::no test file, or an empty one, at $t"; exit 1; }
+            echo "--- $t"
+            if out=$(python3 "$t" 2>&1); then rc=0; else rc=$?; fi
+            printf '%s\n' "$out"
+            [ "$rc" -eq 0 ] || { echo "::error::$t exited $rc"; exit 1; }
+            ran=$(printf '%s\n' "$out" | sed -n 's/^Ran \([0-9][0-9]*\) tests\{0,1\} in .*/\1/p' | tail -n 1)
+            [ -n "$ran" ] && [ "$ran" -gt 0 ] || { echo "::error::$t ran no test (no \"Ran N tests\" with N > 0)"; exit 1; }
+            echo "$t: $ran test(s) ran"
+          done
           # WipePinGcc's Node suites need no plugin and no gcc: asm-presence
           # reads synthetic listings through the shared oracle, corpus-smoke
           # tests the smoke runner's pure row selection and body delta. The

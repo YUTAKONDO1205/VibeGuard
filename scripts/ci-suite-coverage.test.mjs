@@ -47,9 +47,43 @@ function suiteDirs(root, out = []) {
   return out;
 }
 
+/**
+ * Every Python test file under compiler/, by path.
+ *
+ * The directory rule above is blind to them: it keys on `.test.mjs`, so a lane
+ * that adds `test/test_x.py` to a directory ci.yml already names passes it
+ * while its Python never runs. That happened on 2026-09-12 --
+ * compiler/eval/metamorphic/test gained 290 lines of Python that the
+ * `run_suite metamorphic …/*.test.mjs` glob could not pick up -- and the
+ * directory rule reported nothing, because the directory was named. Python is
+ * run by explicit filename in this workflow, so the filename is what has to
+ * appear.
+ */
+function pyTests(root, out = []) {
+  let entries;
+  try { entries = readdirSync(root, { withFileTypes: true }); } catch { return out; }
+  for (const e of entries) {
+    const p = join(root, e.name);
+    if (e.isDirectory()) {
+      if (['node_modules', '_build', 'dist', '__pycache__'].includes(e.name)) continue;
+      pyTests(p, out);
+    } else if (/^test_.*\.py$/.test(e.name)) {
+      out.push(relative(REPO, p).split(SEP).join('/'));
+    }
+  }
+  return out;
+}
+
 describe('CI runs every suite this tree has', () => {
   const yml = readFileSync(CI, 'utf8');
   const dirs = suiteDirs(join(REPO, 'compiler'));
+  const pys = pyTests(join(REPO, 'compiler'));
+
+  it('names every Python test file by name, since Python is run by filename here', () => {
+    expect(pys.length).toBeGreaterThan(2);
+    const missing = pys.filter((f) => !yml.includes(f));
+    expect(missing, `Python test files no CI job runs:\n  ${missing.join('\n  ')}`).toEqual([]);
+  });
 
   it('found some suites, so this file is not asserting over an empty set', () => {
     expect(dirs.length).toBeGreaterThan(10);
