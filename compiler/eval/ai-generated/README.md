@@ -23,7 +23,19 @@ the numbers existed; the second is the measurement.
 | design | 4 models x 3 framings x 5 scenarios x 2 reps | 4 models x 3 framings x **20 scenarios** x 3 reps |
 | families | erasure | erasure 10, authz 5, configguard 5 |
 | optimisation levels | `-O0 -O2` | `-O0 -O1 -O2 -O3 -Os` |
-| build verdicts | 244 | **4,660** |
+| build verdicts | 244 | **4,650** |
+
+Corrected 2026-09-12: the round-2 build-verdict count said **4,660** from the day
+it was written, and no measurement ever produced that number. `data/r2-build-rows.json`
+holds 4,689 rows, of which exactly 4,650 carry a `(cc, opt)` cell -- the other 39 are
+`NO_WIPE_WRITTEN` rows for files in which no wipe was written at all, so there was
+nothing to build a cell for. The lane's own generated results file says the right
+number and always did: `data/r2-results.txt` line 3 reads
+`生成 720 / ビルド判定 4650 構成`. The rows file has had 4,689 rows since its only
+commit, so this was a transcription error in this table rather than drift between the
+prose and a moving dataset. It is recorded rather than silently patched because a
+denominator is the one number a rate table cannot be wrong about, and
+`eval/actuarial/` now derives rates from these rows.
 
 The three families are the three of the five properties in the paper's state
 matrix that a lexical generator can be asked for. Same properties, different
@@ -504,6 +516,30 @@ design is auditable even though the sampling is not repeatable.
   families (16 files, mostly a `struct session` left incomplete by the scenario
   text). They are excluded from those families' denominators. The erasure family,
   which carries the headline result, has none.
+- The 20 `ABLATION_DID_NOT_COMPILE` configurations are **two erasure files at
+  five levels in both arms**, and the two have different causes. Measured
+  2026-09-12 by running `wipeSpans`/`ablateSpans` over the corpus rather than by
+  reading them.
+  - `fable_E_seedphrase_r3` (`export_wallet`): the wipe is a `volatile` pointer
+    declaration plus a loop, and the file ends the block with
+    `__asm__ __volatile__("" : : "r"(p) : "memory")`. Deleting the declaration
+    leaves that barrier naming an undeclared `p`. The ablated form is
+    supposed to be the same program without the wipe; here it is not a program.
+  - `haiku_S_privkey_r1` (`sign_with_private_key`): `wipeSpans` returns the span
+    `[323,382]` **twice**, and `ablateSpans` splices from the end of the list
+    without sorting or de-duplicating, so the same region is replaced twice and
+    the second splice cuts a neighbouring token in half
+    (`/* ablated */;ey_file(keyfile, sk);`). This is a defect in the shared
+    instrument, not in the model's code.
+  Both are `nonremovable` in every span, so neither is in the removable-idiom
+  table that carries the headline. **The blast radius was measured rather than
+  assumed**: over all 720 files, span lists are out of order in 0 and overlap or
+  repeat in exactly 1 — `haiku_S_privkey_r1`. So no other cell in this corpus can
+  have been ablated into corrupted-but-compilable source, which is the failure
+  that would have been silent. This one is loud: it does not compile, it scores
+  nothing, and it is excluded from the denominator. It is recorded and **not
+  repaired**, because de-duplicating the span list would move rows inside a
+  dataset that is already quoted; repairing it is a re-measurement, not an edit.
 
 ## Files
 

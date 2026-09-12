@@ -58,6 +58,7 @@ import { promisify } from 'node:util';
 import { dirname, resolve, join, basename, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ELIMINATED, LTO_OUTCOMES, SENTINEL, linkPluginState, evenSample, insideRepo, pickOutput } from './lib/lto.mjs';
+import { runSpikeGate, summarise as summariseSpikeGate } from '../../spike/lib/gate.mjs';
 import {
   GCC_COMPONENT, gccCompileFlags, gccLinkArgs, gccObjectKind, optsNamePlugin, gccExpectedOutputs, gccLayoutOf,
   EXPECTED_LAYOUT, EXPECTED_REFUSALS, refusalReading, wipePinGccLines, stderrLines, gccLtoOutcome, selectIds,
@@ -306,6 +307,21 @@ async function main() {
     if (bodies[names[0]] === null) return { ok: false, problem: `${names[0]}: not defined in the object` };
     const m = zeroMemsetsInGimple(bodies);
     return { ok: true, plain: m.plain, pinned: m.pinned, helperCalls: m.helperCalls, defined: m.defined };
+  }
+
+  // ---- spike/recovery gate, before the preflight ----------------------------
+  //
+  // Same reason as the clang twin: the preflight asks whether lto1's assembly can
+  // be cut, and this asks whether the judgement that would cut it is working in
+  // this run at all. Same caveat, too: the default --opts is -O2, which registers
+  // two different answers; a run of -O0 alone registers one word twice and is
+  // refused with NO_DISCRIMINATING_CONFIGURATION, because 2/2 there would also be
+  // what an instrument stuck on that word scores.
+  const spike = await runSpikeGate({ ccs: [args.cc], opts: args.opts, lab: join(OUT, 'spike') });
+  process.stderr.write(`${summariseSpikeGate(spike)}\n`);
+  if (!spike.established) {
+    for (const why of spike.verdict.reasons) process.stderr.write(`  spike gate: ${why}\n`);
+    die(3, 'the spike/recovery gate did not hold; no LTO cell was run');
   }
 
   // ---- preflight, per level, before any cell -------------------------------------

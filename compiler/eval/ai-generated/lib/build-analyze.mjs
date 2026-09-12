@@ -30,6 +30,8 @@ import { dirname, resolve } from 'node:path';
 import {
   CONTROL, maskNonCode, wipeSpans, ablateSpans, bodyOf, compile, pool, verdictOf,
 } from './ablation-cell.mjs';
+import { runSpikeGate, summarise as summariseSpikeGate } from '../../spike/lib/gate.mjs';
+import { homedir } from 'node:os';
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 const ROOT = resolve(HERE, '..');
@@ -41,6 +43,32 @@ const SCEN = JSON.parse(readFileSync(join(ROOT, 'scenarios.json'), 'utf8'));
 
 const VENDORS = ['clang-18', 'gcc-13'];
 const OPTS = ['-O0', '-O1', '-O2', '-O3', '-Os'];
+
+// ---- spike/recovery gate, before the corpus ---------------------------------
+//
+// The corpus cannot check itself: a model file whose wipe survived and one the
+// instrument failed to read are the same row, and 720 of them look like a
+// measurement either way. So two known translation units go through the same
+// verdictOf first -- one whose wipe the optimiser may delete, one whose it may
+// not -- together with a run whose subject name is deliberately misspelt and
+// which the gate must refuse. Nothing is rewritten when it does not hold.
+//
+// OPTS must keep at least one level above -O0: at -O0 both spikes are registered
+// to read the same word, so a -O0-only gate is 2/2 for an instrument that can
+// only ever report that word. The gate refuses such a run by itself
+// (NO_DISCRIMINATING_CONFIGURATION), which is a red corpus run, not a silent one.
+//
+// The gate's scratch goes to the lab, not to _build: _build is inside the
+// repository, and interfaces.md section 1 puts measurement inputs on the side
+// that produces them.
+const SPIKE_LAB = process.env.SPIKE_LAB || join(homedir(), 'vg-lab', 'spike');
+const spike = await runSpikeGate({ ccs: VENDORS, opts: OPTS, lab: SPIKE_LAB });
+process.stderr.write(`${summariseSpikeGate(spike)}\n`);
+if (!spike.established) {
+  for (const why of spike.verdict.reasons) process.stderr.write(`  spike gate: ${why}\n`);
+  process.stderr.write('the spike/recovery gate did not hold; data/r2-build-rows.json was NOT rewritten\n');
+  process.exit(3);
+}
 
 // ---------------------------------------------------------------- main -------
 const files = readdirSync(GEN).filter((f) => f.endsWith('.c')).sort();

@@ -142,11 +142,51 @@ test('a status outside the declared vocabulary is refused rather than guessed at
   assert.equal(r.findings[0].id, 'VG-CFG-018');
 });
 
-test('a kind whose coverage line is "none" has no implementation whatever an entry claims', () => {
-  assert.equal(kindHasAnyImplementation(CATALOGUE, 'must-remain-unobservable'), false);
+// Rewritten 2026-09-12. This test used to assert
+// `kindHasAnyImplementation(CATALOGUE, 'must-remain-unobservable') === false`, and
+// that unobservable.secret-literal therefore read `kind-unimplemented`. Both were
+// true and both stopped being true on the same day: compiler/eval/residue-tracer
+// measured the residency half of unobservable.secret-buffer-residue, so that kind's
+// coverage line moved from "none -- ..." to "partial -- ...".
+//
+// The old test could not survive that, because it used a LIVE catalogue kind as its
+// example of a dead one. Nothing in the catalogue is "none" any more, and the next
+// kind to be implemented would have broken it again. So the two questions are now
+// separated:
+//
+//   * the MECHANISM -- does kindHasAnyImplementation read a leading "none"? -- is
+//     tested against a synthetic catalogue, which no measurement can move.
+//   * the FACT -- which kinds are "none" in the shipped catalogue today? -- is
+//     asserted as a fact, so that a kind regressing to "none" is still a failure,
+//     and so that the day some kind legitimately IS "none" this test says so rather
+//     than silently passing.
+//
+// What has NOT changed is the thing worth guarding: a property whose kind has an
+// implementation but which has none of its own is still REFUSED, with the same
+// VG-CFG-018. Only the reason sharpens, from kind-unimplemented to
+// property-unimplemented. That is checked below, because a promotion that turned a
+// refusal into a pass would be the actual danger here.
+test('kindHasAnyImplementation reads a leading "none", whatever an entry claims', () => {
+  const dead = { kindCoverage: { 'k-dead': 'none -- no extractor, no checkpoint, no measurement' } };
+  const live = { kindCoverage: { 'k-live': 'partial -- one extractor, measured' } };
+  assert.equal(kindHasAnyImplementation(dead, 'k-dead'), false);
+  assert.equal(kindHasAnyImplementation(live, 'k-live'), true);
+  // Absent, empty and non-string lines are all "no implementation", never a pass.
+  assert.equal(kindHasAnyImplementation({ kindCoverage: {} }, 'k-missing'), false);
+  assert.equal(kindHasAnyImplementation({ kindCoverage: { k: '   ' } }, 'k'), false);
+  assert.equal(kindHasAnyImplementation({}, 'k'), false);
+});
+
+test('no kind in the shipped catalogue is "none" today, and must-survive is implemented', () => {
+  const none = Object.keys(CATALOGUE.kindCoverage).filter((k) => !kindHasAnyImplementation(CATALOGUE, k));
+  assert.deepEqual(none, [], `kinds with no implementation: ${none.join(', ')}`);
   assert.equal(kindHasAnyImplementation(CATALOGUE, 'must-survive'), true);
+  assert.equal(kindHasAnyImplementation(CATALOGUE, 'must-remain-unobservable'), true);
+});
+
+test('a property with no extractor of its own is still refused, now by property and not by kind', () => {
   const r = checkProperties([{ id: 'unobservable.secret-literal', kind: 'must-remain-unobservable' }], CATALOGUE);
-  assert.equal(r.entries[0].verdict, 'kind-unimplemented');
+  assert.equal(r.entries[0].verdict, 'property-unimplemented');
   assert.equal(r.findings[0].id, 'VG-CFG-018');
 });
 

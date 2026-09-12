@@ -1,0 +1,35 @@
+actuarial rate table -- corpus r2, protocol PROTOCOL-r2.md
+source compiler/eval/ai-generated/data/r2-build-rows.json
+sha256 cb93551fe438256985fd30533fe0dbef51b51739f4d8c0de5ce5eef7e674bed9  bytes 1339310  rows 4689
+
+Read a cell as: in the r2 corpus, N of D files with this idiom lost the wipe under (vendor, optLevel).
+D counts only the files whose positive control was still visible in that build.
+
+idiom         vendor          -O0      -O1      -O2      -O3      -Os
+removable     clang-18      0/133   62/133  113/133  113/133  113/133
+removable     gcc-13        0/133  108/133  108/133  108/133  108/133
+both          clang-18       0/26     0/26     0/26     0/26     0/26
+both          gcc-13         0/26     0/26     0/26     0/26     0/26
+nonremovable  clang-18      0/160    0/160    0/160    0/160    0/160
+nonremovable  gcc-13        0/160    0/160    0/160    0/160    0/160
+
+rows in scope            3210 (321 files x 2 vendors x 5 levels)
+withheld, control unseen 0
+not scored, no verdict   20
+out of every den         20 (control unseen 0, no verdict 20: ABLATION_DID_NOT_COMPILE 20)
+
+Out of this table by construction, and why:
+  1440 rows (360 files) were scored against the other two questions (-DNDEBUG, macro configuration); they carry no idiom and no wipe verdict.
+  39 rows (39 files) wrote no wipe at all, so there was no cell to build and nothing that could be eliminated.
+
+Cells with a row that reached no wipe verdict:
+  nonremovable/clang-18/-O0: rows 162, ABLATION_DID_NOT_COMPILE 2, WIPE_SURVIVED 160
+  nonremovable/clang-18/-O1: rows 162, ABLATION_DID_NOT_COMPILE 2, WIPE_SURVIVED 160
+  nonremovable/clang-18/-O2: rows 162, ABLATION_DID_NOT_COMPILE 2, WIPE_SURVIVED 160
+  nonremovable/clang-18/-O3: rows 162, ABLATION_DID_NOT_COMPILE 2, WIPE_SURVIVED 160
+  nonremovable/clang-18/-Os: rows 162, ABLATION_DID_NOT_COMPILE 2, WIPE_SURVIVED 160
+  nonremovable/gcc-13/-O0: rows 162, ABLATION_DID_NOT_COMPILE 2, WIPE_SURVIVED 160
+  nonremovable/gcc-13/-O1: rows 162, ABLATION_DID_NOT_COMPILE 2, WIPE_SURVIVED 160
+  nonremovable/gcc-13/-O2: rows 162, ABLATION_DID_NOT_COMPILE 2, WIPE_SURVIVED 160
+  nonremovable/gcc-13/-O3: rows 162, ABLATION_DID_NOT_COMPILE 2, WIPE_SURVIVED 160
+  nonremovable/gcc-13/-Os: rows 162, ABLATION_DID_NOT_COMPILE 2, WIPE_SURVIVED 160

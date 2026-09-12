@@ -1,0 +1,651 @@
+{
+  "schemaVersion": "pin-families-v1",
+  "readMeFirst": "PIN-FAMILIES.md, beside this file. A row is one repair CANDIDATE against one disappearance SHAPE of one PROPERTY. status is measured-retained | measured-not-retained | unmeasured | not-repairable-in-compiler, and a measured-* status is only allowed where lib/pin-families.mjs can recompute the number from data/ and test/pin-families.test.mjs does. A number that no test recomputes is not evidence here, so a one-off lab run rides along as labObservation or intervention and never as a status. How many rows this table holds, and which of them are recomputed rather than typed in by a human, is counted by tableCensus() in lib/pin-families.mjs and stated in the \"Which rows are recomputed, and which a human typed\" section of PIN-FAMILIES.md -- do not count the rows by eye.",
+  "candidates": {
+    "wipe-pin/volatile-memset": {
+      "what": "WipePin makes the zero-fill llvm.memset in the named function volatile, at the start of the LLVM optimisation pipeline",
+      "instrument": "compiler/llvm-repair (clang-18, -fpass-plugin=)",
+      "position": "pipeline start, on IR"
+    },
+    "wipe-pin-gcc/volatile-asm-barrier": {
+      "what": "WipePinGcc puts a volatile asm barrier around the zero-fill __builtin_memset in the named function",
+      "instrument": "compiler/gcc-repair (gcc-13, -fplugin=)",
+      "position": "GIMPLE, directly after cfg, before ssa/einline/dse1"
+    },
+    "wipe-pin/pin-the-helper-by-name": {
+      "what": "the same pin, asked for the helper the target calls rather than for the target",
+      "instrument": "compiler/llvm-repair (clang-18)",
+      "position": "pipeline start, on IR, in whichever unit defines the helper"
+    },
+    "pass-delete/attributed-position": {
+      "what": "delete the pass the loss is attributed to (and separately the pass after it) from the pipeline string the compiler itself printed, and replay under opt and llc",
+      "instrument": "tools/intervene.mjs (lab only, clang)",
+      "position": "the attributed leaf of clang's own -print-pipeline-passes string"
+    },
+    "gcc/fdisable-tree-pass": {
+      "what": "[SPEC] gcc's -fdisable-tree-<pass>, the same idea on the other vendor",
+      "instrument": "not implemented anywhere in this tree",
+      "position": "[SPEC]"
+    },
+    "none": {
+      "what": "no repair candidate exists at this position: the shape is already gone, or is not yet a memset, when every pass this project can load runs",
+      "instrument": "-",
+      "position": "-"
+    }
+  },
+  "rows": [
+    {
+      "property": "survive.secure-wipe",
+      "shape": "dead-store-memset-intrinsic",
+      "shapeSeenAs": "a zero-fill llvm.memset intrinsic in the target function, deleted as a dead store by the middle end",
+      "candidate": "wipe-pin/volatile-memset",
+      "status": "measured-retained",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "cell-eliminations-reversed", "cc": "clang-18" },
+        "value": { "num": 401, "den": 401 },
+        "means": "of the cell-level eliminations the find step reported for clang-18 over the r2 erasure corpus at five levels, the number the repair loop scores RETAINED",
+        "source": "data/r2-repair-rows.json against ../ai-generated/data/r2-build-rows.json"
+      },
+      "control": {
+        "cite": { "claim": "positive-control-present-plugin-on", "cc": "clang-18" },
+        "value": { "num": 1605, "den": 1605 },
+        "means": "erasure cells whose co-resident positive control read PRESENT in the plugin-on compile of the file as written"
+      },
+      "note": "The shape WipePin was written for, and the only clang shape in this table that is measured retained at corpus scale."
+    },
+    {
+      "property": "survive.secure-wipe",
+      "shape": "dead-store-memset-intrinsic",
+      "shapeSeenAs": "a zero-fill llvm.memset intrinsic in the target function, deleted as a dead store by the middle end",
+      "candidate": "pass-delete/attributed-position",
+      "status": "not-repairable-in-compiler",
+      "basis": "one-lab-run",
+      "intervention": {
+        "positionsTried": 2,
+        "asmChannelRead": true,
+        "irChannelRead": true,
+        "cameBackAt": [],
+        "replayReproducedLoss": true,
+        "controlHeld": true,
+        "verdict": "NEVER_CAME_BACK",
+        "run": "tools/intervene.mjs --cc clang-18 --opt -O2 --span 1, on the hand-written erasure fixture, 2026-09-12",
+        "attributed": { "pass": "dse", "position": 59, "path": "cgscc > devirt<4> > function<eager-inv;no-rerun>", "of": 106 },
+        "readings": [
+          { "cut": 59, "pass": "dse", "ir": "WIPE_SURVIVED", "asm": "WIPE_ELIMINATED" },
+          { "cut": 60, "pass": "move-auto-init", "ir": "WIPE_ELIMINATED", "asm": "WIPE_ELIMINATED" }
+        ],
+        "why": "deleting dse puts the memset back in the IR and changes nothing in the assembly: llc-18 removes it again from -O1 upward (measured differentially at llc -O0, -O1, -O2 and -O3: WIPE_SURVIVED at -O0 and WIPE_ELIMINATED at the other three, control PRESENT throughout). The elimination has a second site, so suppressing the first is not a repair."
+      },
+      "note": "Held as a candidate, measured, rejected. It is also the sharpest argument for reading both channels: on the IR channel alone this row would read measured-retained."
+    },
+    {
+      "property": "survive.secure-wipe",
+      "shape": "dead-store-builtin-memset-gimple",
+      "shapeSeenAs": "a zero-fill __builtin_memset call in the target function once cfg has run, deleted by a later GIMPLE or RTL pass",
+      "candidate": "wipe-pin-gcc/volatile-asm-barrier",
+      "status": "measured-retained",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "cell-eliminations-reversed", "cc": "gcc-13" },
+        "value": { "num": 432, "den": 432 },
+        "means": "of the cell-level eliminations the find step reported for gcc-13 over the r2 erasure corpus at five levels, the number the repair loop scores RETAINED",
+        "source": "data/r2-repair-rows-gcc-13.json against ../ai-generated/data/r2-build-rows.json"
+      },
+      "control": {
+        "cite": { "claim": "positive-control-present-plugin-on", "cc": "gcc-13" },
+        "value": { "num": 1605, "den": 1605 },
+        "means": "erasure cells whose co-resident positive control read PRESENT in the plugin-on compile of the file as written"
+      },
+      "note": "A different mechanism (a volatile asm barrier, not a volatile memset) against a different shape of the same disappearance, so the two numbers are siblings and not replicates."
+    },
+    {
+      "property": "survive.secure-wipe",
+      "shape": "dead-store-builtin-memset-gimple",
+      "shapeSeenAs": "a zero-fill __builtin_memset call in the target function once cfg has run, deleted by a later GIMPLE or RTL pass",
+      "candidate": "gcc/fdisable-tree-pass",
+      "status": "unmeasured",
+      "note": "[SPEC] gcc exposes -fdisable-tree-<pass>, so the pass-deletion candidate has a channel on this vendor too. Nothing in this tree drives it, no reading of any kind exists, and the clang result on the sibling shape does not transfer: it is a statement about clang's pipeline and its backend. Listed so that the gap is a row rather than an absence."
+    },
+    {
+      "property": "survive.secure-wipe",
+      "shape": "hidden-span-elimination",
+      "shapeSeenAs": "one removable wipe statement eliminated on its own inside a cell whose whole-body comparison reads WIPE_SURVIVED, so the cell-level oracle cannot see the loss",
+      "candidate": "wipe-pin/volatile-memset",
+      "status": "measured-retained",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "hidden-span-eliminations-retained", "cc": "clang-18" },
+        "value": { "num": 63, "den": 63 },
+        "means": "cells with a span eliminated on its own and no cell-level loss, in which that span survives once the plugin is loaded",
+        "source": "data/r2-repair-rows.json"
+      },
+      "note": "The same candidate against a finer grain of the same shape, listed separately because the cell-level oracle reports no loss here: a table that counted only cells would report this shape as not occurring."
+    },
+    {
+      "property": "survive.secure-wipe",
+      "shape": "hidden-span-elimination",
+      "shapeSeenAs": "one removable wipe statement eliminated on its own inside a cell whose whole-body comparison reads WIPE_SURVIVED, so the cell-level oracle cannot see the loss",
+      "candidate": "wipe-pin-gcc/volatile-asm-barrier",
+      "status": "measured-retained",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "hidden-span-eliminations-retained", "cc": "gcc-13" },
+        "value": { "num": 92, "den": 92 },
+        "means": "cells with a span eliminated on its own and no cell-level loss, in which that span survives once the plugin is loaded",
+        "source": "data/r2-repair-rows-gcc-13.json"
+      },
+      "note": "gcc has more of them than clang, 92 against 63, on the same corpus at the same levels."
+    },
+    {
+      "property": "survive.secure-wipe",
+      "shape": "backend-drop-after-ir-pipeline",
+      "shapeSeenAs": "the wipe reaches the end of the IR optimiser intact and is not in the assembly: the elimination is after the last pass this project can load into",
+      "candidate": "wipe-pin/volatile-memset",
+      "status": "measured-retained",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "cell-eliminations-reversed", "cc": "clang-18", "opt": "-O1" },
+        "value": { "num": 62, "den": 62 },
+        "means": "clang-18 -O1 cell eliminations reversed. -O1 is the level at which this lane's README records that the loss is not the IR dead-store pass, which the -O1 pipeline does not contain",
+        "source": "data/r2-repair-rows.json against ../ai-generated/data/r2-build-rows.json"
+      },
+      "quotes": [
+        {
+          "source": "compiler/eval/repair-loop/README.md",
+          "quote": "not `DSEPass` (the `-O1` pipeline has none) but later, and the volatile flag holds it too"
+        },
+        {
+          "source": "compiler/eval/calibration/README.md",
+          "quote": "The wipe survives the entire IR optimiser and is dropped **after** it."
+        }
+      ],
+      "note": "A pin placed at pipeline start survives to the backend and holds there. That is why the pin and the pass deletion are different candidates rather than two spellings of one: the pin changes the code, the deletion changes the schedule, and only the first reaches a stage it does not run in."
+    },
+    {
+      "property": "survive.secure-wipe",
+      "shape": "backend-drop-after-ir-pipeline",
+      "shapeSeenAs": "the wipe reaches the end of the IR optimiser intact and is not in the assembly: the elimination is after the last pass this project can load into",
+      "candidate": "pass-delete/attributed-position",
+      "status": "unmeasured",
+      "labObservation": {
+        "what": "tools/intervene.mjs --cc clang-18 --opt -O1 --span 1 on the hand-written erasure fixture: 90 passes, the IR channel reads WIPE_SURVIVED at every one of the 91 prefixes (state changes: none) while the asm channel reads WIPE_ELIMINATED, so there is no middle-end position to delete and 0 interventions were tried",
+        "gate": "NOT_ENOUGH_EVIDENCE -- no intervention position was tried",
+        "source": "compiler/eval/calibration/README.md",
+        "quote": "The wipe survives the entire IR optimiser and is dropped **after** it."
+      },
+      "routesTo": {
+        "rule": "VG-MEM-006",
+        "appliesToThisShape": "yes",
+        "appliesWhy": "the shape is a source-level memset(<secret>, 0, ...), which is exactly the rule's declared scope; what differs from the row above is only which stage removes it, and the rule does not read stages",
+        "recall": { "num": 91, "den": 174 },
+        "recallVerified": true,
+        "recallQuote": "of 174 generated files that wiped a secret with a removable `memset`, the rule reported 91",
+        "recallSource": "packages/rules/src/rules/lang-c-secret-wipe.test.ts",
+        "recallScope": "that ratio is the recall MEASURED BEFORE the widening that file is the regression test for. After it, ../ai-generated/README.md reports 95.6% on the same corpus and says in the same paragraph that the figure is in-sample; the tree carries no numerator and denominator for it, so this row keeps the integers it can check and quotes the later percentage as text.",
+        "recallAlsoQuoted": {
+          "source": "compiler/eval/ai-generated/README.md",
+          "quote": "Recall on this corpus went from **57.2% to 95.6%**",
+          "scopeQuote": "is in-sample and is not a generalisation."
+        }
+      },
+      "note": "The routing sits on this row rather than on the one above because this is the candidate that fails: when the loss is in the backend a middle-end intervention has nowhere to stand, and what is left is the pin (the row above) or the source-side rule."
+    },
+    {
+      "property": "survive.secure-wipe",
+      "shape": "wipe-in-a-helper-in-another-translation-unit",
+      "shapeSeenAs": "the wipe is in a helper the target calls, defined in another unit, so only a link-time inline exposes it as a dead store",
+      "candidate": "wipe-pin/pin-the-helper-by-name",
+      "status": "unmeasured",
+      "labObservation": {
+        "what": "the r2 corpus compiles one translation unit per cell, so this shape has no cell here at all. compiler/llvm-repair's fixture loop measures it on a generated fixture instead: its xtu cells read the wipe ABSENT in the stock full-LTO and thin-LTO links and PRESENT in the same links with the helper pinned.",
+        "source": "compiler/llvm-repair/README.md",
+        "quote": "The xtu cells are that case, on one generated fixture"
+      },
+      "routesTo": {
+        "rule": "VG-MEM-006",
+        "appliesToThisShape": "unverified",
+        "appliesWhy": "the rule matches the memset call wherever it is written, so it should fire inside the helper's own file; whether that file is in the scan is a question about the deployment rather than the rule, and this lane did not check it",
+        "recall": { "num": 91, "den": 174 },
+        "recallVerified": true,
+        "recallQuote": "of 174 generated files that wiped a secret with a removable `memset`, the rule reported 91",
+        "recallSource": "packages/rules/src/rules/lang-c-secret-wipe.test.ts",
+        "recallScope": "pre-widening, in-sample; the same fields on the backend-drop row carry the full statement"
+      },
+      "note": "Unmeasured HERE is the whole point of the word: the shape is measured on another instrument, and that reading is not this lane's and is not recomputed by its test."
+    },
+    {
+      "property": "survive.secure-wipe",
+      "shape": "libcall-memset",
+      "shapeSeenAs": "a call to a function named memset that is not the intrinsic or the builtin, which -fno-builtin produces",
+      "candidate": "wipe-pin/volatile-memset",
+      "status": "unmeasured",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "unhandled-shape-occurrences", "cc": "clang-18", "counter": "libcallMemset" },
+        "value": { "num": 0, "den": 3200 },
+        "means": "occurrences of this shape counted by the plugin, summed over every record the strict reader accepted in the tracked clang-18 run: 0 in 3200 records, so the corpus holds no instance and nothing was measured either way",
+        "source": "data/r2-repair-rows.json"
+      },
+      "labObservation": {
+        "what": "the plugin counts the shape and leaves it alone; the reading is on its own fixture loop",
+        "source": "compiler/llvm-repair/README.md",
+        "quote": "`-fno-builtin`: 1, and the call survives `-O2` on its own"
+      },
+      "routesTo": {
+        "rule": "VG-MEM-006",
+        "appliesToThisShape": "yes",
+        "appliesWhy": "the source still spells memset(<secret>, 0, ...); -fno-builtin is a build flag and the rule reads source text",
+        "recall": { "num": 91, "den": 174 },
+        "recallVerified": true,
+        "recallQuote": "of 174 generated files that wiped a secret with a removable `memset`, the rule reported 91",
+        "recallSource": "packages/rules/src/rules/lang-c-secret-wipe.test.ts",
+        "recallScope": "pre-widening, in-sample; see the backend-drop row"
+      },
+      "note": "0 in 3200 is why this row is unmeasured and not measured-not-retained. A shape with no instances was not looked at; it was not shown absent from the world."
+    },
+    {
+      "property": "survive.secure-wipe",
+      "shape": "memset-chk",
+      "shapeSeenAs": "the fortifying form of the call, __memset_chk, in the target function",
+      "candidate": "wipe-pin/volatile-memset",
+      "status": "unmeasured",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "unhandled-shape-occurrences", "cc": "clang-18", "counter": "memsetChk" },
+        "value": { "num": 0, "den": 3200 },
+        "means": "occurrences of this shape counted by the plugin over every accepted record of the tracked clang-18 run",
+        "source": "data/r2-repair-rows.json"
+      },
+      "labObservation": {
+        "what": "the counter exists on both plugins; gcc's fixture loop has a cell for it, clang's cells are built without _FORTIFY_SOURCE",
+        "source": "compiler/llvm-repair/README.md",
+        "quote": "a call to `__memset_chk` in the target function"
+      },
+      "routesTo": {
+        "rule": "VG-MEM-006",
+        "appliesToThisShape": "yes",
+        "appliesWhy": "the source spells memset(<secret>, 0, ...) and the fortifying header rewrites it; the rule reads the source",
+        "recall": { "num": 91, "den": 174 },
+        "recallVerified": true,
+        "recallQuote": "of 174 generated files that wiped a secret with a removable `memset`, the rule reported 91",
+        "recallSource": "packages/rules/src/rules/lang-c-secret-wipe.test.ts",
+        "recallScope": "pre-widening, in-sample; see the backend-drop row"
+      },
+      "note": "The clang cells of this lane are built without _FORTIFY_SOURCE and the gcc cells with it, which is stated as a limit of the tracked run rather than equalised."
+    },
+    {
+      "property": "survive.secure-wipe",
+      "shape": "inline-wrapper-memset",
+      "shapeSeenAs": "under _FORTIFY_SOURCE, clang renames glibc's gnu_inline wrapper to memset.inline and the target calls that, so nothing in the target is an intrinsic",
+      "candidate": "wipe-pin/volatile-memset",
+      "status": "unmeasured",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "unhandled-shape-occurrences", "cc": "clang-18", "counter": "inlineWrapperMemset" },
+        "value": { "num": 0, "den": 3200 },
+        "means": "occurrences of this shape counted by the plugin over every accepted record of the tracked clang-18 run",
+        "source": "data/r2-repair-rows.json"
+      },
+      "labObservation": {
+        "what": "this counter was added AFTER a measurement, because before it existed the record on such a file said zero of everything while the wipe was eliminated",
+        "source": "compiler/llvm-repair/README.md",
+        "quote": "clang renames the\nheader's `gnu_inline` memset wrapper to `memset.inline`"
+      },
+      "routesTo": {
+        "rule": "VG-MEM-006",
+        "appliesToThisShape": "yes",
+        "appliesWhy": "the source spells memset(<secret>, 0, ...); the wrapper is the header's doing",
+        "recall": { "num": 91, "den": 174 },
+        "recallVerified": true,
+        "recallQuote": "of 174 generated files that wiped a secret with a removable `memset`, the rule reported 91",
+        "recallSource": "packages/rules/src/rules/lang-c-secret-wipe.test.ts",
+        "recallScope": "pre-widening, in-sample; see the backend-drop row"
+      },
+      "note": "0 here is a property of the flags this lane compiles with, not of the world: FLAGS does not define _FORTIFY_SOURCE and clang-18 does not predefine it."
+    },
+    {
+      "property": "survive.secure-wipe",
+      "shape": "non-zero-fill",
+      "shapeSeenAs": "a memset whose fill is not a zero constant",
+      "candidate": "wipe-pin/volatile-memset",
+      "status": "unmeasured",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "unhandled-shape-occurrences", "cc": "clang-18", "counter": "nonZeroFill" },
+        "value": { "num": 0, "den": 3200 },
+        "means": "occurrences of this shape counted by the plugin over every accepted record of the tracked clang-18 run",
+        "source": "data/r2-repair-rows.json"
+      },
+      "labObservation": {
+        "what": "counted rather than pinned, and the plugin says so on stderr beside whatever it did pin",
+        "source": "compiler/llvm-repair/README.md",
+        "quote": "a `MemSetInst` whose fill is non-zero or not a constant"
+      },
+      "routesTo": {
+        "rule": "VG-MEM-006",
+        "appliesToThisShape": "no",
+        "appliesWhy": "the rule deliberately does not treat a non-zero fill as a wipe (`does not treat a non-zero fill as a wipe, cast or not`), and neither does this property: overwriting a secret with 0xAA is a different act from clearing it, and this row exists to say that the shape is out of scope on BOTH sides rather than to route it anywhere",
+        "recall": { "num": 91, "den": 174 },
+        "recallVerified": true,
+        "recallQuote": "of 174 generated files that wiped a secret with a removable `memset`, the rule reported 91",
+        "recallSource": "packages/rules/src/rules/lang-c-secret-wipe.test.ts",
+        "recallScope": "pre-widening, in-sample, and about zero-fill wipes; it says nothing about this shape"
+      },
+      "note": "Kept in the table because the plugin counts it: a reader who sees nonZeroFill in a record needs a row to look it up in."
+    },
+    {
+      "property": "survive.secure-wipe",
+      "shape": "atomic-memset",
+      "shapeSeenAs": "the element-wise unordered atomic memset intrinsic",
+      "candidate": "wipe-pin/volatile-memset",
+      "status": "unmeasured",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "unhandled-shape-occurrences", "cc": "clang-18", "counter": "atomicMemset" },
+        "value": { "num": 0, "den": 3200 },
+        "means": "occurrences of this shape counted by the plugin over every accepted record of the tracked clang-18 run",
+        "source": "data/r2-repair-rows.json"
+      },
+      "labObservation": {
+        "what": "an LLVM-only shape; the counter is always 0 on gcc because gcc has nothing of the kind",
+        "source": "compiler/llvm-repair/README.md",
+        "quote": "llvm.memset.element.unordered.atomic"
+      },
+      "routesTo": {
+        "rule": "VG-MEM-006",
+        "appliesToThisShape": "no",
+        "appliesWhy": "C source cannot spell this intrinsic directly, so there is no source text for a lexical rule to match; it reaches IR from a front end or another pass",
+        "recall": { "num": 91, "den": 174 },
+        "recallVerified": true,
+        "recallQuote": "of 174 generated files that wiped a secret with a removable `memset`, the rule reported 91",
+        "recallSource": "packages/rules/src/rules/lang-c-secret-wipe.test.ts",
+        "recallScope": "pre-widening, in-sample, and about source-level memset; it says nothing about this shape"
+      },
+      "note": "Listed for completeness of the plugin's own counter set, not because this corpus could produce one."
+    },
+    {
+      "property": "survive.secure-wipe",
+      "shape": "bzero-through-the-fortifying-header",
+      "shapeSeenAs": "on gcc at -O1 and above with glibc's fortifying headers, a plain bzero(secret, n) call becomes the header's bzero wrapper, which is not a memset and has no counter",
+      "candidate": "wipe-pin-gcc/volatile-asm-barrier",
+      "status": "unmeasured",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "plain-bzero-calls-in-corpus" },
+        "value": { "num": 0, "den": 720 },
+        "means": "calls spelled bzero( (not explicit_bzero( and not a helper named secure_bzero() over the 720 files of the r2 corpus: none, which is why this lane has no cell of this shape",
+        "source": "../ai-generated/generated-corpus/r2"
+      },
+      "labObservation": {
+        "what": "compiler/gcc-repair measured the shape on its own fixture loop: the record says nothing to pin, pin-gcc.sh exits 4, and the wipe is gone from the listing",
+        "source": "compiler/gcc-repair/README.md",
+        "quote": "a plain `bzero(` occurs 0 times"
+      },
+      "routesTo": {
+        "rule": "VG-MEM-006",
+        "appliesToThisShape": "no",
+        "appliesWhy": "the rule's scope is memset only (`Only memset(<secret-named>, 0, ...)`), and explicit_bzero is what it recommends as the FIX, so a plain bzero( wipe is caught by neither the compiler-side pin nor this rule. That is the gap this row exists to record, and it is why routing to VG-MEM-006 here would have been a quiet overclaim.",
+        "recall": { "num": 91, "den": 174 },
+        "recallVerified": true,
+        "recallQuote": "of 174 generated files that wiped a secret with a removable `memset`, the rule reported 91",
+        "recallSource": "packages/rules/src/rules/lang-c-secret-wipe.test.ts",
+        "recallScope": "pre-widening, in-sample, and over memset wipes only: the ratio does not describe this shape at all"
+      },
+      "note": "The one shape in this table that neither side covers. If a corpus with plain bzero wipes is ever measured, this row is where the result goes."
+    },
+    {
+      "property": "survive.secure-wipe",
+      "shape": "wipe-written-as-stores",
+      "shapeSeenAs": "an explicit zeroing loop rather than a call: at the position both plugins run, there is no memset to pin, and a later pass may turn the loop into one",
+      "candidate": "none",
+      "status": "not-repairable-in-compiler",
+      "basis": "by-construction",
+      "stage": "compile, at pipeline start on clang and directly after cfg on gcc: the loop is still a loop there, so neither plugin has a site",
+      "quotes": [
+        {
+          "source": "compiler/llvm-repair/README.md",
+          "quote": "an explicit zeroing loop, or a store through a\n  volatile pointer (that one needs no pin)"
+        },
+        {
+          "source": "compiler/llvm-repair/README.md",
+          "quote": "A memset that a later pass creates, such as loop-idiom recognition turning a\n  zeroing loop into `llvm.memset` after pipeline start."
+        }
+      ],
+      "routesTo": {
+        "rule": "VG-MEM-006",
+        "appliesToThisShape": "no",
+        "appliesWhy": "the rule matches a memset call and nothing else, so a hand-written zeroing loop is outside its scope as well. ../ai-generated/lib/missed-wipes.mjs names three loop shapes the find step's own labelling misses for the same reason.",
+        "recall": { "num": 91, "den": 174 },
+        "recallVerified": true,
+        "recallQuote": "of 174 generated files that wiped a secret with a removable `memset`, the rule reported 91",
+        "recallSource": "packages/rules/src/rules/lang-c-secret-wipe.test.ts",
+        "recallScope": "pre-widening, in-sample, over memset wipes; it does not describe loop wipes"
+      },
+      "note": "by-construction, not measured: nothing here was run. A volatile store loop needs no pin in the first place; a plain one has no site to pin at the position either plugin occupies."
+    },
+    {
+      "property": "survive.authorization-check",
+      "shape": "assert-removed-by-the-preprocessor",
+      "shapeSeenAs": "the authorisation decision is written as assert(...), which -DNDEBUG deletes before the compiler proper ever sees it",
+      "candidate": "none",
+      "status": "not-repairable-in-compiler",
+      "basis": "by-construction",
+      "stage": "preprocess, before ast: tokens that were never parsed cannot be reconstructed by any pass",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "authz-ndebug-changed-body" },
+        "value": { "num": 0, "den": 712 },
+        "means": "compiling authz configurations of the find step in which -DNDEBUG changed the target body at all. 0 of 712 is NO LOSS OBSERVED in this corpus -- the models wrote `if (...) return -1;`, not assert -- and it is not a measurement of a repair. Had there been a loss it would still have been out of reach, which is the by-construction half of this row.",
+        "source": "../ai-generated/data/r2-build-rows.json"
+      },
+      "routesTo": {
+        "rule": "VG-AUTH-008",
+        "appliesToThisShape": "yes",
+        "appliesWhy": "VG-AUTH-008 is `Authorization decided by assert()`, whose description names exactly this mechanism: assert compiles to nothing under NDEBUG, so the check is in the debug build and absent from the binary users run",
+        "recall": null,
+        "recallVerified": false,
+        "recallUnverifiedWhy": "no measured recall for VG-AUTH-008 exists anywhere in this tree. The corpus that would measure it is this one, and this corpus contains 0 instances of the shape (the 712 above), so the number cannot be produced from what is here."
+      },
+      "note": "The two halves of this row say different things and are deliberately not merged: nothing was lost here (measured, 0 of 712), and if something had been it would have been out of reach (by construction)."
+    },
+    {
+      "property": "survive.audit-record",
+      "shape": "defence-behind-a-build-macro",
+      "shapeSeenAs": "the audit record is emitted only when a build macro is defined, and the default build does not define it",
+      "candidate": "wipe-pin/volatile-memset",
+      "status": "measured-not-retained",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "configguard-default-equals-enabled", "cc": "clang-18", "scen": "auditlog" },
+        "value": { "num": 0, "den": 14 },
+        "means": "auditlog files whose default build, with the plugin loaded in module scope, produced the same target body as the build with every macro defined: none of 14",
+        "source": "data/r2-repair-rows.json"
+      },
+      "routesTo": {
+        "rule": "none",
+        "whyNone": "this lane did not identify a VibeGuard rule for `a defence present only when a build macro is defined`. VG-AUTH-001 (Authentication bypass when DEBUG is enabled) is the nearest and was NOT run over these files, so naming it here would be a guess."
+      },
+      "note": "Measured, and it failed, which is the point: the plugin is loaded, it pins what it can see, and the default build still is not the enabled build."
+    },
+    {
+      "property": "survive.audit-record",
+      "shape": "defence-behind-a-build-macro",
+      "shapeSeenAs": "the audit record is emitted only when a build macro is defined, and the default build does not define it",
+      "candidate": "wipe-pin-gcc/volatile-asm-barrier",
+      "status": "measured-not-retained",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "configguard-default-equals-enabled", "cc": "gcc-13", "scen": "auditlog" },
+        "value": { "num": 0, "den": 14 },
+        "means": "auditlog files whose default build, with the plugin loaded in module scope, produced the same target body as the build with every macro defined: none of 14",
+        "source": "data/r2-repair-rows-gcc-13.json"
+      },
+      "routesTo": {
+        "rule": "none",
+        "whyNone": "as on the clang row: no rule in this tree was verified to cover this shape"
+      },
+      "note": "The two vendors agree, which is worth stating because they disagree about almost everything else in this table."
+    },
+    {
+      "property": "survive.bounds-check",
+      "shape": "defence-behind-a-build-macro",
+      "shapeSeenAs": "the bounds check is compiled only when a build macro is defined, and the default build does not define it",
+      "candidate": "wipe-pin/volatile-memset",
+      "status": "measured-not-retained",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "configguard-default-equals-enabled", "cc": "clang-18", "scen": "boundscheck" },
+        "value": { "num": 0, "den": 19 },
+        "means": "boundscheck files whose default build, with the plugin in module scope, equalled the all-macros build: none of 19",
+        "source": "data/r2-repair-rows.json"
+      },
+      "routesTo": {
+        "rule": "none",
+        "whyNone": "no rule in this tree was verified to cover a bounds check behind a build macro"
+      },
+      "note": "The loss here is not a deleted store but code that was never compiled, so the repair candidate is a category error and the measurement says so."
+    },
+    {
+      "property": "survive.bounds-check",
+      "shape": "defence-behind-a-build-macro",
+      "shapeSeenAs": "the bounds check is compiled only when a build macro is defined, and the default build does not define it",
+      "candidate": "wipe-pin-gcc/volatile-asm-barrier",
+      "status": "measured-not-retained",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "configguard-default-equals-enabled", "cc": "gcc-13", "scen": "boundscheck" },
+        "value": { "num": 0, "den": 19 },
+        "means": "boundscheck files whose default build, with the plugin in module scope, equalled the all-macros build: none of 19",
+        "source": "data/r2-repair-rows-gcc-13.json"
+      },
+      "routesTo": {
+        "rule": "none",
+        "whyNone": "as on the clang row: no rule in this tree was verified to cover this shape, and the nearest candidate was not run over these files"
+      },
+      "note": "Same reading on the other vendor."
+    },
+    {
+      "property": "notappear.debug-endpoint",
+      "shape": "defence-behind-a-build-macro",
+      "shapeSeenAs": "a diagnostic dump that is compiled out unless a build macro is defined; the property is the inverse of the others, and the macro decides it either way",
+      "candidate": "wipe-pin/volatile-memset",
+      "status": "measured-not-retained",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "configguard-default-equals-enabled", "cc": "clang-18", "scen": "debugdump" },
+        "value": { "num": 0, "den": 21 },
+        "means": "debugdump files whose default build, with the plugin in module scope, equalled the all-macros build: none of 21",
+        "source": "data/r2-repair-rows.json"
+      },
+      "routesTo": {
+        "rule": "none",
+        "whyNone": "no rule in this tree was verified to cover this shape; notappear.debug-endpoint is a must-not-appear property and the source-side question for it is a different one"
+      },
+      "note": "This is the scenario in which the plugin DID change a default target body (the tracked run reports 80 of 81 unchanged on clang, the exception being an opus debugdump file with four memsets pinned). A changed body is still not a restored defence, and the number above is the direct question."
+    },
+    {
+      "property": "notappear.debug-endpoint",
+      "shape": "defence-behind-a-build-macro",
+      "shapeSeenAs": "a diagnostic dump that is compiled out unless a build macro is defined; the property is the inverse of the others, and the macro decides it either way",
+      "candidate": "wipe-pin-gcc/volatile-asm-barrier",
+      "status": "measured-not-retained",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "configguard-default-equals-enabled", "cc": "gcc-13", "scen": "debugdump" },
+        "value": { "num": 0, "den": 23 },
+        "means": "debugdump files whose default build, with the plugin in module scope, equalled the all-macros build: none of 23",
+        "source": "data/r2-repair-rows-gcc-13.json"
+      },
+      "routesTo": {
+        "rule": "none",
+        "whyNone": "as on the clang row: no rule in this tree was verified to cover this shape, and the nearest candidate was not run over these files"
+      },
+      "note": "gcc has two more debugdump files at -O2 than clang does (23 against 21), because which files reach DEFAULT_DIFFERS is a per-compiler reading of the find step."
+    },
+    {
+      "property": "survive.input-validation",
+      "shape": "defence-behind-a-build-macro",
+      "shapeSeenAs": "certificate verification is skipped unless a macro is defined, and in the corpus the macro is spelled with !defined(NDEBUG) beside it",
+      "candidate": "wipe-pin/volatile-memset",
+      "status": "measured-not-retained",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "configguard-default-equals-enabled", "cc": "clang-18", "scen": "tlsverify" },
+        "value": { "num": 0, "den": 14 },
+        "means": "tlsverify files whose default build, with the plugin in module scope, equalled the all-macros build: none of 14",
+        "source": "data/r2-repair-rows.json"
+      },
+      "routesTo": {
+        "rule": "VG-AUTH-001",
+        "appliesToThisShape": "unverified",
+        "appliesWhy": "VG-AUTH-001 is `Authentication bypass when DEBUG is enabled`, and the corpus spelling here is `#if defined(VIBEGUARD_TLS_INSECURE_ALLOW_NO_VERIFY) && !defined(NDEBUG)`. This lane did not run the rule over these files, so whether it fires on that spelling is unknown here; the rule is named as where to look, not as coverage.",
+        "recall": null,
+        "recallVerified": false,
+        "recallUnverifiedWhy": "no measured recall for VG-AUTH-001 exists in this tree, and this lane did not measure one"
+      },
+      "note": "The only configguard row with a candidate rule at all, and it is unverified."
+    },
+    {
+      "property": "survive.input-validation",
+      "shape": "defence-behind-a-build-macro",
+      "shapeSeenAs": "certificate verification is skipped unless a macro is defined, and in the corpus the macro is spelled with !defined(NDEBUG) beside it",
+      "candidate": "wipe-pin-gcc/volatile-asm-barrier",
+      "status": "measured-not-retained",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "configguard-default-equals-enabled", "cc": "gcc-13", "scen": "tlsverify" },
+        "value": { "num": 0, "den": 14 },
+        "means": "tlsverify files whose default build, with the plugin in module scope, equalled the all-macros build: none of 14",
+        "source": "data/r2-repair-rows-gcc-13.json"
+      },
+      "routesTo": {
+        "rule": "VG-AUTH-001",
+        "appliesToThisShape": "unverified",
+        "appliesWhy": "as on the clang row",
+        "recall": null,
+        "recallVerified": false,
+        "recallUnverifiedWhy": "no measured recall for VG-AUTH-001 exists in this tree"
+      },
+      "note": "Same reading on the other vendor."
+    },
+    {
+      "property": "survive.fail-closed-branch",
+      "shape": "defence-behind-a-build-macro",
+      "shapeSeenAs": "the rate limiter is compiled only when a macro is defined, so the deny path is absent from the default build rather than unreachable in it",
+      "candidate": "wipe-pin/volatile-memset",
+      "status": "measured-not-retained",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "configguard-default-equals-enabled", "cc": "clang-18", "scen": "ratelimit" },
+        "value": { "num": 0, "den": 13 },
+        "means": "ratelimit files whose default build, with the plugin in module scope, equalled the all-macros build: none of 13",
+        "source": "data/r2-repair-rows.json"
+      },
+      "routesTo": {
+        "rule": "none",
+        "whyNone": "no rule in this tree was verified to cover a rate limiter behind a build macro"
+      },
+      "note": "survive.fail-closed-branch is about a deny path the compiler cannot decide; here the branch is not undecidable, it is not there."
+    },
+    {
+      "property": "survive.fail-closed-branch",
+      "shape": "defence-behind-a-build-macro",
+      "shapeSeenAs": "the rate limiter is compiled only when a macro is defined, so the deny path is absent from the default build rather than unreachable in it",
+      "candidate": "wipe-pin-gcc/volatile-asm-barrier",
+      "status": "measured-not-retained",
+      "evidence": {
+        "tracked": true,
+        "cite": { "claim": "configguard-default-equals-enabled", "cc": "gcc-13", "scen": "ratelimit" },
+        "value": { "num": 0, "den": 13 },
+        "means": "ratelimit files whose default build, with the plugin in module scope, equalled the all-macros build: none of 13",
+        "source": "data/r2-repair-rows-gcc-13.json"
+      },
+      "routesTo": {
+        "rule": "none",
+        "whyNone": "as on the clang row: no rule in this tree was verified to cover this shape, and the nearest candidate was not run over these files"
+      },
+      "note": "Same reading on the other vendor."
+    }
+  ]
+}

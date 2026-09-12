@@ -66,6 +66,7 @@ import { readPlan, planMismatch, planCompilerMismatch, planSummary, renderPlanSu
 import { sha256Text, absolutePathHits, rowsFileLabel } from './lib/provenance.mjs';
 import { preflightProblems } from './lib/preflight.mjs';
 import { corpusFiles, erasureFamily } from './lib/corpus.mjs';
+import { runSpikeGate, summarise as summariseSpikeGate } from '../spike/lib/gate.mjs';
 
 const run = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -300,6 +301,30 @@ async function main() {
     if (args.dryRun) env.WPIN_DRY_RUN = '1';
     return env;
   };
+
+  // ---- spike/recovery gate: is the instrument reading anything, in this run? ----
+  //
+  // Before the plugin preflight, because the plugin preflight asks whether the
+  // REPAIR works and this asks whether the thing that would judge it is working
+  // at all. Two known translation units, judged by the same verdictOf this lane
+  // judges its cells with, plus a run with the subject name deliberately
+  // misspelt that the gate must refuse. Recovery short of 2/2, a green injected
+  // run, or a level list in which no configuration registers two different
+  // answers, makes every cell below meaningless.
+  //
+  // args.opts goes through unchanged, so `--opts -O0` alone gets a red gate
+  // (NO_DISCRIMINATING_CONFIGURATION): at -O0 both spikes are registered the same
+  // word and 2/2 there is also what an instrument stuck on that word would score.
+  const spike = await runSpikeGate({ ccs: [args.cc], opts: args.opts, lab: join(args.out, 'spike') });
+  process.stderr.write(`${summariseSpikeGate(spike)}\n`);
+  if (!spike.established) {
+    for (const why of spike.verdict.reasons) process.stderr.write(`  spike gate: ${why}\n`);
+    if (args.writeData) {
+      die(2, '--write-data refused: the spike/recovery gate did not hold, so no reading in this run '
+        + 'is evidence about a repair');
+    }
+    die(3, 'the spike/recovery gate did not hold; no cell was run');
+  }
 
   // ---- preflight: does the plugin load, and does it refuse when it should? ----
   const pre = { vendor: args.vendor, component, loads: null, loadStderr: null, recordOnModuleScope: null,

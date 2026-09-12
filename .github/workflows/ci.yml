@@ -301,10 +301,17 @@ jobs:
       # themselves when there is none. Installing it is the difference between
       # asserting something and showing a green tick over a skipped suite; the
       # step after this one fails the job if they skipped anyway.
-      - name: Install clang-18
+      # clang-17 is here for the same reason, for a different suite. The version
+      # ladder's exit-code tests spawn the real runner, and the one that matters
+      # most -- a run whose obtained rungs hold NO anchor rung must exit 2 rather
+      # than publish an unanchored ladder at 0 -- needs a rung of the declared
+      # ladder that is NOT the pinned pair. With clang-18 alone that test skips,
+      # and the guard it protects would be green here while never having run. It
+      # is not used to measure anything; any non-pinned rung would do.
+      - name: Install clang-18 and a second rung
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-18
+          sudo apt-get install -y clang-18 clang-17
 
       # The glob is unquoted so the SHELL expands it, not node. Passing the
       # directory is what the component's README says, and it throws
@@ -420,6 +427,20 @@ jobs:
           run_suite ai-generated          compiler/eval/ai-generated/test/*.test.mjs
           run_suite repair-loop           compiler/eval/repair-loop/test/*.test.mjs
           run_suite elf-verifier          compiler/elf-verifier/test/*.test.mjs
+          # The seven add-on lanes (A1-A7, 2026-09-12). Five of them are new
+          # directories that reach no other runner at all; without these lines
+          # their assertions would run only by hand. They need no compiler: the
+          # graders, ladders and rate tables are pure functions over recorded
+          # readings, and the one child process any of them spawns is node
+          # itself (actuarial's --check). The measuring halves of the same lanes
+          # do need clang/gcc and are deliberately NOT run here -- they are lab
+          # runs, and a CI job that shelled out to a toolchain to produce
+          # research readings would be publishing measurements nobody reviewed.
+          run_suite residue-tracer       compiler/eval/residue-tracer/test/*.test.mjs
+          run_suite spike                compiler/eval/spike/test/*.test.mjs
+          run_suite version-ladder       compiler/eval/version-ladder/test/*.test.mjs
+          run_suite actuarial            compiler/eval/actuarial/test/*.test.mjs
+          run_suite lto-window           compiler/eval/lto-window/test/*.test.mjs
           # WipePinGcc's Node suites need no plugin and no gcc: asm-presence
           # reads synthetic listings through the shared oracle, corpus-smoke
           # tests the smoke runner's pure row selection and body delta. The

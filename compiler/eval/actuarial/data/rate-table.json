@@ -1,0 +1,580 @@
+{
+  "lane": "actuarial",
+  "corpusId": "r2",
+  "protocol": "PROTOCOL-r2.md",
+  "generatedBy": "compiler/eval/actuarial/build-rate-table.mjs",
+  "reading": "in the r2 corpus, N of D files with this idiom lost the wipe under (vendor, optLevel)",
+  "denominatorRule": "eliminated.den counts the rows of the cell whose positive control was PRESENT in that build, not every row of the cell. A row leaves the denominator by one of two paths and is on neither side of the ratio either way: the control was looked for and not seen, which is counted in verificationIncomplete; or the row reached no wipe verdict at all and no control was ever read, which is counted in notScored with the reason in byVerdict. denominatorExclusions counts which path this record actually took, so that the gap between rows and den is not attributed to the wrong one.",
+  "denominatorExclusions": {
+    "rows": 20,
+    "withheldControlUnseen": 0,
+    "noVerdictReached": 20,
+    "byVerdict": {
+      "ABLATION_DID_NOT_COMPILE": 20
+    }
+  },
+  "source": {
+    "file": "compiler/eval/ai-generated/data/r2-build-rows.json",
+    "sha256": "cb93551fe438256985fd30533fe0dbef51b51739f4d8c0de5ce5eef7e674bed9",
+    "bytes": 1339310,
+    "rows": 4689
+  },
+  "scope": {
+    "rowsTotal": 4689,
+    "rowsWithCell": 4650,
+    "rowsInScope": 3210,
+    "filesInScope": 321,
+    "rowsOtherFamily": 1440,
+    "filesOtherFamily": 360,
+    "rowsNoWipeWritten": 39,
+    "filesNoWipeWritten": 39
+  },
+  "axes": {
+    "idiom": [
+      "removable",
+      "both",
+      "nonremovable"
+    ],
+    "vendor": [
+      "clang-18",
+      "gcc-13"
+    ],
+    "optLevel": [
+      "-O0",
+      "-O1",
+      "-O2",
+      "-O3",
+      "-Os"
+    ]
+  },
+  "cells": [
+    {
+      "key": "removable/clang-18/-O0",
+      "idiom": "removable",
+      "vendor": "clang-18",
+      "optLevel": "-O0",
+      "rows": 133,
+      "files": 133,
+      "eliminated": {
+        "num": 0,
+        "den": 133
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_SURVIVED": 133
+      }
+    },
+    {
+      "key": "removable/clang-18/-O1",
+      "idiom": "removable",
+      "vendor": "clang-18",
+      "optLevel": "-O1",
+      "rows": 133,
+      "files": 133,
+      "eliminated": {
+        "num": 62,
+        "den": 133
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_ELIMINATED": 62,
+        "WIPE_SURVIVED": 71
+      }
+    },
+    {
+      "key": "removable/clang-18/-O2",
+      "idiom": "removable",
+      "vendor": "clang-18",
+      "optLevel": "-O2",
+      "rows": 133,
+      "files": 133,
+      "eliminated": {
+        "num": 113,
+        "den": 133
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_ELIMINATED": 113,
+        "WIPE_SURVIVED": 20
+      }
+    },
+    {
+      "key": "removable/clang-18/-O3",
+      "idiom": "removable",
+      "vendor": "clang-18",
+      "optLevel": "-O3",
+      "rows": 133,
+      "files": 133,
+      "eliminated": {
+        "num": 113,
+        "den": 133
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_ELIMINATED": 113,
+        "WIPE_SURVIVED": 20
+      }
+    },
+    {
+      "key": "removable/clang-18/-Os",
+      "idiom": "removable",
+      "vendor": "clang-18",
+      "optLevel": "-Os",
+      "rows": 133,
+      "files": 133,
+      "eliminated": {
+        "num": 113,
+        "den": 133
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_ELIMINATED": 113,
+        "WIPE_SURVIVED": 20
+      }
+    },
+    {
+      "key": "removable/gcc-13/-O0",
+      "idiom": "removable",
+      "vendor": "gcc-13",
+      "optLevel": "-O0",
+      "rows": 133,
+      "files": 133,
+      "eliminated": {
+        "num": 0,
+        "den": 133
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_SURVIVED": 133
+      }
+    },
+    {
+      "key": "removable/gcc-13/-O1",
+      "idiom": "removable",
+      "vendor": "gcc-13",
+      "optLevel": "-O1",
+      "rows": 133,
+      "files": 133,
+      "eliminated": {
+        "num": 108,
+        "den": 133
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_ELIMINATED": 108,
+        "WIPE_SURVIVED": 25
+      }
+    },
+    {
+      "key": "removable/gcc-13/-O2",
+      "idiom": "removable",
+      "vendor": "gcc-13",
+      "optLevel": "-O2",
+      "rows": 133,
+      "files": 133,
+      "eliminated": {
+        "num": 108,
+        "den": 133
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_ELIMINATED": 108,
+        "WIPE_SURVIVED": 25
+      }
+    },
+    {
+      "key": "removable/gcc-13/-O3",
+      "idiom": "removable",
+      "vendor": "gcc-13",
+      "optLevel": "-O3",
+      "rows": 133,
+      "files": 133,
+      "eliminated": {
+        "num": 108,
+        "den": 133
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_ELIMINATED": 108,
+        "WIPE_SURVIVED": 25
+      }
+    },
+    {
+      "key": "removable/gcc-13/-Os",
+      "idiom": "removable",
+      "vendor": "gcc-13",
+      "optLevel": "-Os",
+      "rows": 133,
+      "files": 133,
+      "eliminated": {
+        "num": 108,
+        "den": 133
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_ELIMINATED": 108,
+        "WIPE_SURVIVED": 25
+      }
+    },
+    {
+      "key": "both/clang-18/-O0",
+      "idiom": "both",
+      "vendor": "clang-18",
+      "optLevel": "-O0",
+      "rows": 26,
+      "files": 26,
+      "eliminated": {
+        "num": 0,
+        "den": 26
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_SURVIVED": 26
+      }
+    },
+    {
+      "key": "both/clang-18/-O1",
+      "idiom": "both",
+      "vendor": "clang-18",
+      "optLevel": "-O1",
+      "rows": 26,
+      "files": 26,
+      "eliminated": {
+        "num": 0,
+        "den": 26
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_SURVIVED": 26
+      }
+    },
+    {
+      "key": "both/clang-18/-O2",
+      "idiom": "both",
+      "vendor": "clang-18",
+      "optLevel": "-O2",
+      "rows": 26,
+      "files": 26,
+      "eliminated": {
+        "num": 0,
+        "den": 26
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_SURVIVED": 26
+      }
+    },
+    {
+      "key": "both/clang-18/-O3",
+      "idiom": "both",
+      "vendor": "clang-18",
+      "optLevel": "-O3",
+      "rows": 26,
+      "files": 26,
+      "eliminated": {
+        "num": 0,
+        "den": 26
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_SURVIVED": 26
+      }
+    },
+    {
+      "key": "both/clang-18/-Os",
+      "idiom": "both",
+      "vendor": "clang-18",
+      "optLevel": "-Os",
+      "rows": 26,
+      "files": 26,
+      "eliminated": {
+        "num": 0,
+        "den": 26
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_SURVIVED": 26
+      }
+    },
+    {
+      "key": "both/gcc-13/-O0",
+      "idiom": "both",
+      "vendor": "gcc-13",
+      "optLevel": "-O0",
+      "rows": 26,
+      "files": 26,
+      "eliminated": {
+        "num": 0,
+        "den": 26
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_SURVIVED": 26
+      }
+    },
+    {
+      "key": "both/gcc-13/-O1",
+      "idiom": "both",
+      "vendor": "gcc-13",
+      "optLevel": "-O1",
+      "rows": 26,
+      "files": 26,
+      "eliminated": {
+        "num": 0,
+        "den": 26
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_SURVIVED": 26
+      }
+    },
+    {
+      "key": "both/gcc-13/-O2",
+      "idiom": "both",
+      "vendor": "gcc-13",
+      "optLevel": "-O2",
+      "rows": 26,
+      "files": 26,
+      "eliminated": {
+        "num": 0,
+        "den": 26
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_SURVIVED": 26
+      }
+    },
+    {
+      "key": "both/gcc-13/-O3",
+      "idiom": "both",
+      "vendor": "gcc-13",
+      "optLevel": "-O3",
+      "rows": 26,
+      "files": 26,
+      "eliminated": {
+        "num": 0,
+        "den": 26
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_SURVIVED": 26
+      }
+    },
+    {
+      "key": "both/gcc-13/-Os",
+      "idiom": "both",
+      "vendor": "gcc-13",
+      "optLevel": "-Os",
+      "rows": 26,
+      "files": 26,
+      "eliminated": {
+        "num": 0,
+        "den": 26
+      },
+      "verificationIncomplete": 0,
+      "notScored": 0,
+      "byVerdict": {
+        "WIPE_SURVIVED": 26
+      }
+    },
+    {
+      "key": "nonremovable/clang-18/-O0",
+      "idiom": "nonremovable",
+      "vendor": "clang-18",
+      "optLevel": "-O0",
+      "rows": 162,
+      "files": 162,
+      "eliminated": {
+        "num": 0,
+        "den": 160
+      },
+      "verificationIncomplete": 0,
+      "notScored": 2,
+      "byVerdict": {
+        "ABLATION_DID_NOT_COMPILE": 2,
+        "WIPE_SURVIVED": 160
+      }
+    },
+    {
+      "key": "nonremovable/clang-18/-O1",
+      "idiom": "nonremovable",
+      "vendor": "clang-18",
+      "optLevel": "-O1",
+      "rows": 162,
+      "files": 162,
+      "eliminated": {
+        "num": 0,
+        "den": 160
+      },
+      "verificationIncomplete": 0,
+      "notScored": 2,
+      "byVerdict": {
+        "ABLATION_DID_NOT_COMPILE": 2,
+        "WIPE_SURVIVED": 160
+      }
+    },
+    {
+      "key": "nonremovable/clang-18/-O2",
+      "idiom": "nonremovable",
+      "vendor": "clang-18",
+      "optLevel": "-O2",
+      "rows": 162,
+      "files": 162,
+      "eliminated": {
+        "num": 0,
+        "den": 160
+      },
+      "verificationIncomplete": 0,
+      "notScored": 2,
+      "byVerdict": {
+        "ABLATION_DID_NOT_COMPILE": 2,
+        "WIPE_SURVIVED": 160
+      }
+    },
+    {
+      "key": "nonremovable/clang-18/-O3",
+      "idiom": "nonremovable",
+      "vendor": "clang-18",
+      "optLevel": "-O3",
+      "rows": 162,
+      "files": 162,
+      "eliminated": {
+        "num": 0,
+        "den": 160
+      },
+      "verificationIncomplete": 0,
+      "notScored": 2,
+      "byVerdict": {
+        "ABLATION_DID_NOT_COMPILE": 2,
+        "WIPE_SURVIVED": 160
+      }
+    },
+    {
+      "key": "nonremovable/clang-18/-Os",
+      "idiom": "nonremovable",
+      "vendor": "clang-18",
+      "optLevel": "-Os",
+      "rows": 162,
+      "files": 162,
+      "eliminated": {
+        "num": 0,
+        "den": 160
+      },
+      "verificationIncomplete": 0,
+      "notScored": 2,
+      "byVerdict": {
+        "ABLATION_DID_NOT_COMPILE": 2,
+        "WIPE_SURVIVED": 160
+      }
+    },
+    {
+      "key": "nonremovable/gcc-13/-O0",
+      "idiom": "nonremovable",
+      "vendor": "gcc-13",
+      "optLevel": "-O0",
+      "rows": 162,
+      "files": 162,
+      "eliminated": {
+        "num": 0,
+        "den": 160
+      },
+      "verificationIncomplete": 0,
+      "notScored": 2,
+      "byVerdict": {
+        "ABLATION_DID_NOT_COMPILE": 2,
+        "WIPE_SURVIVED": 160
+      }
+    },
+    {
+      "key": "nonremovable/gcc-13/-O1",
+      "idiom": "nonremovable",
+      "vendor": "gcc-13",
+      "optLevel": "-O1",
+      "rows": 162,
+      "files": 162,
+      "eliminated": {
+        "num": 0,
+        "den": 160
+      },
+      "verificationIncomplete": 0,
+      "notScored": 2,
+      "byVerdict": {
+        "ABLATION_DID_NOT_COMPILE": 2,
+        "WIPE_SURVIVED": 160
+      }
+    },
+    {
+      "key": "nonremovable/gcc-13/-O2",
+      "idiom": "nonremovable",
+      "vendor": "gcc-13",
+      "optLevel": "-O2",
+      "rows": 162,
+      "files": 162,
+      "eliminated": {
+        "num": 0,
+        "den": 160
+      },
+      "verificationIncomplete": 0,
+      "notScored": 2,
+      "byVerdict": {
+        "ABLATION_DID_NOT_COMPILE": 2,
+        "WIPE_SURVIVED": 160
+      }
+    },
+    {
+      "key": "nonremovable/gcc-13/-O3",
+      "idiom": "nonremovable",
+      "vendor": "gcc-13",
+      "optLevel": "-O3",
+      "rows": 162,
+      "files": 162,
+      "eliminated": {
+        "num": 0,
+        "den": 160
+      },
+      "verificationIncomplete": 0,
+      "notScored": 2,
+      "byVerdict": {
+        "ABLATION_DID_NOT_COMPILE": 2,
+        "WIPE_SURVIVED": 160
+      }
+    },
+    {
+      "key": "nonremovable/gcc-13/-Os",
+      "idiom": "nonremovable",
+      "vendor": "gcc-13",
+      "optLevel": "-Os",
+      "rows": 162,
+      "files": 162,
+      "eliminated": {
+        "num": 0,
+        "den": 160
+      },
+      "verificationIncomplete": 0,
+      "notScored": 2,
+      "byVerdict": {
+        "ABLATION_DID_NOT_COMPILE": 2,
+        "WIPE_SURVIVED": 160
+      }
+    }
+  ]
+}

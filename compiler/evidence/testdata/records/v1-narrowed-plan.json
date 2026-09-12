@@ -1,0 +1,152 @@
+{
+  "schemaVersion": "evidence-v1",
+  "toolchain": {
+    "digest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "clang": "18.1.3",
+    "packages": [
+      {
+        "name": "llvm-18-dev",
+        "version": "18.1.3"
+      }
+    ]
+  },
+  "command": {
+    "argv": [
+      "cc",
+      "-O2",
+      "-c",
+      "-o",
+      "build/wipe.o",
+      "src/wipe.c"
+    ]
+  },
+  "artifact": {
+    "path": "artifact/wipe-object.txt",
+    "sha256": "b758dbec2bd9ac18eb22a90347dfeab455259e2e0fc0ea972a1dfbf44c8a3279",
+    "kind": "object"
+  },
+  "coverage": {
+    "observed": 4,
+    "planned": 4
+  },
+  "declaredProperties": [
+    {
+      "propertyId": "demo.erasure"
+    },
+    {
+      "propertyId": "demo.authz"
+    }
+  ],
+  "ledger": {
+    "declarationSource": "policy",
+    "plannedCheckpoints": [
+      "ir-pre"
+    ],
+    "entries": [
+      {
+        "checkpoint": "ir-pre",
+        "declared": 2,
+        "present": 2,
+        "absent": 0,
+        "unobserved": 0,
+        "unresolved": 0
+      }
+    ]
+  },
+  "properties": [
+    {
+      "propertyId": "demo.erasure",
+      "states": [
+        {
+          "checkpoint": "ir-pre",
+          "verdict": "PRESENT",
+          "state": "PRESENT",
+          "measurement": "OK",
+          "effect": 1,
+          "control": 1
+        },
+        {
+          "checkpoint": "ir-post",
+          "verdict": "ABSENT",
+          "state": "LOST",
+          "measurement": "OK",
+          "effect": 0,
+          "control": 1
+        }
+      ],
+      "firstLoss": {
+        "stage": "ir-pass",
+        "pass": "DemoPass",
+        "unit": "wipe",
+        "occurrence": 1
+      },
+      "agreement": {
+        "level": "single",
+        "methods": [
+          "ir"
+        ],
+        "reportedUnits": {
+          "ir": "wipe"
+        }
+      },
+      "confidence": "provisional",
+      "fragility": {
+        "lost": 1,
+        "evaluated": 4
+      }
+    },
+    {
+      "propertyId": "demo.authz",
+      "states": [
+        {
+          "checkpoint": "ir-pre",
+          "verdict": "PRESENT",
+          "state": "PRESENT",
+          "measurement": "OK",
+          "effect": 1,
+          "control": 1
+        },
+        {
+          "checkpoint": "ir-post",
+          "verdict": "PRESENT",
+          "state": "PRESENT",
+          "measurement": "OK",
+          "effect": 1,
+          "control": 1
+        }
+      ],
+      "firstLoss": {
+        "stage": null,
+        "pass": null,
+        "unit": null,
+        "occurrence": null
+      },
+      "agreement": {
+        "level": "not-applicable",
+        "methods": [
+          "ir"
+        ],
+        "reportedUnits": {
+          "ir": "check"
+        }
+      },
+      "confidence": "no-loss-observed",
+      "fragility": {
+        "lost": 0,
+        "evaluated": 4
+      }
+    }
+  ],
+  "unresolved": [],
+  "context": {
+    "generatedAt": "2020-01-01T00:00:00.000Z",
+    "timeSource": "SOURCE_DATE_EPOCH",
+    "sourceDateEpoch": 1577836800,
+    "host": {
+      "node": "v20.0.0",
+      "platform": "linux",
+      "arch": "x64"
+    }
+  },
+  "evidenceDigest": "472c2afced337f44c5999a49562e14c9112079eb2babb5414f874db24884a0d4"
+}

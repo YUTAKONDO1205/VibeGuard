@@ -27,10 +27,17 @@
 //
 // FINDING IDS
 //
-//   This component emits `VG-ART-05N`. The namespace is the artefact
-//   verifier's (interfaces.md §2); the 050–069 band is reserved here for
-//   record-internal checks so that no other component in the namespace
+//   This component emits `VG-ART-05N` and `VG-ART-06N`. The namespace is the
+//   artefact verifier's (interfaces.md §2); the 050–069 band is reserved here
+//   for record-internal checks so that no other component in the namespace
 //   collides with it.
+//
+// SCHEMA VERSIONS
+//
+//   `evidence-v0` and `evidence-v1` are both verified. v1 adds the double-entry
+//   ledger (`ledger.mjs`) and is the only version asked for one; a v0 record is
+//   checked exactly as it was before the ledger existed, and the reason that is
+//   not a hole is in the README under "Why the ledger is a new schema version".
 
 import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -40,6 +47,7 @@ import { findAbsolutePaths } from './paths.mjs';
 import { auditDirectClockUse } from './clock.mjs';
 import { reportCounts } from './counting.mjs';
 import { assertNoSymlink, findSymlinks, SymlinkRefused } from './fsguard.mjs';
+import { ACCOUNTS, auditLedger, LEDGER_SCHEMA_VERSION } from './ledger.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -163,6 +171,37 @@ const STAGE_TABLE = Object.freeze([
   { last: 'asm', first: 'artifact', stage: 'link', namesPass: false },
 ]);
 
+/**
+ * Record schema versions this verifier knows how to check.
+ *
+ * Both are checked, and they differ in exactly one place: v1 carries the
+ * double-entry ledger and is held to it, v0 does not and is not. Anything else
+ * is UNSUPPORTED, which here means "this verifier does not know the shape" and
+ * lands on exit 3 rather than on 0.
+ */
+const KNOWN_RECORD_VERSIONS = Object.freeze(['evidence-v0', LEDGER_SCHEMA_VERSION]);
+
+/**
+ * Why this record's `schemaVersion` is not one this verifier knows, or null
+ * when it is one.
+ *
+ * One function, called from both entry points, because the two had drifted:
+ * the gate lived in `verifyBundle` alone. That was harmless while no check in
+ * `verifyRecord` was keyed on a version and stopped being harmless the moment
+ * one was — `checkLedger` returns null for anything that is not exactly
+ * `evidence-v1`, so a record relabelled `evidence-v2` went through `--record`
+ * with the ledger silently skipped and exit 0, while the same bytes through
+ * `--bundle` were UNSUPPORTED and exit 3. A version bump must not be a way to
+ * buy a clean verdict, and one gate two callers share cannot be added to one
+ * path and forgotten on the other.
+ */
+export function unsupportedVersion(record) {
+  const v = record === null || typeof record !== 'object' ? undefined : record.schemaVersion;
+  return KNOWN_RECORD_VERSIONS.includes(v)
+    ? null
+    : `schemaVersion ${JSON.stringify(v)} is not one of ${KNOWN_RECORD_VERSIONS.join(', ')}`;
+}
+
 /** The stage the interval maps to. Total: anything unlisted is `compile`. */
 export function stageForInterval(lastSeen, firstMissing) {
   if (firstMissing === null) return null;
@@ -192,6 +231,15 @@ function finding(id, severity, title, detail, where = {}) {
  * @returns {{findings: object[], checked: string[], unchecked: string[]}}
  */
 export function verifyRecord(record, opts = {}) {
+  // The version gate is here rather than only in `verifyBundle`, so that every
+  // caller passes it. A shape this verifier does not know is UNSUPPORTED — not
+  // checked and not clean — and the checks below are written for the shapes it
+  // does know. `verifyBundle` gates before it calls this, so it never sees this
+  // return; `--record` used to have no gate at all.
+  const unsupported = unsupportedVersion(record);
+  if (unsupported !== null) {
+    return { verdict: 'UNSUPPORTED', findings: [], checked: [], unchecked: ['*'], error: unsupported };
+  }
   const findings = [];
   const checked = [];
   const unchecked = [];
@@ -395,7 +443,140 @@ export function verifyRecord(record, opts = {}) {
     if (cov.observed === observedFromStates && cov.observed <= cov.planned) checked.push('coverage');
   }
 
-  return { findings, checked, unchecked };
+  // 7. The double-entry ledger, for records that declare one.
+  const ledger = checkLedger(record, opts, findings, checked, unchecked);
+
+  return ledger === null ? { findings, checked, unchecked } : { findings, checked, unchecked, ledger };
+}
+
+/**
+ * The ledger section of `verifyRecord`, split out because it is the one check
+ * here that is keyed on a schema version and because its four findings would
+ * otherwise double the length of the function above.
+ *
+ * Returns the audit for the report, or `null` for a record that carries no
+ * ledger by design. Pushes onto the caller's arrays rather than returning its
+ * own, so that the `checked` / `unchecked` lists stay one list each.
+ *
+ * @returns {object|null}
+ */
+function checkLedger(record, opts, findings, checked, unchecked) {
+  // A v0 record is not asked for a ledger and is not marked unchecked for not
+  // having one. "A field nobody checked is not a field that passed" is about a
+  // field the schema HAS; v0 has no ledger, so there is nothing to have looked
+  // at. Adding it here would turn every record written before today into
+  // VERIFICATION_INCOMPLETE, which says nothing true about any of them.
+  if (record.schemaVersion !== LEDGER_SCHEMA_VERSION) return null;
+
+  const audit = auditLedger(record, { declared: opts.declared, manifest: opts.manifest });
+  const path = opts.path ?? null;
+
+  if (!audit.checkable) {
+    // Not a finding. Nothing was looked at, and exit 3 is the code for that.
+    unchecked.push('ledger');
+    return audit;
+  }
+
+  for (const im of audit.imbalances) {
+    const cells = im.cells.map((c) => `${c.propertyId} (${c.reason})`).join('; ');
+    findings.push(
+      finding(
+        'VG-ART-064',
+        'high',
+        'The ledger does not balance at a planned checkpoint',
+        `${im.checkpoint}: the ${audit.source} declaration opens ${im.declared} account(s) here and ` +
+          `${ACCOUNTS.join(' + ')} posts ${im.posted}. ` +
+          `${im.declared - im.posted} cell(s) are in none of the four accounts: ${cells || '(none named)'}. ` +
+          'A cell nobody posted is a checkpoint nobody can say was looked at, which is the difference ' +
+          'between "we did not look" and "it was not there" going missing by omission rather than by ' +
+          'a wrong word.',
+        { path },
+      ),
+    );
+  }
+  if (audit.imbalances.length === 0) checked.push('ledger');
+
+  if (audit.writtenLedger.problems.length > 0) {
+    findings.push(
+      finding(
+        'VG-ART-065',
+        'high',
+        "The record's own ledger disagrees with the recomputed one",
+        `${audit.writtenLedger.problems.join('; ')}. The verdict rests on the recomputation, never on ` +
+          "the record's totals; this says the record's summary and its own detail were produced by two " +
+          'different pieces of arithmetic, and at most one of them is right.',
+        { path },
+      ),
+    );
+  }
+  if (!audit.writtenLedger.comparable) {
+    // The record may keep its own tally for a reader. This verifier never takes
+    // a count from it, so its absence costs nothing but is still not a pass.
+    unchecked.push('ledger.entries');
+  } else if (audit.writtenLedger.uncompared.length > 0) {
+    // An entry that leaves a number out is a number nobody compared, and the
+    // block is UNCHECKED for it even when everything present agreed. Counting
+    // the shell as CHECKED inverted the incentive: `[{"checkpoint":"ir-pre"},
+    // {"checkpoint":"ir-post"}]` — the planned names and not one count —
+    // compared nothing and bought VERIFIED_CLEAN, while honestly omitting the
+    // `entries` key cost exit 3. A producer must never be able to buy a cleaner
+    // verdict by writing less, so the two answer the same.
+    unchecked.push('ledger.entries');
+  } else if (audit.writtenLedger.problems.length === 0) {
+    checked.push('ledger.entries');
+  }
+
+  if (audit.undeclared.length > 0) {
+    findings.push(
+      finding(
+        'VG-ART-066',
+        'medium',
+        'The record reports a property the declaration does not open an account for',
+        `${JSON.stringify(audit.undeclared)} appear in properties[] and not in the ${audit.source} ` +
+          'declaration. Their states are carried in the record and are counted in no column of the ' +
+          'ledger, so nothing holds them against a plan.',
+        { path },
+      ),
+    );
+  }
+
+  if (audit.posted !== null && audit.posted.offPlan.length > 0) {
+    findings.push(
+      finding(
+        'VG-ART-068',
+        'medium',
+        'The record carries a state at a checkpoint the declaration does not plan for it',
+        `${audit.posted.offPlan.map((o) => `${o.propertyId} at ${o.checkpoint}`).join('; ')}. The ` +
+          `${audit.source} declaration plans none of those cells for the property that carries it, so no ` +
+          'account was opened for them and the states are posted to no column. This is `VG-ART-066` along ' +
+          "the other axis: narrowing `plannedCheckpoints` — the whole list, or one property's own — " +
+          'takes a column out of the ledger without taking anything out of the record, and the books ' +
+          'then balance because the row is gone rather than because it was accounted for.',
+        { path },
+      ),
+    );
+  }
+
+  if (audit.source !== 'record') {
+    if (!audit.declarations.comparable) {
+      unchecked.push('ledger.declaration');
+    } else if (audit.declarations.problems.length > 0) {
+      findings.push(
+        finding(
+          'VG-ART-067',
+          'high',
+          "The declaration in force and the record's own declaration disagree",
+          `${audit.declarations.problems.join('; ')}. The ledger was balanced against the ` +
+            `${audit.source} declaration; the record was written against a different list of accounts.`,
+          { path },
+        ),
+      );
+    } else {
+      checked.push('ledger.declaration');
+    }
+  }
+
+  return audit;
 }
 
 /**
@@ -446,20 +627,56 @@ export function verifyBundle(dir, opts = {}) {
       error: `evidence.json does not parse: ${e.message}`,
     };
   }
-  if (record.schemaVersion !== 'evidence-v0') {
+  const unsupported = unsupportedVersion(record);
+  if (unsupported !== null) {
     return {
       verdict: 'UNSUPPORTED',
       findings: [],
       checked: [],
       unchecked: ['*'],
       digest: null,
-      error: `schemaVersion ${JSON.stringify(record.schemaVersion)} is not evidence-v0`,
+      error: unsupported,
     };
+  }
+
+  // The manifest is read BEFORE the record is checked, because it is the second
+  // book: when it carries a `declares` block that is where the ledger's
+  // declared accounts come from, and a declaration resolved after the record
+  // had already been counted would be a declaration that could not affect the
+  // count. `manifestUnreadable` carries the same "could not check" it always
+  // did, now from one read instead of two.
+  const manifestPath = join(dir, 'manifest.json');
+  let manifest = null;
+  let manifestUnreadable = false;
+  if (existsSync(manifestPath)) {
+    try {
+      const parsed = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      // A manifest that parses to something that is not a JSON object is a
+      // manifest nobody could read: no `evidenceDigest` to compare, no
+      // `declares` block to hold the ledger against, nothing cross-checked. It
+      // lands on `unchecked` beside the ones that do not parse at all.
+      //
+      // This guard is on the SHAPE because the version of this code that read
+      // the manifest once, for the ledger as well as for the digest, lost it.
+      // The code it replaced had both the parse and `man.evidenceDigest` inside
+      // one `try`, so a `manifest.json` holding the four bytes `null` threw on
+      // the property access and was reported UNCHECKED / exit 3; with the parse
+      // alone in the `try` and the access guarded by `manifest !== null`, the
+      // same bundle answered VERIFIED_CLEAN / exit 0. That is an unchecked
+      // cross-check reported as a clean one, which is the one conflation this
+      // component's exit codes exist to prevent. `null`, `[]`, `"x"` and `3`
+      // now all answer the way `null` did before, by the rule rather than by
+      // which line happened to throw.
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) manifestUnreadable = true;
+      else manifest = parsed;
+    } catch {
+      manifestUnreadable = true;
+    }
   }
 
   let res;
   try {
-    res = verifyRecord(record, { ...opts, path: 'evidence.json' });
+    res = verifyRecord(record, { ...opts, manifest, path: 'evidence.json' });
   } catch (e) {
     if (e instanceof MalformedRecordError) {
       return {
@@ -518,24 +735,28 @@ export function verifyBundle(dir, opts = {}) {
   }
 
   // Cross-check against the bundle manifest when there is one.
-  const manifestPath = join(dir, 'manifest.json');
-  if (existsSync(manifestPath)) {
-    try {
-      const man = JSON.parse(readFileSync(manifestPath, 'utf8'));
-      if (typeof man.evidenceDigest === 'string') {
-        if (man.evidenceDigest !== record.evidenceDigest) {
-          findings.push(
-            finding('VG-ART-062', 'high', 'The manifest names a different evidenceDigest', `manifest.json says ${man.evidenceDigest}, evidence.json says ${record.evidenceDigest}.`, {
-              path: 'manifest.json',
-            }),
-          );
-        } else {
-          checked.push('manifest.evidenceDigest');
-        }
-      }
-    } catch {
-      unchecked.push('manifest.json');
-    }
+  if (manifestUnreadable) {
+    unchecked.push('manifest.json');
+  } else if (manifest === null) {
+    // No manifest.json in the bundle at all. Not an unchecked field: the bundle
+    // does not carry the document, the same way an evidence-v0 record does not
+    // carry a ledger, and reporting a field of a document that is not there
+    // would be a true statement about nothing.
+  } else if (typeof manifest.evidenceDigest !== 'string') {
+    // A manifest that is there and names no digest. `evidence-bundle-v0` has
+    // that field, so this is a field nobody compared rather than a document
+    // nobody has, and it is UNCHECKED. Leaving it silent would let a producer
+    // buy a clean verdict by deleting a line — the same inverted incentive the
+    // ledger's own `entries` block is guarded against below.
+    unchecked.push('manifest.evidenceDigest');
+  } else if (manifest.evidenceDigest !== record.evidenceDigest) {
+    findings.push(
+      finding('VG-ART-062', 'high', 'The manifest names a different evidenceDigest', `manifest.json says ${manifest.evidenceDigest}, evidence.json says ${record.evidenceDigest}.`, {
+        path: 'manifest.json',
+      }),
+    );
+  } else {
+    checked.push('manifest.evidenceDigest');
   }
 
   // A field nobody could check is not a field that passed. Reporting
@@ -548,7 +769,9 @@ export function verifyBundle(dir, opts = {}) {
       : unchecked.length > 0
         ? 'VERIFICATION_INCOMPLETE'
         : 'VERIFIED_CLEAN';
-  return { verdict, findings, checked, unchecked, digest: record.evidenceDigest ?? null };
+  const out = { verdict, findings, checked, unchecked, digest: record.evidenceDigest ?? null };
+  if (res.ledger) out.ledger = res.ledger;
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -664,6 +887,7 @@ function usage() {
     '  --bundle <dir>                   verify one bundle directory',
     '  --bundles <dir>                  verify every bundle directory under <dir>',
     '  --record <file>                  verify one evidence.json, no filesystem checks',
+    '  --declared <file>                hold an evidence-v1 record against THIS declaration',
     '  --digest <file>                  print the re-derived digest of a JSON file',
     '  --clock-audit <dir>              fail if anything but clock.mjs reads a clock',
     '  --paths <file> [--mode m]        report absolute paths in a JSON file',
@@ -676,6 +900,11 @@ function usage() {
     'Every mode prints `inputs=N checked=N skipped=S`, and N=0 exits 3 unless',
     '--allow-empty was passed. A symlink anywhere on the path to an input is',
     'refused rather than followed.',
+    '',
+    'An evidence-v1 record carries a ledger and is held to it. Without --declared',
+    'the declared accounts come from the record itself, which catches a record',
+    'that dropped a property from one of its two books and cannot catch one that',
+    'dropped it from both; --declared names an outside document and closes that.',
     '',
     'exit: 0 clean, 2 findings at/above threshold, 3 could not complete, 4 malformed record',
   ].join('\n');
@@ -720,7 +949,53 @@ function cliContext(argv) {
       return 2;
     }
   };
-  return { flag, val, asJson, failOn, counts, refuseLink };
+  /**
+   * Read the declaration named by `--declared`, if any.
+   *
+   * Returns `{value, code}`: `value` is the parsed document, or `null` when the
+   * flag was not given, and `code` is the exit code to use when it was given and
+   * could not be read. A named declaration that cannot be read is exit 3 and
+   * never a quiet fall back to the record's own list: falling back answers a
+   * question about one document by consulting a different one.
+   */
+  const declared = () => {
+    const f = val('--declared');
+    if (!f) return { value: null, code: null };
+    const guard = refuseLink(f, 'the declaration');
+    if (guard !== null) return { value: null, code: guard };
+    if (!existsSync(f)) {
+      process.stderr.write(`cannot read the declaration ${f}\n`);
+      counts(1, 0, 1, 'declaration', f);
+      return { value: null, code: 3 };
+    }
+    try {
+      return { value: JSON.parse(readFileSync(f, 'utf8')), code: null };
+    } catch (e) {
+      process.stderr.write(`the declaration does not parse: ${e.message}\n`);
+      counts(1, 0, 1, 'declaration', f);
+      return { value: null, code: 3 };
+    }
+  };
+
+  return { flag, val, asJson, failOn, counts, refuseLink, declared };
+}
+
+/**
+ * One line about the ledger, on the human-readable path.
+ *
+ * It prints the four columns even when they balance. A check whose output is
+ * empty when it passes is a check nobody can tell ran, and this one has to be
+ * tellable from a log: the whole point of it is that a missing cell is visible.
+ */
+function ledgerLine(audit) {
+  if (!audit) return null;
+  if (!audit.checkable) return `ledger: NOT CHECKED - ${audit.why}`;
+  const cells = audit.posted.entries.reduce((n, e) => n + e.declared, 0);
+  const cols = audit.posted.entries
+    .map((e) => `${e.checkpoint} ${ACCOUNTS.map((a) => `${a}=${e[a]}`).join(' ')} of ${e.declared}`)
+    .join(', ');
+  const n = audit.posted.declaredPropertyCount;
+  return `ledger: ${audit.source} declaration, ${n} declared propert${n === 1 ? 'y' : 'ies'}, ${cells} planned cell(s) - ${cols}`;
 }
 
 /** `--self-test`: reproduce every calibration vector. */
@@ -839,25 +1114,50 @@ function readRecord(f, counts) {
 }
 
 /** `--record`: verify one evidence.json, no filesystem checks. */
-function runRecord({ val, asJson, failOn, counts, refuseLink }) {
+function runRecord({ val, asJson, failOn, counts, refuseLink, declared }) {
   const f = val('--record');
   const guard = refuseLink(f, 'the record');
   if (guard !== null) return guard;
+  const dec = declared();
+  if (dec.code !== null) return dec.code;
   const read = readRecord(f, counts);
   if (read.code !== undefined) return read.code;
   let r;
   try {
-    r = verifyRecord(read.rec, { path: f });
+    r = verifyRecord(read.rec, { path: f, declared: dec.value });
   } catch (e) {
     process.stderr.write(`malformed record: ${e.message}\n`);
     counts(1, 0, 1, 'record', f);
     return 4;
   }
+  // A schema this verifier does not know: not checked, and therefore not clean.
+  // `--bundle` always answered this way; `--record` did not, and a record
+  // relabelled to an unknown version exited 0 with the ledger skipped.
+  if (r.verdict === 'UNSUPPORTED') {
+    if (asJson) process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
+    else process.stdout.write(`UNSUPPORTED  ${r.error}\n`);
+    counts(1, 0, 1, 'record', f);
+    return 3;
+  }
   if (asJson) process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
   else {
     process.stdout.write(`checked: ${r.checked.join(', ') || '(nothing)'}\n`);
     if (r.unchecked.length) process.stdout.write(`unchecked: ${r.unchecked.join(', ')}\n`);
+    const line = ledgerLine(r.ledger);
+    if (line) process.stdout.write(`${line}\n`);
     for (const x of r.findings) process.stdout.write(`  [${x.severity}] ${x.id} ${x.title}\n    ${x.detail}\n`);
+    // `--fail-on` is a gate on the EXIT CODE, not on the check. Findings under
+    // the threshold are found, printed and carried in `--json`, and the run
+    // still exits 0; saying so here keeps that 0 from being read as "nothing
+    // was found". Every ledger finding is high or medium, so `--fail-on
+    // critical` suppresses all of them.
+    const under = r.findings.filter((x) => SEVERITY_ORDER[x.severity] < failOn);
+    if (under.length > 0) {
+      process.stdout.write(
+        `note: ${under.length} finding(s) are below --fail-on and do not change the exit code: ` +
+          `${[...new Set(under.map((x) => x.id))].join(', ')}\n`,
+      );
+    }
   }
   const settled = counts(1, 1, 0, 'record', f);
   if (r.findings.some((x) => SEVERITY_ORDER[x.severity] >= failOn)) return 2;
@@ -873,15 +1173,19 @@ function runRecord({ val, asJson, failOn, counts, refuseLink }) {
 function printBundle(name, r) {
   const n = r.findings.length;
   process.stdout.write(`${n === 0 ? 'ok  ' : 'FAIL'} ${name}  ${r.verdict}  digest=${(r.digest ?? '-').slice(0, 16)}  checked=${r.checked.length} unchecked=${r.unchecked.length}\n`);
+  const line = ledgerLine(r.ledger);
+  if (line) process.stdout.write(`       ${line}\n`);
   for (const f of r.findings) process.stdout.write(`       [${f.severity}] ${f.id} ${f.title}\n         ${f.detail}\n`);
   if (r.error) process.stdout.write(`       ${r.error}\n`);
 }
 
 /** `--bundle` / `--bundles`: verify one bundle directory, or every one under a root. */
-function runBundles({ flag, val, asJson, failOn, counts, refuseLink }) {
+function runBundles({ flag, val, asJson, failOn, counts, refuseLink, declared }) {
   const given = val('--bundle') ?? val('--bundles');
   const guard = refuseLink(given, 'the bundle directory');
   if (guard !== null) return guard;
+  const dec = declared();
+  if (dec.code !== null) return dec.code;
   const root = resolve(given);
   if (!existsSync(root) || !statSync(root).isDirectory()) {
     process.stderr.write(`not a directory: ${root}\n`);
@@ -899,7 +1203,7 @@ function runBundles({ flag, val, asJson, failOn, counts, refuseLink }) {
   let incomplete = 0;
   let malformed = 0;
   for (const d of dirs) {
-    const r = verifyBundle(d, {});
+    const r = verifyBundle(d, { declared: dec.value });
     const name = d.split(sep).pop();
     report.push({ bundle: name, ...r });
     if (r.malformed) malformed++;
@@ -908,7 +1212,18 @@ function runBundles({ flag, val, asJson, failOn, counts, refuseLink }) {
     if (!asJson) printBundle(name, r);
   }
   if (asJson) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-  else process.stdout.write(`\n${dirs.length} bundle(s): ${report.filter((r) => r.findings.length === 0 && !r.error).length} clean, ${report.filter((r) => r.findings.length > 0).length} with findings, ${incomplete} incomplete, ${malformed} malformed\n`);
+  else {
+    process.stdout.write(`\n${dirs.length} bundle(s): ${report.filter((r) => r.findings.length === 0 && !r.error).length} clean, ${report.filter((r) => r.findings.length > 0).length} with findings, ${incomplete} incomplete, ${malformed} malformed\n`);
+    // As in `runRecord`: a finding under the threshold is still a finding, and
+    // the 0 it exits with is the caller's gate rather than a clean bill.
+    const under = report.flatMap((r) => r.findings).filter((x) => SEVERITY_ORDER[x.severity] < failOn);
+    if (under.length > 0) {
+      process.stdout.write(
+        `note: ${under.length} finding(s) are below --fail-on and do not change the exit code: ` +
+          `${[...new Set(under.map((x) => x.id))].join(', ')}\n`,
+      );
+    }
+  }
   const settled = counts(dirs.length, dirs.length - malformed, malformed, 'bundle', root);
   if (malformed > 0) return 4;
   if (worst > failOn) return 2;

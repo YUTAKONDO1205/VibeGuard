@@ -55,6 +55,7 @@ import {
   evenSample, summarizeGroup, insideRepo, selectErasureIds,
 } from './lib/lto.mjs';
 import { sha256Text, absolutePathHits } from '../lib/provenance.mjs';
+import { runSpikeGate, summarise as summariseSpikeGate } from '../../spike/lib/gate.mjs';
 
 const run = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -272,6 +273,24 @@ async function main() {
     const l = await tool(args.llc, [llcOptFor(opt), '-relocation-model=pic', '-o', sOut, bc], BASE_ENV);
     if (l.rc !== 0) return { asm: null, problem: `llc rc ${l.rc}`, layout: null, stderrEmpty, stderrFlags, linkLine };
     return { asm: readFileSync(sOut, 'utf8'), problem: null, layout: null, stderrEmpty, stderrFlags, linkLine };
+  }
+
+  // ---- spike/recovery gate, before the preflight ----------------------------
+  //
+  // The preflight below asks whether post-LTO assembly can be cut at all. This
+  // asks the prior question: does verdictOf read a known elimination and a known
+  // survival in this run. A NOT_LTO cell and a cell nobody could read are
+  // different failures and only one of them is about LTO.
+  //
+  // "a known elimination AND a known survival" is the point: this probe's default
+  // --opts is -O2, where the two spikes are registered to read different words.
+  // `--opts -O0` alone has no such pair and the gate refuses the run with
+  // NO_DISCRIMINATING_CONFIGURATION rather than passing it 2/2.
+  const spike = await runSpikeGate({ ccs: [args.cc], opts: args.opts, lab: join(OUT, 'spike') });
+  process.stderr.write(`${summariseSpikeGate(spike)}\n`);
+  if (!spike.established) {
+    for (const why of spike.verdict.reasons) process.stderr.write(`  spike gate: ${why}\n`);
+    die(3, 'the spike/recovery gate did not hold; no LTO cell was run');
   }
 
   // ---- preflight: can post-LTO assembly be cut, and does the plugin run under -flto? ----
