@@ -461,9 +461,15 @@ a reason rather than a backlog.
   under the gate on 2026-09-12 and read the same 4,689 rows it read before it
   (`../ai-generated/data/r2-regate.json`). A gate that changed the measurement
   would be a different problem, and that is the run that says it did not.
-* **not closed, and named** — the four harnesses' *older* tracked data was taken
-  before the gate existed, except the corpus rows above. Re-measuring the repair
-  loop and the two LTO probes under the gate has not been done.
+* **also measured** — the repair loop was re-run under the gate on 2026-09-12
+  and its 1,881 tracked rows came back **byte-identical**, digest and all
+  (`../repair-loop/data/r2-regate.json`). That lane is deterministic where the
+  corpus lane is not, so it can make the stronger claim.
+* **nothing to re-measure** — the two LTO probes write **no tracked data at
+  all**; `../repair-loop/data/` holds four files and none of them is theirs.
+  What their READMEs quote are lab runs, and the ones already written down were
+  taken before the gate existed. That is a provenance fact about those
+  sentences, not a stale tracked record.
 
 | harness | gated? | file:line |
 |---|---|---|
@@ -841,14 +847,14 @@ two spikes are registered to read different words — not to relax the rule.
 ## What is NOT measured
 
 * **~~No harness's data is gated.~~ Five harnesses are, by file and line in the
-  table above.** What is still unmeasured is narrower and is worth keeping
-  separate from it: of the runs those five guard, only the corpus rebuild has
-  actually been re-taken with the gate in place (`../ai-generated/data/r2-regate
-  .json`, 2026-09-12, the same 4,689 rows). **The repair loop's tracked rows and
-  both LTO probes' records still date from before the gate existed.** Their code
-  is gated and their data is not, which is the same sentence this whole section
-  was wrong about in the other direction, so it is written here rather than
-  implied: **unmeasured, not "passing"**.
+  table above, and the two lanes that carry tracked rows have been re-measured
+  under it.** The corpus rebuild read the same 4,689 rows
+  (`../ai-generated/data/r2-regate.json`) and the repair loop the same 1,881,
+  byte for byte (`../repair-loop/data/r2-regate.json`). What remains unmeasured
+  is narrower and is written here rather than implied: the **gcc-13 half** of
+  the repair loop, whose tracked rows are a separate file, and every **LTO
+  probe** sentence, which is lab-only output with no tracked record to compare
+  against. **Unmeasured, not "passing".**
 * **The observer channel at levels other than `-O2`, and on gcc.** The plugin is
   an LLVM pass-instrumentation plugin; gcc has no such channel here, and only
   `-O2` is registered. The registered `-O2` cell was run and held.

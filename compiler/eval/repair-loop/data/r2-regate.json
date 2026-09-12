@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "repair-regate/1",
+  "readMeFirst": "run-repair-loop.mjs has called compiler/eval/spike's gate since 2026-09-12 (run-repair-loop.mjs:318). The rows beside it were measured before the gate existed, so the sentence 'these rows were taken with the instrument shown to be reading' was true of the code and not of the data. This file is the re-measurement, one run per vendor, and unlike the corpus lane this one is byte-deterministic: the digests below are the digests of the tracked files, not merely the same multiset.",
+  "question": "do the tracked repair-loop rows reproduce with the spike/recovery gate in front of the run, on both vendors?",
+  "measuredOn": "2026-09-12",
+  "toolchain": {
+    "cc": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+    "gcc": "gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "node": "v18.19.1",
+    "host": "Linux 6.6.87.2-microsoft-standard-WSL2 x86_64"
+  },
+  "plugins": {
+    "clang-18": "libWipePin.so, built from compiler/llvm-repair at this commit",
+    "gcc-13": "libWipePinGcc.so, built from compiler/gcc-repair at this commit"
+  },
+  "runs": [
+    {
+      "cc": "clang-18",
+      "gate": {
+        "established": true,
+        "configurations": { "num": 5, "den": 5 },
+        "discriminating": { "num": 4, "den": 5 },
+        "injectionHeld": true
+      },
+      "erasureFiles": 360,
+      "wipeCells": 1605,
+      "noWipeCells": 195,
+      "perSpanCompilePairs": 835,
+      "wallClockSeconds": 118,
+      "exit": 0,
+      "wroteTrackedRows": false,
+      "rows": 1881,
+      "trackedFile": "data/r2-repair-rows.json",
+      "trackedSha256": "05d1240efd7322543625e83158139739429f65eeb5c7c1d4f57e7d87c912ce96",
+      "labSha256": "05d1240efd7322543625e83158139739429f65eeb5c7c1d4f57e7d87c912ce96",
+      "byteIdentical": true,
+      "comparison": { "identical": 1881, "only_in_a": 0, "only_in_b": 0, "equal": true, "exit": 0 }
+    },
+    {
+      "cc": "gcc-13",
+      "gate": {
+        "established": true,
+        "configurations": { "num": 5, "den": 5 },
+        "discriminating": { "num": 4, "den": 5 },
+        "injectionHeld": true
+      },
+      "erasureFiles": 360,
+      "wipeCells": 1605,
+      "noWipeCells": 195,
+      "perSpanCompilePairs": 835,
+      "wallClockSeconds": 80,
+      "exit": 0,
+      "wroteTrackedRows": false,
+      "rows": 1883,
+      "trackedFile": "data/r2-repair-rows-gcc-13.json",
+      "trackedSha256": "cd999c151a27599e200c32be6152bfb13df7edb4b5649e198f1d5e8d6748ba9e",
+      "labSha256": "cd999c151a27599e200c32be6152bfb13df7edb4b5649e198f1d5e8d6748ba9e",
+      "byteIdentical": true,
+      "comparison": { "identical": 1883, "only_in_a": 0, "only_in_b": 0, "equal": true, "exit": 0 }
+    }
+  ],
+  "notMeasuredHere": [
+    "The LTO probes (tools/lto-probe.mjs, tools/lto-probe-gcc.mjs). They are gated the same way and write no tracked rows at all, so there is nothing in data/ of theirs to compare against; what their prose quotes are lab runs, and the ones already written down predate the gate.",
+    "The -O0 configuration's contribution to the gate. 4 of 5 configurations discriminate on each vendor -- at -O0 both spikes are registered to read the same word -- which is the same shape the corpus lane records."
+  ],
+  "provenance": {
+    "comparison": "recomputed -- test/regate.test.mjs recomputes both tracked files' sha256 and row counts and holds this record to them",
+    "gate": "lab-run -- read from the first line of each run's log; nothing here recomputes it",
+    "wallClockSeconds": "lab-run -- from `time`, and expected to differ on another machine"
+  }
+}

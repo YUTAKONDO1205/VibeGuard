@@ -669,6 +669,32 @@ other `--cc` (`r2-repair-rows-gcc-13.json` for gcc-13; `dataFileNames` in
 per compiler, so a run with one compiler can never overwrite another's file, and
 a second clang (say `clang-19`) does not write over clang-18's.
 
+### Re-measured under the spike gate — 2026-09-12
+
+`run-repair-loop.mjs:318` has called `../spike`'s gate since 2026-09-12, and the
+tracked rows beside it were measured before the gate existed: the code was
+gated and the data was not. Both vendors were therefore run again with the gate
+in front of them and **nothing written to `data/`**:
+
+```
+node run-repair-loop.mjs --plugin <libWipePin.so>    --cc clang-18 --out <lab> --conc 8   # 1 m 58 s
+node run-repair-loop.mjs --plugin <libWipePinGcc.so> --cc gcc-13   --out <lab> --conc 8   # 1 m 20 s
+node ../ai-generated/lib/compare-rows.mjs data/r2-repair-rows.json <lab>/r2-repair-rows.json
+```
+
+The gate held on both (`configurations 5/5`, `discriminating 4/5` — the `-O0`
+cell registers the same word for both spikes — injection RED), and the rows
+came back **byte-identical**: 1,881 for clang-18 at
+`05d1240e…`, 1,883 for gcc-13 at `cd999c15…`, the digests the tracked files
+already had. This lane writes its rows in a fixed order, so unlike
+`../ai-generated` it can make that claim rather than settling for the multiset.
+
+`data/r2-regate.json` is the record and `test/regate.test.mjs` recomputes both
+digests and row counts from the tracked files. What is **not** covered: the two
+LTO probes, which are gated the same way and write no tracked rows at all, so
+there is nothing of theirs in `data/` to compare against — their READMEs' runs
+are lab output, and the ones already written down predate the gate.
+
 `--plan` compiles only the (file, level) cells the plan names, each with exactly
 the names it lists, and refuses a plan whose names no longer match this tree's
 find step, or that was written for another compiler (exit 5). A planned cell
