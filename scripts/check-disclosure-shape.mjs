@@ -54,6 +54,56 @@ const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 /** Files larger than this are reported as skipped rather than scanned. */
 const MAX_BYTES = 4 * 1024 * 1024;
 
+/**
+ * Extensions whose files are TEXT whatever bytes they happen to contain.
+ *
+ * Added 2026-09-12. The binary test below was `buf.includes(0)`, which is right
+ * for a PNG and wrong for source: three tracked TypeScript files in this
+ * repository use a literal NUL as a map-key separator, and all three were
+ * classified binary and skipped —
+ *
+ *   apps/cli/src/fix-ledger.ts                                (3 NULs, first at 8796)
+ *   packages/analysis-graph/src/design-smells-crossfile/…test.ts
+ *   packages/analyzer-core/src/declared-packages.ts
+ *
+ * — so they were permanently invisible to this check while shipping in the npm
+ * workspaces. `hits: 0` was true of everything the sweep looked at and silent
+ * about three files it never opened, which is the difference between "clean" and
+ * "we did not look" that this script's own VACUOUS exit exists to keep apart.
+ * Skipping was doing at file granularity exactly what that exit code refuses at
+ * run granularity.
+ *
+ * A NUL does not stop a regex, so these are scanned as UTF-8 with the NULs
+ * replaced. And a source file that is skipped for any other reason is now an
+ * error rather than a line in a summary: see SKIP_IS_FATAL below.
+ */
+const TEXT_EXTENSIONS = new Set([
+  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json', '.jsonc', '.md', '.mdx',
+  '.txt', '.yml', '.yaml', '.toml', '.ini', '.cfg', '.c', '.h', '.cc', '.cpp', '.hpp',
+  '.py', '.sh', '.bash', '.css', '.scss', '.html', '.htm', '.svg', '.xml', '.sql',
+]);
+
+/**
+ * A skipped file with one of these extensions is a hole in the sweep, not a note.
+ *
+ * Deliberately its OWN list and not an alias of TEXT_EXTENSIONS, which is what it
+ * was for the first ten minutes of its life. Aliased, the guard was tautological:
+ * shrinking TEXT_EXTENSIONS shrank the invariant with it, so removing `.ts` from
+ * the text list made three source files skippable again AND made the check that
+ * was supposed to notice stop looking. Measured by mutating exactly that and
+ * watching exit 0 come back.
+ *
+ * The invariant is the shorter list: whatever this script decides is text, THESE
+ * must always be scanned, and a skip of one for any reason -- binary, too large,
+ * unreadable -- is exit 3.
+ */
+const SKIP_IS_FATAL = new Set(['.ts', '.tsx', '.js', '.mjs', '.cjs', '.json', '.md', '.c', '.h', '.py', '.sh']);
+
+const extensionOf = (p) => {
+  const i = p.lastIndexOf('.');
+  return i < 0 ? '' : p.slice(i).toLowerCase();
+};
+
 // ── Shapes ──────────────────────────────────────────────────────────────────
 //
 // `scope` limits a shape to files whose basename matches, for shapes that would
@@ -216,11 +266,15 @@ function collectTargets(explicit) {
     let text;
     try {
       const buf = readFileSync(abs);
-      if (buf.includes(0)) {
+      // A NUL means binary only when the name does not already say text. Source
+      // that uses one as a separator is still source, and a regex does not stop
+      // at it -- the NULs are replaced so a match's surrounding text stays
+      // printable.
+      if (buf.includes(0) && !TEXT_EXTENSIONS.has(extensionOf(r))) {
         skipped.push([r, 'binary']);
         continue;
       }
-      text = buf.toString('utf8');
+      text = buf.toString('utf8').replace(/ /g, ' ');
     } catch {
       skipped.push([r, 'unreadable']);
       continue;
@@ -418,6 +472,19 @@ if (verbose) for (const [r, why] of skipped) console.log(`  skip ${r} — ${why}
 if (files.length === 0) {
   console.error('\nVACUOUS: nothing was scanned. Reporting "clean" here would be a lie about');
   console.error('an empty set, which is the failure mode this exit code exists for.');
+  process.exit(3);
+}
+
+// A skipped SOURCE file is the same lie one file at a time. Three tracked .ts
+// files sat in the skip list for as long as this check has existed, counted in a
+// summary line nobody reads and excluded from every "hits: 0" it ever printed.
+const skippedSource = skipped.filter(([r]) => SKIP_IS_FATAL.has(extensionOf(r)));
+if (skippedSource.length > 0) {
+  console.error(`\n${skippedSource.length} text file(s) were NOT scanned:`);
+  for (const [r, why] of skippedSource) console.error(`  ${r} — ${why}`);
+  console.error('A file with a text extension that this check could not read is a hole in the');
+  console.error('sweep, not a footnote: "hits: 0" would be a statement about everything except');
+  console.error('these. Make it readable, or teach the reader why it is not text.');
   process.exit(3);
 }
 if (hits.length > 0) {

@@ -91,7 +91,7 @@ function parseArgs(argv) {
     // remembers to name it on the command line is a family whose result nobody
     // has, and the question it answers -- "you only saw it because of noinline"
     // -- is the first one a reader asks of this lane.
-    fixtures: ['xtu', 'xtu-inline', 'erasure'], forms: ['full', 'thin'],
+    fixtures: ['xtu', 'xtu-inline', 'erasure'], forms: ['full', 'thin'], writePair: false,
     cc: 'clang-18', gcc: 'gcc-13', opt: '-O2',
     skipThinEvidence: false, skipGcc: false, skipNegativeControl: false, keep: false,
   };
@@ -109,6 +109,7 @@ function parseArgs(argv) {
     else if (a === '--skip-gcc') o.skipGcc = true;
     else if (a === '--skip-negative-control') o.skipNegativeControl = true;
     else if (a === '--keep') o.keep = true;
+    else if (a === '--write-pair') o.writePair = true;
     else die(4, `unknown option ${a}`);
   }
   return o;
@@ -939,6 +940,52 @@ function main() {
   }
   const outFile = path.join(outAbs, 'lto-window.json');
   fs.writeFileSync(outFile, json);
+
+  // A tracked record of the intervention pair, small enough to keep.
+  //
+  // Until 2026-09-12 this lane wrote nothing into the checkout, so the only
+  // record of what it measured was prose in README.md. A reviewer asking "show
+  // me the run" for the version ladder gets data/version-ladder-sweep.json with
+  // its anchor counts; asking the same of this lane got a paragraph. The full
+  // result is 15 cells with their guards and pass logs and belongs in the lab;
+  // what does not rebuild by itself is the PAIR -- the attribution with the
+  // intervention, the reading without it, and the verdict that compares them --
+  // so that is what is kept, one file per optimisation level.
+  if (o.writePair) {
+    const dataDir = path.join(HERE, 'data');
+    fs.mkdirSync(dataDir, { recursive: true });
+    const link = (id) => results.cells.find((c) => c.id === id) ?? null;
+    const slim = (c) => (c === null ? null : {
+      id: c.id, measurement: c.measurement, state: c.state, stage: c.stage,
+      attribution: c.attribution, controlHeld: c.controlHeld,
+      byteIdentical: c.guards ? (c.guards.byteIdentical ?? null) : null,
+    });
+    const rec = {
+      tool: 'lto-window intervention pair',
+      optLevel: results.optLevel ?? o.opt,
+      toolchain: results.toolchain,
+      plugin: results.plugin,
+      negativeControl: results.negativeControl,
+      cells: ['xtu.full.link', 'xtu-inline.full.link', 'xtu.full.compile', 'xtu-inline.full.compile'].map((id) => slim(link(id))),
+      interventionPairs: results.interventionPairs,
+      counts: results.counts,
+      fullResult: {
+        tracked: false,
+        cells: results.counts.cells,
+        why: 'the whole result is a lab artefact; the pair is what this file keeps. See README.md for the command.',
+      },
+    };
+    const recJson = `${JSON.stringify(rec, null, 1)}\n`;
+    const recHits = scrubbed(recJson);
+    if (recHits.length) {
+      process.stderr.write(`lto-window: the pair record carries ${recHits.length} absolute path(s); refusing to write.\n`);
+      process.exit(4);
+    }
+    const stem = `intervention-pair${String(o.opt).replace(/[^A-Za-z0-9]+/g, '')}`;
+    fs.writeFileSync(path.join(dataDir, `${stem}.json`), recJson);
+    process.stderr.write(`lto-window: wrote data/${stem}.json\n`);
+  }
+
   if (!o.keep) fs.rmSync(work, { recursive: true, force: true });
 
   for (const c of results.cells) {

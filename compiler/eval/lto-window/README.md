@@ -216,6 +216,27 @@ old sentence got wrong was the consequence — it assumed no symbol meant no uni
 and the observer works on IR units during the LTO backend, which is upstream of
 the inlining that removes the symbol.
 
+### The records this lane keeps
+
+Until 2026-09-12 this lane wrote nothing into the checkout: results went to a lab
+directory and the only record of a measurement was prose here. `--write-pair`
+changes that for the half that does not rebuild by itself.
+
+```
+node compiler/eval/lto-window/run-lto-window.mjs --lab "$HOME/vg-lab/lto-window"     --out "$HOME/vg-lab/lto-window/rec-O2" --plugin <so> --opt -O2     --skip-thinlto-evidence --write-pair        # -> data/intervention-pairO2.json
+```
+
+`data/intervention-pair{O1,O2,O3,Os}.json`, about 5 KB each: the four cells the
+pair is about, the attribution with the intervention, the reading without it, the
+verdict comparing them, the negative control per family, the resolved toolchain
+and the observer's identity. The fifteen-cell result stays in the lab and the
+record says so (`fullResult.tracked: false`) rather than leaving a reader to
+wonder where it went. `test/data.test.mjs` pins the numbers, including the one
+distinction a summary would lose: `verdict.supported` is **`false`** at -O2/-O3/-Os
+(CONTRADICTED — measured, and the claim's second half fell) and **`null`** at -O1
+(NOT ESTABLISHED — the intervened side produced no attribution, so there was
+nothing to compare).
+
 ### Which of the two absorbed wipes is gone — settled by deletion
 
 `absorbedFillReading()` above stops at "32 B of fill where the source asks for
