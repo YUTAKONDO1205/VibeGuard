@@ -1,5 +1,6 @@
 import {
   isDesignSmellFinding,
+  type CompileLossEvidence,
   type ConfidenceAudit,
   type DesignMetrics,
   type Finding,
@@ -136,6 +137,12 @@ export interface SarifResult {
     severity?: string;
     tags?: string[];
     confidenceAudit?: ConfidenceAudit;
+    /**
+     * The consumer-supplied, corpus-counted build-loss ratio, passed through
+     * as the two integers it arrived as. Absent for every finding no consumer
+     * supplied a cell for, which is the normal case.
+     */
+    compileLossEvidence?: CompileLossEvidence;
     /** Design-smell scope (`file`, `project`, …). Absent for ordinary findings. */
     scope?: string;
     /** The measurements behind a design smell's verdict. */
@@ -288,6 +295,17 @@ function findingToResult(f: Finding, uriPrefix = ''): SarifResult {
       // enumerate them, and "this finding was never context-evaluated" must not
       // look like "it was evaluated and found nothing".
       ...(f.confidenceAudit ? { confidenceAudit: f.confidenceAudit } : {}),
+      // The consumer-supplied build-loss ratio, passed through unchanged and
+      // under its own key. Same conditional spread and the same reason: a
+      // finding with no supplied cell is the normal case, and a key present
+      // with `undefined` would tell a consumer enumerating the bag that a
+      // corpus was counted for this rule when none was.
+      //
+      // Carried as the two integers, never as anything computed from them —
+      // see the wording rule on `renderCompileLossEvidence`. A SARIF property
+      // bag is where a downstream tool goes looking for a number to put on a
+      // dashboard, so the denominator has to travel with the numerator.
+      ...(f.compileLossEvidence ? { compileLossEvidence: f.compileLossEvidence } : {}),
       ...(isDesignSmellFinding(f)
         ? {
             scope: f.scope,

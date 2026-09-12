@@ -263,11 +263,14 @@ is worse than a raise sourced from the file, because the file at least belongs t
 the user being warned. So the transfer below carries a ratio under its own name and
 does not touch that axis at all.
 
-## Product side — [SPEC] only, nothing implemented
+## Product side — implemented
 
-Nothing in `packages/` is changed by this lane and nothing here is wired to the
-product. What follows is a specification for a field, to be implemented (or
-rejected) in a separate PR on the product release train.
+**Adopted on 2026-09-12 by the user's ruling** (see "The ruling" below, which is
+the section that used to say adoption was pending). What this section specified
+is now code in the product packages, on the release train. The specification
+itself has not been weakened or reinterpreted on the way in; what follows is the
+same text, with a record of where each of its sentences now lives and what holds
+it there.
 
 **Field name: `compileLossEvidence`.** Not `confidence`, and not a modifier of it.
 
@@ -293,8 +296,8 @@ outside, and a finding without it is the normal case rather than a degraded one.
 
 Rendering rule, inherited from the wording rule above: a consumer may print
 "113 of 133 files with this idiom lost the wipe under clang-18 -O2 in corpus r2"
-and may not print a percentage, a score, or anything that reads as a forecast about
-*this* file. The ratio is about a corpus; the finding is about a line.
+and may not print a percentage, a score, or anything that reads as a forecast
+about *this* file. The ratio is about a corpus; the finding is about a line.
 
 **Why it is worth doing at all**: this is the fourth step of a loop whose first
 three exist. Today `find → fix → confirm` closes entirely on the build side — the
@@ -308,7 +311,73 @@ may be removed by the compiler" — true of every wipe, and therefore ignorable 
 "113 of 133 files that wrote this idiom lost it under the toolchain you are
 building with".
 
-## Adoption is not granted yet
+### Where it landed
+
+Nothing in this lane changed to make room for it, and nothing in it is imported
+by the product: the transfer is one-way and by hand, which is why the file and
+line of every piece is written down here rather than left to a grep.
+
+| piece | file:line |
+|---|---|
+| the type | `packages/findings-schema/src/compile-loss-evidence.ts:55` |
+| the validator, `isCompileLossEvidence` | `packages/findings-schema/src/compile-loss-evidence.ts:86` |
+| the wording rule, as the one comment block allowed to spell what it forbids | `packages/findings-schema/src/compile-loss-evidence.ts:100` |
+| the renderer, `renderCompileLossEvidence` | `packages/findings-schema/src/compile-loss-evidence.ts:135` |
+| the record of a refused cell | `packages/findings-schema/src/compile-loss-evidence.ts:157` |
+| the optional field on a `Finding` | `packages/findings-schema/src/index.ts:194` |
+| the supply channel on a `ScanRequest` | `packages/findings-schema/src/index.ts:578` |
+| the refusal channel on a `ScanResponse` | `packages/findings-schema/src/index.ts:757` |
+| validation of the supplied map, once per scan | `packages/analyzer-core/src/analyzer.ts:718` |
+| the analyser's copy onto a finding (conditional spread) | `packages/analyzer-core/src/analyzer.ts:1008` |
+| the refusals on the response | `packages/analyzer-core/src/analyzer.ts:1057` |
+| the SARIF property bag: the type, then the pass-through | `packages/sarif-adapter/src/index.ts:145`, `:308` |
+| the CLI's markdown line | `apps/cli/src/format.ts:454` |
+| the CLI's human line | `apps/cli/src/format.ts:506` |
+| the CLI's notice for refused cells, human and markdown | `apps/cli/src/format.ts:264`, `:284` |
+
+Tests: `packages/findings-schema/src/compile-loss-evidence.test.ts` (the
+validator, the sentence, and the vocabulary rule),
+`packages/analyzer-core/src/compile-loss-evidence.test.ts` (the absence
+contract and the refusals), `packages/sarif-adapter/src/compile-loss-evidence.test.ts`,
+`apps/cli/src/compile-loss-evidence.test.ts`.
+
+### Four things the specification left open, decided rather than defaulted
+
+- **The supply channel is keyed by `ruleId`, not by finding.** A finding does not
+  exist when the request is built — `findingId` is generated inside the scan, in
+  the per-rule match loop — so a finding-keyed map could not be addressed by the
+  producer at all. The rule id is the only handle the two sides share before the
+  scan, and it is also the right grain: the ratio is per *idiom*, and a rule is
+  what recognises an idiom.
+- **A cell that fails validation is refused out loud.** `num` an integer, `den`
+  positive, `0 <= num <= den`, and three non-empty strings; anything else is
+  dropped, and the drop is reported on the response and printed by the CLI in
+  both formats. The finding itself survives, unannotated. Silence was the other
+  option and this repository does not allow it of a channel that removes
+  something — the same posture as `degradations` and `suppressions`.
+- **`ENGINE_VERSION` did not move.** It stays `0.3.3`. The pin test's own
+  criterion is whether a scan's verdicts change, and nothing here can change
+  one: the analyser reads no new input to decide anything, and a scan that
+  supplies no cell is byte-identical to what it produced before, asserted
+  directly rather than argued. The precedent cited for bumping on a schema
+  change alone (`D4`, and the `declaredPackageVetoes` empty state at 0.3.3) is
+  about a field whose *meaning changed for existing callers*; this one is inert
+  until a caller opts in by supplying it, and such a caller is running a build
+  that has the field.
+- **The vocabulary rule is mechanised exactly as far as it is here, and no
+  further.** The product-side test reads the source of every file on the
+  rendering path and fails if a per-hundred sign, a rounding call, or the
+  forbidden words appear in the module or on any line that touches the field —
+  needles assembled from fragments, following `scripts/check-disclosure-shape.mjs`,
+  as this lane's own drift test does. It still cannot recognise a paraphrase.
+  "N of every D builds of this idiom will lose the wipe" passes it, exactly as
+  it passes the check here, and for the same reason.
+
+One cross-reference was deliberately left stale: "The wording rule" above still
+calls this the "[SPEC] section below". That section's prose is pinned verbatim by
+the drift test, so it is not edited in passing.
+
+## The ruling
 
 The project's planning document (not tracked in this repository) fixes what a new
 increment is allowed to supply, and admits exactly three axes:
@@ -318,11 +387,14 @@ already observed: it re-presents one existing measurement with its denominator
 attached, and then proposes a **transfer to the product**, which is a fourth kind
 of thing the rule does not currently admit.
 
-So this is flagged as pending a ruling, not assumed to have one. The lane is
-written so that the ruling can cut it in half: the table and its drift test stand
-alone, change nothing outside `compiler/eval/actuarial/`, and are useful to the
-paper whatever is decided; the product-side section is a specification with no code
-behind it. If the ruling is no, that section is deleted and nothing else moves.
+So it was flagged as pending a ruling, not assumed to have one — and the lane was
+written so that the ruling could cut it in half: the table and its drift test
+stand alone, change nothing outside `compiler/eval/actuarial/`, and are useful to
+the paper whatever is decided.
+
+**On 2026-09-12 the user ruled to adopt the transfer.** The product-side section
+above is what that ruling produced; the half that would have survived a "no" is
+untouched by it, which is the check that the two really were separable.
 
 ## What this lane does not do
 

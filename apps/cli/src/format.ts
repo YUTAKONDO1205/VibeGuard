@@ -1,4 +1,10 @@
-import { compareSeverity, type Finding, type ScanResponse, type Severity } from '@vibeguard/findings-schema';
+import {
+  compareSeverity,
+  renderCompileLossEvidence,
+  type Finding,
+  type ScanResponse,
+  type Severity,
+} from '@vibeguard/findings-schema';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -52,6 +58,7 @@ export function formatHuman(scan: ScanResponse, useColor: boolean): string {
     appendUnexamined(lines, scan, useColor);
     appendProtectionClaims(lines, scan, useColor);
     appendSuppressions(lines, scan, useColor);
+    appendCompileLossRejections(lines, scan, useColor);
     return lines.join('\n');
   }
 
@@ -74,6 +81,7 @@ export function formatHuman(scan: ScanResponse, useColor: boolean): string {
   appendUnexamined(lines, scan, useColor);
   appendProtectionClaims(lines, scan, useColor);
   appendSuppressions(lines, scan, useColor);
+  appendCompileLossRejections(lines, scan, useColor);
   return lines.join('\n');
 }
 
@@ -243,6 +251,47 @@ function appendDegradations(lines: string[], scan: ScanResponse, useColor: boole
  * crash the scan, but that silently removes its findings — so a visible warning
  * here keeps the crash from being an invisible way to suppress findings.
  */
+/**
+ * Surface consumer-supplied `compileLossEvidence` cells the analyser refused.
+ *
+ * A rejected cell removes nothing from the report -- every finding it would
+ * have annotated is still listed, without the sentence -- so this is not a
+ * warning about the scan. It is the only place the code that BUILT the request
+ * can learn that the map it passed was malformed, and dropping it in silence
+ * would leave a build integration quietly shipping a broken field for as long
+ * as nobody diffed the JSON.
+ */
+function appendCompileLossRejections(
+  lines: string[],
+  scan: ScanResponse,
+  useColor: boolean,
+): void {
+  if (!scan.compileLossEvidenceRejections?.length) return;
+  lines.push('');
+  lines.push(
+    colorise(
+      `ℹ ${scan.compileLossEvidenceRejections.length} supplied compileLossEvidence entr(ies) were malformed and dropped:`,
+      GRAY,
+      useColor,
+    ),
+  );
+  for (const r of scan.compileLossEvidenceRejections) {
+    lines.push(`  ${r.detail}`);
+  }
+}
+
+/** The same notice in the PR-comment channel -- see the human renderer. */
+function appendCompileLossRejectionsMarkdown(lines: string[], scan: ScanResponse): void {
+  if (!scan.compileLossEvidenceRejections?.length) return;
+  lines.push('');
+  lines.push(
+    `> ℹ️ **${scan.compileLossEvidenceRejections.length} supplied compileLossEvidence entr(ies) were malformed and dropped:**`,
+  );
+  for (const r of scan.compileLossEvidenceRejections) {
+    lines.push(`> - ${r.detail}`);
+  }
+}
+
 function appendRuleErrors(lines: string[], scan: ScanResponse, useColor: boolean): void {
   if (!scan.ruleErrors?.length) return;
   lines.push('');
@@ -283,6 +332,7 @@ export function formatMarkdown(scan: ScanResponse): string {
     // over a fully-suppressed diff is the exact artifact this channel exists to
     // annotate, so the zero-findings path must not skip it.
     appendSuppressionsMarkdown(lines, scan);
+    appendCompileLossRejectionsMarkdown(lines, scan);
     return lines.join('\n');
   }
 
@@ -319,6 +369,7 @@ export function formatMarkdown(scan: ScanResponse): string {
   appendRuleErrorsMarkdown(lines, scan);
   appendDegradationsMarkdown(lines, scan);
   appendSuppressionsMarkdown(lines, scan);
+  appendCompileLossRejectionsMarkdown(lines, scan);
   return lines.join('\n');
 }
 
@@ -397,6 +448,11 @@ function formatFindingMarkdown(f: Finding): string {
         (o.channel === 'config' ? ` (or add \`${f.ruleId}\` to the entry's \`rules\`).` : '.'),
     );
   }
+  // Same sentence, same rule, in the PR-comment channel. See the human
+  // renderer for why the ratio is never reshaped on the way out.
+  if (f.compileLossEvidence) {
+    out.push(`- _corpus_: ${renderCompileLossEvidence(f.compileLossEvidence)}`);
+  }
   if (f.remediation) {
     out.push(`- _why_: ${f.remediation.why}`);
     out.push(`- _fix_: ${f.remediation.how}`);
@@ -439,6 +495,15 @@ function formatFinding(f: Finding, useColor: boolean): string {
       colorise('        ', DIM, useColor) +
         `To accept this one, name it: \`vibeguard:disable-next-line ${f.ruleId}\`` +
         (o.channel === 'config' ? ` (or add "${f.ruleId}" to the entry's \`rules\`).` : '.'),
+    );
+  }
+  // The consumer-supplied corpus ratio, printed as the one sentence the wording
+  // rule allows and nothing else -- no share of a hundred, no derived number.
+  // Prefixed `corpus:` so the line cannot be read as a statement about the file
+  // on screen: the ratio is about a corpus, the finding is about a line.
+  if (f.compileLossEvidence) {
+    out.push(
+      colorise('  corpus: ', BOLD, useColor) + renderCompileLossEvidence(f.compileLossEvidence),
     );
   }
   if (f.snippet) {
