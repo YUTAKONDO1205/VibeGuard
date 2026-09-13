@@ -17,7 +17,8 @@
     "idioms": "the tracked eliminated files, and every removable-idiom file (--all-removable), on both vendors",
     "forms": "clang: full and thin LTO, separately. gcc: the one form gcc has",
     "secondBinaryAt": "-O2 on each vendor was additionally run with a second build of the same source, configured differently (Release vs the cmake default) and several times the size. Reproducing a reading with the gate added AND the binary changed separates neither, so the run the claim rests on is the one made with the exact binary LTO.md quotes; the other is evidence of something else -- that the readings do not depend on the build configuration.",
-    "whyNotMinusO0": "At -O0 the gate is NOT established: discriminating reads 0/1, because the two spikes are registered to read the same word there. Both probes refuse such a run (exit 3) rather than passing it, so there is no -O0 LTO reading to take and LTO.md quotes none."
+    "whyNotMinusO0": "At -O0 the gate is NOT established: discriminating reads 0/1, because the two spikes are registered to read the same word there. Both probes refuse such a run (exit 3) rather than passing it, so there is no -O0 LTO reading to take and LTO.md quotes none.",
+    "rows": "18 entries over 15 DISTINCT LTO.md rows: the three -O2 rows reproduced twice (clang full/thin and gcc A) appear once per binary, so 18 is the number of (row, run) pairs and 15 the number of rows. An earlier wording said \"18 rows\", which counted the pairs."
   },
   "runs": [
     {
@@ -858,7 +859,7 @@
     "Anything about a second machine. These eight invocations and all of LTO.md's originals share one WSL host, so agreement between them is not independent replication."
   ],
   "provenance": {
-    "numbers": "derived by script from the captured stdout of the eight invocations, then compared cell by cell against LTO.md before being written here: 188 cells, 0 disagreements. The probes refuse --write-data (exit 4), so no tool wrote this file as part of a run.",
+    "numbers": "parsed out of the captured stdout of the eight invocations by a THROWAWAY script, then compared cell by cell against LTO.md before being written here: 188 cells, 0 disagreements. That script is not tracked and neither is the lab output it read, so this record is no more re-derivable from the tree than a hand transcription would be -- which is exactly why test/lto-regate.test.mjs compares it against LTO.md rather than trusting it. The probes refuse --write-data (exit 4), so no tool wrote this file as part of a run.",
     "gate": "read from the first line of each invocation's captured output, where the probes write the gate summary to stderr. Nothing in the lab persists it, so the gate fields here are not recoverable from the lab afterwards -- they rest on those captures. The configurations and discriminating values were separately confirmed by calling runSpikeGate directly and printing verdict rather than by reading the summary line.",
     "wallClockSeconds": "from `time` on each invocation, several of them sharing the machine with another, and expected to differ elsewhere. A per-level invocation covering three levels reports one figure for all three."
   }

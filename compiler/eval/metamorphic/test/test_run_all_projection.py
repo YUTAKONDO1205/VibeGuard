@@ -3,7 +3,10 @@
 
 WHY THIS FILE
 
-`run-all.sh` is a shell script, and the repository runs no shell script in CI.
+`run-all.sh` is a shell script, and nothing in CI runs THIS one. (CI does run shell
+scripts -- three of them, at `ci.yml:661`, `:670` and `:750` -- so the claim is about
+this file, not about the repository; an earlier version of this paragraph said the
+repository runs none, which is false.)
 What it decides, though, is not shell: it is (a) which configurations exist and
 whether they could express the survival axis at all, and (b) whether the results
 directory it is about to grade holds exactly the documents the catalogue accounts

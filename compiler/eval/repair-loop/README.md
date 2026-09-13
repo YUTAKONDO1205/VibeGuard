@@ -702,7 +702,7 @@ hours before the gate was wired into them, so every number in it was taken
 pre-gate.
 
 So the runs were made again with the gate in front of them — **eight invocations,
-covering 18 of `LTO.md`'s table rows**: `-O1`, `-O2`, `-O3` and `-Os` on both
+covering 15 of `LTO.md`'s table rows as 18 (row, run) pairs**: `-O1`, `-O2`, `-O3` and `-Os` on both
 vendors, both LTO forms on clang, and the `--all-removable` idiom on both. At `-O2`
 each vendor was run twice: once with the exact plugin binary `LTO.md` quotes (clang
 `db3298cf…`, gcc `a023b047…`, found in the lab with the digest verified) and once

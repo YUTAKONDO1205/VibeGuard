@@ -21,11 +21,13 @@ below (*gcc-13*); everything before that section is about clang.
 > the run — `-O1`, `-O2`, `-O3`, `-Os` and the `--all-removable` idiom, on both
 > vendors, and at `-O2` with two different builds of the same source. The gate held
 > in every run and **every number reproduced**. `../data/lto-regate.json` is the
-> record and `../test/lto-regate.test.mjs` holds it to the tables here, column by
-> column including denominators and the `HELD`/`FAILED` word. The probes write no
-> tracked data (`--write-data` is exit 4), so the record is transcribed by hand,
-> which is why the test reads the numbers back out of this file rather than trusting
-> it.
+> record — **18 entries over 15 distinct rows** of the tables below, the three `-O2`
+> rows appearing once per binary — and `../test/lto-regate.test.mjs` holds it to
+> those tables column by column, denominators and the `HELD`/`FAILED` word included.
+> The probes write no tracked data (`--write-data` is exit 4), so nothing wrote that
+> record as part of a run: it was parsed out of the captured output by a throwaway
+> script that is not tracked, which is why the test reads the numbers back out of
+> **this** file rather than trusting it.
 >
 > What the re-runs do **not** cover, and the record says so in its own
 > `notMeasuredHere`: the `wipe-pin-v1` binary runs A–D were made with

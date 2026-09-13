@@ -11,10 +11,12 @@
  *
  * `data/lto-regate.json` closes it by a different route, and the route is why this
  * file exists. The probes refuse `--write-data` (exit 4), so nothing wrote that
- * record: a person read the logs and typed the numbers in. A hand-transcribed record
- * is exactly the kind that is right on the day and wrong six months later, in either
- * direction -- a typo now, or an edit to LTO.md later that moves a number the record
- * still claims to match. So every run's numbers are read back OUT of LTO.md here.
+ * record as part of a run: its numbers were parsed out of the captured output by a
+ * throwaway script, and neither that script nor the lab output it read is tracked.
+ * So from the tree's point of view the record is a transcription -- exactly the kind
+ * that is right on the day and wrong six months later, in either direction: a typo
+ * now, or an edit to LTO.md later that moves a number the record still claims to
+ * match. Every run's numbers are therefore read back OUT of LTO.md here.
  *
  * HOW, AND WHY IT IS THIS AND NOT SOMETHING EASIER
  *
@@ -105,9 +107,19 @@ test('the record names both probes, and every run in it exited 0 with the gate e
   assert.deepEqual([...new Set(RECORD.runs.map((r) => r.probe))].sort(),
     ['tools/lto-probe-gcc.mjs', 'tools/lto-probe.mjs'],
     'both probes must appear: naming one and not the other is half the hole');
-  assert.ok(RECORD.runs.length >= 8,
-    `${RECORD.runs.length} run(s) recorded; the closure covers four levels per vendor plus the `
-    + 'all-removable idiom, so a record this short has lost runs');
+  // 18, not "at least a handful": the record is 18 (row, run) pairs over 15 distinct
+  // LTO.md rows, and a floor of 8 would not have noticed ten of them vanishing.
+  // Asserted as a floor rather than an equality so that ADDING a level or an idiom is
+  // not a test failure; dropping one is.
+  assert.ok(RECORD.runs.length >= 18,
+    `${RECORD.runs.length} run entries recorded; 18 were there when this was written, covering four `
+    + 'levels per vendor, both LTO forms on clang, the all-removable idiom on both, and -O2 twice '
+    + 'per vendor. A record this short has lost runs.');
+  const rows = new Set(RECORD.runs.map((r) => r.ltoMd.rowKey.join('|')));
+  assert.ok(rows.size >= 15,
+    `${rows.size} distinct LTO.md row(s) claimed; 15 were. The difference between 18 and 15 is the `
+    + 'three -O2 rows reproduced once per binary, and a record that collapsed them would be '
+    + 'claiming the two-builds comparison without having it.');
 
   for (const r of RECORD.runs) {
     const who = `${r.probe} ${r.level} ${r.pluginSha256.slice(0, 12)}`;
