@@ -39,6 +39,34 @@
  * and a second language here changes no routing decision anywhere else. Both
  * languages live in one page rather than two URLs, so a reader can see at a
  * glance when only one of them has been updated.
+ *
+ * IT IS WRITTEN IN THE POLITE REGISTER, and that is a reversal worth recording
+ * because the site's own planning document asks for the plain one. The reversal
+ * is not a preference. A corpus of 198 Japanese pages on which researchers
+ * introduce their own work - university lab pages, institute research-unit
+ * pages, funded-project summaries, research-tool pages, with press releases as
+ * a control - measures the polite register at 86.5% of sentences for lab pages,
+ * 89.4% for institute pages and 96.8% for tool pages, with a per-document
+ * median of 99-100%: pages commit entirely one way rather than mixing. The one
+ * layer that is plain is the funded-project summary, and only because the
+ * funding body transcribes the application text verbatim.
+ *
+ * The same corpus settles three smaller questions this section used to guess
+ * at. The academic first person does not appear on pages of this kind at all
+ * (zero occurrences of 本稿 and 筆者 in all 198, and 我々 in fifteen). The
+ * comma convention is 、。 rather than the paper convention ，． (seventeen of
+ * 198 use the latter, concentrated in computer-science labs). And unfinished
+ * work is never given a state label - 構築中, 検討中 and 研究中 occur zero
+ * times - it is written as an action still in progress, which is why the last
+ * line says the paper is being written rather than that it is in preparation.
+ *
+ * Paragraphs here are two sentences, which is what that corpus measures (2.3
+ * for lab pages, 2.27 for institute pages) and not what a paper would use.
+ * Runs of identical sentence endings are left alone: in the polite register
+ * they are the norm, not a defect - measured over the same corpus, runs of
+ * three or more account for 63% of all runs, with one run reaching 37. The
+ * paper-corpus rule that three in a row is 2.6% of transitions belongs to the
+ * plain register and does not transfer here.
  */
 import ResearchLayout from '../../layouts/ResearchLayout.astro';
 import PageHero from '../../components/PageHero.astro';
@@ -53,18 +81,123 @@ const COMPILER_DIR_URL = 'https://github.com/YUTAKONDO1205/VibeGuard/tree/main/c
  * phrased as they are; that reasoning belongs to whoever edits this file,
  * not to every visitor with a View Source menu.
  *
- * WHAT THIS PARAGRAPH IS ALLOWED TO SAY, AND WHY IT SAYS SO LITTLE.
+ * WHERE THE ERASURE NUMBERS COME FROM, AND WHICH ONES ARE NOT HERE.
  *
- * An earlier draft claimed "of eight memset calls, six were gone". That
- * misreported the unit: the measurement counted eight BUILD CONFIGURATIONS
- * (two compilers across -O1..-O3), not eight call sites, and six of those
- * configurations dropped the scrub. Worse, the working notes rule that
- * number out of the paper entirely — it was obtained by searching for the
- * symbol name, and the project's own methodology forbids that oracle,
- * because a deleted call and a surviving-but-unused declaration look the
- * same to a grep. It is queued to be re-measured against the zeroing
- * instructions themselves. A number the project will not put in its own
- * paper has no business being the first thing a stranger reads.
+ * An earlier draft of this page said the rate was being re-measured and
+ * quoted none. That was right at the time and is no longer: the round-2 run
+ * under compiler/eval/ai-generated/ has landed, its rows are tracked in
+ * data/r2-build-rows.json, and 113 / 108 / 133 / 160 / 3,190 are all
+ * re-derivable from that file. An older draft before that one claimed "of
+ * eight memset calls, six were gone", which was wrong twice over: it
+ * misreported the unit (eight BUILD CONFIGURATIONS, not eight call sites)
+ * and it came from searching for the symbol name, an oracle this project's
+ * own methodology forbids because a deleted call and a surviving-but-unused
+ * declaration look the same to a grep. Nothing on this page is obtained
+ * that way now; the verdict is a differential compile.
+ *
+ * TWO DENOMINATORS EXIST AND BOTH OF THEM ARE HERE, which is the second
+ * paragraph's whole job. 133 is what the lane's lexical labeller `wipeSpans`
+ * classes as a removable plain memset; 113 and 108 are the cells it eliminates
+ * at -O2. That pair is the protocol's standing cell-level criterion, it is what
+ * the README table publishes, and it is what the product-side
+ * `compileLossEvidence` doc comment quotes. But the labeller is wrong about
+ * three of the 133, and the lane says so: two files zero-fill a buffer BEFORE
+ * it is filled (opus_N_pinpad_r2, sonnet_S_privkey_r3 - no erasure at all) and
+ * one (haiku_S_seedphrase_r3) erases on its normal path with a volatile loop
+ * and only loses the error-path memset. Take those out and the README's own
+ * arithmetic lands on 219/260, which is 112 and 107 of 130.
+ *
+ * An earlier draft of this page published 113 of 133 under the sentence "files
+ * in which the model erased a secret with a plain memset and nothing else".
+ * That sentence is false of all three files. Publishing one number and a
+ * population it does not describe is worse than publishing two numbers, so the
+ * page now names the labelled count, says which three are mislabelled and why,
+ * and gives the corrected pair. Do not collapse this back to one figure without
+ * also fixing the sentence around it.
+ *
+ * 159, a third denominator, is in `data/r2-results.txt` as 113/159 = 71.1%. It
+ * adds the 26 files that wrote a removable memset AND a non-removable idiom.
+ * Those files still erase the secret, so that denominator belongs to a question
+ * about idiom choice, not about erasures that went missing. It is not here.
+ *
+ * The non-removable row is 160 rather than the lane's 0/324. 324 is 162 files
+ * times two compilers, and two of the 162 have an ablated form that does not
+ * compile, so they are unscored by design. 160 scorable files claims what was
+ * scored. Note also that the cell-level criterion does not ablate a
+ * non-removable span on its own, so "none lost it" is a statement about that
+ * criterion - which is why the sentence names the criterion.
+ *
+ * WORDING THAT WAS WRONG AND IS FIXED, recorded because each was wrong in a way
+ * a reader could not have caught:
+ *
+ *   - "machine code" was compared. It is not: FLAGS in
+ *     eval/ai-generated/lib/ablation-cell.mjs starts with -S, and bodyOf()
+ *     strips .file/.loc/.cfi_/.ident/.section/.p2align/.type/.size/.globl/.align
+ *     before comparing. It is filtered assembly text.
+ *   - "nothing is ever settled by searching for the name memset" was too
+ *     absolute. CONTROL_EFFECT in the same file is
+ *     { symbols: ['memset','__memset_chk'] } and controlPresent() uses it, so a
+ *     name match does gate whether a cell may be scored. What is never a name
+ *     search is the VERDICT ON THE ERASURE, and that is what the page now says.
+ *   - "there is no pass-level attribution to be had" for gcc. There is:
+ *     eval/second-vendor/run-gcc-dump-probe.mjs is tracked, reads
+ *     -fdump-tree-all and emits firstAbsentDump. The lto-window README says
+ *     explicitly that the absence is a statement about this repository and not
+ *     about gcc. The page now says that too.
+ *   - the LTO result had no denominator. intervention-pair*.json:
+ *     linkTimeAttributions is 1 at -O2/-O3/-Os and 0 at -O1, of cells 15, with
+ *     unsupported 3 at every level. One cell, one fixture.
+ *   - "the plugin marks the erasing store" described only clang.
+ *     llvm-repair/src/WipePin.cpp:681 calls setVolatile; the gcc twin instead
+ *     INSERTS `__asm__ __volatile__("" : : "g"(dest) : "memory")` after the
+ *     memset (gcc-repair/README.md:32). Added code, not a mark.
+ *   - "the three flags" as the method. The attribution comes from an
+ *     out-of-tree pass plugin loaded with -fpass-plugin. Still not a patched
+ *     compiler, but not a flag either.
+ *   - "changes nothing about what the four channels carry" was unqualified.
+ *     `compileLossEvidence` landed on main on 2026-09-12 precisely to carry
+ *     these ratios into a source-side finding. It is NOT in v0.3.6, so the
+ *     claim holds for what is released, and the page now says released.
+ *
+ * NOT QUOTED, deliberately: the recall figure in the ai-generated README,
+ * because the README says itself that it is in-sample and because it is the
+ * performance of a detector that no release carries; the 78.3 / 41.5 / 30.7
+ * percentages, whose denominator is 720 generations and not any of the file
+ * counts above, because a reader will attach a rate to whichever number is
+ * nearest; the per-model breakdown, because this page does not name vendors and
+ * the lane's own prose does not either; the per-span supplement's higher counts
+ * (132 hidden eliminations at clang -O2), because they are a third criterion
+ * and two is already one more than this page can explain; and the repair
+ * plugin's component name and version string, which would trip the copy
+ * linter's version-shape rule and would also read as something to go and get.
+ *
+ * THE FOLD NOW HAS AN ARTEFACT, and building it corrected the claim twice.
+ *
+ * Until 2026-09-13 the fourteen-byte fold had no evidence in the tracked tree at
+ * all: no measurement, no listing, no object, no script. The only source was a
+ * local working note under a path .gitignore excludes, which meant no reader
+ * could check it and no test could hold it. compiler/eval/fold/ is that
+ * artefact - three subjects, a negative control that reads a different field and
+ * must not fold, and tracked rows for both compilers at two levels.
+ *
+ * Running it changed what the paragraph can say:
+ *
+ *   - FOURTEEN IS GCC'S NUMBER, not the result's. clang-18 gives nine bytes for
+ *     the same source at the same level. The four-byte difference is the
+ *     branch-protection prologue Ubuntu's gcc emits by default and its clang
+ *     does not. The earlier draft attached a distribution default to a finding
+ *     about code, and the lane's test now fails if the two figures are ever
+ *     written as one.
+ *   - OPTIMISATION IS NOT WHAT FOLDS THEM. -O0 was added to the lane expecting
+ *     the three to stay distinct there, which would have made the fold something
+ *     the optimiser does. They are identical at -O0 too, on both compilers, at
+ *     28 and 25 bytes. The three are the same computation as written; -O2 only
+ *     shortens what they already share. "Compiled at -O2 ... came out as the
+ *     same bytes" was true and invited the wrong cause.
+ *
+ * Padding is excluded from the counts. Trailing alignment bytes sit inside the
+ * range objdump prints for a function and added 7 under clang and 6 under gcc at
+ * -O2, which is decided by the next symbol's alignment rather than by the source.
  *
  * The fold is quotable, but only with its conditions attached. The working
  * notes require it be given as a conditional fact — -O2, x86-64, those
@@ -157,21 +290,89 @@ const COMPILER_DIR_URL = 'https://github.com/YUTAKONDO1205/VibeGuard/tree/main/c
           about that patched compiler, and the question here is what happens to ordinary code under an ordinary
           toolchain.
         </p>
+        <p>
+          The same question is put to gcc, and answered at a coarser grain: in the corpus lane its verdict is
+          taken on the compiled function rather than on a named pass. A separate probe does read gcc's own
+          <code>-fdump-tree-all</code> output to name the pass at which a tracked effect first goes absent, so the
+          difference is between two instruments in this repository, not a limit of gcc.
+        </p>
+        <p>
+          The pass-level attribution comes from an out-of-tree pass plugin loaded through the documented
+          <code>-fpass-plugin</code> interface, not from the flags alone. That is still not a patched compiler —
+          the plugin builds against released LLVM headers and the compiler binary is the distribution's — but it
+          is more than a flag, and the distinction is the first thing anyone reproducing this will hit.
+        </p>
+        <p>
+          Link-time optimisation moves part of the problem out of reach of all of that. The optimiser runs a
+          second time at link time, over a module merged from every translation unit, and a disappearance that
+          needs two units to happen can only happen there. That window was opened separately, and what it has
+          caught so far is narrow: of fifteen cells at each optimisation level, exactly one carries a link-time
+          attribution — at <code>-O2</code>, <code>-O3</code> and <code>-Os</code>, none at <code>-O1</code>, on
+          one fixture under clang, where a loss the compile-time view cannot see was attributed to dead-store
+          elimination on the merged function. Three cells at every level are gcc's, and they are recorded as
+          unsupported rather than as clean, because no observer of this kind can be loaded into that link step
+          and "we could not look" is not "there was nothing there".
+        </p>
 
         <h2 class="vg-h2">
           <span class="vg-h2__deco" aria-hidden="true">//</span>What has been measured
         </h2>
         <p>
-          One measurement is solid enough to state with its conditions. Compiled at <code>-O2</code> for x86-64,
-          three functions that mean entirely different things to a reader — an authorization check, a feature-flag
-          test, and a control that was written to be meaningless — came out as the same fourteen bytes of machine
-          code. Same bytes, three names, and no diagnostic anywhere saying that the distinction the programmer
-          wrote had stopped existing.
+          Three functions that mean entirely different things to a reader — an authorization check, a feature-flag
+          test, and one written to mean nothing at all — compile to the same bytes. Each takes a pointer to a
+          different struct, reads the first field and returns whether it is set; by the time a compiler decides
+          what to emit, the type names that made them different are gone.
         </p>
         <p>
-          Secret-scrubbing writes disappear under optimisation too. How often is being re-measured against the
-          zeroing instructions themselves rather than the name of the function that emitted them, so no rate is
-          quoted here yet.
+          The length belongs to the toolchain rather than to the finding. At <code>-O2</code> on x86-64 it is
+          fourteen bytes under gcc 13.3.0 and nine under clang 18.1.3, the difference being the four-byte
+          branch-protection prologue that Ubuntu's gcc emits by default and its clang does not.
+        </p>
+        <p>
+          Optimisation is not what does it. The three are identical at <code>-O0</code> as well, on both
+          compilers, at 28 and 25 bytes: they are the same computation as written, and <code>-O2</code> only
+          shortens the code they already share. What no diagnostic anywhere reports is that the distinction the
+          programmer wrote has stopped existing. A control of the same shape, differing only in which field it
+          reads, stays distinct at every level — which is what makes this a measurement and not a demonstration.
+        </p>
+        <p>
+          Secret-erasing writes disappear under optimisation too, and that has now been counted on C a language
+          model wrote rather than on fixtures written to make the point. Of the 133 files the lane classes as
+          erasing with a removable plain <code>memset</code>, compiling at <code>-O2</code> for x86-64 removed
+          that <code>memset</code> from 113 under clang 18.1.3 and from 108 under gcc 13.3.0. By the same
+          cell-level criterion, none of the 160 scorable files that erased with an idiom a compiler is not allowed
+          to drop lost it, at any optimisation level.
+        </p>
+        <p>
+          Three of those 133 are mislabelled, and the lane says so itself rather than leaving it to be found: two
+          zero-fill a buffer before it is filled, which erases nothing, and one also erases by a route the
+          compiler may not touch, so the <code>memset</code> it loses is not the only thing wiping that secret.
+          With the three taken out the same cells read 112 and 107 of 130. Both pairs are in the lane's notes; the
+          larger is its standing criterion and the smaller is what survives reading the three files.
+        </p>
+        <p>
+          How a loss is decided is what makes those columns comparable. Each file is compiled twice with identical
+          flags, once as written and once with the erasing statement taken out, and the assembly of the target
+          function is compared once the assembler's own bookkeeping has been stripped from it. The verdict on the
+          erasure is never a search for the word <code>memset</code> in the output — the oracle an earlier draft
+          of this page quoted a number from, and the one the protocol here forbids, because a deleted call and a
+          surviving declaration look alike to a grep. A control erasure that cannot legally be removed is
+          compiled into every file, and a configuration in which that control is not visible is dropped as
+          unverifiable rather than counted as no change.
+        </p>
+        <p>
+          The corpus is narrow in ways worth stating. The tasks were synthetic, the code came from four models at
+          one vendor, each compiler was a single version, and the code was generated by an agent rather than by a
+          bare model call. The numbers describe that corpus and no wider one.
+        </p>
+        <p>
+          A removal found this way can also be undone by the same route, though the two compilers need different
+          routes. Under clang a pass marks the erasing store volatile so that it has to be emitted; under gcc a
+          pass inserts a barrier naming the buffer after it, which is added code rather than a mark on existing
+          code. Both load through the compiler's documented plugin interface and neither patches a compiler, and
+          repeating the comparison at <code>-O2</code> brings the erasure back in all 113 of the clang cells and
+          all 108 of the gcc ones. Those are in-sample figures for a plugin that is not packaged: no released
+          VibeGuard channel carries any of this.
         </p>
 
         <h2 class="vg-h2">
@@ -204,36 +405,154 @@ const COMPILER_DIR_URL = 'https://github.com/YUTAKONDO1205/VibeGuard/tree/main/c
           <span class="vg-h2__deco" aria-hidden="true">//</span>概要（日本語）
         </h2>
         <p>
-          ソースコードが表明したセキュリティ上の性質は、コンパイラの最適化によって消えることがある。鍵をゼロ埋めする
-          <code>memset</code> は、その後に誰も読まないという理由で不要な書き込みとして削除されうる。意味の異なる関数が、
-          計算内容が同じであるという理由で同一のコードに畳み込まれることもある。ソースは書いたとおりの
-          ことを言い続けるが、生成されたバイナリはもうそう言っていない。
+          コンパイラの最適化は、ソースコードが表明したセキュリティ上の性質を取り除くことがあります。鍵を
+          ゼロ埋めする <code>memset</code> は、その後に誰もそのバッファを読まないという理由で、不要な書き込み
+          として削除されることがあります。
         </p>
         <p>
-          この研究は、それがどのパスで起きるかを LLVM のパス単位で追跡する。用いるのは Clang/LLVM が公開している
-          フラグそのもので、<code>-print-after-all</code> で各パス通過後のモジュールを観測し、
-          <code>-opt-bisect-limit</code> で結果が変わったパスまでで停止させ、
-          <code>__attribute__((annotate))</code> で追跡対象の性質に印を付ける。コンパイラ本体には手を入れない。
-          改造したコンパイラで得た結果は、その改造したコンパイラについての結果にしかならないからである。
+          意味の異なる関数どうしが、計算内容が同じであるという理由で同一のコードに畳み込まれることもあります。
+          ソースコードは書いたままですが、削除も畳み込みも、通常のツールチェーンは報告しません。
         </p>
         <p>
-          条件を付けた上で言える実測が1つある。x86-64 向けに <code>-O2</code> でコンパイルしたとき、読み手にとって
-          まったく意味の異なる3つの関数 ── 認可チェック、フィーチャーフラグの判定、そして意味を持たないように
-          書かれた対照 ── が、同一の14バイトの機械語になった。バイト列は同じ、名前は3つ、そして
-          プログラマが書き分けた区別が消えたことを知らせる診断は、どこにも出ない。
+          本プロジェクトでは、性質がどのパスで消えるかを LLVM のパス単位で追跡しています。用いるのは Clang と
+          LLVM が公開しているフラグです。
         </p>
         <p>
-          秘密を消去する書き込みも最適化で消える。その頻度については、消去命令そのものを数える方法で測り直している
-          最中なので、ここでは数値を出さない。
+          <code>-print-after-all</code> で各パス通過後のモジュールを観測し、<code>-opt-bisect-limit</code> で
+          結果が変わったパスまでで実行を止めます。追跡したい性質には <code>__attribute__((annotate))</code> で
+          印を付けます。
         </p>
         <p>
-          ツールチェーンのソースはリポジトリの <code>compiler/</code> にあり、ローカルの LLVM に対してビルドする
-          手順を README に記している。ただし、パッケージ化された成果物は無く、VibeGuard の4つの配信チャネルは
-          いずれもこれを含まない。拡張・CLI・GitHub Action は TypeScript のワークスペースから作られており、この
-          ディレクトリを一度もビルドしていない環境でも同一に動作する。この境界はリポジトリ側の検査で機械的に
-          保たれている。
+          コンパイラ本体には手を入れません。改造したコンパイラで得た結果は、その改造したコンパイラについての
+          結果にしかならないからです。
         </p>
-        <p>この研究についての論文を執筆中である。公表され次第、ここからリンクする。</p>
+        <p>
+          ただし、パス単位の帰属を与えているのはフラグではありません。公開されている <code>-fpass-plugin</code>
+          のインタフェースで読み込む外部のパスプラグインです。
+        </p>
+        <p>
+          これも改造したコンパイラではなく、プラグインは公開された LLVM のヘッダに対してビルドし、コンパイラ
+          本体は配布物そのままです。とはいえフラグだけで済む話ではないので、追試する際はここが最初の関門に
+          なります。
+        </p>
+        <p>
+          gcc に対しても同じ問いを立てていますが、答えの粒度は粗くなります。コーパスのレーンでは、名前の付いた
+          パスではなく生成された関数に対して判定しています。
+        </p>
+        <p>
+          もっとも、gcc 自身の <code>-fdump-tree-all</code> の出力を読み、効果が最初に消えるパスの名前を得る
+          プローブは別に用意しています。これは本リポジトリが持つ2つの観測器の違いであり、gcc の限界では
+          ありません。
+        </p>
+        <p>
+          リンク時最適化（LTO）では、ここまでの追跡が届かない領域が生じます。最適化が、全翻訳単位を結合した
+          モジュールに対してリンク時にもう一度動くためです。
+        </p>
+        <p>
+          翻訳単位が2つそろわなければ起きない消失は、そこでしか起きません。この窓は別に開きましたが、捕まえ
+          られたものは狭い範囲にとどまります。
+        </p>
+        <p>
+          各最適化水準15セルのうち、リンク時の帰属を持つのは1セルだけです。<code>-O2</code> と
+          <code>-O3</code> と <code>-Os</code> に1件ずつで、<code>-O1</code> にはありません。
+        </p>
+        <p>
+          そのセルでは、clang の1つの検体について、コンパイル時には見えない消失を、結合後の関数に対する
+          デッドストア除去として帰属できました。各水準3セルは gcc のもので、異常なしではなく未対応として
+          記録しています。この種の観測器を gcc のリンク段に読み込めないためで、見られなかったことは、無かった
+          ことではありません。
+        </p>
+        <p>
+          読み手にとって意味の異なる3つの関数、すなわち認可チェックと、フィーチャーフラグの判定と、まったく
+          意味を持たないように書かれた関数が、同一のバイト列にコンパイルされます。どれも別の構造体への
+          ポインタを受け取り、最初のフィールドを読んで、それが立っているかを返すだけです。3つを違うものに
+          していた型名は、コンパイラが出力を決める時点では残っていません。
+        </p>
+        <p>
+          長さは、所見ではなくツールチェーンに属します。x86-64 向けの <code>-O2</code> では、gcc 13.3.0 で
+          14バイト、clang 18.1.3 で9バイトであり、差は Ubuntu の gcc が既定で付ける4バイトの分岐保護の
+          前置です。
+        </p>
+        <p>
+          最適化がこれを起こしているのではありません。3つは <code>-O0</code> でも同一で、両方のコンパイラで
+          それぞれ28バイトと25バイトになります。3つは書かれた時点から同じ計算であり、<code>-O2</code> は
+          すでに共有しているコードを短くしているだけです。
+        </p>
+        <p>
+          プログラマが書き分けた区別が失われたことを、どの診断も報告しません。なお、同じ形で読むフィールドだけ
+          が違う対照は、どの水準でも別のバイト列のままです。これがこの比較を、実演ではなく計測にしています。
+        </p>
+        <p>
+          秘密を消去する書き込みも、最適化によって削除されます。その頻度は、この主張のために書いた検体では
+          なく、言語モデルが生成した C コードで計測しました。
+        </p>
+        <p>
+          除去可能な素朴な <code>memset</code> で消去していると、このレーンが分類したファイルが133あります。
+          x86-64 向けに <code>-O2</code> でコンパイルすると、その <code>memset</code> が削除されたのは
+          clang 18.1.3 で113ファイル、gcc 13.3.0 で108ファイルでした。
+        </p>
+        <p>
+          一方、コンパイラが削除できない書き方で消去していたファイルでは、同じセル単位の基準で、採点できた
+          160ファイルのいずれも、どの最適化水準でも消去を失いませんでした。
+        </p>
+        <p>
+          この133ファイルのうち3件はラベルを誤っており、そのことはレーン自身が記録しています。2件は、埋める
+          前のバッファをゼロ埋めしているだけで、何も消去していません。
+        </p>
+        <p>
+          残る1件は、コンパイラが手を付けられない経路でも消去しており、失われた <code>memset</code> はその
+          秘密を消している唯一のものではありません。この3件を外すと、同じセルは130ファイル中112と107に
+          なります。どちらの組もレーンの記録にあり、大きいほうが定常の基準、小さいほうが3ファイルを読んだ
+          結果です。
+        </p>
+        <p>
+          これらの列を比べられるのは、消去が削除されたかどうかの判定方法によります。各ファイルを同一のフラグ
+          で2回コンパイルし、書かれたままの版と、消去文を取り除いた版とで、対象関数のアセンブリからアセンブラ
+          自身の管理情報を落としたうえで比較しました。
+        </p>
+        <p>
+          消去についての判定に、出力から <code>memset</code> という語を探す方法は使っていません。それは、この
+          ページの以前の版が数値の出所にしていた方法であり、ここでの規約が禁じている方法です。削除された
+          呼び出しと、残った宣言とが、grep には同じに見えるためです。
+        </p>
+        <p>
+          また、削除できない消去を対照として全ファイルに同居させました。その対照が見えない構成は、変化
+          なしと数えるのではなく、検証不能として落としています。
+        </p>
+        <p>
+          ただし、検体の狭さは書いておく必要があります。課題は合成したもので、コードは1社の4種類のモデルから
+          得ました。
+        </p>
+        <p>
+          コンパイラは2種類で、それぞれ1つの版しか用いていません。さらに、コードを生成させたのは素のモデル
+          呼び出しではなくエージェントです。数値はこの検体の範囲に限定されます。
+        </p>
+        <p>
+          さらに、この方法で見つけた削除は同じ経路で元に戻せますが、2つのコンパイラでは経路が異なります。clang では、
+          パスが消去のストアを volatile として印を付け、出力を必須にします。
+        </p>
+        <p>
+          gcc では、パスがその直後にバッファを名指しするバリアを挿入します。これは既存のコードへの印ではなく、
+          追加したコードです。
+        </p>
+        <p>
+          どちらも公開されているプラグインのインタフェースで読み込み、コンパイラ本体は改造しません。
+          <code>-O2</code> で比較をやり直すと、clang の113セルと gcc の108セルのすべてで消去が戻りました。
+        </p>
+        <p>
+          ただしこれは同じ検体で測った数値で、このプラグインはパッケージ化していません。リリース済みの
+          VibeGuard のチャネルは、いずれもこれを含みません。
+        </p>
+        <p>
+          なお、ツールチェーンのソースはリポジトリの <code>compiler/</code> にあり、ローカルの LLVM に対してビルド
+          する手順を README に記しています。ただし、パッケージ化された成果物はなく、VibeGuard の4つの配信
+          チャネルはいずれもこれを含みません。
+        </p>
+        <p>
+          拡張と CLI と GitHub Action は TypeScript のワークスペースから作られており、このディレクトリを一度も
+          ビルドしていない環境でも同一に動作します。この境界はリポジトリ側の検査で機械的に保っています。
+        </p>
+        <p>この研究についての論文を執筆しています。公表され次第、ここからリンクします。</p>
       </div>
     </div>
   </section>

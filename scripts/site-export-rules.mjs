@@ -56,6 +56,7 @@
 //
 // Exit 0 when rules.json was written, 1 with the failing invariant named.
 import { readFileSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -87,6 +88,101 @@ async function importBuilt(relPath, buildCommand) {
   } catch (error) {
     die(`${relPath} could not be imported: ${error.message}`);
   }
+}
+
+/**
+ * The rule IDs a visitor can actually run, read at the newest release tag.
+ *
+ * WHY THIS IS NOT `allRules` AS OF MAIN
+ *
+ * Everything else here is derived from the built packages in the working tree,
+ * which is right for every field of a rule: its name, its severity, whether a
+ * fixer exists. It is wrong for the question of WHICH RULES EXIST. `/rules` is
+ * read by somebody deciding whether to run this thing, and a rule merged to
+ * main this morning is not in the extension they would install this afternoon.
+ * Listing it promises a detector that no channel carries.
+ *
+ * `site-deploy.yml` was already built around this. Its paths filter leaves
+ * `packages/rules/**` out on purpose, so that merging a detector does not by
+ * itself push it onto the site, and its checkout sets `fetch-depth: 0` with a
+ * comment saying this generator reads the rules package as of the newest
+ * release tag. That comment described an intention; the code read the working
+ * tree. The gap was not theoretical - three VG-AUTH rules and one VG-SEC rule
+ * merged after v0.3.6 reached the public site through a push that touched
+ * `site/` only, because that push rebuilt everything from main.
+ *
+ * The tag's sources are parsed rather than built. Building two packages at an
+ * arbitrary tag inside a generator is a much larger machine than this needs,
+ * and the parse only has to answer "which IDs", not "what do they do" - the
+ * built registry supplies every other field. The direction that would hurt is a
+ * parse that finds an ID the build does not have, so that is the assertion.
+ */
+function releasedRuleIds() {
+  const git = (args) =>
+    execFileSync('git', args, {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+  let tags;
+  try {
+    tags = git(['tag', '--list', 'v*', '--sort=-v:refname']);
+  } catch (error) {
+    die(
+      `could not list git tags: ${error?.message ?? error}\n` +
+        '  This generator reads the rule set as of the newest release. In CI, make sure the\n' +
+        '  checkout is not shallow (actions/checkout with fetch-depth: 0).',
+    );
+  }
+
+  // `v0` is the moving tag the GitHub Action resolves and `v0-remote-check` is a
+  // working tag; neither is a release. Requiring all three numbers drops both
+  // without maintaining a list of names to ignore.
+  const tag = tags
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => /^v\d+\.\d+\.\d+$/.test(line));
+
+  if (!tag) {
+    die(
+      'no release tag of the form vMAJOR.MINOR.PATCH was found.\n' +
+        '  Without one there is no answer to "which rules have shipped", and this generator\n' +
+        '  will not fall back to main: that fallback is the bug it exists to prevent.',
+    );
+  }
+
+  // Both packages that contribute rules to /rules. The cross-file set is listed
+  // on the same page and is under the same promise.
+  const RULE_SOURCES = [
+    'packages/rules/src/rules',
+    'packages/analysis-graph/src/design-smells-crossfile',
+  ];
+
+  let matched = '';
+  try {
+    matched = git(['grep', '-h', '-E', "ruleId: '(VG-[A-Z]+-[0-9]+)'", tag, '--', ...RULE_SOURCES]);
+  } catch (error) {
+    // `git grep` exits 1 for "no matches", which here means the parse found
+    // nothing at all - indistinguishable from a moved directory, and either way
+    // not something to build a page from.
+    die(
+      `could not read the rule sources at ${tag}: ${error?.message ?? error}\n` +
+        `  Looked in: ${RULE_SOURCES.join(', ')}`,
+    );
+  }
+
+  const ids = new Set([...matched.matchAll(/ruleId: '(VG-[A-Z]+-[0-9]+)'/g)].map((m) => m[1]));
+
+  if (ids.size === 0) {
+    die(
+      `parsed zero rule IDs out of ${tag}. The shape this generator looks for is\n` +
+        "  `ruleId: 'VG-FAMILY-NNN'`. If that spelling changed, this parse has to change with\n" +
+        '  it - an empty set here would publish a page with no rules on it.',
+    );
+  }
+
+  return { tag, ids };
 }
 
 /**
@@ -156,7 +252,7 @@ function readBuckets() {
   return buckets;
 }
 
-const { allRules } = await importBuilt(
+const { allRules: builtRules } = await importBuilt(
   'packages/rules/dist/index.js',
   'npm run build -w @vibeguard/findings-schema && npm run build -w @vibeguard/rules',
 );
@@ -165,11 +261,26 @@ const { fixers } = await importBuilt(
   'npm run build -w @vibeguard/remediation-engine',
 );
 
-if (!Array.isArray(allRules) || allRules.length === 0) {
+if (!Array.isArray(builtRules) || builtRules.length === 0) {
   die('@vibeguard/rules exported no `allRules` array. Nothing here can be generated without it.');
 }
 if (!fixers || typeof fixers !== 'object') {
   die('@vibeguard/remediation-engine exported no `fixers` registry.');
+}
+
+const { tag: releaseTag, ids: releasedIds } = releasedRuleIds();
+
+// From here down, `allRules` means "the single-file rules that have shipped".
+// Every field still comes from the build - only membership comes from the tag.
+const allRules = builtRules.filter((rule) => releasedIds.has(rule.ruleId));
+const withheldRules = builtRules.filter((rule) => !releasedIds.has(rule.ruleId));
+
+if (allRules.length === 0) {
+  die(
+    `none of the ${builtRules.length} built rules appear at ${releaseTag}. That is either a ` +
+      'parse that stopped matching the sources or a tag from before the rules package ' +
+      'existed; neither is a page worth publishing.',
+  );
 }
 
 const buckets = readBuckets();
@@ -231,7 +342,14 @@ if (unmapped.size > 0) {
 
 // ── Group ──────────────────────────────────────────────────────────────────
 const safetyOf = new Map();
-for (const [ruleId, fixer] of Object.entries(fixers)) {
+// A fixer for a rule that has not shipped yet is withheld with its rule rather
+// than counted: the auto-fix number under the badge has to describe the same
+// product the rule list does. It is dropped before assertion D so that an
+// unreleased pair does not read as a dangling fixer.
+const shippedFixers = Object.fromEntries(
+  Object.entries(fixers).filter(([ruleId]) => releasedIds.has(ruleId)),
+);
+for (const [ruleId, fixer] of Object.entries(shippedFixers)) {
   // Assertion D. A fixer whose rule no longer exists inflates the auto-fix
   // count with a badge that can never be shown next to anything.
   if (!seen.has(ruleId)) {
@@ -329,6 +447,20 @@ if (crossFileRules.length === 0) {
   die('@vibeguard/analysis-graph exported an empty crossFileRules array; /rules would silently list none');
 }
 
+// The same release gate as the single-file set. These are listed on the same
+// page, under a sentence that says every rule VibeGuard ships, so a cross-file
+// rule merged after the tag would make that sentence false in the same way.
+const withheldCrossFile = crossFileRules.filter((rule) => !releasedIds.has(rule.ruleId));
+crossFileRules = crossFileRules.filter((rule) => releasedIds.has(rule.ruleId));
+
+if (crossFileRules.length === 0) {
+  die(
+    `all ${withheldCrossFile.length} cross-file rule(s) are absent from ${releaseTag}. The page ` +
+      'renders a section for them unconditionally, so publishing would leave a heading over ' +
+      'an empty list.',
+  );
+}
+
 const exportedCrossFile = crossFileRules
   .map((rule) => ({
     ...exportRule(rule),
@@ -339,7 +471,25 @@ const exportedCrossFile = crossFileRules
   }))
   .sort(byId);
 
-const fixerEntries = Object.values(fixers);
+// Assertion E. Every ID the tag declares has to exist in the build. The parse
+// above answers "which IDs shipped" from source text, and the failure that
+// would matter is that parse drifting away from the registry it filters: an ID
+// here the build has never heard of means the two no longer agree, and the page
+// would silently lose rules that did ship.
+const builtIds = new Set(
+  [...builtRules, ...withheldCrossFile, ...crossFileRules].map((r) => r.ruleId),
+);
+const unknownToBuild = [...releasedIds].filter((id) => !builtIds.has(id)).sort();
+if (unknownToBuild.length > 0) {
+  die(
+    `${unknownToBuild.length} rule ID(s) parsed out of ${releaseTag} are not in the built ` +
+      `registries: ${unknownToBuild.join(', ')}.` +
+      '\n  Either a shipped rule was deleted from the working tree, or the ID spelling this' +
+      '\n  generator parses no longer matches the sources it parses.',
+  );
+}
+
+const fixerEntries = Object.values(shippedFixers);
 const payload = {
   totals: {
     rules: allRules.length,
@@ -360,5 +510,13 @@ process.stdout.write(
   `site-export-rules: ${payload.totals.rules} rules in ${exported.length} buckets ` +
     `(${exported.map((b) => `${b.id}=${b.count}`).join(' ')}), ` +
     `${payload.totals.fixers} fixers of which ${payload.totals.safeFixers} safe ` +
-    '-> site/src/data/rules.json\n',
+    `-- as of ${releaseTag}` +
+    (withheldRules.length + withheldCrossFile.length > 0
+      ? `, withholding ${withheldRules.length + withheldCrossFile.length} unreleased ` +
+        `(${[...withheldRules, ...withheldCrossFile]
+          .map((r) => r.ruleId)
+          .sort()
+          .join(' ')})`
+      : '') +
+    ' -> site/src/data/rules.json\n',
 );

@@ -1,0 +1,10 @@
+eval/fold - three functions that mean different things, and whether they become one
+
+subjects: is_authorized, feature_enabled, meaningless_probe
+negative control: reads_second_field (reads the second field; must differ)
+flags: -std=gnu11 -c <level>
+
+clang-18  -O0  IDENTICAL  25 bytes  55 48 89 e5 48 89 7d f8 48 8b 45 f8 83 38 00 0f 95 c0 24 01 0f b6 c0 5d c3  control differs
+clang-18  -O2  IDENTICAL  9 bytes  31 c0 83 3f 00 0f 95 c0 c3  control differs
+gcc-13    -O0  IDENTICAL  28 bytes  f3 0f 1e fa 55 48 89 e5 48 89 7d f8 48 8b 45 f8 8b 00 85 c0 0f 95 c0 0f b6 c0 5d c3  control differs
+gcc-13    -O2  IDENTICAL  14 bytes  f3 0f 1e fa 8b 17 31 c0 85 d2 0f 95 c0 c3  control differs
