@@ -723,10 +723,18 @@ jobs:
       # native-toolchain installs clang-18 and clang-17 and no linker; this job
       # installs lld-18.
       #
-      # NOT YET SEEN GREEN ON A RUNNER. They pass on the development machine
-      # under WSL with clang-18 18.1.3 and LLD 18.1.3. That is a different
-      # toolchain from this job's, and the same caution the native-toolchain job
-      # states about its own late additions applies here.
+      # ★ 2026-09-13: SEEN GREEN ON A RUNNER, for the first time, in PR #101's
+      # native-plugins job (run 34742107940, step `success`, 1m37s for the job).
+      # This comment said NOT YET for as long as the step existed, because the
+      # branch carrying it had never reached a pull_request event -- ci.yml fires on
+      # `pull_request` and on `push: [main]` and on nothing else, so a step added on
+      # a feature branch stays unobserved until somebody opens a PR. That is the
+      # same shape as the hole this PR was opened to close, one layer out.
+      #
+      # The earlier caution, kept because it is still the reason to read the log
+      # rather than the tick: these suites pass on the development machine under WSL
+      # with clang-18 18.1.3 and LLD 18.1.3, which is a different toolchain from
+      # this job's.
       - name: compiler/fingerprint and compiler/link-wrapper (need clang-18 and ld.lld-18)
         run: |
           set -eu
