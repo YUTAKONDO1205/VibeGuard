@@ -6,7 +6,7 @@
  *
  * ── WHAT IT IS ───────────────────────────────────────────────────────────────
  *
- * The compiler-side lanes in `compiler/` close a `find -> fix -> confirm` loop
+ * The build-side lanes in `compiler/` close a `find -> fix -> confirm` loop
  * entirely on the build side: a finder locates a wipe, a repair plugin pins it,
  * and differential compilation confirms the repair. The person who wrote the
  * `memset` never hears any of it. This field is the fourth step — what the

@@ -719,8 +719,9 @@ jobs:
       # They are HERE and not in native-toolchain's run_suite list because they
       # spawn `ld.lld-18` as well as `clang-18`, and they do NOT skip when a tool
       # is absent -- they fail (measured: 17 failures between them on a machine
-      # with no compiler, 0 skips). native-toolchain installs clang-18 and
-      # clang-17 and no linker; this job installs lld-18.
+      # with no compiler, 0 skips).
+      # native-toolchain installs clang-18 and clang-17 and no linker; this job
+      # installs lld-18.
       #
       # NOT YET SEEN GREEN ON A RUNNER. They pass on the development machine
       # under WSL with clang-18 18.1.3 and LLD 18.1.3. That is a different
