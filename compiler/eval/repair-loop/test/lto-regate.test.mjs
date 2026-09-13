@@ -69,14 +69,41 @@ function table(firstCell, secondCell) {
     + 'PARSE broke, or the table was renamed');
 }
 
-/** One cell's first integer, by column name, asserting the column exists. */
+/**
+ * One cell, by column name, as `{ text, ints }`.
+ *
+ * Returning the WHOLE cell and not its first integer, because the first version
+ * returned only `match(/\d+/)[0]` and that left every denominator and every
+ * `HELD`/`FAILED` word in the tables unguarded: mutating `HELD 113/113` to
+ * `FAILED 113/113`, or `452/452` to `452/1`, left this file green. Measured by
+ * mutation on copies, 2026-09-13.
+ */
 function cell(t, row, column) {
   const k = t.index.get(column);
   assert.notEqual(k, undefined,
     `LTO.md's table has no column "${column}"; its columns are: ${t.header.join(' | ')}`);
-  const m = String(row[k]).replace(/\*\*/g, '').match(/\d+/);
-  assert.ok(m, `LTO.md column "${column}" holds ${JSON.stringify(row[k])}, which carries no integer`);
-  return Number(m[0]);
+  const text = String(row[k]).replace(/\*\*/g, '').trim();
+  return { text, ints: (text.match(/\d+/g) ?? []).map(Number) };
+}
+
+/** A cell that must read exactly `n`, as its only integer. */
+function cellIs(t, row, column, n, why) {
+  const c = cell(t, row, column);
+  assert.deepEqual(c.ints, [n],
+    `LTO.md column "${column}" reads ${JSON.stringify(c.text)}; the record says ${n}. ${why ?? ''}`);
+}
+
+/** A cell that must read exactly `num/den`, and carry `word` if one is given. */
+function cellIsRatio(t, row, column, num, den, word) {
+  const c = cell(t, row, column);
+  assert.deepEqual(c.ints, [num, den],
+    `LTO.md column "${column}" reads ${JSON.stringify(c.text)}; the record says ${num}/${den}. `
+    + 'Both halves are checked: a denominator nobody reads is a denominator that can say anything.');
+  if (word) {
+    assert.ok(c.text.includes(word),
+      `LTO.md column "${column}" reads ${JSON.stringify(c.text)} and does not carry ${word}. The `
+      + 'VERDICT word is checked as well as the numbers -- FAILED 113/113 is not HELD 113/113.');
+  }
 }
 
 test('the record names both probes, and every run in it exited 0 with the gate established', () => {

@@ -4,7 +4,7 @@
 Exists as a file rather than as a `python3 -c` inside run-all.sh for one reason:
 the two refusals below are the only thing standing between a catalogue edited
 down to `-O0` and a lane that can never qualify, and a refusal buried in a shell
-quoting context is a refusal nobody tests. `test/test_read_configurations.py`
+quoting context is a refusal nobody tests. `test/test_run_all_projection.py`
 tests these three exits.
 
 Exit codes, run-all.sh's own (interfaces.md section 7 assigns 5 to "the harness

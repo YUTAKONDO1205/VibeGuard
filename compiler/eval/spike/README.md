@@ -479,11 +479,17 @@ a reason rather than a backlog.
   and its 1,881 tracked rows came back **byte-identical**, digest and all
   (`../repair-loop/data/r2-regate.json`). That lane is deterministic where the
   corpus lane is not, so it can make the stronger claim.
-* **nothing to re-measure** — the two LTO probes write **no tracked data at
-  all**; `../repair-loop/data/` holds four files and none of them is theirs.
-  What their READMEs quote are lab runs, and the ones already written down were
-  taken before the gate existed. That is a provenance fact about those
-  sentences, not a stale tracked record.
+* **re-measured by a different route** — the two LTO probes write **no tracked
+  data at all**, so there is nothing of theirs in `../repair-loop/data/` for a
+  digest comparison to be about, and the figures their `tools/LTO.md` quotes were
+  taken before the gate existed. ★ **2026-09-13** that was closed against the
+  PROSE instead of against rows: the probes were re-run under the gate and the
+  counts compared to `LTO.md`'s tables by hand, twice per vendor — once with the
+  exact plugin binary the prose quotes. `../repair-loop/data/lto-regate.json` is
+  the record and `../repair-loop/test/lto-regate.test.mjs` reads the numbers back
+  out of `LTO.md`, so it is one of the **six** files in that directory now. The
+  bullet said "nothing to re-measure" until then, which was a claim about the
+  absence of a comparison route rather than about the figures.
 
 | harness | gated? | file:line |
 |---|---|---|
@@ -518,11 +524,15 @@ instruments, and 2026-09-12 is when each was checked rather than assumed:
   their report. It now refuses — exit 3, before the first compile — without a
   controls receipt over the same spec and fixture bytes
   (`lib/controls-receipt.mjs`, `run-second-vendor.mjs:174-191`). Measured: with
-  no receipt it exits 3 and writes nothing, not even a work directory. **The
-  green-receipt path has not been run end to end here**: this machine's lab has
-  no fixture set carrying all five of `erasure`, `nullcheck`, `signedovf`,
-  `authz` and `configguard`, so the passing direction rests on
-  `test/controls-receipt.test.mjs` and not on a run.
+  no receipt it exits 3 and writes nothing, not even a work directory. ★
+  **2026-09-13: the green-receipt path has now been run end to end**, and the
+  sentence that stood here until that date — that this machine's lab had no
+  fixture set carrying all five of `erasure`, `nullcheck`, `signedovf`, `authz`
+  and `configguard` — was simply false: there were ten, byte-identical.
+  `../second-vendor/README.md` carries the four paths and their exit codes
+  (accepting 0 with an 80-cell envelope, no receipt 3, `CONTROLS_FAILED` 2 then
+  3, a green receipt over edited bytes 3). The passing direction no longer rests
+  on `test/controls-receipt.test.mjs` alone.
 * **`metamorphic`** had the hole this lane closed for itself in September, one
   layer out. Only R2b asks the instrument to tell a loss from a survival, and at
   `-O0` every R2b cell reads `not-expressed` while R1, R2a and R2c still pass —

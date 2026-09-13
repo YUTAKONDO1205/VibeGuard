@@ -2,7 +2,7 @@
 //
 // WHY
 //
-// ci.yml carries 19 hand-maintained `run_suite` lines. A lane that adds a
+// ci.yml carries 20 hand-maintained `run_suite` lines. A lane that adds a
 // `test/` directory and forgets one gets a green tick from a job that never ran
 // its tests, and nothing anywhere says so: the lane's own suite passes locally,
 // CI passes, and the only evidence is a line missing from a YAML file nobody
@@ -15,9 +15,19 @@
 //
 // WHAT IS DELIBERATELY NOT ASSERTED: that the suite runs on every job, or on any
 // particular runner. Some suites need a compiler and are confined to the
-// native-toolchain jobs on purpose. The claim here is only that the directory is
-// mentioned somewhere in the workflow, which is the difference between "decided
-// to run it there" and "nobody noticed it existed".
+// native-toolchain jobs on purpose. The claim is that the directory is named by a
+// step that actually invokes a test runner, which is the difference between
+// "decided to run it there" and "nobody noticed it existed".
+//
+// That last phrase used to be backed by `yml.includes(dir)` over the whole file,
+// and for two directories it would have been satisfied by the wrong thing. ★
+// 2026-09-13: `compiler/llvm-repair` and `compiler/clang-plugin` are named in
+// ci.yml only by `cmake -S` BUILD lines and by prose, and neither has a
+// `run_suite` or `node --test` line anywhere. A `.test.mjs` added under either
+// would have run in no job while this file stayed green — the exact silence it
+// exists to break, satisfied by an incidental mention. Scoping the search to
+// steps whose body invokes a runner fixes it: measured, all 23 suite directories
+// still pass, and both of those hypotheticals now fail.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
@@ -113,9 +123,25 @@ describe('CI runs every suite this tree has', () => {
     expect(dirs).toContain('compiler/eval/oracle-agreement/test');
   });
 
-  it('names every one of them', () => {
-    const missing = dirs.filter((d) => !yml.includes(d.replace(/\/test$/, '')));
-    expect(missing, `test directories no CI job mentions:\n  ${missing.join('\n  ')}`).toEqual([]);
+  it('names every one of them, from a step that actually runs tests', () => {
+    // Bodies of the steps that invoke a runner, comments stripped. Unanchored
+    // match on purpose: `- name: Driver` / `run: node --test …` puts the runner
+    // after `run: ` on the same line, and a line-anchored pattern missed it —
+    // which would have made this assertion fail for the driver suite and get
+    // loosened back to the whole-file search it is replacing.
+    const RUNNER = /\b(run_suite\s+\S|node\s+--test|vitest\s+run)/;
+    const runnerSteps = yml.split(/\n(?=\s*- name:)/)
+      .map((s) => s.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n'))
+      .filter((body) => RUNNER.test(body));
+    expect(runnerSteps.length, 'no step in ci.yml invokes a test runner; the SEARCH broke')
+      .toBeGreaterThan(2);
+    const missing = dirs.filter(
+      (d) => !runnerSteps.some((body) => body.includes(d.replace(/\/test$/, ''))));
+    expect(
+      missing,
+      'test directories no test-running CI step names (a cmake build line or a prose comment '
+      + `elsewhere in ci.yml does not count):\n  ${missing.join('\n  ')}`,
+    ).toEqual([]);
   });
 
   it('the run_suite list is not empty and every entry points at something that exists', () => {

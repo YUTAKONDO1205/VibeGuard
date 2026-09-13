@@ -14,15 +14,26 @@ below (*gcc-13*); everything before that section is about clang.
 > `lto-probe-gcc.mjs:312`); this file's last content change was earlier the same
 > day, so the code was gated and the prose was not — the same split
 > `../data/r2-regate.json` records for the tracked rows, and the one it named the
-> LTO probes as *not* covering. On 2026-09-13 the `-O2` runs were made again with
-> the gate in front of them, on both vendors, each with the exact plugin binary
-> quoted here as well as with a rebuild of it: **the gate held and every number
-> reproduced**. That is written down in `../data/lto-regate.json` and held to this
-> file by `../test/lto-regate.test.mjs`, which reads the Run E and gcc Run A rows
-> back out of the tables below. The probes write no tracked data (`--write-data`
-> is exit 4), so that record is transcribed by hand and the test is what keeps the
-> transcription honest. **The other levels were not re-run**: `-O1`, `-O3`, `-Os`,
-> clang run F and gcc run B are still pre-gate lab output, and the record says so.
+> LTO probes as *not* covering.
+>
+> **2026-09-13: re-measured under the gate, at every level and both idioms.** The
+> outcome columns of the tables below were produced again with the gate in front of
+> the run — `-O1`, `-O2`, `-O3`, `-Os` and the `--all-removable` idiom, on both
+> vendors, and at `-O2` with two different builds of the same source. The gate held
+> in every run and **every number reproduced**. `../data/lto-regate.json` is the
+> record and `../test/lto-regate.test.mjs` holds it to the tables here, column by
+> column including denominators and the `HELD`/`FAILED` word. The probes write no
+> tracked data (`--write-data` is exit 4), so the record is transcribed by hand,
+> which is why the test reads the numbers back out of this file rather than trusting
+> it.
+>
+> What the re-runs do **not** cover, and the record says so in its own
+> `notMeasuredHere`: the `wipe-pin-v1` binary runs A–D were made with
+> (`aa7329c3…`) — its outcome columns are covered by the v2 re-runs, but run A's
+> `(ii)` figures predate the link-time line the probe now requires and are
+> unreproducible by design; run D's `--force-fallback` path; `--sample`, `--plan`
+> and `--files` selections; and anything about a second machine, since these runs
+> and the originals share one host.
 
 **Answer, for what was run** (`clang-18` / `lld` 18.1.3, x86-64, one object per
 link, `-shared`): every wipe the stock LTO build loses comes back when WipePin is

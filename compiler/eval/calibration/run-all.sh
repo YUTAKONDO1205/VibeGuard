@@ -109,6 +109,15 @@ fi
 
 echo
 echo "every configuration measured, assembled and graded; both graders clean."
+echo "a battery pass is a SHAPE qualification -- necessary for promotion to"
+echo "\`implemented\` in compiler/schema/properties.json and never sufficient, because"
+echo "every cell here is a (synthetic-specimen, configuration) measurement."
+# The falsify verdict goes LAST, after the qualification paragraph above. Until
+# 2026-09-13 those three echoes came after the `fi`, which made the last line -- and
+# the last three lines -- byte-identical with and without --no-falsify, while the
+# comment in the else branch below cited check-battery.py on "what it changes is the
+# last line". It did not change the last line. Found while the metamorphic lane next
+# door copied this shape and inherited the same defect; both were corrected together.
 if [ "$RUN_FALSIFY" = "1" ]; then
   # No count is written here on purpose. run-battery.sh's header says why in its
   # own words: an earlier version of it asserted "fifteen" and stayed saying it
@@ -142,6 +151,3 @@ else
   echo "is also what a grader with its predicates inverted would report. Re-run without"
   echo "the flag before reading this as a qualification."
 fi
-echo "a battery pass is a SHAPE qualification -- necessary for promotion to"
-echo "\`implemented\` in compiler/schema/properties.json and never sufficient, because"
-echo "every cell here is a (synthetic-specimen, configuration) measurement."

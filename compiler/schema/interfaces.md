@@ -293,8 +293,13 @@ in this directory. Components read it; none of them write it.
 
 ## 7. Exit codes
 
-Shared by every executable here, so that a caller can branch without knowing
-which component ran.
+One numbering, so that a caller can branch without knowing which component ran.
+0–4 are shared by every executable here; 5 and 6 are emitted by the measuring
+harnesses under `compiler/eval/` and by nothing else, which the paragraphs after
+the table state and `exit-codes.test.mjs` checks. The lead-in said "shared by every
+executable here" until 2026-09-13, when the table still stopped at 4 — so it was a
+true sentence about a table that was missing two rows, and keeping it would have
+made it a false one about a complete table.
 
 | Code | Meaning |
 |---|---|
@@ -309,21 +314,38 @@ which component ran.
 Fail closed. An unreadable policy, an unresolvable plugin digest, or a missing
 observation is 3 or 4 — never 0 with a warning.
 
-5 and 6 are emitted by the measuring harnesses under `compiler/eval/` and nowhere
-else. The driver, the verifier, the envelope and the link wrapper keep to 0–4, and
+5 and 6 are emitted by the measuring harnesses under `compiler/eval/`. The driver,
+the verifier, the envelope and the link wrapper keep to 0–4, and
 `observation.schema.json` holds a verdict's `exitCode` at 0–4 deliberately: a
 record's verdict is about the build it describes, never about the harness that
-recorded it. `compiler/schema/exit-codes.test.mjs` reads this table and every
-literal exit in the tree and fails if either carries a code the other does not —
-added 2026-09-13, after 5 had spread to 101 sites in 15 files and 6 to one, with
-neither in this table.
+recorded it. The one 5 outside `compiler/eval/` is
+`compiler/driver/test/observer-fixture.mjs`, which is a stand-in for an *external*
+observer tool whose job is to fail in ways the driver has to survive; its codes are
+a third party's, which is also why it spends 7 — a number this section does not
+define.
 
-Two departures from the table are known and deliberately not corrected here, so
-that a reader does not mistake the table for a claim of uniformity: a compiler
-absent from `PATH` is 3 in `compiler/eval/spike` and 5 in `compiler/eval/repair-loop`,
-and `compiler/eval/negative-controls` maps a tool failure to 5 where the table
-spends 1. Both are a lane's settled convention; unifying them is a change to those
-lanes, not to this section.
+`compiler/schema/exit-codes.test.mjs` reads this table and every literal exit in
+the tree and fails if either carries a code the other does not. Added 2026-09-13,
+after 5 had reached **103 sites in 15 files** and 6 one site, with neither in this
+table. That count is by that file's own method, at that commit, and it is stated
+there rather than here as well: this section carried a different number for one
+commit, which is what a count with no method attached does.
+
+Three departures from the table are known and deliberately not corrected here, so
+that a reader does not mistake the table for a claim of uniformity:
+
+- a compiler absent from `PATH` is 3 in `compiler/eval/spike` and 5 in
+  `compiler/eval/repair-loop`;
+- `compiler/eval/negative-controls` maps a tool failure to 5 where the table spends 1;
+- `compiler/eval/residue-tracer/observer/residue-observer.c` — a real executable
+  under `compiler/`, built and run per cell — spends **2** on a usage error where
+  the table spends 4, and **4** on every check it could not complete (an unreadable
+  subject, a subject that is not an ELF64 image) where the table spends 3.
+
+Each is a lane's settled convention; unifying them is a change to those lanes, not
+to this section. The third went unnamed until the fence's file filter was widened to
+`.c`, which is the general lesson: a departure nothing reads is indistinguishable
+from a departure nobody made.
 
 One consequence worth stating because the repository's own scanner will catch
 it otherwise: **do not put a security decision inside `assert`**. It disappears

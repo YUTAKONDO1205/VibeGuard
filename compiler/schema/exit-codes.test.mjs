@@ -7,9 +7,16 @@
  * branch without knowing which component ran". Until 2026-09-13 nothing checked
  * that, in either direction, and both directions had already failed:
  *
- *   - exit 5 was in use at 100 sites across 14 files under compiler/, and exit 6 at
+ *   - exit 5 was in use at 103 sites across 15 files under compiler/, and exit 6 at
  *     one, and the table listed 0-4. A caller branching on the table would have
  *     read a harness refusing to write a record as an unrecognised code.
+ *     (That count is by the method below, at this commit, with the one
+ *     NOT_A_COMPONENT file excluded. The first version of this file said "100 in
+ *     14" and interfaces.md said "101 in 15" — two numbers for one fact, in one
+ *     commit. 100/14 was the tree before this branch; 101/15 was that tree counted
+ *     without the exemption; neither described the tree the fence guards. Stating a
+ *     count at all is a liability unless the method is stated with it, so the
+ *     method is `treeCodes()` below and nothing else.)
  *   - nothing would have noticed a row whose code no component emits, which is a
  *     contract a reader is entitled to rely on and nobody keeps.
  *
@@ -19,8 +26,16 @@
  *
  * WHAT IS DELIBERATELY NOT ASSERTED: that a given component emits a given code, or
  * that two lanes agree about which code a situation deserves. They do not always --
- * section 7 now names the two known departures in its own text. The claim here is
- * narrower and mechanical: the table and the tree carry the same SET of codes.
+ * section 7 names the known departures in its own text. The claim here is narrower
+ * and mechanical: the table and the tree carry the same SET of LITERAL codes.
+ *
+ * WHAT IT STILL CANNOT SEE, said out loud so nobody reads it as exhaustive: a code
+ * that is not a literal at its exit site. `exit $rc`, `exit "$1"`,
+ * `exit $((FAILURES > 0 ? 2 : 0))`, `process.exit(code)`, `sys.exit(rc)`,
+ * `process.exitCode = dir ? 0 : 3` -- 133 such sites at the time of writing, and a
+ * new code introduced through any of them would pass this file. The last test below
+ * asserts that the number has not silently grown, which is the most a pattern
+ * matcher can do here; resolving them needs a different instrument than a regex.
  *
  * Nothing here runs a compiler, a harness or a shell. It reads tracked files.
  */
@@ -77,9 +92,15 @@ function tableCodes() {
  * number and make this test meaningless.
  */
 function treeCodes() {
-  const files = execFileSync('git', ['ls-files', 'compiler'], { cwd: REPO, encoding: 'utf8' })
+  // `.c` and `.cc` are in the list because compiler/eval/residue-tracer builds and
+  // runs one: observer/residue-observer.c, compiled per run by
+  // run-residue-tracer.mjs. A file filter that stopped at the scripting languages
+  // would have left a real executable under compiler/ entirely unexamined, which is
+  // how its exit(2)-for-usage departure went unnamed in the first version of
+  // section 7's departure list.
+  const files = execFileSync('git', ['ls-files', 'compiler'], { cwd: REPO, encoding: 'utf8', maxBuffer: 1 << 28 })
     .split('\n')
-    .filter((f) => /\.(mjs|js|cjs|ts|py|sh)$/.test(f))
+    .filter((f) => /\.(mjs|js|cjs|ts|py|sh|c|cc|cpp)$/.test(f))
     .filter((f) => !NOT_A_COMPONENT.has(f));
 
   const sites = new Map(); // code -> Map(file -> count)
@@ -95,19 +116,33 @@ function treeCodes() {
     const src = raw.split(/\r?\n/).filter((l) => !/^\s*(\/\/|#|\*)/.test(l)).join('\n');
     for (const re of [
       /\bprocess\.exit\(\s*(\d+)\s*\)/g,
+      /\bprocess\.exitCode\s*=\s*(\d+)\s*;/g,
       /\bdie\(\s*(\d+)\s*,/g,
       /\bsys\.exit\(\s*(\d+)\s*\)/g,
-      /^\s*exit\s+(\d+)\s*(?:;|$)/gm,
+      // C and C++: plain `exit(N);`. `_exit(` is NOT matched, on purpose —
+      // residue-observer.c uses it only in the forked child before `execv`, where
+      // 126 and 127 are the shell's conventional codes for "could not exec". Those
+      // never surface as the component's own verdict (the parent reads them as a
+      // child status), so a table row for them would describe something section 7
+      // is not about.
+      /(?<![\w.])exit\s*\(\s*(\d+)\s*\)\s*;/g,
+      // Shell, anywhere a command can start -- not only at the start of a line.
+      // The anchored version missed `*) echo …; exit 5 ;;` in this very branch's
+      // own compiler/eval/metamorphic/run-all.sh, so the count it produced was
+      // short by the file it shipped beside.
+      /(?:^|[;&|]|\bthen\b|\belse\b|\bdo\b)\s*exit\s+(\d+)\b/gm,
     ]) {
       for (const m of src.matchAll(re)) note(Number(m[1]), f);
     }
-    if (/process\.exit\(\s*main\(/.test(src)) {
-      // Not anchored to the start of a line: compiler/eval/negative-controls writes
-      // `if (toolFailures > 0) return 5;`, and an anchored pattern missed the one
-      // site in the tree that this clause exists for. Measured across the 12 files
-      // using this idiom, the unanchored form adds no integer return that is not an
-      // exit code.
-      for (const m of src.matchAll(/\breturn\s+(\d+)\s*;/g)) note(Number(m[1]), f);
+    // The main()-returns-the-code idiom, in EITHER language and through either
+    // sink. The first version gated this on /process\.exit\(\s*main\(/ alone, which
+    // no .py file and no `process.exitCode = main(…)` file can ever match -- so 20
+    // Python scripts and 9 more .mjs had their returned codes uncounted. Every one
+    // of those was checked by hand when this was widened and all land in 0-4; the
+    // point is that the fence now looks rather than that the answer was lucky.
+    if (/(?:process\.exit\(|process\.exitCode\s*=\s*)\s*main\(/.test(src)
+      || /sys\.exit\(\s*main\(/.test(src)) {
+      for (const m of src.matchAll(/\breturn\s+(\d+)\s*;?\s*$/gm)) note(Number(m[1]), f);
     }
   }
   return sites;
@@ -175,6 +210,40 @@ test('a verdict record still carries only 0-4, whatever this table grows to', ()
   assert.deepEqual(e.enum, [0, 1, 2, 3, 4],
     'verdict.exitCode must stay 0-4. Section 7 may define harness codes above 4; a RECORD may '
     + 'not carry them, because its verdict is about the build it describes.');
+});
+
+test('the set of exit sites this fence cannot resolve has not silently grown', () => {
+  // A ratchet, not a contract. The sites below hold a code in a variable or an
+  // expression, so no regex can say which number comes out -- and a NEW code
+  // introduced through one of them is exactly the failure the tests above cannot
+  // catch. Counting them at least makes the blind spot's SIZE visible: a lane that
+  // adds ten more indirect exits has to come here and say so.
+  //
+  // The baseline is measured, not chosen. Raising it is a decision; raising it
+  // without reading the new sites is how a fence becomes decoration.
+  const BASELINE = 133;
+  const files = execFileSync('git', ['ls-files', 'compiler'], { cwd: REPO, encoding: 'utf8', maxBuffer: 1 << 28 })
+    .split('\n')
+    .filter((f) => /\.(mjs|js|cjs|ts|py|sh|c|cc|cpp)$/.test(f))
+    .filter((f) => !NOT_A_COMPONENT.has(f));
+  let n = 0;
+  for (const f of files) {
+    let raw;
+    try { raw = readFileSync(path.join(REPO, f), 'utf8'); } catch { continue; }
+    const src = raw.split(/\r?\n/).filter((l) => !/^\s*(\/\/|#|\*|\/\*)/.test(l)).join('\n');
+    for (const re of [
+      /(?:^|[;&|]|\bthen\b|\belse\b|\bdo\b)\s*exit\s+([$"(][^\s;&|)]*)/gm,
+      /\bprocess\.exit\(\s*([A-Za-z_$][^)]*)\)/g,
+      /\bsys\.exit\(\s*([A-Za-z_][^)]*)\)/g,
+    ]) n += [...src.matchAll(re)].length;
+  }
+  assert.ok(n <= BASELINE,
+    `${n} exit sites now hold a non-literal code, up from the measured baseline of ${BASELINE}. `
+    + 'Read the new ones: if any can produce a code section 7 does not define, the table is wrong '
+    + 'and this file cannot tell you. Then raise the baseline with what you found.');
+  assert.ok(n >= Math.floor(BASELINE * 0.5),
+    `only ${n} non-literal exit sites found against a baseline of ${BASELINE}; the SCAN broke `
+    + 'rather than the tree improving by that much at once');
 });
 
 /** verdict.exitCode wherever the schema happens to nest it. */

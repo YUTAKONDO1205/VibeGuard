@@ -3,13 +3,20 @@
 // NOTHING when nothing was supplied, and that a malformed cell is refused out
 // loud rather than repaired or dropped in silence.
 //
-// The fixture uses two deliberately dull rules (a plaintext URL and a logged
-// secret name) rather than the `eval` snippet the neighbouring suites use.
-// Both are already covered for test files by the repository's own
-// `.vibeguardrc.json` path entry, so this file needs no file-scope suppression
-// pragma of its own — and the census in `scripts/check-packaging-invariants.mjs`
-// counts those pragmas against a fixed baseline, so adding one here would have
-// meant editing that baseline to accommodate a test that never needed it.
+// The main fixture uses two deliberately dull rules (a plaintext URL and a logged
+// secret name) rather than the `eval` snippet the neighbouring suites use. Both
+// are already covered for test files by the repository's own `.vibeguardrc.json`
+// path entry, so this file needs no file-scope suppression pragma of its own —
+// and the census in `scripts/check-packaging-invariants.mjs` counts those pragmas
+// against a fixed baseline, so adding one here would have meant editing that
+// baseline to accommodate a test that never needed it.
+//
+// The last two cases do use the `eval` snippet (`EVAL_SNIPPET`, below), so "rather
+// than" above is about the main fixture and not about the file. It arrived with
+// those two cases and is kept because they are about which RULE IDS the engine
+// loaded, and `VG-INJ-004` is the injection rule that snippet triggers; the same
+// `.vibeguardrc.json` path entry covers it, and the pragma census is unaffected —
+// `check-packaging-invariants.mjs` passes with it here.
 import { describe, expect, it } from 'vitest';
 import type { CompileLossEvidence, ScanRequest } from '@vibeguard/findings-schema';
 import { scan } from './analyzer.js';
@@ -162,12 +169,36 @@ describe('a malformed cell is refused out loud', () => {
   });
 });
 
-// These two went in built by hand rather than through `request()` above, with a
-// `language` key `ScanRequest` does not have, no `targetType` or `mode`, and an
-// `await` on a synchronous `scan`. Vitest transpiles without typechecking, so all
-// four mistakes ran green here while `tsc -p` — which is what `npm run build`
-// runs, and what CI's build-test job runs — failed on them. They are routed
-// through the same helper as everything else above now.
+// These two went in built by hand rather than through `request()` above. Four
+// things were wrong with them and only TWO were type errors, which is worth
+// stating exactly because the other two are the kind a reader would assume had
+// been caught:
+//
+//   caught by `tsc -p`  — no `targetType` and no `mode` (TS2345, both cases), and
+//                         `rejections[0].detail` on a possibly-empty array
+//                         (TS2532)
+//   NOT caught by anything — a `language` key `ScanRequest` does not declare, and
+//                         an `await` on a synchronous `scan`. Measured: a probe
+//                         file with both, as a direct object literal, typechecks
+//                         clean. So those two were plain sloppiness that nothing
+//                         in this repository would have objected to.
+//
+// Vitest transpiles without typechecking, so all four ran green here while
+// `npm run build` — which is CI's build-test job — failed on the first two. They
+// are routed through the same helper as everything else above now, which removes
+// all four.
+//
+// THE CLASS IS NOT CLOSED, and saying so here is the point of this paragraph.
+// This file is inside a workspace, so `npm run build` typechecks it. `scripts/`
+// is not: no tsconfig in this repository includes `scripts/**/*.ts`, and
+// `npm run build` only builds workspaces, so the five `scripts/*.test.ts` files
+// CI runs are typechecked by nothing at all. Measured 2026-09-13 with a throwaway
+// config extending `tsconfig.base.json`: **17 errors**, one of them the same shape
+// as the two above — `scripts/sec-selftest.test.ts:448`, TS2739, an object literal
+// missing two required properties. The rest are mostly `noUncheckedIndexedAccess`
+// on pre-existing code plus three `.mjs` imports with no declarations. Wiring a
+// typecheck over `scripts/` is therefore a real change with 17 pre-existing
+// failures behind it, not a one-line addition, and it is not attempted here.
 const EVAL_SNIPPET = 'const p = "password123";\neval(p);\n';
 
 describe('a well-formed cell for a rule this engine did not load', () => {

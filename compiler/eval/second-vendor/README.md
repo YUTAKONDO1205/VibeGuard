@@ -93,7 +93,7 @@ What was run, on a copy of one of those sets (`erasure/target.c` sha256
 
 | path | command | result |
 |---|---|---|
-| **accepting** | `run-controls.mjs` then `run-second-vendor.mjs`, same `--fixtures`/`--out` | controls **exit 0**, receipt `ALL_CONTROLS_PASSED over 10 block(s), spec 8711a087c60c, 5 fixture file(s)`; envelope **exit 0**, first line `controls receipt … -- proceeding.`, 80 cells written (19 `both-preserved`, 17 `both-lost`, 4 `clang-preserved-gcc-lost`) |
+| **accepting** | `run-controls.mjs` then `run-second-vendor.mjs`, same `--fixtures`/`--out` | controls **exit 0**, receipt `ALL_CONTROLS_PASSED over 10 block(s), spec 8711a087c60c, 5 fixture file(s)`; envelope **exit 0**, first line `controls receipt … -- proceeding.`, `summary.totalCells` **80** — 40 per vendor — and the **40** correspondence rows came out 19 `both-preserved`, 17 `both-lost`, 4 `clang-preserved-gcc-lost` |
 | **nobody ran them** | `run-second-vendor.mjs` into an empty `--out` | **exit 3**, "no controls receipt at …", nothing compiled, **zero files** in `--out` |
 | **they ran and something failed** | one blank line prepended to `erasure/target.c`, then the pair | controls **exit 2** and `CONTROLS_FAILED` (failed: `erasure.wipe/clang-18`, `erasure.wipe/gcc-13`); envelope **exit 3**, naming both failed blocks, no envelope written |
 | **they ran on other bytes** | the green receipt above placed beside the *edited* fixtures | **exit 3**, `fixture erasure/target.c has changed since the controls ran (14023f4b0b53 -> 3d0dad7fa24b)`, no envelope written |

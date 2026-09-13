@@ -22,11 +22,16 @@
 # from this file, and that the falsifier is inside the sweep instead of beside it.
 #
 # Configurations come from catalogue.json's `configurations`, not from this file.
-# The list matters in a way that fails QUIETLY in one direction: a sweep that holds
-# only `-O0` is refused by check-meta.py (exit 3, the survival-axis fence) because
-# no R2b cell moves there, and a sweep that held only `-O2` would never check that
-# R1 invariance holds where the optimiser has done nothing. Both, from the table,
-# every time.
+# This script sweeps whatever the table declares and enforces only one half of the
+# pairing: a sweep that holds only `-O0` is refused by check-meta.py (exit 3, the
+# survival-axis fence) because no R2b cell moves there. The other half is NOT
+# enforced at run time -- a table declaring only `-O2` sweeps and grades clean here,
+# and nothing in this run would say that R1 invariance was never checked where the
+# optimiser has done nothing. That half is a STATIC fence instead:
+# test/catalogue.test.mjs asserts the table carries at least one configuration with
+# r2bCanMove true AND at least one with it false, which CI runs and this script does
+# not. Said plainly because an earlier version of this comment claimed "both, from
+# the table, every time", which is what the table says and not what this file checks.
 #
 # EXIT CODES (interfaces.md section 7)
 #   0  every configuration measured, assembled and graded; the grader clean. With
@@ -129,6 +134,15 @@ fi
 
 echo
 echo "every configuration in catalogue.json measured, assembled and graded; the grader clean."
+echo "a clean sweep is a RELATION qualification -- it says the declared directions held"
+echo "over property-shaped specimens at the configurations catalogue.json declares, and"
+echo "never that a property is implemented: that word is compiler/schema/properties.json's."
+# The falsify verdict goes LAST, after the qualification paragraph above, because the
+# whole point of the --no-falsify branch is that the run's final line differs. The
+# first version of this script printed those three echoes after the `fi`, which made
+# the last line -- and the last THREE lines -- byte-identical either way, while this
+# file's own header claimed they differed. calibration/run-all.sh had the same
+# ordering and the same claim; both were corrected on 2026-09-13.
 if [ "$RUN_FALSIFY" = "1" ]; then
   # No count is written here on purpose. falsify-meta.py prints how many corruptions
   # it applied and how many it skipped as not applicable to the document in hand, and
@@ -152,6 +166,3 @@ else
   echo "what a grader with its predicates inverted would report. Re-run without the flag"
   echo "before reading this as a qualification."
 fi
-echo "a clean sweep is a RELATION qualification -- it says the declared directions held"
-echo "over property-shaped specimens at the configurations catalogue.json declares, and"
-echo "never that a property is implemented: that word is compiler/schema/properties.json's."

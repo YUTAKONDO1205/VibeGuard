@@ -238,13 +238,28 @@ test('readReceipt finds the block run-controls.mjs writes, and reports an absent
 // sets sat in the lab. The claim was not measured; it was assumed, and a unit
 // suite passing in both directions was read as covering for it.
 //
-// All four paths were run on 2026-09-13. This keeps the record from reverting to
-// an intention: a README that goes back to saying the green path is unrun, or
-// that drops the refusals, fails here. It asserts the SHAPE of the record, not
-// its numbers -- re-measuring on another fixture set should change the digests in
-// that table without touching this test.
+// All four paths were run on 2026-09-13, and the test below is a REVERT DETECTOR
+// for that record -- not a check that the record is true.
+//
+// That limit is stated here because the limit is real and was demonstrated. A
+// prose grep cannot verify a measurement: on copies of this lane, a README whose
+// paragraph was rewritten to "NOTHING HERE HAS BEEN RUN … treat every figure as
+// fabricated" with the table's strings left in place passed this file 15/15, and so
+// did one with every figure in the table falsified — exit 0 → exit 7, the digests
+// replaced, all three `exit 3` refusals rewritten to `exit 0`. So do not read a
+// green run of this file as "the table is right". What it does catch, measured the
+// same way: restoring the pre-2026-09-13 paragraph verbatim, and deleting the
+// four-row table. Those are the two ways the record actually goes missing, and they
+// are what this is for.
+//
+// Two assertions were dropped when that was measured rather than left in to pad the
+// list: `/CONTROLS_FAILED/` and `/exit 2/` are both satisfied by prose elsewhere in
+// the file that predates the runs (README.md's `run-controls.mjs` section), so they
+// could never have failed for the right reason. The four that remain occur only in
+// the table, and they are matched against the TABLE REGION rather than the whole
+// file so that they cannot start being satisfied from somewhere else later.
 
-test('README.md records the accepting direction as run, and all three refusals with it', () => {
+test('README.md still records the four paths as run — a revert detector, not a proof', () => {
   const readme = readFileSync(path.join(HERE, '..', 'README.md'), 'utf8');
 
   assert.doesNotMatch(readme, /accepting direction has not been run/i,
@@ -255,18 +270,26 @@ test('README.md records the accepting direction as run, and all three refusals w
     'README.md repeats the claim that this machine has no five-property fixture set. It has ten, '
     + 'verified byte-identical across all five properties.');
 
+  // The four-path table only: from its header row to the blank line after it.
+  const table = /\n\| path \| command \| result \|\n([\s\S]*?)\n\n/.exec(readme);
+  assert.ok(table, 'README.md no longer carries the four-path table (header `| path | command | '
+    + 'result |`). That table IS the record of what was run; its absence is the failure this test '
+    + 'exists for.');
+  const rows = table[1];
+  assert.ok(rows.split('\n').length >= 5,
+    `the four-path table parsed to ${rows.split('\n').length} line(s); four paths plus a separator `
+    + 'is five');
+
   for (const [what, re] of [
     ['the accepting run and its verdict', /ALL_CONTROLS_PASSED over 10 block\(s\)/],
-    ['the cell count it produced', /80 cells/],
+    ['the cell count it produced', /totalCells`? \*\*80\*\*/],
     ['the no-receipt refusal', /no controls receipt at/],
-    ['the failed-controls refusal', /CONTROLS_FAILED/],
     ['the other-bytes refusal', /has changed since the controls ran/],
-    ['the exit 2 a failing control now carries', /exit 2/],
   ]) {
-    assert.match(readme, re,
-      `README.md no longer records ${what}. The four paths are the evidence that this is a gate `
-      + 'rather than a convention; a README that records only the green one records the state '
-      + 'this lane was already in.');
+    assert.match(rows, re,
+      `the four-path table no longer records ${what}. The four paths are the evidence that this is `
+      + 'a gate rather than a convention; a table that records only the green one records the '
+      + 'state this lane was already in.');
   }
 
   // And the boundary the runs do NOT cross, kept stated.

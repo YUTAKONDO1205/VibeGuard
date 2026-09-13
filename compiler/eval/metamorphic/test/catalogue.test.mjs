@@ -254,11 +254,18 @@ test('run-all.sh reads the configurations from the catalogue and ends with the f
     'run-all.sh must INVOKE scripts/falsify-meta.py through step(), so a failure stops the run. '
     + 'A grader never shown to fail has not been shown to work, and a sequence that omits the '
     + 'demonstration is the state this file exists to keep closed.');
-  assert.match(sh, /^\s*step\s+[\s\S]*?account-for-documents\.py/m,
+  // One LOGICAL line, backslash continuations joined first. `[\s\S]*?` was used
+  // here at first and it crossed newlines, so "some line starts with step" plus
+  // "the filename appears somewhere below" satisfied it — and replacing the step()
+  // call with a bare `python3 … || true`, which removes the stop-on-refusal this
+  // very message promises, left the test green. Same class as the comment-matching
+  // bug above, found the same way.
+  const logical = sh.replace(/\\\n\s*/g, ' ');
+  assert.match(logical, /^\s*step\s+[^\n]*account-for-documents\.py/m,
     'run-all.sh must account for every document in the results directory before grading, through '
-    + 'step(): check-meta.py grades whatever *.json it finds and reports a verdict over '
-    + '"all N document(s)"');
-  assert.match(sh, /^\s*step\s+.*check-meta\.py/m,
+    + 'step() on one command, so a refusal STOPS the run: check-meta.py grades whatever *.json it '
+    + 'finds and reports a verdict over "all N document(s)"');
+  assert.match(logical, /^\s*step\s+[^\n]*check-meta\.py/m,
     'run-all.sh must invoke the grader through step() too');
   assert.match(sh, /NOT ESTABLISHED/,
     'the --no-falsify path must say so in its last line: a clean grader is also what a '
