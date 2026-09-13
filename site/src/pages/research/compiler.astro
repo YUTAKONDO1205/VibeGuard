@@ -171,11 +171,33 @@ const COMPILER_DIR_URL = 'https://github.com/YUTAKONDO1205/VibeGuard/tree/main/c
  * plugin's component name and version string, which would trip the copy
  * linter's version-shape rule and would also read as something to go and get.
  *
- * STILL UNSUPPORTED FROM THE TRACKED TREE, and left in place only because it
- * predates this edit: the fourteen-byte fold below. `git grep` finds no
- * measurement, no listing, no object and no script behind it anywhere in the
- * tracked tree; the only source is a local working note under a path .gitignore
- * excludes. Either it gets a tracked artefact or the paragraph goes.
+ * THE FOLD NOW HAS AN ARTEFACT, and building it corrected the claim twice.
+ *
+ * Until 2026-09-13 the fourteen-byte fold had no evidence in the tracked tree at
+ * all: no measurement, no listing, no object, no script. The only source was a
+ * local working note under a path .gitignore excludes, which meant no reader
+ * could check it and no test could hold it. compiler/eval/fold/ is that
+ * artefact - three subjects, a negative control that reads a different field and
+ * must not fold, and tracked rows for both compilers at two levels.
+ *
+ * Running it changed what the paragraph can say:
+ *
+ *   - FOURTEEN IS GCC'S NUMBER, not the result's. clang-18 gives nine bytes for
+ *     the same source at the same level. The four-byte difference is the
+ *     branch-protection prologue Ubuntu's gcc emits by default and its clang
+ *     does not. The earlier draft attached a distribution default to a finding
+ *     about code, and the lane's test now fails if the two figures are ever
+ *     written as one.
+ *   - OPTIMISATION IS NOT WHAT FOLDS THEM. -O0 was added to the lane expecting
+ *     the three to stay distinct there, which would have made the fold something
+ *     the optimiser does. They are identical at -O0 too, on both compilers, at
+ *     28 and 25 bytes. The three are the same computation as written; -O2 only
+ *     shortens what they already share. "Compiled at -O2 ... came out as the
+ *     same bytes" was true and invited the wrong cause.
+ *
+ * Padding is excluded from the counts. Trailing alignment bytes sit inside the
+ * range objdump prints for a function and added 7 under clang and 6 under gcc at
+ * -O2, which is decided by the next symbol's alignment rather than by the source.
  *
  * The fold is quotable, but only with its conditions attached. The working
  * notes require it be given as a conditional fact — -O2, x86-64, those
@@ -296,11 +318,22 @@ const COMPILER_DIR_URL = 'https://github.com/YUTAKONDO1205/VibeGuard/tree/main/c
           <span class="vg-h2__deco" aria-hidden="true">//</span>What has been measured
         </h2>
         <p>
-          One measurement is solid enough to state with its conditions. Compiled at <code>-O2</code> for x86-64,
-          three functions that mean entirely different things to a reader — an authorization check, a feature-flag
-          test, and a control that was written to be meaningless — came out as the same fourteen bytes of machine
-          code. Same bytes, three names, and no diagnostic anywhere saying that the distinction the programmer
-          wrote had stopped existing.
+          Three functions that mean entirely different things to a reader — an authorization check, a feature-flag
+          test, and one written to mean nothing at all — compile to the same bytes. Each takes a pointer to a
+          different struct, reads the first field and returns whether it is set; by the time a compiler decides
+          what to emit, the type names that made them different are gone.
+        </p>
+        <p>
+          The length belongs to the toolchain rather than to the finding. At <code>-O2</code> on x86-64 it is
+          fourteen bytes under gcc 13.3.0 and nine under clang 18.1.3, the difference being the four-byte
+          branch-protection prologue that Ubuntu's gcc emits by default and its clang does not.
+        </p>
+        <p>
+          Optimisation is not what does it. The three are identical at <code>-O0</code> as well, on both
+          compilers, at 28 and 25 bytes: they are the same computation as written, and <code>-O2</code> only
+          shortens the code they already share. What no diagnostic anywhere reports is that the distinction the
+          programmer wrote has stopped existing. A control of the same shape, differing only in which field it
+          reads, stays distinct at every level — which is what makes this a measurement and not a demonstration.
         </p>
         <p>
           Secret-erasing writes disappear under optimisation too, and that has now been counted on C a language
@@ -430,13 +463,24 @@ const COMPILER_DIR_URL = 'https://github.com/YUTAKONDO1205/VibeGuard/tree/main/c
           ことではありません。
         </p>
         <p>
-          条件を付けて言える実測が1つあります。x86-64 向けに <code>-O2</code> でコンパイルしたとき、読み手に
-          とって意味の異なる3つの関数、すなわち認可チェックと、フィーチャーフラグの判定と、意味を持たないよう
-          に書かれた対照が、同一の14バイトの機械語になりました。
+          読み手にとって意味の異なる3つの関数、すなわち認可チェックと、フィーチャーフラグの判定と、まったく
+          意味を持たないように書かれた関数が、同一のバイト列にコンパイルされます。どれも別の構造体への
+          ポインタを受け取り、最初のフィールドを読んで、それが立っているかを返すだけです。3つを違うものに
+          していた型名は、コンパイラが出力を決める時点では残っていません。
         </p>
         <p>
-          バイト列は同じで名前は3つですが、プログラマが書き分けた区別が失われたことを知らせる診断は、どこにも
-          出力されません。
+          長さは、所見ではなくツールチェーンに属します。x86-64 向けの <code>-O2</code> では、gcc 13.3.0 で
+          14バイト、clang 18.1.3 で9バイトであり、差は Ubuntu の gcc が既定で付ける4バイトの分岐保護の
+          前置です。
+        </p>
+        <p>
+          最適化がこれを起こしているのではありません。3つは <code>-O0</code> でも同一で、両方のコンパイラで
+          それぞれ28バイトと25バイトになります。3つは書かれた時点から同じ計算であり、<code>-O2</code> は
+          すでに共有しているコードを短くしているだけです。
+        </p>
+        <p>
+          プログラマが書き分けた区別が失われたことを、どの診断も報告しません。なお、同じ形で読むフィールドだけ
+          が違う対照は、どの水準でも別のバイト列のままです。これがこの比較を、実演ではなく計測にしています。
         </p>
         <p>
           秘密を消去する書き込みも、最適化によって削除されます。その頻度は、この主張のために書いた検体では

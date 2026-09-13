@@ -446,6 +446,13 @@ jobs:
           # arithmetic, the exclusion rule and the -O0 separation over synthetic
           # rows, plus the README guards. Nothing here loads the plugin.
           run_suite oracle-agreement     compiler/eval/oracle-agreement/test/*.test.mjs
+          # fold turns a sentence that was on the public site with no evidence in
+          # this tree into a measured one: three functions meaning different
+          # things, byte-identical, with a control that reads a different field
+          # and must not fold. Its suite reads the tracked rows and the
+          # disassembly parser only -- the measuring half needs clang and gcc and
+          # stays a lab run, like the lanes above.
+          run_suite fold                 compiler/eval/fold/test/*.test.mjs
           # second-vendor grew a test directory on 2026-09-12 with the controls
           # receipt: run-second-vendor.mjs used to print a table whether or not
           # the controls had passed, because the order was a sentence in a README
