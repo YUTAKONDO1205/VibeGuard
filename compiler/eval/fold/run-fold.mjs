@@ -29,8 +29,16 @@
 //   node run-fold.mjs --write-data     also refresh data/
 //   node run-fold.mjs --cc clang-18    one compiler
 //
-// Exit 0 when every configuration was measured, 3 when a control failed, 4 when
-// a compiler or objdump is absent. No configuration is skipped silently.
+// Exit 0 when every configuration was measured, 3 when a control failed, 5 when
+// a compiler or objdump could not be used. No configuration is skipped silently.
+//
+// The 5 is deliberate and `compiler/schema/interfaces.md` section 7 is why. A
+// missing compiler is not 4 — 4 is a digest that does not match its pin, or a
+// malformed policy — it is the harness failing its own preflight, which section 7
+// gives to the measuring harnesses under compiler/eval/ as 5. A failed control is
+// 3: the run looked and cannot report a result, which is the code that keeps "we
+// did not look" from being filed as "it is clean". Those three leave this file and
+// no others, which is what `compiler/schema/exit-codes.test.mjs` counts.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -83,9 +91,10 @@ function versionOf(cc) {
     return run(cc, ['--version']).split('\n')[0].trim();
   } catch (error) {
     die(
-      4,
+      5,
       `${cc} is not runnable here (${error?.message ?? error}). This lane needs the compiler\n` +
-        '  itself; there is nothing to fall back to.',
+        '  itself; there is nothing to fall back to, so this is a harness that could not be set\n' +
+        '  up rather than a check that came back clean.',
     );
   }
   return '';

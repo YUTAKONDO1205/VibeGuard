@@ -32,7 +32,7 @@
  * WHAT IT STILL CANNOT SEE, said out loud so nobody reads it as exhaustive: a code
  * that is not a literal at its exit site. `exit $rc`, `exit "$1"`,
  * `exit $((FAILURES > 0 ? 2 : 0))`, `process.exit(code)`, `sys.exit(rc)`,
- * `process.exitCode = dir ? 0 : 3` -- 133 such sites at the time of writing, and a
+ * `process.exitCode = dir ? 0 : 3` -- 134 such sites at the time of writing, and a
  * new code introduced through any of them would pass this file. The last test below
  * asserts that the number has not silently grown, which is the most a pattern
  * matcher can do here; resolving them needs a different instrument than a regex.
@@ -221,7 +221,13 @@ test('the set of exit sites this fence cannot resolve has not silently grown', (
   //
   // The baseline is measured, not chosen. Raising it is a decision; raising it
   // without reading the new sites is how a fence becomes decoration.
-  const BASELINE = 133;
+  // 133 -> 134 on 2026-09-13, read rather than bumped. The new site is the single
+  // `process.exit(code)` inside `die()` in `compiler/eval/fold/run-fold.mjs`. Its
+  // callers pass 3 and 5 and nothing else, and the runner's only other exit is an
+  // implicit 0 -- all three are defined in section 7, and 5 is the harness code
+  // section 7 reserves for exactly this directory. A reader who raises this number
+  // again owes the next person the same two sentences.
+  const BASELINE = 134;
   const files = execFileSync('git', ['ls-files', 'compiler'], { cwd: REPO, encoding: 'utf8', maxBuffer: 1 << 28 })
     .split('\n')
     .filter((f) => /\.(mjs|js|cjs|ts|py|sh|c|cc|cpp)$/.test(f))

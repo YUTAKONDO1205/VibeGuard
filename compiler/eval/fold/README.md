@@ -89,7 +89,10 @@ prevent.
 ## Running it
 
 Needs the two compilers and `objdump` on PATH. There is no fallback: a missing
-compiler exits 4 rather than reporting a narrower run as a complete one.
+compiler exits 5 rather than reporting a narrower run as a complete one. Five and
+not four, because `interfaces.md` section 7 gives 4 to a digest that does not
+match its pin or a malformed policy, and gives 5 to a measuring harness that
+could not be set up — which is what an absent compiler is.
 
 ```sh
 node compiler/eval/fold/run-fold.mjs                  # print
@@ -97,8 +100,8 @@ node compiler/eval/fold/run-fold.mjs --write-data     # refresh data/
 node compiler/eval/fold/run-fold.mjs --cc clang-18    # one compiler
 ```
 
-Exit 0 when every configuration was measured, 3 when a control failed, 4 when a
-tool is absent.
+Exit 0 when every configuration was measured, 3 when a control failed, 5 when a
+tool could not be used.
 
 `test/fold.test.mjs` needs neither compiler: it checks the tracked rows for the
 shape and the properties the lane promises, and exercises the disassembly reader
