@@ -1,9 +1,10 @@
 {
   "schemaVersion": "repair-regate/1",
-  "readMeFirst": "data/r2-regate.json records the repair loop re-measured with compiler/eval/spike's gate in front of it, and names the two LTO probes as the thing it does NOT cover: they are gated the same way, they write no tracked rows, and so there was nothing in data/ of theirs to compare against. This file closes that, differently: the probes still write no tracked rows, so what is compared is the numbers their own prose quotes in tools/LTO.md against the numbers a gated run produces. The comparison is by hand and transcribed here; test/lto-regate.test.mjs reads the numbers back OUT of LTO.md and holds this record to them, so a transcription error or a later edit of LTO.md fails a test.",
-  "question": "do the numbers tools/LTO.md quotes for the two LTO probes reproduce with the spike/recovery gate in front of the run?",
+  "readMeFirst": "data/r2-regate.json records the repair loop re-measured with compiler/eval/spike's gate in front of it, and names the two LTO probes as the thing it does NOT cover: they are gated the same way, they write no tracked rows, and so there was nothing in data/ of theirs for a digest comparison to be about. This file closes that by a different route. The probes still write no tracked rows, so what is compared is the cell TEXTS tools/LTO.md quotes against the readings a gated run produces. The entries below were derived from the run logs and not from LTO.md -- generating them from LTO.md would make the comparison vacuous by construction -- and test/lto-regate.test.mjs reads LTO.md's tables back out and compares every claimed cell, for every run, including denominators and the HELD word.",
+  "question": "do the readings tools/LTO.md quotes for the two LTO probes reproduce with the spike/recovery gate in front of the run, at every level and both selection idioms?",
   "measuredOn": "2026-09-13",
-  "whyItWasOpen": "The gate was wired into both probes on 2026-09-12 (lto-probe.mjs:278, lto-probe-gcc.mjs:312). LTO.md's last content change was earlier the same day, so every number in it was taken before the gate existed -- the code was gated and the prose was not, the same split r2-regate.json records for the rows. LTO.md does not contain the word gate.",
+  "whyItWasOpen": "The gate was wired into both probes on 2026-09-12 (lto-probe.mjs:278, lto-probe-gcc.mjs:312). LTO.md's last content change was earlier the same day, so every number in it was taken before the gate existed -- the code was gated and the prose was not, the same split r2-regate.json records for the rows. LTO.md did not contain the word gate.",
+  "firstAttemptWasNarrowerAndSaidSoWrongly": "The first version of this record covered -O2 only and justified that with a technical claim: that -O2 is the one level at which the gate has a discriminating pair registered per vendor. That was FALSE. The gate was run at -O1, -O3 and -Os on both vendors and came back ESTABLISHED with injection RED and 1/1 discriminating each time; only -O0 is non-discriminating, which is all the probes' own comments ever said. The restriction had been cost dressed as capability, so the repair was to run the levels rather than to reword the excuse. It also read gate.configurations as 2/2 off the summary line; that is the per-configuration recovery count printed beside it, and verdict.configurations is 1/1 for a one-vendor one-level call.",
   "toolchain": {
     "cc": "Ubuntu clang version 18.1.3 (1ubuntu1)",
     "lld": "Ubuntu LLD 18.1.3 (compatible with GNU linkers)",
@@ -11,132 +12,854 @@
     "ld": "GNU ld (GNU Binutils for Ubuntu) 2.42, through the driver and gcc's LTO linker plugin",
     "node": "v18.19.1"
   },
-  "scope": {
-    "level": "-O2 only",
-    "whyOneLevel": "-O2 is the level at which both probes' default run is defined, the level LTO.md's clang Run E and gcc Run A rows both cover, and the one configuration at which the spike gate has a discriminating pair registered for each vendor (`--opts -O0` alone has no such pair and the probes refuse the run). The other levels LTO.md quotes (-O1, -O3, -Os, and the --all-removable runs) were NOT re-measured here.",
-    "forms": "clang: full and thin. gcc: the one form gcc has."
+  "coverage": {
+    "levels": "-O1, -O2, -O3 and -Os on both vendors",
+    "idioms": "the tracked eliminated files, and every removable-idiom file (--all-removable), on both vendors",
+    "forms": "clang: full and thin LTO, separately. gcc: the one form gcc has",
+    "secondBinaryAt": "-O2 on each vendor was additionally run with a second build of the same source, configured differently (Release vs the cmake default) and several times the size. Reproducing a reading with the gate added AND the binary changed separates neither, so the run the claim rests on is the one made with the exact binary LTO.md quotes; the other is evidence of something else -- that the readings do not depend on the build configuration.",
+    "whyNotMinusO0": "At -O0 the gate is NOT established: discriminating reads 0/1, because the two spikes are registered to read the same word there. Both probes refuse such a run (exit 3) rather than passing it, so there is no -O0 LTO reading to take and LTO.md quotes none."
   },
   "runs": [
     {
       "probe": "tools/lto-probe.mjs",
       "cc": "clang-18",
+      "level": "-O2",
+      "form": "full",
+      "idiom": "the tracked eliminated files",
+      "cells": 113,
+      "baselineSurvived": 0,
       "pluginSha256": "db3298cfb30d14200fe0822261eaa1c35aa51aed4aef869a0edd3151f073a4c8",
       "pluginIsTheOneTheProseQuotes": true,
-      "comparedAgainst": "LTO.md Run E (full and thin, -O2, 113 files)",
-      "gate": {
-        "established": true,
-        "configurations": { "num": 2, "den": 2 },
-        "discriminating": { "num": 1, "den": 1 },
-        "injectionHeld": true
-      },
-      "cells": 113,
-      "forms": 2,
-      "eliminatedWithoutPlugin": 113,
-      "differsFromTrackedNonLtoRow": 0,
-      "retained": 113,
-      "alreadySurvived": 0,
-      "dryRunHeld": { "num": 113, "den": 113 },
-      "linkLineLinks": 226,
-      "linkLineGradedHeld": true,
-      "relinksIdentical": { "num": 452, "den": 452 },
-      "wallClockSeconds": 109,
+      "pluginBuildType": "cmake default (CMAKE_BUILD_TYPE empty)",
+      "wallClockSeconds": null,
       "exit": 0,
       "wroteTrackedRows": false,
-      "everyQuotedNumberReproduced": true
+      "gate": {
+        "established": true,
+        "injectionHeld": true,
+        "configurations": {
+          "num": 1,
+          "den": 1
+        },
+        "discriminating": {
+          "num": 1,
+          "den": 1
+        }
+      },
+      "ltoMd": {
+        "rowKey": [
+          "full",
+          "`-O2`",
+          "113"
+        ],
+        "columns": {
+          "cells": "113",
+          "eliminated without the plugin (LTO)": "113",
+          "differs from the tracked non-LTO row": "0",
+          "`RETAINED`": "113",
+          "dry run (iii)": "`HELD` 113/113",
+          "(ii) links": "226",
+          "(ii) stderr exactly the line, once": "226/226",
+          "(ii) sentinel removed / record written": "226 / 0",
+          "(ii) assembly equal to the stock link": "226/226",
+          "(ii) graded": "`HELD`",
+          "relinks identical": "452/452"
+        }
+      }
     },
     {
       "probe": "tools/lto-probe.mjs",
       "cc": "clang-18",
+      "level": "-O2",
+      "form": "thin",
+      "idiom": "the tracked eliminated files",
+      "cells": 113,
+      "baselineSurvived": 0,
+      "pluginSha256": "db3298cfb30d14200fe0822261eaa1c35aa51aed4aef869a0edd3151f073a4c8",
+      "pluginIsTheOneTheProseQuotes": true,
+      "pluginBuildType": "cmake default (CMAKE_BUILD_TYPE empty)",
+      "wallClockSeconds": null,
+      "exit": 0,
+      "wroteTrackedRows": false,
+      "gate": {
+        "established": true,
+        "injectionHeld": true,
+        "configurations": {
+          "num": 1,
+          "den": 1
+        },
+        "discriminating": {
+          "num": 1,
+          "den": 1
+        }
+      },
+      "ltoMd": {
+        "rowKey": [
+          "thin",
+          "`-O2`",
+          "113"
+        ],
+        "columns": {
+          "cells": "113",
+          "eliminated without the plugin (LTO)": "113",
+          "differs from the tracked non-LTO row": "0",
+          "`RETAINED`": "113",
+          "dry run (iii)": "`HELD` 113/113",
+          "(ii) links": "226",
+          "(ii) stderr exactly the line, once": "226/226",
+          "(ii) sentinel removed / record written": "226 / 0",
+          "(ii) assembly equal to the stock link": "226/226",
+          "(ii) graded": "`HELD`",
+          "relinks identical": "452/452"
+        }
+      }
+    },
+    {
+      "probe": "tools/lto-probe.mjs",
+      "cc": "clang-18",
+      "level": "-O2",
+      "form": "full",
+      "idiom": "the tracked eliminated files",
+      "cells": 113,
+      "baselineSurvived": 0,
       "pluginSha256": "677eba569d190b2c2599edc637dcfcd21b5ab49c944f0939ceb826aeb49b086a",
       "pluginIsTheOneTheProseQuotes": false,
-      "comparedAgainst": "LTO.md Run E (full and thin, -O2, 113 files)",
-      "gate": {
-        "established": true,
-        "configurations": { "num": 2, "den": 2 },
-        "discriminating": { "num": 1, "den": 1 },
-        "injectionHeld": true
-      },
-      "cells": 113,
-      "forms": 2,
-      "eliminatedWithoutPlugin": 113,
-      "differsFromTrackedNonLtoRow": 0,
-      "retained": 113,
-      "alreadySurvived": 0,
-      "dryRunHeld": { "num": 113, "den": 113 },
-      "linkLineLinks": 226,
-      "linkLineGradedHeld": true,
-      "relinksIdentical": { "num": 452, "den": 452 },
-      "wallClockSeconds": 105,
+      "pluginBuildType": "Release",
+      "wallClockSeconds": null,
       "exit": 0,
       "wroteTrackedRows": false,
-      "everyQuotedNumberReproduced": true
+      "gate": {
+        "established": true,
+        "injectionHeld": true,
+        "configurations": {
+          "num": 1,
+          "den": 1
+        },
+        "discriminating": {
+          "num": 1,
+          "den": 1
+        }
+      },
+      "ltoMd": {
+        "rowKey": [
+          "full",
+          "`-O2`",
+          "113"
+        ],
+        "columns": {
+          "cells": "113",
+          "eliminated without the plugin (LTO)": "113",
+          "differs from the tracked non-LTO row": "0",
+          "`RETAINED`": "113",
+          "dry run (iii)": "`HELD` 113/113",
+          "(ii) links": "226",
+          "(ii) stderr exactly the line, once": "226/226",
+          "(ii) sentinel removed / record written": "226 / 0",
+          "(ii) assembly equal to the stock link": "226/226",
+          "(ii) graded": "`HELD`",
+          "relinks identical": "452/452"
+        }
+      }
+    },
+    {
+      "probe": "tools/lto-probe.mjs",
+      "cc": "clang-18",
+      "level": "-O2",
+      "form": "thin",
+      "idiom": "the tracked eliminated files",
+      "cells": 113,
+      "baselineSurvived": 0,
+      "pluginSha256": "677eba569d190b2c2599edc637dcfcd21b5ab49c944f0939ceb826aeb49b086a",
+      "pluginIsTheOneTheProseQuotes": false,
+      "pluginBuildType": "Release",
+      "wallClockSeconds": null,
+      "exit": 0,
+      "wroteTrackedRows": false,
+      "gate": {
+        "established": true,
+        "injectionHeld": true,
+        "configurations": {
+          "num": 1,
+          "den": 1
+        },
+        "discriminating": {
+          "num": 1,
+          "den": 1
+        }
+      },
+      "ltoMd": {
+        "rowKey": [
+          "thin",
+          "`-O2`",
+          "113"
+        ],
+        "columns": {
+          "cells": "113",
+          "eliminated without the plugin (LTO)": "113",
+          "differs from the tracked non-LTO row": "0",
+          "`RETAINED`": "113",
+          "dry run (iii)": "`HELD` 113/113",
+          "(ii) links": "226",
+          "(ii) stderr exactly the line, once": "226/226",
+          "(ii) sentinel removed / record written": "226 / 0",
+          "(ii) assembly equal to the stock link": "226/226",
+          "(ii) graded": "`HELD`",
+          "relinks identical": "452/452"
+        }
+      }
+    },
+    {
+      "probe": "tools/lto-probe.mjs",
+      "cc": "clang-18",
+      "level": "-O1",
+      "form": "full",
+      "idiom": "the tracked eliminated files",
+      "cells": 113,
+      "baselineSurvived": 51,
+      "pluginSha256": "db3298cfb30d14200fe0822261eaa1c35aa51aed4aef869a0edd3151f073a4c8",
+      "pluginIsTheOneTheProseQuotes": true,
+      "pluginBuildType": "cmake default (CMAKE_BUILD_TYPE empty)",
+      "wallClockSeconds": null,
+      "exit": 0,
+      "wroteTrackedRows": false,
+      "gate": {
+        "established": true,
+        "injectionHeld": true,
+        "configurations": {
+          "num": 1,
+          "den": 1
+        },
+        "discriminating": {
+          "num": 1,
+          "den": 1
+        }
+      },
+      "ltoMd": {
+        "rowKey": [
+          "G",
+          "full",
+          "`-O1`"
+        ],
+        "columns": {
+          "cells": "113",
+          "eliminated without the plugin (LTO)": "62",
+          "differs from the tracked non-LTO row": "0",
+          "`RETAINED`": "62",
+          "`ALREADY_SURVIVED`": "51",
+          "dry run (iii)": "`HELD` 62/62",
+          "(ii) graded": "`HELD`, 226 links",
+          "relinks identical": "452/452"
+        }
+      }
+    },
+    {
+      "probe": "tools/lto-probe.mjs",
+      "cc": "clang-18",
+      "level": "-O3",
+      "form": "full",
+      "idiom": "the tracked eliminated files",
+      "cells": 113,
+      "baselineSurvived": 0,
+      "pluginSha256": "db3298cfb30d14200fe0822261eaa1c35aa51aed4aef869a0edd3151f073a4c8",
+      "pluginIsTheOneTheProseQuotes": true,
+      "pluginBuildType": "cmake default (CMAKE_BUILD_TYPE empty)",
+      "wallClockSeconds": null,
+      "exit": 0,
+      "wroteTrackedRows": false,
+      "gate": {
+        "established": true,
+        "injectionHeld": true,
+        "configurations": {
+          "num": 1,
+          "den": 1
+        },
+        "discriminating": {
+          "num": 1,
+          "den": 1
+        }
+      },
+      "ltoMd": {
+        "rowKey": [
+          "G",
+          "full",
+          "`-O3`"
+        ],
+        "columns": {
+          "cells": "113",
+          "eliminated without the plugin (LTO)": "113",
+          "differs from the tracked non-LTO row": "0",
+          "`RETAINED`": "113",
+          "`ALREADY_SURVIVED`": "0",
+          "dry run (iii)": "`HELD` 113/113",
+          "(ii) graded": "`HELD`, 226 links",
+          "relinks identical": "452/452"
+        }
+      }
+    },
+    {
+      "probe": "tools/lto-probe.mjs",
+      "cc": "clang-18",
+      "level": "-Os",
+      "form": "full",
+      "idiom": "the tracked eliminated files",
+      "cells": 113,
+      "baselineSurvived": 0,
+      "pluginSha256": "db3298cfb30d14200fe0822261eaa1c35aa51aed4aef869a0edd3151f073a4c8",
+      "pluginIsTheOneTheProseQuotes": true,
+      "pluginBuildType": "cmake default (CMAKE_BUILD_TYPE empty)",
+      "wallClockSeconds": null,
+      "exit": 0,
+      "wroteTrackedRows": false,
+      "gate": {
+        "established": true,
+        "injectionHeld": true,
+        "configurations": {
+          "num": 1,
+          "den": 1
+        },
+        "discriminating": {
+          "num": 1,
+          "den": 1
+        }
+      },
+      "ltoMd": {
+        "rowKey": [
+          "G",
+          "full",
+          "`-Os`"
+        ],
+        "columns": {
+          "cells": "113",
+          "eliminated without the plugin (LTO)": "113",
+          "differs from the tracked non-LTO row": "0",
+          "`RETAINED`": "113",
+          "`ALREADY_SURVIVED`": "0",
+          "dry run (iii)": "`HELD` 113/113",
+          "(ii) graded": "`HELD`, 226 links",
+          "relinks identical": "452/452"
+        }
+      }
+    },
+    {
+      "probe": "tools/lto-probe.mjs",
+      "cc": "clang-18",
+      "level": "-O1",
+      "form": "thin",
+      "idiom": "the tracked eliminated files",
+      "cells": 113,
+      "baselineSurvived": 51,
+      "pluginSha256": "db3298cfb30d14200fe0822261eaa1c35aa51aed4aef869a0edd3151f073a4c8",
+      "pluginIsTheOneTheProseQuotes": true,
+      "pluginBuildType": "cmake default (CMAKE_BUILD_TYPE empty)",
+      "wallClockSeconds": null,
+      "exit": 0,
+      "wroteTrackedRows": false,
+      "gate": {
+        "established": true,
+        "injectionHeld": true,
+        "configurations": {
+          "num": 1,
+          "den": 1
+        },
+        "discriminating": {
+          "num": 1,
+          "den": 1
+        }
+      },
+      "ltoMd": {
+        "rowKey": [
+          "G",
+          "thin",
+          "`-O1`"
+        ],
+        "columns": {
+          "cells": "113",
+          "eliminated without the plugin (LTO)": "62",
+          "differs from the tracked non-LTO row": "0",
+          "`RETAINED`": "62",
+          "`ALREADY_SURVIVED`": "51",
+          "dry run (iii)": "`HELD` 62/62",
+          "(ii) graded": "`HELD`, 226 links",
+          "relinks identical": "452/452"
+        }
+      }
+    },
+    {
+      "probe": "tools/lto-probe.mjs",
+      "cc": "clang-18",
+      "level": "-O3",
+      "form": "thin",
+      "idiom": "the tracked eliminated files",
+      "cells": 113,
+      "baselineSurvived": 0,
+      "pluginSha256": "db3298cfb30d14200fe0822261eaa1c35aa51aed4aef869a0edd3151f073a4c8",
+      "pluginIsTheOneTheProseQuotes": true,
+      "pluginBuildType": "cmake default (CMAKE_BUILD_TYPE empty)",
+      "wallClockSeconds": null,
+      "exit": 0,
+      "wroteTrackedRows": false,
+      "gate": {
+        "established": true,
+        "injectionHeld": true,
+        "configurations": {
+          "num": 1,
+          "den": 1
+        },
+        "discriminating": {
+          "num": 1,
+          "den": 1
+        }
+      },
+      "ltoMd": {
+        "rowKey": [
+          "G",
+          "thin",
+          "`-O3`"
+        ],
+        "columns": {
+          "cells": "113",
+          "eliminated without the plugin (LTO)": "113",
+          "differs from the tracked non-LTO row": "0",
+          "`RETAINED`": "113",
+          "`ALREADY_SURVIVED`": "0",
+          "dry run (iii)": "`HELD` 113/113",
+          "(ii) graded": "`HELD`, 226 links",
+          "relinks identical": "452/452"
+        }
+      }
+    },
+    {
+      "probe": "tools/lto-probe.mjs",
+      "cc": "clang-18",
+      "level": "-Os",
+      "form": "thin",
+      "idiom": "the tracked eliminated files",
+      "cells": 113,
+      "baselineSurvived": 0,
+      "pluginSha256": "db3298cfb30d14200fe0822261eaa1c35aa51aed4aef869a0edd3151f073a4c8",
+      "pluginIsTheOneTheProseQuotes": true,
+      "pluginBuildType": "cmake default (CMAKE_BUILD_TYPE empty)",
+      "wallClockSeconds": null,
+      "exit": 0,
+      "wroteTrackedRows": false,
+      "gate": {
+        "established": true,
+        "injectionHeld": true,
+        "configurations": {
+          "num": 1,
+          "den": 1
+        },
+        "discriminating": {
+          "num": 1,
+          "den": 1
+        }
+      },
+      "ltoMd": {
+        "rowKey": [
+          "G",
+          "thin",
+          "`-Os`"
+        ],
+        "columns": {
+          "cells": "113",
+          "eliminated without the plugin (LTO)": "113",
+          "differs from the tracked non-LTO row": "0",
+          "`RETAINED`": "113",
+          "`ALREADY_SURVIVED`": "0",
+          "dry run (iii)": "`HELD` 113/113",
+          "(ii) graded": "`HELD`, 226 links",
+          "relinks identical": "452/452"
+        }
+      }
+    },
+    {
+      "probe": "tools/lto-probe.mjs",
+      "cc": "clang-18",
+      "level": "-O2",
+      "form": "full",
+      "idiom": "every removable-idiom file (--all-removable)",
+      "cells": 133,
+      "baselineSurvived": 20,
+      "pluginSha256": "db3298cfb30d14200fe0822261eaa1c35aa51aed4aef869a0edd3151f073a4c8",
+      "pluginIsTheOneTheProseQuotes": true,
+      "pluginBuildType": "cmake default (CMAKE_BUILD_TYPE empty)",
+      "wallClockSeconds": 258,
+      "exit": 0,
+      "wroteTrackedRows": false,
+      "gate": {
+        "established": true,
+        "injectionHeld": true,
+        "configurations": {
+          "num": 1,
+          "den": 1
+        },
+        "discriminating": {
+          "num": 1,
+          "den": 1
+        }
+      },
+      "ltoMd": {
+        "rowKey": [
+          "full",
+          "`-O2`",
+          "133"
+        ],
+        "columns": {
+          "cells": "133",
+          "eliminated without the plugin (LTO)": "113",
+          "differs from the tracked non-LTO row": "0",
+          "added eliminations": "0",
+          "`RETAINED`": "113",
+          "`ALREADY_SURVIVED`": "20",
+          "dry run (iii)": "`HELD` 113/113",
+          "(ii) graded": "`HELD`, 266 links",
+          "relinks identical": "532/532"
+        }
+      }
+    },
+    {
+      "probe": "tools/lto-probe.mjs",
+      "cc": "clang-18",
+      "level": "-O2",
+      "form": "thin",
+      "idiom": "every removable-idiom file (--all-removable)",
+      "cells": 133,
+      "baselineSurvived": 20,
+      "pluginSha256": "db3298cfb30d14200fe0822261eaa1c35aa51aed4aef869a0edd3151f073a4c8",
+      "pluginIsTheOneTheProseQuotes": true,
+      "pluginBuildType": "cmake default (CMAKE_BUILD_TYPE empty)",
+      "wallClockSeconds": 258,
+      "exit": 0,
+      "wroteTrackedRows": false,
+      "gate": {
+        "established": true,
+        "injectionHeld": true,
+        "configurations": {
+          "num": 1,
+          "den": 1
+        },
+        "discriminating": {
+          "num": 1,
+          "den": 1
+        }
+      },
+      "ltoMd": {
+        "rowKey": [
+          "thin",
+          "`-O2`",
+          "133"
+        ],
+        "columns": {
+          "cells": "133",
+          "eliminated without the plugin (LTO)": "113",
+          "differs from the tracked non-LTO row": "0",
+          "added eliminations": "0",
+          "`RETAINED`": "113",
+          "`ALREADY_SURVIVED`": "20",
+          "dry run (iii)": "`HELD` 113/113",
+          "(ii) graded": "`HELD`, 266 links",
+          "relinks identical": "532/532"
+        }
+      }
     },
     {
       "probe": "tools/lto-probe-gcc.mjs",
       "cc": "gcc-13",
+      "level": "-O2",
+      "form": "the one form gcc has",
+      "idiom": "the tracked eliminated files",
+      "cells": 108,
+      "baselineSurvived": 0,
       "pluginSha256": "a023b047abcafdbb824f627d227861e0ae0556072c9e4ba87e102b2c9747ba1b",
       "pluginIsTheOneTheProseQuotes": true,
-      "comparedAgainst": "LTO.md gcc Run A, -O2 row (108 files)",
-      "gate": {
-        "established": true,
-        "configurations": { "num": 2, "den": 2 },
-        "discriminating": { "num": 1, "den": 1 },
-        "injectionHeld": true
-      },
-      "cells": 108,
-      "forms": 1,
-      "eliminatedWithoutPlugin": 108,
-      "differsFromTrackedNonLtoRow": 0,
-      "retained": 108,
-      "alreadySurvived": 0,
-      "dryRunHeld": { "num": 108, "den": 108 },
-      "linkLineLinks": 216,
-      "linkLineRefusalsPerLink": 2,
-      "linkLineGradedHeld": true,
-      "relinksIdentical": { "num": 1296, "den": 1296 },
-      "wallClockSeconds": 115,
+      "pluginBuildType": "cmake default (CMAKE_BUILD_TYPE empty)",
+      "wallClockSeconds": null,
       "exit": 0,
       "wroteTrackedRows": false,
-      "everyQuotedNumberReproduced": true
+      "gate": {
+        "established": true,
+        "injectionHeld": true,
+        "configurations": {
+          "num": 1,
+          "den": 1
+        },
+        "discriminating": {
+          "num": 1,
+          "den": 1
+        }
+      },
+      "ltoMd": {
+        "rowKey": [
+          "A",
+          "`-O2`"
+        ],
+        "columns": {
+          "cells": "108",
+          "eliminated without the plugin (LTO)": "108",
+          "differs from the tracked non-LTO row": "0",
+          "`RETAINED`": "108",
+          "`ALREADY_SURVIVED`": "0",
+          "other outcomes": "0",
+          "dry run (iii)": "`HELD` 108/108",
+          "(ii) links": "216",
+          "(ii) refusals, each link": "2",
+          "(ii) sentinel removed / record written": "216 / 0",
+          "(ii) assembly / shared object equal to the stock link": "216 / 216",
+          "(ii) graded": "`HELD`",
+          "relink comparisons identical": "1296/1296"
+        }
+      }
     },
     {
       "probe": "tools/lto-probe-gcc.mjs",
       "cc": "gcc-13",
+      "level": "-O2",
+      "form": "the one form gcc has",
+      "idiom": "the tracked eliminated files",
+      "cells": 108,
+      "baselineSurvived": 0,
       "pluginSha256": "f4d6e21377286a36e5508dd8452ef1e58562bb1bb9acc4f7382f6f74c406cf13",
       "pluginIsTheOneTheProseQuotes": false,
-      "comparedAgainst": "LTO.md gcc Run A, -O2 row (108 files)",
-      "gate": {
-        "established": true,
-        "configurations": { "num": 2, "den": 2 },
-        "discriminating": { "num": 1, "den": 1 },
-        "injectionHeld": true
-      },
-      "cells": 108,
-      "forms": 1,
-      "eliminatedWithoutPlugin": 108,
-      "differsFromTrackedNonLtoRow": 0,
-      "retained": 108,
-      "alreadySurvived": 0,
-      "dryRunHeld": { "num": 108, "den": 108 },
-      "linkLineLinks": 216,
-      "linkLineRefusalsPerLink": 2,
-      "linkLineGradedHeld": true,
-      "relinksIdentical": { "num": 1296, "den": 1296 },
-      "wallClockSeconds": 121,
+      "pluginBuildType": "Release",
+      "wallClockSeconds": null,
       "exit": 0,
       "wroteTrackedRows": false,
-      "everyQuotedNumberReproduced": true
+      "gate": {
+        "established": true,
+        "injectionHeld": true,
+        "configurations": {
+          "num": 1,
+          "den": 1
+        },
+        "discriminating": {
+          "num": 1,
+          "den": 1
+        }
+      },
+      "ltoMd": {
+        "rowKey": [
+          "A",
+          "`-O2`"
+        ],
+        "columns": {
+          "cells": "108",
+          "eliminated without the plugin (LTO)": "108",
+          "differs from the tracked non-LTO row": "0",
+          "`RETAINED`": "108",
+          "`ALREADY_SURVIVED`": "0",
+          "other outcomes": "0",
+          "dry run (iii)": "`HELD` 108/108",
+          "(ii) links": "216",
+          "(ii) refusals, each link": "2",
+          "(ii) sentinel removed / record written": "216 / 0",
+          "(ii) assembly / shared object equal to the stock link": "216 / 216",
+          "(ii) graded": "`HELD`",
+          "relink comparisons identical": "1296/1296"
+        }
+      }
+    },
+    {
+      "probe": "tools/lto-probe-gcc.mjs",
+      "cc": "gcc-13",
+      "level": "-O1",
+      "form": "the one form gcc has",
+      "idiom": "the tracked eliminated files",
+      "cells": 108,
+      "baselineSurvived": 0,
+      "pluginSha256": "a023b047abcafdbb824f627d227861e0ae0556072c9e4ba87e102b2c9747ba1b",
+      "pluginIsTheOneTheProseQuotes": true,
+      "pluginBuildType": "cmake default (CMAKE_BUILD_TYPE empty)",
+      "wallClockSeconds": null,
+      "exit": 0,
+      "wroteTrackedRows": false,
+      "gate": {
+        "established": true,
+        "injectionHeld": true,
+        "configurations": {
+          "num": 1,
+          "den": 1
+        },
+        "discriminating": {
+          "num": 1,
+          "den": 1
+        }
+      },
+      "ltoMd": {
+        "rowKey": [
+          "A",
+          "`-O1`"
+        ],
+        "columns": {
+          "cells": "108",
+          "eliminated without the plugin (LTO)": "108",
+          "differs from the tracked non-LTO row": "0",
+          "`RETAINED`": "108",
+          "`ALREADY_SURVIVED`": "0",
+          "other outcomes": "0",
+          "dry run (iii)": "`HELD` 108/108",
+          "(ii) links": "216",
+          "(ii) refusals, each link": "2",
+          "(ii) sentinel removed / record written": "216 / 0",
+          "(ii) assembly / shared object equal to the stock link": "216 / 216",
+          "(ii) graded": "`HELD`",
+          "relink comparisons identical": "1296/1296"
+        }
+      }
+    },
+    {
+      "probe": "tools/lto-probe-gcc.mjs",
+      "cc": "gcc-13",
+      "level": "-O3",
+      "form": "the one form gcc has",
+      "idiom": "the tracked eliminated files",
+      "cells": 108,
+      "baselineSurvived": 0,
+      "pluginSha256": "a023b047abcafdbb824f627d227861e0ae0556072c9e4ba87e102b2c9747ba1b",
+      "pluginIsTheOneTheProseQuotes": true,
+      "pluginBuildType": "cmake default (CMAKE_BUILD_TYPE empty)",
+      "wallClockSeconds": null,
+      "exit": 0,
+      "wroteTrackedRows": false,
+      "gate": {
+        "established": true,
+        "injectionHeld": true,
+        "configurations": {
+          "num": 1,
+          "den": 1
+        },
+        "discriminating": {
+          "num": 1,
+          "den": 1
+        }
+      },
+      "ltoMd": {
+        "rowKey": [
+          "A",
+          "`-O3`"
+        ],
+        "columns": {
+          "cells": "108",
+          "eliminated without the plugin (LTO)": "108",
+          "differs from the tracked non-LTO row": "0",
+          "`RETAINED`": "108",
+          "`ALREADY_SURVIVED`": "0",
+          "other outcomes": "0",
+          "dry run (iii)": "`HELD` 108/108",
+          "(ii) links": "216",
+          "(ii) refusals, each link": "2",
+          "(ii) sentinel removed / record written": "216 / 0",
+          "(ii) assembly / shared object equal to the stock link": "216 / 216",
+          "(ii) graded": "`HELD`",
+          "relink comparisons identical": "1296/1296"
+        }
+      }
+    },
+    {
+      "probe": "tools/lto-probe-gcc.mjs",
+      "cc": "gcc-13",
+      "level": "-Os",
+      "form": "the one form gcc has",
+      "idiom": "the tracked eliminated files",
+      "cells": 108,
+      "baselineSurvived": 0,
+      "pluginSha256": "a023b047abcafdbb824f627d227861e0ae0556072c9e4ba87e102b2c9747ba1b",
+      "pluginIsTheOneTheProseQuotes": true,
+      "pluginBuildType": "cmake default (CMAKE_BUILD_TYPE empty)",
+      "wallClockSeconds": null,
+      "exit": 0,
+      "wroteTrackedRows": false,
+      "gate": {
+        "established": true,
+        "injectionHeld": true,
+        "configurations": {
+          "num": 1,
+          "den": 1
+        },
+        "discriminating": {
+          "num": 1,
+          "den": 1
+        }
+      },
+      "ltoMd": {
+        "rowKey": [
+          "A",
+          "`-Os`"
+        ],
+        "columns": {
+          "cells": "108",
+          "eliminated without the plugin (LTO)": "108",
+          "differs from the tracked non-LTO row": "0",
+          "`RETAINED`": "108",
+          "`ALREADY_SURVIVED`": "0",
+          "other outcomes": "0",
+          "dry run (iii)": "`HELD` 108/108",
+          "(ii) links": "216",
+          "(ii) refusals, each link": "2",
+          "(ii) sentinel removed / record written": "216 / 0",
+          "(ii) assembly / shared object equal to the stock link": "216 / 216",
+          "(ii) graded": "`HELD`",
+          "relink comparisons identical": "1296/1296"
+        }
+      }
+    },
+    {
+      "probe": "tools/lto-probe-gcc.mjs",
+      "cc": "gcc-13",
+      "level": "-O2",
+      "form": "the one form gcc has",
+      "idiom": "every removable-idiom file (--all-removable)",
+      "cells": 133,
+      "baselineSurvived": 25,
+      "pluginSha256": "a023b047abcafdbb824f627d227861e0ae0556072c9e4ba87e102b2c9747ba1b",
+      "pluginIsTheOneTheProseQuotes": true,
+      "pluginBuildType": "cmake default (CMAKE_BUILD_TYPE empty)",
+      "wallClockSeconds": 234,
+      "exit": 0,
+      "wroteTrackedRows": false,
+      "gate": {
+        "established": true,
+        "injectionHeld": true,
+        "configurations": {
+          "num": 1,
+          "den": 1
+        },
+        "discriminating": {
+          "num": 1,
+          "den": 1
+        }
+      },
+      "ltoMd": {
+        "rowKey": [
+          "B",
+          "`-O2`, `--all-removable`"
+        ],
+        "columns": {
+          "cells": "133",
+          "eliminated without the plugin (LTO)": "108",
+          "differs from the tracked non-LTO row": "0",
+          "`RETAINED`": "108",
+          "`ALREADY_SURVIVED`": "25",
+          "other outcomes": "0",
+          "dry run (iii)": "`HELD` 108/108",
+          "(ii) links": "266",
+          "(ii) refusals, each link": "2",
+          "(ii) sentinel removed / record written": "266 / 0",
+          "(ii) assembly / shared object equal to the stock link": "266 / 266",
+          "(ii) graded": "`HELD`",
+          "relink comparisons identical": "1596/1596"
+        }
+      }
     }
   ],
-  "whyTwoPluginsPerVendor": "The first run of each vendor used the plugin this branch's build directory holds, which is a REBUILD of the same source and has a different sha256 from the one LTO.md quotes. Reproducing a number with the gate added AND the binary changed does not separate the two, so each vendor was then run again with the exact binary the prose quotes -- found in the lab, digest verified -- and that run is the one the claim rests on. The rebuild is kept here because it is evidence of something else: the figures do not depend on the particular binary.",
   "notMeasuredHere": [
-    "Every level except -O2. LTO.md quotes -O1 (62 of 113 for clang), -O3 and -Os, clang run F (--all-removable, 133 files) and gcc run B (--all-removable, 133 files). None of those was re-run under the gate, so for those rows the original statement still stands: they are pre-gate lab output.",
-    "The clang probe's --sample path, and both probes' --plan and --files selections.",
-    "Anything about a second machine. These are four runs on one WSL host; LTO.md's own figures were taken on the same one, so agreement between them is not independent replication."
+    "The wipe-pin-v1 binary LTO.md says runs A-D were made with, sha256 aa7329c3d9ba002915f885624c17d6da1418aa39a2b762d1655e83786e6f0a66. Its OUTCOME columns are covered: the v2 re-runs above reproduce run A's -O2 row, run B's -O1 row and run C's levels (over all 113 files rather than C's sample of 10). What is not covered, and cannot be: run A's (ii) columns predate the link-time stderr line the probe now requires and grades, so a v1 run today is unreproducible by design rather than merely unrun.",
+    "Run D's --force-fallback path (post-LTO code read through precodegen + llc instead of --lto-emit-asm). The preflight passed in every run above, so the fallback was never taken and its -O2 figures were not re-measured.",
+    "The --sample, --plan and --files selections of either probe.",
+    "Anything about a second machine. These eight invocations and all of LTO.md's originals share one WSL host, so agreement between them is not independent replication."
   ],
   "provenance": {
-    "numbers": "transcribed by hand from the four run logs -- the probes refuse --write-data (exit 4), so no tool wrote this file. test/lto-regate.test.mjs re-reads the corresponding numbers out of tools/LTO.md and compares them to the values here, which catches a transcription error in one direction and an edit of LTO.md in the other.",
-    "gate": "lab-run -- read from the first line of each log (`spike gate: ESTABLISHED ... injection RED (as required) ... discriminating`); nothing here recomputes it",
-    "wallClockSeconds": "lab-run -- from `time`, two of the four runs sharing the machine with the other two, and expected to differ elsewhere"
+    "numbers": "derived by script from the captured stdout of the eight invocations, then compared cell by cell against LTO.md before being written here: 188 cells, 0 disagreements. The probes refuse --write-data (exit 4), so no tool wrote this file as part of a run.",
+    "gate": "read from the first line of each invocation's captured output, where the probes write the gate summary to stderr. Nothing in the lab persists it, so the gate fields here are not recoverable from the lab afterwards -- they rest on those captures. The configurations and discriminating values were separately confirmed by calling runSpikeGate directly and printing verdict rather than by reading the summary line.",
+    "wallClockSeconds": "from `time` on each invocation, several of them sharing the machine with another, and expected to differ elsewhere. A per-level invocation covering three levels reports one figure for all three."
   }
 }

@@ -701,26 +701,42 @@ prose: `tools/LTO.md` quotes concrete counts, and its last content change was
 hours before the gate was wired into them, so every number in it was taken
 pre-gate.
 
-So the `-O2` runs were made again with the gate in front of them — **four runs, two
-per vendor**: once with the exact plugin binary `LTO.md` quotes (clang
-`db3298cf…`, gcc `a023b047…`, both found in the lab with the digest verified) and
-once with this branch's rebuild of the same source, because reproducing a figure
-with the gate added *and* the binary changed does not separate the two. The gate
-held on all four (`ESTABLISHED`, injection RED, the one registered discriminating
-pair at `-O2`) and **every number reproduced**: clang 113 cells per form,
-113 `RETAINED`, dry-run `HELD` 113/113, (ii) `HELD` over 226 links, 452/452
-relinks; gcc 108 cells, 108 `RETAINED`, 216 links at two lto1 refusals each,
-1296/1296 relinks. All four exited 0; nothing was written to `data/` by a probe.
+So the runs were made again with the gate in front of them — **eight invocations,
+covering 18 of `LTO.md`'s table rows**: `-O1`, `-O2`, `-O3` and `-Os` on both
+vendors, both LTO forms on clang, and the `--all-removable` idiom on both. At `-O2`
+each vendor was run twice: once with the exact plugin binary `LTO.md` quotes (clang
+`db3298cf…`, gcc `a023b047…`, found in the lab with the digest verified) and once
+with a second build of the same source — configured differently, `Release` against
+the cmake default and several times the size — because reproducing a reading with
+the gate added *and* the binary changed separates neither.
 
-`data/lto-regate.json` is the record — transcribed by hand, because both probes
-refuse `--write-data` with exit 4 — and `test/lto-regate.test.mjs` reads the Run E
-and gcc Run A rows back **out of `LTO.md`** and holds the record to them, so a
-mistyped figure and a later edit of the prose fail the same test.
+The gate held in every invocation (`ESTABLISHED`, injection RED,
+`verdict.configurations` and `verdict.discriminating` both 1/1 for a one-vendor
+one-level call) and **every number reproduced**: 188 cells compared, 0
+disagreements. All eight exited 0; nothing was written to `data/` by a probe.
 
-What is still **not** covered, and `data/lto-regate.json` says so in its own
-`notMeasuredHere`: every level except `-O2` — `-O1`, `-O3`, `-Os`, clang run F and
-gcc run B remain pre-gate lab output — and anything about a second machine, since
-all four runs and `LTO.md`'s originals share one host.
+`data/lto-regate.json` is the record. Its entries were derived from the run logs and
+**not** from `LTO.md` — generating them from the file they are compared against
+would make the comparison vacuous — and `test/lto-regate.test.mjs` reads `LTO.md`'s
+tables back out and checks every claimed cell of every run, denominators and the
+`HELD` word included. Both of the earlier, weaker shapes of that test were found
+vacuous by mutation and are described in its header; the current one bites on all
+fifteen mutations that were tried, including the ones the first two let through.
+
+An earlier version of this section covered `-O2` only and justified the narrowness
+with a claim that turned out to be false — that `-O2` is the one level at which the
+gate has a discriminating pair. The gate was then run at `-O1`, `-O3` and `-Os` on
+both vendors and held at every one; only `-O0` does not discriminate, which is all
+the probes ever said. The restriction had been cost dressed as capability.
+
+What is still **not** covered, and the record says so in its own `notMeasuredHere`:
+the `wipe-pin-v1` binary runs A–D used (`aa7329c3…`) — its outcome columns are
+covered by the v2 re-runs, but run A's `(ii)` figures predate the link-time line the
+probe now requires and grades, so they are **unreproducible by design** rather than
+merely unrun; run D's `--force-fallback` path, never taken because the preflight
+passed everywhere; the `--sample`, `--plan` and `--files` selections; and anything
+about a second machine, since these eight invocations and `LTO.md`'s originals share
+one host.
 
 `--plan` compiles only the (file, level) cells the plan names, each with exactly
 the names it lists, and refuses a plan whose names no longer match this tree's
