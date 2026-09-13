@@ -201,14 +201,19 @@ that produces a reading is never the thing that reads it.**
 
 | file | job |
 |---|---|
-| `catalogue.json` | declares every operator, its class, its declared direction, the checkpoint it is legible at, and `notMonotonicWhen`. **Written before any run and never transcribed from one.** |
+| `catalogue.json` | declares every operator, its class, its declared direction, the checkpoint it is legible at, `notMonotonicWhen`, and the `configurations` the sweep is over. **Written before any run and never transcribed from one.** |
+| `run-all.sh` | SEQUENCE. The four programs below in the one order that works, configurations projected out of the catalogue, a failing step stops the run, and the falsifier is inside the sweep rather than beside it. **Decides nothing of its own** |
+| `scripts/read-configurations.py` | the projection, and the refusal of a catalogue that declares no configuration at which an R2b cell can move — a lane that could never qualify, said before the first compile instead of after the last grade |
+| `scripts/account-for-documents.py` | one document per declared configuration and nothing else, checked before the grade. Refuses; never deletes |
 | `tools/make-mutants.py` | emits base + mutant specimens into `$VG_META_LAB`; prints `specimen=`, derived `fn=` and `cell=` lines |
 | `lib/asm-read.mjs` | one assembly reading, via the imported vendor-neutral oracle |
 | `scripts/run-metamorphic.sh` | PRODUCER. One configuration → records + manifest. **Decides nothing** — it never compares a base against its mutant |
 | `scripts/build-meta-report.py` | ASSEMBLER. `vibeguard.metamorphic-report/1`: canonical, integer-only, digested, refuses rather than redacting an absolute path |
 | `scripts/check-meta.py` | GRADER. R1 invariance and R2 declared direction, and nothing else |
-| `scripts/falsify-meta.py` | corrupts a report in eight named ways and checks that the grader refuses each one |
-test/catalogue.test.mjs   static fence over catalogue.json. No compiler, no lab, no document.
+| `scripts/falsify-meta.py` | corrupts a report in eight named ways, plus one way that can only be done to a SET, and checks that the grader refuses each one |
+| `test/catalogue.test.mjs` | static fence over `catalogue.json`, and over `run-all.sh`'s shape: that it projects the configurations, that it invokes the falsifier through `step()`, and that it names no level literally. No compiler, no lab, no document |
+| `test/test_check_meta_survival_axis.py` | the survival-axis fence, both directions. No compiler, no lab |
+| `test/test_run_all_projection.py` | the two readers `run-all.sh` depends on, and every refusal in each. No compiler, no lab |
 
 ## The observer's three silent failure modes, and where each is fenced
 
@@ -281,10 +286,74 @@ nobody offered.
 - the object, linked and artefact checkpoints. The IR channel stops at the end of the
   IR optimiser; the asm channel reads one listing.
 
+## The survival axis has to be expressed somewhere in the set
+
+`R2b` is the only class on the two-point survival axis `PRESENT > LOST`, and it is
+the only one that asks the instrument to tell a loss from a survival. At `-O0`
+nothing is folded, so all three graded R2b cells read `PRESENT->PRESENT` and grade
+`not-expressed` — while every R1 invariance still holds, every R2a source deletion
+still lands on `ABSENT`, and every R2c still lands on `NOT_APPLICABLE`. Until
+2026-09-12 a sweep of a results directory holding only that document exited 0 with
+*"all 1 document(s) satisfy the relations declared in catalogue.json"*, which is
+also exactly what it would print for an extractor made incapable of ever reporting
+a loss. Measured, not imagined: the previous `check-meta.py` was run on such a
+document and returned 0.
+
+`check-meta.py` now reports that as **exit 3** and names the R2b operators that did
+not move. Exit 3 and not 2, because nothing was falsified — the run never asked the
+question; it is the same finding, one layer out, as the cross-vendor rule that
+refuses an unreadable comparison with no readable comparison of the same shape
+beside it, and it carries the same code.
+
+**The fence guards the sweep only.** Grading a named document is legitimate — it is
+what the `-O0`-only demonstrations do and what `falsify-meta.py` does on every
+corruption — so it applies when `check-meta.py` is invoked with no arguments over
+`$VG_META_OUT`. `check-battery.py` draws the line in the same place, at its own
+`if not argv`, for the same reason. `not-expressed` at `-O0` beside `pass` at `-O2`
+remains the expected shape of this lane: a sweep holding both documents is clean.
+
+`falsify-meta.py`'s ninth corruption is the demonstration, and it asserts **both**
+halves — the flattened document is still accepted when named, and refused at 3 when
+it is the whole sweep. One half alone would not show that the fence is conditional,
+and an unconditional fence here would be wrong.
+
 ## Running it
 
 ```sh
+# The whole lane, in the one order that works. Configurations come from
+# catalogue.json's `configurations`; a failing step stops the run; the last step is
+# the falsifier. This is the normal way to run this lane.
+bash compiler/eval/metamorphic/run-all.sh
+
+# and the one flag, which is there so that skipping the demonstration has to be
+# asked for and is then said out loud in the last line:
+bash compiler/eval/metamorphic/run-all.sh --no-falsify
+```
+
+`run-all.sh` exists because until 2026-09-13 step 4 below — the demonstration that
+the grader can refuse — was invoked by **nothing**. A run that stopped after step 3
+was graded by an ungraded grader and the last line on the screen was *"all 2
+document(s) satisfy the relations declared in catalogue.json"*, which is also what a
+grader with its predicates inverted would print. `compiler/eval/calibration` had
+already drawn that conclusion for its own battery (`calibration/run-all.sh:107`);
+this lane had the conclusion written in its README in capitals instead, and a
+sentence is a thing a person remembers.
+
+It adds no capability and decides nothing: every step is one of the four programs
+below, invoked as documented. What it adds is that a failing step **stops** the run,
+that the configurations come from the table rather than from the script, and that
+one document in `$VG_META_OUT` that no declared configuration accounts for is
+refused rather than swept in and counted in the grader's *"all N document(s)"*.
+`test/catalogue.test.mjs` asserts that shape back out of the script — mutation-tested
+by deleting the falsify step, hardcoding a level, and removing the `NOT ESTABLISHED`
+line, each of which turns that test red.
+
+The four steps it runs, for when one of them has to be run alone:
+
+```sh
 # 1. produce. One configuration per invocation. Decides nothing.
+#    BOTH of these, and for a reason: a sweep of O0 alone is refused, because at
+#    -O0 no R2b cell moves and nothing in the set tells a loss from a survival.
 bash compiler/eval/metamorphic/scripts/run-metamorphic.sh O0 -O0
 bash compiler/eval/metamorphic/scripts/run-metamorphic.sh O2 -O2
 
@@ -295,18 +364,42 @@ python3 compiler/eval/metamorphic/scripts/build-meta-report.py
 python3 compiler/eval/metamorphic/scripts/check-meta.py
 
 # 4. show the grader failing. A grader never shown to fail has not been shown to work.
+#    run-all.sh runs this as its last step; it was the step nothing ran before
+#    2026-09-13. The unit suites below cover the survival-axis rule specifically;
+#    that is not the same as demonstrating that THIS run's grader refuses every
+#    corruption, which is what this does and why it is inside the sequence.
 python3 compiler/eval/metamorphic/scripts/falsify-meta.py
+
+# the three suites. None needs a compiler or a lab.
+node --test compiler/eval/metamorphic/test/*.test.mjs
+python3 compiler/eval/metamorphic/test/test_check_meta_survival_axis.py
+python3 compiler/eval/metamorphic/test/test_run_all_projection.py
 ```
 
 Environment: `VG_META_LAB` (default `~/vg-lab/metamorphic`), `VG_META_OUT` (default
 `$VG_META_LAB/_results`), `VG_META_PLUGIN`, `VG_META_CC`, `VG_META_CC2`. Builds and
 measurements never go under `compiler/` — interfaces.md §1.
 
-## Measured, 2026-08-17
+## Measured, 2026-08-17; re-measured under `run-all.sh` 2026-09-13
 
 clang 18.1.3, gcc-13.3.0, `libIrCheckpoints.so` sha256 `3ba6e2288fc0…`. 20 cells per
 configuration, each cell two IR records; 11 cells also in the cross-vendor channel,
 each two vendors × two sides.
+
+Declaring `configurations` in `catalogue.json` moved its sha256, and
+`build-meta-report.py` refuses a manifest whose `catalogueSha256` no longer matches
+the tracked file — correctly, since a run measured against a catalogue that has since
+changed was measured against something else. So the 2026-08-17 documents could not be
+re-assembled and the whole lane was **re-measured** on 2026-09-13 by
+`bash compiler/eval/metamorphic/run-all.sh` (exit 0, 15 s), same plugin digest, same
+generator, same two compilers, catalogue now `7f9abf4d6339…`. **Every number in the
+table below came back identical** — that is a result rather than an assumption, and
+had it not, the table would have been replaced and the difference reported. The
+falsifier's own line came back `16 corruption(s) applied, 3 skipped`, and the ninth
+corruption — the one that can only be done to a set — was demonstrated **in the lab
+for the first time** in that run: `survival-axis (named)` accepted at 0,
+`survival-axis (swept alone)` refused at 3. Before it, `~/vg-lab/metamorphic/_falsify`
+held only the eight document-level corruptions from 2026-08-17.
 
 | | `-O0` | `-O2` |
 |---|---|---|

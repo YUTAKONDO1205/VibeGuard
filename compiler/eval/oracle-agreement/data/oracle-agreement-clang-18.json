@@ -1,0 +1,1477 @@
+{
+  "schemaVersion": "vibeguard.oracle-agreement-record/1",
+  "lane": "oracle-agreement",
+  "oracles": {
+    "O1": "verdictOf, differential assembly text, read from the tracked rows and not re-measured",
+    "O2": "PropertyObserver, IR call-site state, measured in this run"
+  },
+  "generatedAt": "2026-09-12T14:52:11.975Z",
+  "node": "v18.19.1",
+  "toolchain": {
+    "cc": "clang-18",
+    "version": "18.1.3",
+    "vendor": "clang"
+  },
+  "plugin": {
+    "basename": "libPropertyObserver.so",
+    "sha256": "94d6f95697c3705bbb245c02de6c130740e18fac5dc01a6164e265d9f987b64c"
+  },
+  "rows": {
+    "file": "(tracked default)",
+    "sha256": "cb93551fe438256985fd30533fe0dbef51b51739f4d8c0de5ce5eef7e674bed9"
+  },
+  "request": {
+    "levels": [
+      "-O0",
+      "-O2"
+    ],
+    "perBucket": 24,
+    "full": true,
+    "ids": null
+  },
+  "selected": 72,
+  "observed": 72,
+  "accountedFor": 72,
+  "selectedCells": [
+    {
+      "id": "fable_E_aeskey_r1",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "encrypt_blob",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_aeskey_r2",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "encrypt_blob",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_aeskey_r3",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "encrypt_blob",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_dbpass_r1",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "open_db_connection",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_dbpass_r2",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "open_db_connection",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_dbpass_r3",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "open_db_connection",
+      "idiom": "both",
+      "nSpans": 3,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_hmackey_r1",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "sign_message",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_hmackey_r2",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "sign_message",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_hmackey_r3",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "sign_message",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_otpsecret_r1",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "verify_totp",
+      "idiom": "nonremovable",
+      "nSpans": 2,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_otpsecret_r2",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "verify_totp",
+      "idiom": "nonremovable",
+      "nSpans": 2,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_otpsecret_r3",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "verify_totp",
+      "idiom": "nonremovable",
+      "nSpans": 2,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_pinpad_r1",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "check_pin",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_pinpad_r2",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "check_pin",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_pinpad_r3",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "check_pin",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_premaster_r1",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "derive_session_keys",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_premaster_r2",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "derive_session_keys",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_premaster_r3",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "derive_session_keys",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_privkey_r1",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "sign_with_private_key",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_privkey_r2",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "sign_with_private_key",
+      "idiom": "nonremovable",
+      "nSpans": 2,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_privkey_r3",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "sign_with_private_key",
+      "idiom": "nonremovable",
+      "nSpans": 2,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_pwverify_r1",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "verify_password",
+      "idiom": "nonremovable",
+      "nSpans": 2,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_pwverify_r2",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "verify_password",
+      "idiom": "nonremovable",
+      "nSpans": 3,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_pwverify_r3",
+      "cc": "clang-18",
+      "opt": "-O0",
+      "fn": "verify_password",
+      "idiom": "nonremovable",
+      "nSpans": 2,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_N_aeskey_r1",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "encrypt_blob",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "fable_N_aeskey_r3",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "encrypt_blob",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "fable_N_dbpass_r3",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "open_db_connection",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "fable_N_hmackey_r1",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "sign_message",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "fable_N_hmackey_r2",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "sign_message",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "fable_N_hmackey_r3",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "sign_message",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "fable_N_otpsecret_r1",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "verify_totp",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "fable_N_otpsecret_r2",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "verify_totp",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "fable_N_otpsecret_r3",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "verify_totp",
+      "idiom": "removable",
+      "nSpans": 2,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "fable_N_pinpad_r3",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "check_pin",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "fable_N_premaster_r1",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "derive_session_keys",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "fable_N_privkey_r1",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "sign_with_private_key",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "fable_N_privkey_r2",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "sign_with_private_key",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "fable_N_seedphrase_r3",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "export_wallet",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "fable_S_dbpass_r3",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "open_db_connection",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "haiku_E_aeskey_r1",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "encrypt_blob",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "haiku_E_aeskey_r2",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "encrypt_blob",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "haiku_E_aeskey_r3",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "encrypt_blob",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "haiku_E_dbpass_r1",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "open_db_connection",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "haiku_E_dbpass_r2",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "open_db_connection",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "haiku_E_dbpass_r3",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "open_db_connection",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "haiku_E_hmackey_r1",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "sign_message",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "haiku_E_hmackey_r2",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "sign_message",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "haiku_E_hmackey_r3",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "sign_message",
+      "idiom": "removable",
+      "nSpans": 1,
+      "o1": "WIPE_ELIMINATED"
+    },
+    {
+      "id": "fable_E_aeskey_r1",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "encrypt_blob",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_aeskey_r2",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "encrypt_blob",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_aeskey_r3",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "encrypt_blob",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_dbpass_r1",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "open_db_connection",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_dbpass_r2",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "open_db_connection",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_dbpass_r3",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "open_db_connection",
+      "idiom": "both",
+      "nSpans": 3,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_hmackey_r1",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "sign_message",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_hmackey_r2",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "sign_message",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_hmackey_r3",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "sign_message",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_otpsecret_r1",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "verify_totp",
+      "idiom": "nonremovable",
+      "nSpans": 2,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_otpsecret_r2",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "verify_totp",
+      "idiom": "nonremovable",
+      "nSpans": 2,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_otpsecret_r3",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "verify_totp",
+      "idiom": "nonremovable",
+      "nSpans": 2,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_pinpad_r1",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "check_pin",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_pinpad_r2",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "check_pin",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_pinpad_r3",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "check_pin",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_premaster_r1",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "derive_session_keys",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_premaster_r2",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "derive_session_keys",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_premaster_r3",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "derive_session_keys",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_privkey_r1",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "sign_with_private_key",
+      "idiom": "nonremovable",
+      "nSpans": 1,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_privkey_r2",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "sign_with_private_key",
+      "idiom": "nonremovable",
+      "nSpans": 2,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_privkey_r3",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "sign_with_private_key",
+      "idiom": "nonremovable",
+      "nSpans": 2,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_pwverify_r1",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "verify_password",
+      "idiom": "nonremovable",
+      "nSpans": 2,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_pwverify_r2",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "verify_password",
+      "idiom": "nonremovable",
+      "nSpans": 3,
+      "o1": "WIPE_SURVIVED"
+    },
+    {
+      "id": "fable_E_pwverify_r3",
+      "cc": "clang-18",
+      "opt": "-O2",
+      "fn": "verify_password",
+      "idiom": "nonremovable",
+      "nSpans": 2,
+      "o1": "WIPE_SURVIVED"
+    }
+  ],
+  "strata": [
+    {
+      "name": "at -O0",
+      "levels": [
+        "-O0"
+      ],
+      "table": {
+        "ELIMINATED/LOST": 0,
+        "ELIMINATED/PRESENT": 0,
+        "SURVIVED/LOST": 0,
+        "SURVIVED/PRESENT": 1
+      },
+      "den": 1,
+      "agree": 1,
+      "disagree": 0,
+      "diagonal": {
+        "num": 1,
+        "den": 1
+      },
+      "discriminating": false,
+      "degenerateO1": true,
+      "degenerateO2": true,
+      "excludedTotal": 23,
+      "excludedByKind": {
+        "BROKEN_MEASUREMENT": 0,
+        "NO_READING": 0,
+        "NOT_COMPARABLE": 23
+      },
+      "excludedByReason": {
+        "o2-not-a-reading(ABSENT)": 23
+      },
+      "accountedFor": 24,
+      "offDiagonal": [],
+      "excludedIds": [
+        {
+          "id": "fable_E_aeskey_r1",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_aeskey_r2",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_aeskey_r3",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_dbpass_r1",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_dbpass_r2",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_hmackey_r1",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_hmackey_r2",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_hmackey_r3",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_otpsecret_r1",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_otpsecret_r2",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_otpsecret_r3",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_pinpad_r1",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_pinpad_r2",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_pinpad_r3",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_premaster_r1",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_premaster_r2",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_premaster_r3",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_privkey_r1",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_privkey_r2",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_privkey_r3",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_pwverify_r1",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_pwverify_r2",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_pwverify_r3",
+          "cc": "clang-18",
+          "opt": "-O0",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        }
+      ]
+    },
+    {
+      "name": "above -O0",
+      "levels": [
+        "-O2"
+      ],
+      "table": {
+        "ELIMINATED/LOST": 24,
+        "ELIMINATED/PRESENT": 0,
+        "SURVIVED/LOST": 1,
+        "SURVIVED/PRESENT": 0
+      },
+      "den": 25,
+      "agree": 24,
+      "disagree": 1,
+      "diagonal": {
+        "num": 24,
+        "den": 25
+      },
+      "discriminating": false,
+      "degenerateO1": false,
+      "degenerateO2": true,
+      "excludedTotal": 23,
+      "excludedByKind": {
+        "BROKEN_MEASUREMENT": 0,
+        "NO_READING": 0,
+        "NOT_COMPARABLE": 23
+      },
+      "excludedByReason": {
+        "o2-not-a-reading(ABSENT)": 23
+      },
+      "accountedFor": 48,
+      "offDiagonal": [
+        {
+          "id": "fable_E_dbpass_r3",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "cell": "SURVIVED/LOST",
+          "o1": "WIPE_SURVIVED",
+          "o2": "LOST",
+          "firstLossPass": "DSEPass",
+          "idiom": "both"
+        }
+      ],
+      "excludedIds": [
+        {
+          "id": "fable_E_aeskey_r1",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_aeskey_r2",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_aeskey_r3",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_dbpass_r1",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_dbpass_r2",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_hmackey_r1",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_hmackey_r2",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_hmackey_r3",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_otpsecret_r1",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_otpsecret_r2",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_otpsecret_r3",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_pinpad_r1",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_pinpad_r2",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_pinpad_r3",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_premaster_r1",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_premaster_r2",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_premaster_r3",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_privkey_r1",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_privkey_r2",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_privkey_r3",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_pwverify_r1",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_pwverify_r2",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        },
+        {
+          "id": "fable_E_pwverify_r3",
+          "cc": "clang-18",
+          "opt": "-O2",
+          "kind": "NOT_COMPARABLE",
+          "reason": "o2-not-a-reading",
+          "detail": "ABSENT"
+        }
+      ]
+    }
+  ],
+  "aboveO0": {
+    "den": 25,
+    "diagonal": {
+      "num": 24,
+      "den": 25
+    },
+    "accountedFor": 48
+  },
+  "irCallSites": {
+    "provenance": "tool",
+    "scope": "the -O0 IR of each corpus generation, WITHOUT the appended control",
+    "symbols": [
+      "llvm.memset",
+      "memset",
+      "explicit_bzero",
+      "bzero",
+      "__memset_chk"
+    ],
+    "stratum": "above -O0",
+    "cells": 48,
+    "generations": 48,
+    "bySymbol": {
+      "llvm.memset": 26,
+      "memset": 0,
+      "explicit_bzero": 0,
+      "bzero": 0,
+      "__memset_chk": 0
+    },
+    "split": {
+      "excludedZero": 23,
+      "excludedNonZero": 0,
+      "gradedZero": 0,
+      "gradedNonZero": 25
+    },
+    "splitInSubjectFunction": {
+      "excludedZero": 23,
+      "excludedNonZero": 0,
+      "gradedZero": 0,
+      "gradedNonZero": 25
+    },
+    "perfect": true,
+    "perfectInSubjectFunction": true,
+    "perGeneration": [
+      {
+        "id": "fable_E_aeskey_r1",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_aeskey_r2",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_aeskey_r3",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_dbpass_r1",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_dbpass_r2",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_dbpass_r3",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_hmackey_r1",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_hmackey_r2",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_hmackey_r3",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_otpsecret_r1",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_otpsecret_r2",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_otpsecret_r3",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_pinpad_r1",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_pinpad_r2",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_pinpad_r3",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_premaster_r1",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_premaster_r2",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_premaster_r3",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_privkey_r1",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_privkey_r2",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_privkey_r3",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_pwverify_r1",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_pwverify_r2",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_E_pwverify_r3",
+        "inFile": 0,
+        "inFunction": 0,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_N_aeskey_r1",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_N_aeskey_r3",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_N_dbpass_r3",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_N_hmackey_r1",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_N_hmackey_r2",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_N_hmackey_r3",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_N_otpsecret_r1",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_N_otpsecret_r2",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_N_otpsecret_r3",
+        "inFile": 2,
+        "inFunction": 2,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_N_pinpad_r3",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_N_premaster_r1",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_N_privkey_r1",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_N_privkey_r2",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_N_seedphrase_r3",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "fable_S_dbpass_r3",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "haiku_E_aeskey_r1",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "haiku_E_aeskey_r2",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "haiku_E_aeskey_r3",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "haiku_E_dbpass_r1",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "haiku_E_dbpass_r2",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "haiku_E_dbpass_r3",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "haiku_E_hmackey_r1",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "haiku_E_hmackey_r2",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      },
+      {
+        "id": "haiku_E_hmackey_r3",
+        "inFile": 1,
+        "inFunction": 1,
+        "subjectFunctionSeen": true
+      }
+    ]
+  },
+  "verdict": {
+    "readable": false,
+    "exit": 2,
+    "reasons": [
+      "above -O0: all 25 graded cells read LOST on O2, the same objection in the other direction"
+    ]
+  },
+  "exit": 2
+}

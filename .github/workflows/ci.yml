@@ -446,11 +446,42 @@ jobs:
           # arithmetic, the exclusion rule and the -O0 separation over synthetic
           # rows, plus the README guards. Nothing here loads the plugin.
           run_suite oracle-agreement     compiler/eval/oracle-agreement/test/*.test.mjs
+          # second-vendor grew a test directory on 2026-09-12 with the controls
+          # receipt: run-second-vendor.mjs used to print a table whether or not
+          # the controls had passed, because the order was a sentence in a README
+          # and nothing read it. The suite is pure -- it hashes strings and reads
+          # synthetic receipts -- and scripts/ci-suite-coverage.test.mjs is what
+          # found that this line was missing.
+          run_suite second-vendor        compiler/eval/second-vendor/test/*.test.mjs
           # WipePinGcc's Node suites need no plugin and no gcc: asm-presence
           # reads synthetic listings through the shared oracle, corpus-smoke
           # tests the smoke runner's pure row selection and body delta. The
           # suites that do need the plugin run in native-plugins below.
           run_suite gcc-repair            compiler/gcc-repair/test/*.test.mjs
+
+      # Python suites that need no toolchain. Same rigour as the WipePinGcc
+      # Python step further down: non-empty file, exit 0, and unittest's
+      # "Ran N tests" with N > 0, so an emptied file or one that stopped
+      # calling unittest.main() fails rather than passing as a script that does
+      # nothing. This step exists because ffacc3e added 290 lines of Python to
+      # compiler/eval/metamorphic/test and the `run_suite` list above globs
+      # *.test.mjs -- the same silence as the second-vendor line above, in a
+      # file extension scripts/ci-suite-coverage.test.mjs could not see until
+      # it was taught to.
+      - name: compiler/ Python suites that need no toolchain
+        run: |
+          set -u
+          for t in compiler/eval/metamorphic/test/test_check_meta_survival_axis.py \
+                   compiler/eval/metamorphic/test/test_run_all_projection.py; do
+            [ -s "$t" ] || { echo "::error::no test file, or an empty one, at $t"; exit 1; }
+            echo "--- $t"
+            if out=$(python3 "$t" 2>&1); then rc=0; else rc=$?; fi
+            printf '%s\n' "$out"
+            [ "$rc" -eq 0 ] || { echo "::error::$t exited $rc"; exit 1; }
+            ran=$(printf '%s\n' "$out" | sed -n 's/^Ran \([0-9][0-9]*\) tests\{0,1\} in .*/\1/p' | tail -n 1)
+            [ -n "$ran" ] && [ "$ran" -gt 0 ] || { echo "::error::$t ran no test (no \"Ran N tests\" with N > 0)"; exit 1; }
+            echo "$t: $ran test(s) ran"
+          done
 
   # The native plugins, built and run.
   #
@@ -688,13 +719,22 @@ jobs:
       # They are HERE and not in native-toolchain's run_suite list because they
       # spawn `ld.lld-18` as well as `clang-18`, and they do NOT skip when a tool
       # is absent -- they fail (measured: 17 failures between them on a machine
-      # with no compiler, 0 skips). native-toolchain installs clang-18 and
-      # clang-17 and no linker; this job installs lld-18.
+      # with no compiler, 0 skips).
+      # native-toolchain installs clang-18 and clang-17 and no linker; this job
+      # installs lld-18.
       #
-      # NOT YET SEEN GREEN ON A RUNNER. They pass on the development machine
-      # under WSL with clang-18 18.1.3 and LLD 18.1.3. That is a different
-      # toolchain from this job's, and the same caution the native-toolchain job
-      # states about its own late additions applies here.
+      # ★ 2026-09-13: SEEN GREEN ON A RUNNER, for the first time, in PR #101's
+      # native-plugins job (run 34742107940, step `success`, 1m37s for the job).
+      # This comment said NOT YET for as long as the step existed, because the
+      # branch carrying it had never reached a pull_request event -- ci.yml fires on
+      # `pull_request` and on `push: [main]` and on nothing else, so a step added on
+      # a feature branch stays unobserved until somebody opens a PR. That is the
+      # same shape as the hole this PR was opened to close, one layer out.
+      #
+      # The earlier caution, kept because it is still the reason to read the log
+      # rather than the tick: these suites pass on the development machine under WSL
+      # with clang-18 18.1.3 and LLD 18.1.3, which is a different toolchain from
+      # this job's.
       - name: compiler/fingerprint and compiler/link-wrapper (need clang-18 and ld.lld-18)
         run: |
           set -eu

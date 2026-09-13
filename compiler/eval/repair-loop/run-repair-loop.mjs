@@ -24,6 +24,16 @@
  * and the pin plan (<out>/pin-plan.json) that turns the find step's eliminations
  * into WPIN_TARGET_FNS per file and level.
  *
+ * And, printed after the results text and written to <out>/routing.json, the
+ * ROUTING section (lib/routing.mjs): for every disappearance shape this run
+ * actually observed, whether the fix stays in the compiler or goes back to the
+ * source. The judgement comes from pin-families.json and the mapping from a run
+ * signal (an `unhandled` counter name, a configguard `scen`) to a table cell is
+ * derived from that table's own citations, so nothing is transcribed by hand.
+ * A counter the table names no row for is a refusal, not a skipped key. Kept out
+ * of the results text on purpose: --write-data copies that text into data/,
+ * whose bytes are pinned.
+ *
  * One compiler per run, and the vendor is read from the --cc basename
  * (lib/vendor.mjs): clang loads WipePin (compiler/llvm-repair/) with
  * -fpass-plugin=<so>, gcc loads WipePinGcc (compiler/gcc-repair/) with
@@ -36,7 +46,9 @@
  *
  * Exit codes: 0 run complete and every integrity check held; 2 run complete but a
  * baseline disagreed with the tracked rows, a surgicality check was violated, a
- * red control did not give its designed answer, or the preflight's refusal checks
+ * red control did not give its designed answer, the routing was refused (a
+ * plugin counter or a configguard scen that pin-families.json names no row
+ * for), or the preflight's refusal checks
  * failed (a record written without a target, a silent or failing compile without
  * WPIN_OUT; with --write-data that is refused before any cell); 3 vacuous
  * (nothing selected); 4 bad arguments (including a --cc whose basename names
@@ -63,6 +75,7 @@ import {
   spanSummary, effectVerdict, corroborationSummary, listingChangedWithoutLoss, labelRenumbering, crossVendorCoverage, buildPinPlan,
 } from './lib/summaries.mjs';
 import { readPlan, planMismatch, planCompilerMismatch, planSummary, renderPlanSummary } from './lib/plan.mjs';
+import { routeRun, renderRouting, signalIndex } from './lib/routing.mjs';
 import { sha256Text, absolutePathHits, rowsFileLabel } from './lib/provenance.mjs';
 import { preflightProblems } from './lib/preflight.mjs';
 import { corpusFiles, erasureFamily } from './lib/corpus.mjs';
@@ -84,6 +97,9 @@ const ORACLE_PATH = resolve(HERE, '..', 'second-vendor', 'lib', 'asm-oracle.mjs'
 // controlPresent fallback applied to any function. Corroboration only.
 const REPSTOS_PATH = resolve(HERE, '..', '..', 'gcc-repair', 'scripts', 'lib', 'asm-presence.mjs');
 const DEFAULT_ROWS = join(AIGEN, 'data', 'r2-build-rows.json');
+// The pin-family table, read for the routing section (lib/routing.mjs). Tracked,
+// and read only: this run never writes it.
+const TABLE_PATH = join(HERE, 'pin-families.json');
 // Build scratch: regenerable, ignored by .gitignore.
 const BUILD = join(HERE, '_build');
 const DATA = join(HERE, 'data');
@@ -94,7 +110,8 @@ const USAGE = `usage: node run-repair-loop.mjs --plugin <so> --out <dir> [option
 
   --plugin <so>          the repair plugin (required; there is no default): libWipePin.so for
                          clang, libWipePinGcc.so for gcc
-  --out <dir>            lab directory for records, rows, the manifest and pin-plan.json (required)
+  --out <dir>            lab directory for records, rows, the manifest, pin-plan.json and
+                         routing.json (required)
   --cc <compiler>        default clang-18. The vendor is read from the basename (clang, clang-18,
                          gcc-13, g++-13, x86_64-linux-gnu-gcc-13, ...): clang loads the plugin with
                          -fpass-plugin=, gcc with -fplugin=. Any other basename is refused
@@ -288,6 +305,30 @@ async function main() {
     if (ccWhy) die(5, `the --plan file was refused: ${ccWhy}`);
     planIn = p.entries;
     planSha = sha256(args.plan);
+  }
+
+  // The pin-family table is read BEFORE anything is compiled, and a table that
+  // cannot be read is exit 4 -- interfaces.md §7 spends 4 on "the policy is
+  // malformed. Nothing else runs", and this table is the policy for where a
+  // repair belongs. Read at the end of the run instead, as it was until
+  // 2026-09-12, an unreadable table and a shape the table does not know both
+  // arrived as the same exit 2 after a full run had already been paid for.
+  let pinTable;
+  try {
+    pinTable = JSON.parse(readFileSync(TABLE_PATH, 'utf8'));
+  } catch (e) {
+    die(4, `pin-families.json could not be read as JSON (${e && e.message ? e.message : e}); nothing was run`);
+  }
+  // And the shape, not only the syntax: signalIndex() is what derives the
+  // signal -> shape map out of the table's own citations, and a table that
+  // parses but whose cites have lost their `counter` or `scen` is as malformed
+  // a policy as one that does not parse. Asked here so it costs nothing;
+  // asked for the first time after the run, it was a full measurement thrown
+  // away on exit 2.
+  try {
+    signalIndex(pinTable);
+  } catch (e) {
+    die(4, `pin-families.json parses but its citations do not name signals (${e && e.message ? e.message : e}); nothing was run`);
   }
 
   mkdirSync(BUILD, { recursive: true });
@@ -644,10 +685,43 @@ async function main() {
     + (planRun ? renderPlanSummary(planRun, { planSha256: planSha, entries: planIn.size }) : '');
 
   const rowsText = '[\n' + rows.map((r) => JSON.stringify(r)).join(',\n') + '\n]\n';
+
+  // ---- routing (A5): where does the fix for each shape this run SAW go? -------------
+  // The judgement lives in pin-families.json; lib/routing.mjs derives the
+  // signal -> cell mapping from that table's own citations and applies it to
+  // these rows. Written to the lab directory only: the tracked rows and results
+  // text are sha-pinned by test/tracked-data.test.mjs and must not grow a column.
+  let routing = null;
+  let routingError = null;
+  try {
+    // The table itself was read and parsed before the first compile; what can
+    // fail here is the routing, and the case it exists for is a signal the
+    // table has no row for. That is a finding (exit 2), not a malformed policy.
+    routing = routeRun({ table: pinTable, rows, cc: ccName, cfgNote });
+  } catch (e) {
+    routingError = String(e && e.message ? e.message : e);
+  }
+  const routingText = routingError
+    ? `routing (A5: repair in the compiler, or back to the source?)\n  REFUSED: ${routingError}\n`
+    : renderRouting(routing);
+  const routingJson = JSON.stringify(routingError ? { error: routingError, cc: ccName } : routing, null, 2) + '\n';
+
   const planText = JSON.stringify({
     what: 'find -> fix: per file, the levels at which the find step\'s observation says a wipe is gone, '
       + 'and the names to pin there (WPIN_TARGET_FNS = [fn, ...helpers])',
     cc: ccName, opts: args.opts, fileSubset: args.files, entries: pinPlan,
+    // The hand-off the plan exists for, extended: not only WHERE to pin, but
+    // which shapes this run saw that pinning cannot hold, so the fix step sends
+    // those to the source instead of asking the compiler again. Full report in
+    // routing.json beside this file.
+    routing: routingError ? { error: routingError } : {
+      counts: routing.counts,
+      notHeldByEitherSide: routing.loud,
+      fixBelongsInTheSource: routing.routedToSource,
+      notRouted: { total: routing.counts['not-routed-no-signal'], why: routing.noSignal },
+      configguardNote: routing.configguardNote,
+      report: 'routing.json',
+    },
   }, null, 2) + '\n';
   const manifestText = JSON.stringify({
     generatedAt: new Date().toISOString(), node: process.version,
@@ -669,7 +743,8 @@ async function main() {
   // exact texts, before the tracked copies are written.
   const pathHits = [];
   for (const [name, t] of [[dataNames.rows, rowsText], ['manifest.json', manifestText],
-    [dataNames.results, text], ['pin-plan.json', planText]]) {
+    [dataNames.results, text], ['pin-plan.json', planText], ['routing.json', routingJson],
+    ['the routing section', routingText]]) {
     const h = absolutePathHits(t);
     if (h.length) pathHits.push(`${name}: ${h.join(', ')}`);
   }
@@ -680,11 +755,23 @@ async function main() {
   writeFileSync(join(args.out, 'r2-repair-results.txt'), text, 'utf8');
   writeFileSync(join(args.out, 'manifest.json'), manifestText, 'utf8');
   writeFileSync(join(args.out, 'pin-plan.json'), planText, 'utf8');
+  writeFileSync(join(args.out, 'routing.json'), routingJson, 'utf8');
   if (pathHits.length) {
     process.stdout.write(text);
     die(5, `an absolute path would be written (${pathHits.join('; ')}); nothing was written to data/`);
   }
   if (args.writeData) {
+    // A refused routing refuses the write, the way a red spike gate does five
+    // hundred lines above. Until 2026-09-12 this block ran regardless and the
+    // run exited 2 afterwards, so a run whose plugin counted a shape
+    // pin-families.json has no row for -- the substitution that table exists to
+    // prevent -- still rewrote the tracked rows and results text on its way out.
+    if (routingError) {
+      process.stdout.write(text);
+      process.stdout.write(routingText);
+      die(2, `--write-data refused: the routing was refused (${routingError}), so this run could not `
+        + 'say where the fix for every shape it saw belongs. The lab copy at --out is written.');
+    }
     // Per compiler (lib/vendor.mjs dataFileNames): clang-18 keeps the names the
     // tracked data was first written under; any other --cc writes its own pair,
     // so one compiler's run can never overwrite another's.
@@ -693,6 +780,10 @@ async function main() {
     writeFileSync(join(DATA, dataNames.results), text, 'utf8');
   }
   process.stdout.write(text);
+  // Printed after, and never folded into `text`: `text` is what --write-data
+  // copies into data/r2-repair-results*.txt, whose bytes test/tracked-data.test.mjs
+  // pins. The routing section is a reading OF that run, not part of it.
+  process.stdout.write(routingText);
 
   const integrityBroken = !pre.integrityHeld || rows.some((r) =>
     r.baselineMatchesTracked === false
@@ -702,7 +793,12 @@ async function main() {
   // a planned cell whose loss did not reproduce (stale plan) or did not come back
   // fails it. Not applied to red controls, whose planned cells must NOT repair.
   const planBroken = !!planRun && !red && (planRun.notReproduced.length > 0 || planRun.notRepaired.length > 0);
-  process.exit(integrityBroken || planBroken || (red && !red.held) ? 2 : 0);
+  // A refused routing is a run whose shapes could not all be named: the plugin
+  // counted something pin-families.json has no row for, or the table itself is
+  // malformed. Exit 2 rather than 0, because a run that reports its cells and
+  // silently reports no routing reads exactly like a run with nothing to route.
+  if (routingError) process.stderr.write(`run-repair-loop: routing refused: ${routingError}\n`);
+  process.exit(integrityBroken || planBroken || !!routingError || (red && !red.held) ? 2 : 0);
 }
 
 // ---------------------------------------------------------------- rendering --

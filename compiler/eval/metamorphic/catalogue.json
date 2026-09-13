@@ -21,6 +21,21 @@
     "why": "There is deliberately NO total order on interfaces.md section 3's six states, and none is invented here. Only two of the six are comparable as more-or-less of the property surviving: PRESENT and LOST. ABSENT means the property was never established at the first checkpoint, NOT_APPLICABLE means the question stopped having the same referent, and NOT_OBSERVED means nothing was read -- none of the three is a smaller amount of survival, and ranking them would let a lost referent be reported as a lost property. Consequently the only monotonicity claim this lane makes is PRESENT > LOST, and it makes it for R2b alone.",
     "polarityNote": "For the must-not-appear shape (ir.forbidden-callee) the direction is a COUNT direction and not a survival direction: R2 there is INTRODUCTION, clean to hit, spelled ABSENT->PRESENT. The same six words carry the opposite valence for this extractor, which is why one operator below is declared ungraded rather than graded on an axis that would read the disappearance of a forbidden call as a lost property."
   },
+  "configurations": [
+    {
+      "runId": "O0",
+      "opt": "-O0",
+      "why": "The unfolded reading. Every R1 invariance has to hold where the optimiser has done nothing, or the relation was never about the optimiser. No R2b cell moves here, which is the point: this configuration alone cannot qualify the lane, and check-meta.py refuses a sweep that holds only it.",
+      "r2bCanMove": false
+    },
+    {
+      "runId": "O2",
+      "opt": "-O2",
+      "why": "The folding reading. This is the configuration in which the three graded R2b operators actually ask the instrument to tell PRESENT from LOST, so it is the one that expresses the survival axis.",
+      "r2bCanMove": true
+    }
+  ],
+  "configurationsNote": "The configurations are declared HERE and not in run-all.sh, for the reason compiler/eval/calibration/battery.json gives for its own `configs`: a list living in the runner drifts from the table and nobody notices, because the runner is what a person reads least. At least one entry must carry r2bCanMove true, or every sweep this lane can produce would be refused by check-meta.py's survival-axis fence -- test/catalogue.test.mjs asserts that, so a catalogue edited down to -O0 alone fails a test rather than producing a lane that can never qualify.",
   "declaredDirections": {
     "INVARIANT": "The verdict must be the same word on the base and on the mutant. Any change is a finding (exit 2). Used by R1, by R1-spelling, and by nothing else.",
     "PRESENT->ABSENT": "R2a, source-removing. The effect is deleted from the source, so it is not in the pre-optimisation IR either and the pair reads ABSENT -- interfaces.md section 3's word for 'observed to be missing at a point where the property had not yet been established'. Legible at pre-opt-ir.",

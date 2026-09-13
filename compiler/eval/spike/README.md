@@ -14,12 +14,20 @@ configuration makes the whole run INVALID and no measurement in it may be
 written as data — and so does a run in which *no* configuration ever required
 the two spikes to read differently.
 
-It exists because of a sentence in
-`compiler/pass-instrumentation/observer/README.md`:
+It exists because of a sentence that used to be in
+`compiler/pass-instrumentation/observer/README.md`, quoted here as it stood on
+2026-08-17:
 
 > **No harness in this repository invokes `check-subject-resolution.mjs`.** As of
 > 2026-08-17 its only caller is `test/subject-resolution.test.mjs`;
 > `scripts/run-all.sh` does not run it, and it is not wired into CI.
+
+**That sentence is no longer in that file.** This lane is why: on 2026-09-12
+`scripts/run-all.sh` was wired to run this gate's observer channel on the
+plugin it builds, and the paragraph was rewritten to say so
+(`../../pass-instrumentation/observer/README.md:179-205`). The quote above is
+kept as the reason this lane was built, dated, and is not a claim about the
+file as it stands today.
 
 The third silent failure — a subject name that resolves to nothing — was made
 *audible* and *recorded*, and then nothing was made to listen. A checker nobody
@@ -40,8 +48,9 @@ claim to be a gate on every run.
 A run that is not `established` is reported NOT ESTABLISHED, and **no
 measurement taken in it may be written as data**. The run's own report,
 `spike-gate.json`, is still written to the lab — for a red run too, which is the
-copy a reader needs — unless `--no-write` is passed; nothing in the repository
-consumes it. Four things are deliberately *not* treated as passes:
+copy a reader needs — unless `--no-write` is passed. The tracked twin under
+`data/` is a different matter: `--write-data` is refused for a red run, and for
+a green one that graded less than the whole matrix. Four things are deliberately *not* treated as passes:
 
 * **A spike that did not compile is FAILED, never "held".** `COMPILE_ERROR`,
   `ABLATION_DID_NOT_COMPILE`, `NOT_OBSERVED`, `NO_WIPE_WRITTEN`,
@@ -65,21 +74,28 @@ consumes it. Four things are deliberately *not* treated as passes:
 ## What is here
 
 ```
-run-spike.mjs                  the CLI; measures, grades, prints, exits 0/2/3/4
+run-spike.mjs                  the CLI; measures, grades, prints, exits 0/2/3/4/5
 lib/measure.mjs                produces readings. Cannot see the answers.
 lib/claims.mjs                 the only module that opens the registered answers
 lib/spike.mjs                  gradeSpike / gradeInjected / gateVerdict. PURE.
 lib/gate.mjs                   runSpikeGate(): the function other harnesses call
 lib/observer.mjs               the second channel, under libPropertyObserver.so
+lib/data-record.mjs            what --write-data may write, and what it refuses. PURE.
 claims/spike-expected.json     the answers, registered per (vendor, level)
+data/spike-gate.json           the full run, tracked: the numbers this README quotes
 subjects/spike-disappearing.c  the wipe the optimiser may delete
 subjects/spike-surviving.c     the wipe it may not
 tools/make-spike-lab.sh        materialise both spikes for reproduction by hand
 test/spike.test.mjs            the grader, in both directions
 test/lane.test.mjs             separation, subject shape, claims
+test/data.test.mjs             the record, re-graded, and this README held to it
 ```
 
-Nothing is written under `compiler/`. Sources, listings and the report go to a
+Nothing is written under `compiler/` except `data/spike-gate.json`, and only
+when `--write-data` is passed on a run that graded the whole matrix (both
+vendors, all five levels, the observer channel, the injection performed) — a
+partial or red run is refused and told what is missing. Sources, listings and
+the report go to a
 lab directory outside the repository, and a lab inside it is refused
 (`interfaces.md` §1; `scripts/check-packaging-invariants.mjs` line 1274 refuses a
 tracked path with a `fixtures` or `_results` segment, and this lane has neither).
@@ -311,12 +327,16 @@ channel that left no trace would be indistinguishable from one that passed.
 ## What was measured
 
 Measured 2026-09-12 on Ubuntu-24.04 under WSL2, clang-18 18.1.3 / gcc-13 13.3.0,
-with `libPropertyObserver.so` as built at `~/vg-build/pass-observer`.
+with `libPropertyObserver.so` as built from
+`compiler/pass-instrumentation/observer` at this commit. The run below is the
+one that wrote `data/spike-gate.json`, which `test/data.test.mjs` grades this
+section against; `--write-data` is refused for anything less than the full
+matrix on both vendors with both channels and the injection performed.
 
 ```
 $ node compiler/eval/spike/run-spike.mjs --out ~/vg-lab/spike-final \
     --cc clang-18,gcc-13 --opt -O0,-O1,-O2,-O3,-Os --inject-at -O0,-O2 \
-    --observer ~/vg-build/pass-observer/libPropertyObserver.so
+    --observer <build>/libPropertyObserver.so --write-data
 spike gate: ESTABLISHED -- clang-18-O0 2/2 | clang-18-O1 2/2 | clang-18-O2 2/2 | clang-18-O3 2/2 | clang-18-Os 2/2 | gcc-13-O0 2/2 | gcc-13-O1 2/2 | gcc-13-O2 2/2 | gcc-13-O3 2/2 | gcc-13-Os 2/2 | clang-18-O2[obs] 2/2 -- injection RED (as required) -- 9/11 discriminating
   clang-18 -O0 [differential]  recovery 2/2
     disappearing  verdict=WIPE_SURVIVED control=PRESENT spans=1
@@ -401,12 +421,18 @@ before 2026-09-12.
 
 ```
 $ node --test compiler/eval/spike/test/*.test.mjs
-# tests 48
-# pass 48
+# tests 66
+# pass 66
 # fail 0
 # skipped 0
 # todo 0
 ```
+
+(48 when this block was first pasted, three files ago: `data.test.mjs` and
+`wiring.test.mjs` are the difference. A pasted count is a number nothing
+recomputes — this one went stale for a day before an adversarial read caught
+it, and it is kept because what it reports, that the suite runs with nothing
+skipped, is worth stating.)
 
 Both directions: the grader is tested on the readings that must hold and on
 every reading that must not — each `NOT_A_READING` word, a missing reading, a
@@ -428,11 +454,12 @@ prevent, so those claims are pinned by tests like any other.
 
 ## ⚠ What is gated, and what is not
 
-**Nothing in this repository calls this gate yet.** As of 2026-09-12 its only
-callers are `run-spike.mjs` and `test/`. This lane owns `compiler/eval/spike/**`
-and nothing else; the wiring into the harnesses that produce data is written out
-below as patches for whoever owns those files to apply, and until those are
-applied the honest description is:
+**Corrected 2026-09-12.** This section used to open "Nothing in this repository
+calls this gate yet", and the table below used to say "no — patch below" on its
+first four rows. That was written in the same commit that applied those four
+patches, and stayed wrong until somebody read the code instead of the prose.
+Five harnesses call the gate now, and the three that do not are a decision with
+a reason rather than a backlog.
 
 * **closed** — a spike/recovery gate exists, it is importable as one function, it
   refuses a vacuous pass, it refuses an unregistered configuration, it refuses a
@@ -440,37 +467,111 @@ applied the honest description is:
   it re-earns its own credibility on every run through an injection it can only
   count where the injection could have failed, and it has been run end to end on
   both vendors at five levels and on both channels.
-* **not closed** — no harness's data depends on it. A run of the corpus lane, the
-  repair loop or either LTO probe today still writes rows whether or not the
-  instrument was reading anything.
+* **closed** — five harnesses' data now depends on it, by the file and line in
+  the table. The corpus lane, the repair loop and both LTO probes refuse to
+  write when the gate does not hold; the observer's `run-all.sh` stops before
+  its five harnesses.
+* **measured, not only wired** — `compiler/eval/ai-generated` was re-measured
+  under the gate on 2026-09-12 and read the same 4,689 rows it read before it
+  (`../ai-generated/data/r2-regate.json`). A gate that changed the measurement
+  would be a different problem, and that is the run that says it did not.
+* **also measured** — the repair loop was re-run under the gate on 2026-09-12
+  and its 1,881 tracked rows came back **byte-identical**, digest and all
+  (`../repair-loop/data/r2-regate.json`). That lane is deterministic where the
+  corpus lane is not, so it can make the stronger claim.
+* **re-measured by a different route** — the two LTO probes write **no tracked
+  data at all**, so there is nothing of theirs in `../repair-loop/data/` for a
+  digest comparison to be about, and the figures their `tools/LTO.md` quotes were
+  taken before the gate existed. ★ **2026-09-13** that was closed against the
+  PROSE instead of against rows: the probes were re-run under the gate and the
+  counts compared to `LTO.md`'s tables by hand, twice per vendor — once with the
+  exact plugin binary the prose quotes. `../repair-loop/data/lto-regate.json` is
+  the record and `../repair-loop/test/lto-regate.test.mjs` reads the numbers back
+  out of `LTO.md`, so it is one of the **six** files in that directory now. The
+  bullet said "nothing to re-measure" until then, which was a claim about the
+  absence of a comparison route rather than about the figures.
 
-These harnesses are **not** gated, by name:
+| harness | gated? | file:line |
+|---|---|---|
+| `compiler/eval/ai-generated/lib/build-analyze.mjs` | **yes** | import `:37`, gate `:118`, `process.exit(3)` `:123` — refuses to write rows |
+| `compiler/eval/repair-loop/run-repair-loop.mjs` | **yes** | import `:82`, gate `:359`, `die(2)` `:364` for `--write-data`, `die(3)` `:367` |
+| `compiler/eval/repair-loop/tools/lto-probe.mjs` | **yes** | import `:58`, gate `:289`, `die(3)` `:293` — no LTO cell run |
+| `compiler/eval/repair-loop/tools/lto-probe-gcc.mjs` | **yes** | import `:61`, gate `:320`, `die(3)` `:324` — no LTO cell run |
+| `compiler/pass-instrumentation/observer/scripts/run-all.sh` | **yes, 2026-09-12** | `:80-92` — the observer channel on the plugin it just built, before the five harnesses, exiting with this lane's own code |
+| `compiler/eval/calibration/run-all.sh` | **no, and correctly not** | a different instrument — `libIrCheckpoints.so` (`scripts/run-battery.sh:59`). See the three rows below the table |
+| `compiler/eval/second-vendor` | **no, and correctly not** | a different instrument — `lib/asm-oracle.mjs` |
+| `compiler/eval/metamorphic` | **no, and correctly not** | a different instrument — `lib/asm-read.mjs`, graded by `scripts/check-meta.py` |
 
-| harness | gated? |
-|---|---|
-| `compiler/eval/ai-generated/lib/build-analyze.mjs` | no — patch below |
-| `compiler/eval/repair-loop/run-repair-loop.mjs` | no — patch below |
-| `compiler/eval/repair-loop/tools/lto-probe.mjs` | no — patch below |
-| `compiler/eval/repair-loop/tools/lto-probe-gcc.mjs` | no — patch below |
-| `compiler/eval/calibration/run-all.sh` | **no, and no patch is offered** |
-| `compiler/pass-instrumentation/observer/scripts/run-all.sh` | **no, and no patch is offered** |
-| `compiler/eval/second-vendor` | **no, and no patch is offered** |
-| `compiler/eval/metamorphic` | **no, and no patch is offered** |
+**The last three are not gaps, and wiring this gate into them would make them
+worse.** `runSpikeGate` grades two translation units with *this* lane's verdict
+functions. Hanging its green tick over a table produced by another instrument
+says nothing about that instrument and reads as though it does. What the gate
+does elsewhere — a known positive, a known negative, and a self-test that
+re-earns credibility every run — is what those three had to do on their own
+instruments, and 2026-09-12 is when each was checked rather than assumed:
 
-The last four are not oversights and are not one-line changes. `calibration`
-drives its configurations out of `battery.json` through four separate programs in
-a fixed order, and its graders read reports rather than readings; the observer's
-`run-all.sh` writes logs for five harnesses and several configurations into one
-tree, which is exactly the case the observer's own README says a naive glob
-reports as `inconsistent-name`. Wiring either from outside, without owning them,
-would produce a green tick over a change nobody measured. **Do not write "the
-third silent-failure mode is closed" about any row in that table.**
+* **`calibration`** already had all three: reference cells
+  (`scripts/check-battery.py:409`), known-BROKEN cells graded in both directions
+  (`:401`), the whole-set configuration fence (`:637-650`), and
+  `scripts/falsify-battery.py` on every run (`run-all.sh:107`). One hole was
+  found and closed: `--no-falsify` skipped the injection and printed a last line
+  identical to a full run's. It now prints `NOT ESTABLISHED: --no-falsify was
+  passed…` (`run-all.sh:110-145`). Measured both ways: the full run ends
+  "`check-battery.py` was also shown REFUSING every applicable corruption", the
+  `--no-falsify` run ends with the refusal to call itself established.
+* **`second-vendor`** had a real hole. `README.md:52` said the controls "must
+  pass before the table means anything" and `run-second-vendor.mjs` never opened
+  their report. It now refuses — exit 3, before the first compile — without a
+  controls receipt over the same spec and fixture bytes
+  (`lib/controls-receipt.mjs`, `run-second-vendor.mjs:174-191`). Measured: with
+  no receipt it exits 3 and writes nothing, not even a work directory. ★
+  **2026-09-13: the green-receipt path has now been run end to end**, and the
+  sentence that stood here until that date — that this machine's lab had no
+  fixture set carrying all five of `erasure`, `nullcheck`, `signedovf`, `authz`
+  and `configguard` — was simply false: there were ten, byte-identical.
+  `../second-vendor/README.md` carries the four paths and their exit codes
+  (accepting 0 with an 80-cell envelope, no receipt 3, `CONTROLS_FAILED` 2 then
+  3, a green receipt over edited bytes 3). The passing direction no longer rests
+  on `test/controls-receipt.test.mjs` alone.
+* **`metamorphic`** had the hole this lane closed for itself in September, one
+  layer out. Only R2b asks the instrument to tell a loss from a survival, and at
+  `-O0` every R2b cell reads `not-expressed` while R1, R2a and R2c still pass —
+  so a sweep of a `-O0`-only results directory exited **0** saying "all 1
+  document(s) satisfy the relations". That was measured on the tracked lane's
+  own recorded documents, with the checker as it was: exit 0. With the fence
+  (`scripts/check-meta.py:843-856`) the same sweep is exit 3, and a sweep
+  holding both the `-O0` and the `-O2` document is exit 0 — so the fence
+  refuses the blind set without refusing the ordinary one.
+
+The objection that kept the observer's `run-all.sh` out of the table until
+2026-09-12 was a real one and is worth keeping: that script writes logs for
+five harnesses and several configurations into one tree, and the observer's own
+README says a naive glob over that tree reports `inconsistent-name`. The gate
+as wired does not glob it. It compiles two translation units of its own into
+`$LAB/spike` and reads only the logs it wrote itself, which is why it can run
+there at all. **What that closes is a check on the INSTRUMENT, not on those
+five harnesses' own logs** — `../../pass-instrumentation/observer/README.md`
+says so in its own third bullet, and "the third silent-failure mode is closed"
+must not be written about those harnesses on the strength of this row.
+
+`calibration` keeps its own objection too: it drives its configurations out of
+`battery.json` through four separate programs in a fixed order, and its graders
+read reports rather than readings. Wiring this gate in from outside would
+produce a green tick over a change nobody measured.
 
 ## Edits requested in files this lane does not own
 
 Five patches. Each is given with five lines of surrounding context. None of them
 changes a measurement: the gate runs before the first cell and either lets the
 run proceed unchanged or stops it.
+
+**All five were applied on 2026-09-12**, and the diffs are kept here rather than
+deleted — they are the record of what was asked for and what the owners took.
+Where the applied code differs from the patch, the applied code is what runs;
+the table above carries the file and line of each call site, and
+`git grep -n runSpikeGate -- compiler` is the list that cannot go stale. A sixth
+wiring, `compiler/pass-instrumentation/observer/scripts/run-all.sh:80-92`, was
+added by that lane's owner afterwards and was never written here as a patch.
 
 ### 1. `compiler/eval/ai-generated/lib/build-analyze.mjs` — the corpus loop owner
 
@@ -769,10 +870,15 @@ two spikes are registered to read different words — not to relax the rule.
 
 ## What is NOT measured
 
-* **No harness's data is gated.** See the table above. The four patches are
-  written and were *not* applied by this lane, and the two runs they would guard
-  (a corpus rebuild and a repair-loop run) were not performed with the gate in
-  place. **Unmeasured, not "passing".**
+* **~~No harness's data is gated.~~ Five harnesses are, by file and line in the
+  table above, and the two lanes that carry tracked rows have been re-measured
+  under it.** The corpus rebuild read the same 4,689 rows
+  (`../ai-generated/data/r2-regate.json`) and the repair loop the same rows on
+  **both** vendors, byte for byte — 1,881 for clang-18 and 1,883 for gcc-13
+  (`../repair-loop/data/r2-regate.json`, one entry per vendor). What remains
+  unmeasured is narrower and is written here rather than implied: every **LTO
+  probe** sentence, which is lab-only output with no tracked record to compare
+  against. **Unmeasured, not "passing".**
 * **The observer channel at levels other than `-O2`, and on gcc.** The plugin is
   an LLVM pass-instrumentation plugin; gcc has no such channel here, and only
   `-O2` is registered. The registered `-O2` cell was run and held.
@@ -788,13 +894,20 @@ two spikes are registered to read different words — not to relax the rule.
   reach no other runner" has an explicit list, adding to it is section 5 below,
   and `.github/workflows/` is not this lane's to edit. As of 2026-09-12 the
   working tree does carry that line (`run_suite spike
-  compiler/eval/spike/test/*.test.mjs`), added by whoever owns that file — **this
-  lane has not seen it run on a runner**, and whether it is committed or green in
-  CI is not something this lane can report. Until a CI run says otherwise, the
-  48/48 below is local evidence: node 18.19.1 under WSL2 and node 24.14.1 on
-  Windows, both green.
-* **`spike-gate.json` is not tracked and nothing consumes it.** It is a lab
-  artefact for a reader.
+  compiler/eval/spike/test/*.test.mjs`), added by whoever owns that file.
+  **It has since been seen on a runner**: the CI job printed `--- spike: 2
+  file(s)` on `main` and passed, which is what the sentence above was waiting
+  for. The suite is three files now (`spike`, `lane`, `data`), and the local
+  evidence — node 18.19.1 under WSL2 and node 24.14.1 on Windows, both green —
+  still stands beside it rather than instead of it.
+* **~~`spike-gate.json` is not tracked and nothing consumes it.~~ Tracked since
+  2026-09-12 as `data/spike-gate.json`, and `test/data.test.mjs` consumes it.**
+  The lab copy is still written on every run, red ones included, and is still
+  the copy a reader of a failed run wants. What changed is that the full green
+  run's record now has a tracked twin, the test re-grades the readings in it
+  with the current grader and the current registered answers — so an expectation
+  edited to fit a reading fails there — and every number this README quotes in
+  *What was measured* is read back out of the prose and compared to it.
 
 ## Findings worth keeping
 

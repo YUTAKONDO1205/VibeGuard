@@ -54,6 +54,7 @@
  */
 import { classify, PARTIAL_FLOOR } from './scan.mjs';
 import { FRAME_MARGIN_BYTES, WINDOW_MAX_BYTES, requiredBelow } from './frame.mjs';
+import { VENDORS, OPTS, IDIOMS, ARMS } from './manifest.mjs';
 
 export { PARTIAL_FLOOR, FRAME_MARGIN_BYTES, WINDOW_MAX_BYTES };
 
@@ -320,4 +321,56 @@ export function anomalies(rows) {
     }
   }
   return { findings, anomalous };
+}
+
+/**
+ * What stops a run from writing the tracked rows.
+ *
+ * WHY THIS EXISTS, AND WHY IT IS A LIST RATHER THAN A BOOLEAN
+ *
+ *   Until 2026-09-12 `--write-data` refused exactly one thing, `--controls-only`,
+ *   and the file name it writes is derived from `--cc` alone. So
+ *   `--opt -O0 --write-data` wrote twelve cells over the sixty-cell record, exit
+ *   0, saying "wrote 12 rows to data/" -- and a run with no repair plugin wrote
+ *   a record in which half the matrix is BROKEN_MEASUREMENT/plugin-absent. The
+ *   lane's own test then asserted "--write-data is refused for a partial matrix,
+ *   so an excluded cell here is a bug", which was a claim about a refusal that
+ *   did not exist. ../../spike/lib/data-record.mjs and
+ *   ../../oracle-agreement/lib/record.mjs both had the refusal; this lane did
+ *   not, and the prose covered for it.
+ *
+ *   The reasons are collected rather than thrown one at a time so that a person
+ *   fixing the command fixes all of it in one more run, not three.
+ *
+ * @param {{ccs:string[], opts:string[], idioms:string[], controlsOnly:boolean, rows:object[]}} run
+ * @returns {string[]} empty when the run may write
+ */
+export function writeDataRefusals({ ccs = [], opts = [], idioms = [], controlsOnly = false, rows = [] } = {}) {
+  const why = [];
+  if (controlsOnly) why.push('--controls-only: a controls-only run measures the instrument, not the matrix');
+
+  const missing = (asked, full, flag) => {
+    const absent = full.filter((x) => !asked.includes(x));
+    if (absent.length) why.push(`${flag} leaves out ${absent.join(', ')}: the tracked record is the full matrix`);
+  };
+  missing(ccs, VENDORS, '--cc');
+  missing(opts, OPTS, '--opt');
+  missing(idioms, IDIOMS, '--idiom');
+
+  const subjects = rows.filter((r) => r && r.kind === 'subject');
+  const expected = VENDORS.length * OPTS.length * IDIOMS.length * ARMS.length;
+  if (subjects.length !== expected) {
+    why.push(`${subjects.length} subject cell(s) were graded and the full matrix is ${expected}`);
+  }
+
+  // A cell that could not be measured is not a reading, and a record holding one
+  // would be read as a matrix with a hole rather than as a run that should not
+  // have been recorded. plugin-absent is the common one: it means the repair arm
+  // was never asked, which is most of what this record is for.
+  const notOk = subjects.filter((r) => r.measurement !== 'OK');
+  if (notOk.length) {
+    const reasons = [...new Set(notOk.map((r) => r.reason || r.measurement))].slice(0, 4);
+    why.push(`${notOk.length} subject cell(s) carry no reading (${reasons.join('; ')})`);
+  }
+  return why;
 }

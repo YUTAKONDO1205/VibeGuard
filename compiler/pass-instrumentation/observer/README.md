@@ -176,29 +176,46 @@ two-translation-unit build: the unit holding the subject records `resolved`, the
 other records `not-in-module`, and the aggregate passes; misspell the name and
 both record `not-in-module` and the aggregate exits 2.
 
-### ⚠ What this does NOT yet do — nothing calls it automatically
+### ⚠ What this calls automatically, and what it still does not
 
-**No harness in this repository invokes `check-subject-resolution.mjs`.** As of
-2026-08-17 its only caller is `test/subject-resolution.test.mjs`; `scripts/run-all.sh`
-does not run it, and it is not wired into CI (verified by grep, not assumed).
+**Until 2026-09-12 no harness in this repository invoked
+`check-subject-resolution.mjs`** — its only caller was
+`test/subject-resolution.test.mjs`, `scripts/run-all.sh` did not run it, and it
+was not wired into CI. That was still true when this section was first written
+on 2026-08-17 and stayed true for most of a month; `compiler/eval/spike` was
+built out of it, and 2026-09-12 is the day it stopped being true, in one narrow
+place. State the change narrowly or not at all:
 
-So the honest description of what changed is:
-
-* **closed** — a misspelt `OBS_TARGET_FN` is now *audible* (a line on stderr) and
+* **closed** — a misspelt `OBS_TARGET_FN` is *audible* (a line on stderr) and
   *recorded* (`SUBJECTRES … not-in-module`), and a whole run can be judged by a
   checker that distinguishes "wrong name" from "the plugin never saw that unit".
-* **not closed** — a typo is not *automatically* detected. A caller who never runs
-  the checker and never reads stderr still gets a rc=0 build and a log whose
-  control is `PRESENT`.
+* **closed** — `scripts/run-all.sh` now runs the checker automatically, on **two
+  translation units of its own**, immediately after it builds the plugin and
+  before the first of the five harnesses. It runs `compiler/eval/spike`'s gate at
+  `-O2` with `--observer` pointed at the `libPropertyObserver.so` this run just
+  built: one spike whose wipe the optimiser may delete, one whose it may not, the
+  checker run on each log, and then the whole thing again with the subject name
+  deliberately misspelt, which the gate must refuse. A red gate stops `run-all.sh`
+  before anything is measured, with `run-spike.mjs`'s own exit code
+  (`interfaces.md` §7: 2 red, 3 a compiler is absent, 4 malformed expectations).
+* **not closed** — that is a check on **the instrument**, not on the five
+  harnesses' own logs. A `run-all.sh` run in which the plugin and the checker are
+  demonstrably working can still contain a harness whose own `OBS_TARGET_FN` is
+  wrong, and nothing reads those logs for it.
 
-Wiring it into `run-all.sh` is not a one-line change and was deliberately not
-attempted next to a numbers freeze: the checker's aggregate is per *run*, and the
-five harnesses there write logs for several different configurations into one
-tree, so a naive glob reports `inconsistent-name` (correctly) and would turn a
-green harness red for a reason that is not a defect. The per-run call belongs
-with whoever drives an observation; the corpus lane does it that way.
+The reason the second bullet is not the naive wiring this paragraph used to rule
+out: the checker's aggregate is per *run*, and the five harnesses write logs for
+several different configurations into one tree, so a glob over `$OBS_LAB` reports
+`inconsistent-name` (**correctly**) and would turn a green harness red for
+something that is not a defect. The gate does not glob that tree. It compiles into
+`$OBS_LAB/spike`, reads only what it wrote there, and answers a different and
+prior question: *is this plugin, with this checker, able to read a known
+elimination, a known survival, and to go red at all, in this build.*
 
-**Do not write "the third silent-failure mode is closed" without this paragraph.**
+**Do not write "the third silent-failure mode is closed" without the third bullet
+above.** What is automatic is the check on the instrument. The per-run call on a
+harness's own logs still belongs with whoever drives that observation; the corpus
+lane does it that way.
 
 The record is written to the main `OBS_OUT` log only, not to
 `<OBS_OUT>.summary.tsv` — it is written at the first module boundary, long
@@ -313,8 +330,11 @@ What the CI run does **not** cover:
   different `pluginSha256` values;
 * the other four harnesses `scripts/run-all.sh` runs (`rq2/rq2.mjs`,
   `rq2/modes.mjs`, `rq2/broken-controls.mjs`, `scripts/crosscheck.mjs`) are not
-  in CI, and `tools/check-subject-resolution.mjs` is still called by nothing
-  automatic (see above).
+  in CI. `tools/check-subject-resolution.mjs` **is** called automatically since
+  2026-09-12 — by `scripts/run-all.sh:83`, through `compiler/eval/spike`'s
+  observer channel, on two translation units of its own (see the section above)
+  — and **not** on those four harnesses' logs, which is the distinction that
+  section draws and this bullet used to blur by saying "nothing automatic".
 
 ## Measurement harness
 

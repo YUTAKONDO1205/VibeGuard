@@ -1,0 +1,5414 @@
+[
+  {
+    "cell": "stock/clang-18/-O0/control-retain",
+    "kind": "control",
+    "control": "control-retain",
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O0",
+    "subject": "control-retain",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "FULL",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 32,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199454,
+      "rip": 4199454,
+      "matched": true,
+      "expectedRsp": 140733293480096,
+      "rsp": 140733293480096,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140733293476000,
+      "hi": 140733293480160,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "0dad49e010916f72ba29f81fa28fcd84b6ca8a9247e7ecb08f33631ab0dde105"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "4de7275898ebee1f1c2a9143f45dfcee373be20d1f0e0443ba53200abc4f2a60",
+      "sha256After": "4de7275898ebee1f1c2a9143f45dfcee373be20d1f0e0443ba53200abc4f2a60",
+      "unmodified": true
+    },
+    "asmSha256": "c327a9f6044a2b27bbd505d088fb5e1aaa26d805806f45ef40d38bbb9112d80c",
+    "objSha256": "c6749ad4e9b977b56481e0831c944eba0684ef2203bd9bc1ce840a5d2bdf6fa7",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O1/control-retain",
+    "kind": "control",
+    "control": "control-retain",
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O1",
+    "subject": "control-retain",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "FULL",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 32,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199406,
+      "rip": 4199406,
+      "matched": true,
+      "expectedRsp": 140720574158048,
+      "rsp": 140720574158048,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140720574153952,
+      "hi": 140720574158112,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "34f0ab63e55cd8f2c8f5dc1f93d0db86ad1275e0ddd30816c868c15124e4981c"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "b041f7ceca7479dd0d9b567cb505ed26650e61422f0a8508d0d3dfe65895c870",
+      "sha256After": "b041f7ceca7479dd0d9b567cb505ed26650e61422f0a8508d0d3dfe65895c870",
+      "unmodified": true
+    },
+    "asmSha256": "7eebffa3a4774e996a37e5941c5afc925f6ca9d808556fdbcc843e1920ace8ff",
+    "objSha256": "12c3e2175442a2322a026c3498a992b112cf998543be57788b4e097dc0517dd7",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O2/control-retain",
+    "kind": "control",
+    "control": "control-retain",
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O2",
+    "subject": "control-retain",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "FULL",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 32,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199406,
+      "rip": 4199406,
+      "matched": true,
+      "expectedRsp": 140726771643568,
+      "rsp": 140726771643568,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140726771639472,
+      "hi": 140726771643632,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "12b7a6dbc04450d74ca3f815fe6971534104c8359a3b53cd60e0998f9cd3befc"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "7827f24610f479a2c1fba2600c395ac741e16de7c3a138ca6f40279139dcc086",
+      "sha256After": "7827f24610f479a2c1fba2600c395ac741e16de7c3a138ca6f40279139dcc086",
+      "unmodified": true
+    },
+    "asmSha256": "9fdfd726222b7f0cd6c904e8119a258515f2e7f411fb9e7438b38f96b76ca152",
+    "objSha256": "eec788b16deefca4e51662048c76988a8f8ff13e6496cbaad00e937c8c123ccc",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O3/control-retain",
+    "kind": "control",
+    "control": "control-retain",
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O3",
+    "subject": "control-retain",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "FULL",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 32,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199406,
+      "rip": 4199406,
+      "matched": true,
+      "expectedRsp": 140735505873728,
+      "rsp": 140735505873728,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140735505869632,
+      "hi": 140735505873792,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "f5015fc3b3a27e25ac64f90f7c584ba949c6ef3084eb29d7757cd735dc8a7290"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "be0b4c00b3522ebd0de0a65aa89315809d6d53f26c79a4cfe66e84e4ebac8676",
+      "sha256After": "be0b4c00b3522ebd0de0a65aa89315809d6d53f26c79a4cfe66e84e4ebac8676",
+      "unmodified": true
+    },
+    "asmSha256": "5b1d351e62049aee8184b23f9edb6a0c2bf42b920d9771238126c010c6e28498",
+    "objSha256": "619796d906cefbb903727c98f864cc4ecca4e501c0ce71f5a5412d58f3c23880",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-Os/control-retain",
+    "kind": "control",
+    "control": "control-retain",
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-Os",
+    "subject": "control-retain",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "FULL",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 32,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199390,
+      "rip": 4199390,
+      "matched": true,
+      "expectedRsp": 140726550043984,
+      "rsp": 140726550043984,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140726550039888,
+      "hi": 140726550044048,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "204ffeb3d837f128af43a1a01ce44b88726b10099673966f12d45f369ab0269a"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "69cdc6a008244cbe379214f9ba89310a9478a15e65fe33a54446108ef0769567",
+      "sha256After": "69cdc6a008244cbe379214f9ba89310a9478a15e65fe33a54446108ef0769567",
+      "unmodified": true
+    },
+    "asmSha256": "f5c38ad0ac9b8f33481c7987bf87efa8e438bf2b3a2145f5aa804effc4c75801",
+    "objSha256": "e18955fa0c4447b8f2dbd09e393d9c92f166c460303e2f5c7607b016f2c43af5",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O0/control-retain",
+    "kind": "control",
+    "control": "control-retain",
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O0",
+    "subject": "control-retain",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "FULL",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 32,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199409,
+      "rip": 4199409,
+      "matched": true,
+      "expectedRsp": 140728502622144,
+      "rsp": 140728502622144,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140728502618048,
+      "hi": 140728502622208,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "12f6a309d333bc661e0fdc822761b94cedbdb8c715327dd01369ae2222750c23"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "1156ca5f27f1b5314a592eda17bea091809b3e3a02b0a83d423a8e135a52ab15",
+      "sha256After": "1156ca5f27f1b5314a592eda17bea091809b3e3a02b0a83d423a8e135a52ab15",
+      "unmodified": true
+    },
+    "asmSha256": "a89c89827fe73c262ce963fcb2c928937cbc151b724baaca2cee6ce91697029d",
+    "objSha256": "471c7eef13531076fa2124855b010a0a4f9454713304b98671f153e17ba9f10d",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O1/control-retain",
+    "kind": "control",
+    "control": "control-retain",
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O1",
+    "subject": "control-retain",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "FULL",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 32,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199381,
+      "rip": 4199381,
+      "matched": true,
+      "expectedRsp": 140721646003424,
+      "rsp": 140721646003424,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140721645999328,
+      "hi": 140721646003488,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "409c88f73146b39d0633527e10c2157114b050a81f16ddd6b140511c3bff7335"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "ae436ee2a0828e7f7e05007771d14be4be6a94202dd5e4e61c606bb82b55a852",
+      "sha256After": "ae436ee2a0828e7f7e05007771d14be4be6a94202dd5e4e61c606bb82b55a852",
+      "unmodified": true
+    },
+    "asmSha256": "48f03877a0eef06e354d9cdafb763fc57fc0720cdd03afef999e99fe00e1c2f8",
+    "objSha256": "0aaf4350fdc310e2253d3e9989250b8dc6dbc09a22a391584215626b96be713a",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O2/control-retain",
+    "kind": "control",
+    "control": "control-retain",
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O2",
+    "subject": "control-retain",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "FULL",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 32,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199401,
+      "rip": 4199401,
+      "matched": true,
+      "expectedRsp": 140734928818048,
+      "rsp": 140734928818048,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140734928813952,
+      "hi": 140734928818112,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "f7d103d5740af3b220b25eb68db81bbec78b6bf3b585da86e5f86f4c9938157f"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "5b62d5e13b95d4cee0c216d2b64579757f2073bc8b4c47c1a4b400099daaff6d",
+      "sha256After": "5b62d5e13b95d4cee0c216d2b64579757f2073bc8b4c47c1a4b400099daaff6d",
+      "unmodified": true
+    },
+    "asmSha256": "bbb2fc4beed0238d49750bf1cd50acb9b8828894851f4766ea3942ace626e19f",
+    "objSha256": "e29b0649780ae06df08136b2cb2b771f1fe64d4d1636829238cd5f33f653484b",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O3/control-retain",
+    "kind": "control",
+    "control": "control-retain",
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O3",
+    "subject": "control-retain",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "FULL",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 32,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199401,
+      "rip": 4199401,
+      "matched": true,
+      "expectedRsp": 140725564369840,
+      "rsp": 140725564369840,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140725564365744,
+      "hi": 140725564369904,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "67b23d92b68274471cdaeee69519e4d67fe9eeb1e46bc58ff61070d2870bda33"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "b1a92bf99d14412edf57c58698acd0ecc033d787771900d3d13bb01dfa55940e",
+      "sha256After": "b1a92bf99d14412edf57c58698acd0ecc033d787771900d3d13bb01dfa55940e",
+      "unmodified": true
+    },
+    "asmSha256": "69a88c5e5d8f81e53246bc2c3241167f26852237c90d92e95056dc8be932bc57",
+    "objSha256": "2d28e7df7452a39f17249c8cb12454fd7fc2822d132b4efc456f9781e17b091a",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-Os/control-retain",
+    "kind": "control",
+    "control": "control-retain",
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-Os",
+    "subject": "control-retain",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "rep-stos-fallback",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "FULL",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 32,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199389,
+      "rip": 4199389,
+      "matched": true,
+      "expectedRsp": 140728743959520,
+      "rsp": 140728743959520,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140728743955424,
+      "hi": 140728743959584,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "9585ae638de97233773a4f7165a8700605b000ce0382e7c0b3192ff3d6a196f5"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 120,
+      "form": "push+sub",
+      "requiredBelow": 256,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "770fe0219421fc81cb30dac010e4d418eb556fd9fc4b050288c5c1e758e6c749",
+      "sha256After": "770fe0219421fc81cb30dac010e4d418eb556fd9fc4b050288c5c1e758e6c749",
+      "unmodified": true
+    },
+    "asmSha256": "00919a3769b1bb1c9bd1f1c5e68d7eabff3345e4c76ef42519af71ff09e1fdcf",
+    "objSha256": "3c91135fd420a14d021781c801e42376fbf82c9be23fb1d74bace9f9f343d2c7",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O0/control-nosecret",
+    "kind": "control",
+    "control": "control-nosecret",
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O0",
+    "subject": "control-nosecret",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 3,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199454,
+      "rip": 4199454,
+      "matched": true,
+      "expectedRsp": 140726217550000,
+      "rsp": 140726217550000,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140726217545904,
+      "hi": 140726217550064,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "5d4b4fe98fefad6d8b5872119af2b2bcbddca91b338154bb2bd1dfa4401d084c"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "55c89b8aacb46755916954cfc19dd9370943c607936abacc845a89122c7f9851",
+      "sha256After": "55c89b8aacb46755916954cfc19dd9370943c607936abacc845a89122c7f9851",
+      "unmodified": true
+    },
+    "asmSha256": "167a32f3fbf93213aeeb31cce2ad4d0b623647b6ccabba2d7ee9c48659a57de8",
+    "objSha256": "beb87979a2e7b82c835002eeff0338ea9869ccbc0db974bdaa6ef5832f24b8c2",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O1/control-nosecret",
+    "kind": "control",
+    "control": "control-nosecret",
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O1",
+    "subject": "control-nosecret",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199406,
+      "rip": 4199406,
+      "matched": true,
+      "expectedRsp": 140724526241536,
+      "rsp": 140724526241536,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140724526237440,
+      "hi": 140724526241600,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "2e951e22fcab4b920686bb55a3d1fe3f8e200238dce54838b9a4faa276ef565c"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "e523b0484d2f0f8e58c8bc4ae77267ec1d86aa998743c814c3096125dbe66297",
+      "sha256After": "e523b0484d2f0f8e58c8bc4ae77267ec1d86aa998743c814c3096125dbe66297",
+      "unmodified": true
+    },
+    "asmSha256": "1c10796b892bca968f7ea5e6849dbfdb1093599da587c5769a7d755d3759c2d6",
+    "objSha256": "79e2e166ba52caad9ba31f51f6b8fda5f25f0238bf54a112a984b5ecae681071",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O2/control-nosecret",
+    "kind": "control",
+    "control": "control-nosecret",
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O2",
+    "subject": "control-nosecret",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199406,
+      "rip": 4199406,
+      "matched": true,
+      "expectedRsp": 140721658744656,
+      "rsp": 140721658744656,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140721658740560,
+      "hi": 140721658744720,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "864ec2dc30b0e3199d4042c0abe0b26a9b5f9ce255ada5246b3bb9fc2f3f033c"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "02a2ca6d30a0198bf735234a08f587f112d408dfb4285839f501a5b92b54a4d6",
+      "sha256After": "02a2ca6d30a0198bf735234a08f587f112d408dfb4285839f501a5b92b54a4d6",
+      "unmodified": true
+    },
+    "asmSha256": "6e2b15203ed17260827848c3dd4e2f3364fd8e592eaa419cf2a50d57ecc0d248",
+    "objSha256": "bb7262264fc50d80f1534ea342c566a8e8037179b08d5428e662dddaf18ab043",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O3/control-nosecret",
+    "kind": "control",
+    "control": "control-nosecret",
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O3",
+    "subject": "control-nosecret",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199406,
+      "rip": 4199406,
+      "matched": true,
+      "expectedRsp": 140736710809360,
+      "rsp": 140736710809360,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140736710805264,
+      "hi": 140736710809424,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "fab1f0c95f9ed588bec4af0e66e3b9d334074cc12f0ed80bb6ed6426d12f6da3"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "a499b685e4cdc5c8387c46b98ce0e0658622707a0fef4597c9b9f3f9234048d6",
+      "sha256After": "a499b685e4cdc5c8387c46b98ce0e0658622707a0fef4597c9b9f3f9234048d6",
+      "unmodified": true
+    },
+    "asmSha256": "94ed2e5d912fe1a64d071712a0d022120f4061392d17652f5cafa178a95e8ca3",
+    "objSha256": "e801a09cfad3ee57622d769f8c52754250afbd2826d85cccf29ff57ebb6112bd",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-Os/control-nosecret",
+    "kind": "control",
+    "control": "control-nosecret",
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-Os",
+    "subject": "control-nosecret",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199390,
+      "rip": 4199390,
+      "matched": true,
+      "expectedRsp": 140720368273920,
+      "rsp": 140720368273920,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140720368269824,
+      "hi": 140720368273984,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "cc1616619152f34daeecc28550c8a8a7ba0411f02c44aa9daea7863e989ce215"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "b50c7be03feb6e3769b852c607d23a31c005f9ee7d1ef01e6477929e05743189",
+      "sha256After": "b50c7be03feb6e3769b852c607d23a31c005f9ee7d1ef01e6477929e05743189",
+      "unmodified": true
+    },
+    "asmSha256": "974102b14f5dc1524065df7bfb9f5420f268ac33e85ba4e7685fd86290f56be4",
+    "objSha256": "9f06cd8ab1d21bedcd57c7f44dcc2a8813fb4195b438ecb92b5bb3f2d4e81796",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O0/control-nosecret",
+    "kind": "control",
+    "control": "control-nosecret",
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O0",
+    "subject": "control-nosecret",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199409,
+      "rip": 4199409,
+      "matched": true,
+      "expectedRsp": 140720676587984,
+      "rsp": 140720676587984,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140720676583888,
+      "hi": 140720676588048,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "e84b995548f41ef7c1e274532ea0d5ced2f07c37f715aaeb97d6b45441c24ccb"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "fc7348b4d629812395fe611a20e4e5111c98f929949e391639252f1d3c683720",
+      "sha256After": "fc7348b4d629812395fe611a20e4e5111c98f929949e391639252f1d3c683720",
+      "unmodified": true
+    },
+    "asmSha256": "a500c79bfbf14f6e6f9b1117fce4e40eb89a08aaeb0b1d3f6288fc1eb12b44b7",
+    "objSha256": "525183b14047b9b1c4cbebd65f440bbcf6b10001fac02ad053790573b3394f0d",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O1/control-nosecret",
+    "kind": "control",
+    "control": "control-nosecret",
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O1",
+    "subject": "control-nosecret",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199381,
+      "rip": 4199381,
+      "matched": true,
+      "expectedRsp": 140724622108880,
+      "rsp": 140724622108880,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140724622104784,
+      "hi": 140724622108944,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "3a931bc0361bd315436559ffd1c43443fc44b581d5f9dadc084dc88680e54b2d"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "ef9d31ca1f628f35e43e582fded53d52fd431e19f11d84757c345282bed43409",
+      "sha256After": "ef9d31ca1f628f35e43e582fded53d52fd431e19f11d84757c345282bed43409",
+      "unmodified": true
+    },
+    "asmSha256": "bbc4328bef08474651c9b96d8a25e2bf2bd2e0a7516d666119451ac26be641e4",
+    "objSha256": "0c2ae8d1ec1807bdfd2412c8a2408b8813df0fba0aa0e61b1d09223605b72b01",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O2/control-nosecret",
+    "kind": "control",
+    "control": "control-nosecret",
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O2",
+    "subject": "control-nosecret",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199401,
+      "rip": 4199401,
+      "matched": true,
+      "expectedRsp": 140728890227488,
+      "rsp": 140728890227488,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140728890223392,
+      "hi": 140728890227552,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "d8ad64a3bdc14841217edc90caa42e1f36d3e6fed01e72a0b37ea99019325133"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "4dd86f84b378594b612931d847834c415ab140c27cefaf4911141fb4b6f611a5",
+      "sha256After": "4dd86f84b378594b612931d847834c415ab140c27cefaf4911141fb4b6f611a5",
+      "unmodified": true
+    },
+    "asmSha256": "210c9928d5982ad19cfffe1827e80d38803bd41feb6cdfd93a37f57145918811",
+    "objSha256": "5e9d828e666d9e09c4d588764c344d69bb5f400186ed35dd169de155a4ab4352",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O3/control-nosecret",
+    "kind": "control",
+    "control": "control-nosecret",
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O3",
+    "subject": "control-nosecret",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199401,
+      "rip": 4199401,
+      "matched": true,
+      "expectedRsp": 140723871359168,
+      "rsp": 140723871359168,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140723871355072,
+      "hi": 140723871359232,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "b31e2543708a62039dd00781d9344d4bbb55d9de5a6c2d42a7d98a04ece6eb4a"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "2929d0152c890497b0f73846f1d9d694e16dd28190332889333e93247464f006",
+      "sha256After": "2929d0152c890497b0f73846f1d9d694e16dd28190332889333e93247464f006",
+      "unmodified": true
+    },
+    "asmSha256": "b23eb5d71602b72c6cbf95bfa39399c94e0b5644fbe818025626730afd92e2bd",
+    "objSha256": "7fdc44a2719dbf776885d303c0744ae9b49780049c464590b210c204169dec41",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-Os/control-nosecret",
+    "kind": "control",
+    "control": "control-nosecret",
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-Os",
+    "subject": "control-nosecret",
+    "idiom": null,
+    "confirmVerdict": "NO_WIPE_WRITTEN",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "rep-stos-fallback",
+    "nSpans": 0,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199389,
+      "rip": 4199389,
+      "matched": true,
+      "expectedRsp": 140732378205536,
+      "rsp": 140732378205536,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140732378201440,
+      "hi": 140732378205600,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "613048f558936518b695042d00b4bc188457cb2d3c3fd13dc28bf6a9746ac0b3"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 120,
+      "form": "push+sub",
+      "requiredBelow": 256,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "f6a766e9bfdf4d357f96822cf089240a744be3350f9099475b5137620f9bf33a",
+      "sha256After": "f6a766e9bfdf4d357f96822cf089240a744be3350f9099475b5137620f9bf33a",
+      "unmodified": true
+    },
+    "asmSha256": "5c70cce539bccdcf4f5163e4fb2fda4c16ddeff03257fe1783ead289af687e75",
+    "objSha256": "162ed59be03423db3bcc5e9570a18118cd83d89820d6d33f0676a9b71c65534d",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O0/control-o0-wiped",
+    "kind": "control",
+    "control": "control-o0-wiped",
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O0",
+    "subject": "control-o0-wiped",
+    "idiom": null,
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199470,
+      "rip": 4199470,
+      "matched": true,
+      "expectedRsp": 140720476921920,
+      "rsp": 140720476921920,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140720476917824,
+      "hi": 140720476921984,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "7059c52f220f5e1d4b7e4e34ba0bc1c70efd8e1eb3c3bbcc85dc3cb11c76be04"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "883d93c6e4ec23c16f2114d02e9a10ddba0915fa04863ed4d1cc3e80f1e9cf50",
+      "sha256After": "883d93c6e4ec23c16f2114d02e9a10ddba0915fa04863ed4d1cc3e80f1e9cf50",
+      "unmodified": true
+    },
+    "asmSha256": "698504b76ae4791d2446e958fb95d7bda07db66b3949332b5d818ee72af31bec",
+    "objSha256": "bdf837d80aa05ff7cc7370c784ccc8b8d0785cd3a3ab83ec68b2d192f0fb6d52",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O0/control-o0-wiped",
+    "kind": "control",
+    "control": "control-o0-wiped",
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O0",
+    "subject": "control-o0-wiped",
+    "idiom": null,
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199447,
+      "rip": 4199447,
+      "matched": true,
+      "expectedRsp": 140730007151760,
+      "rsp": 140730007151760,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140730007147664,
+      "hi": 140730007151824,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "23b311581deb5e78785953591b2fcfcddc8e829551529d714230e3e7fff433a6"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "cb811f61a21fea444161e45c4e44e1f11cfdaaaa051cd0bafdb622152cc3509d",
+      "sha256After": "cb811f61a21fea444161e45c4e44e1f11cfdaaaa051cd0bafdb622152cc3509d",
+      "unmodified": true
+    },
+    "asmSha256": "be90938095d151f71c8597ff5cc19710d234aecf474313c47dcee5fd68e612b6",
+    "objSha256": "1113e8f2d967e5e894e21ee766527210d35655623ae6499603eb30770cd3123e",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O0/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O0",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199470,
+      "rip": 4199470,
+      "matched": true,
+      "expectedRsp": 140726350012416,
+      "rsp": 140726350012416,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140726350008320,
+      "hi": 140726350012480,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "5d363ad619b9c8cbc936befb1233fdaf142c20d35a27f62a021b40e249b0b433"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "eb63d97b90b718e674c584d619b585d3bcce41ee8fa9fc942f8590877021128a",
+      "sha256After": "eb63d97b90b718e674c584d619b585d3bcce41ee8fa9fc942f8590877021128a",
+      "unmodified": true
+    },
+    "asmSha256": "441ff95252a4f18dac1fac3f60c13d4382e17aca91512f7cdd0026ecbebf9c10",
+    "objSha256": "fb183cf3baf4a2e69eb87e58cc8f5aeb566f55576707205757e2386c2121fb55",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O0/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O0",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199502,
+      "rip": 4199502,
+      "matched": true,
+      "expectedRsp": 140727189678128,
+      "rsp": 140727189678128,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140727189674032,
+      "hi": 140727189678192,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "2bbc5efaa53dc25fa18db91249e1052e7ffa02c632deead18e256f36ea42537f"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "132ed5a08a35bbe7c380fd7bf87c4bafa1bf9cc98e97c7a862c4187f8c03a138",
+      "sha256After": "132ed5a08a35bbe7c380fd7bf87c4bafa1bf9cc98e97c7a862c4187f8c03a138",
+      "unmodified": true
+    },
+    "asmSha256": "9c95708f1e0d1d90760ba4d3aa01bd6e07545938327993ec4bb2f31fa995fbc7",
+    "objSha256": "e1694a5f8da9116c2a64f6b2d125e1aeb0f6eb3438eb3adeaef2055e1e3d8032",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O0/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O0",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199486,
+      "rip": 4199486,
+      "matched": true,
+      "expectedRsp": 140720402325504,
+      "rsp": 140720402325504,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140720402321408,
+      "hi": 140720402325568,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "deaebb260410016d6f5a4f7cfc00207ea05aee806b3bbb409eb071de02f06267"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "de2e32e7f0c576ba69b7820716f3756b31db791c41a2b7bcf739a1d3a5394a0b",
+      "sha256After": "de2e32e7f0c576ba69b7820716f3756b31db791c41a2b7bcf739a1d3a5394a0b",
+      "unmodified": true
+    },
+    "asmSha256": "354447ff4f21c5780dc9df2ae65ac3f97196178e12ea54f3cac3474fa35f35db",
+    "objSha256": "2f8e07b1b21ea24b04599e55608e1152fcb4a584b292bb8386777b6b472548c5",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O1/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O1",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199422,
+      "rip": 4199422,
+      "matched": true,
+      "expectedRsp": 140737061627888,
+      "rsp": 140737061627888,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140737061623792,
+      "hi": 140737061627952,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "9cb00587321408613543aa14dea544fcc6851b80a51aa7f662edb8bc2494a794"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "c6713080b49f1711a788cb82e038903e4b165c133cf534d004b2b775331b6e25",
+      "sha256After": "c6713080b49f1711a788cb82e038903e4b165c133cf534d004b2b775331b6e25",
+      "unmodified": true
+    },
+    "asmSha256": "e842593578b9cd23a9f2309f19e922589951f521144437464ab3f7d270a2627b",
+    "objSha256": "83310e0414dee2942bd709234e9125db624d23a8f67a9f7676ca7ff76a3bc26d",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O1/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O1",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199438,
+      "rip": 4199438,
+      "matched": true,
+      "expectedRsp": 140725265487152,
+      "rsp": 140725265487152,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140725265483056,
+      "hi": 140725265487216,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "f51ed46160f3e6369362d0444ebc5bf08298f546c0a63f3496e20c5419afeb1a"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "720d38d078acc4e0010d8985139fcc97d5457b4f3174ae5119f5b24eb0834c8a",
+      "sha256After": "720d38d078acc4e0010d8985139fcc97d5457b4f3174ae5119f5b24eb0834c8a",
+      "unmodified": true
+    },
+    "asmSha256": "1fbb693e6099d2c6c460eaa70d3363e10030b9b95c4140387c6e7a4d0a802c79",
+    "objSha256": "1a183142baf6bc10a0dbfb85bd17567db20dea2c863c9ffec78083117478ccdb",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O1/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O1",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199438,
+      "rip": 4199438,
+      "matched": true,
+      "expectedRsp": 140735838736928,
+      "rsp": 140735838736928,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140735838732832,
+      "hi": 140735838736992,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "411185503e55d9b3d82a94f60bb63c4a2822f1efa3100f90204aba21100b1fd7"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "b7893ae2b0d3369e97c70bb6ff2a1774b0dd567eacc904c80208e4f639bc7a18",
+      "sha256After": "b7893ae2b0d3369e97c70bb6ff2a1774b0dd567eacc904c80208e4f639bc7a18",
+      "unmodified": true
+    },
+    "asmSha256": "7b5447fe4883c4363d60269599971111b37dcd2a72dacdf39313bd6014235a92",
+    "objSha256": "5c33fdccf6fea8f509e94319616abec983f1ad140b2471076f981710525cec30",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O2/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O2",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_ELIMINATED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "FULL",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 32,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199406,
+      "rip": 4199406,
+      "matched": true,
+      "expectedRsp": 140731190151392,
+      "rsp": 140731190151392,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140731190147296,
+      "hi": 140731190151456,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "b9c145906529e46e830734e4e130db5ccd583ecd056b2da5f0788dc66de83b10"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "2b534e962d8748879bd6923e8c92ef882e56c9c8353b0fb6faf39dce7cecac7e",
+      "sha256After": "2b534e962d8748879bd6923e8c92ef882e56c9c8353b0fb6faf39dce7cecac7e",
+      "unmodified": true
+    },
+    "asmSha256": "8594944124cd52922d803b6116034d36eddb45f91ab34659b8b983998a091fdc",
+    "objSha256": "862bdbf92b50e9a330468fd841a1b5b6005bdff4b30f457460d3c39883c054b0",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O2/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O2",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199582,
+      "rip": 4199582,
+      "matched": true,
+      "expectedRsp": 140720478810784,
+      "rsp": 140720478810784,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140720478806688,
+      "hi": 140720478810848,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "9fbc29febaf6a635d909624beaab4d45199ea6482b6286b7096905d3690b2d09"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "b18d3e30c57c48abb79d4525eeb63a5c2a0242c6054896c3f06d6fbc9a5eb06a",
+      "sha256After": "b18d3e30c57c48abb79d4525eeb63a5c2a0242c6054896c3f06d6fbc9a5eb06a",
+      "unmodified": true
+    },
+    "asmSha256": "6eecf57bf2f5a0a1793a8700faa67eae1828f61e204fbb08765429b5dda07d03",
+    "objSha256": "0ae26b0fe92ab189cfbef2ef80e51f69dc4212e17384e145988076ecfd1bdf0c",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O2/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O2",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199438,
+      "rip": 4199438,
+      "matched": true,
+      "expectedRsp": 140736595447856,
+      "rsp": 140736595447856,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140736595443760,
+      "hi": 140736595447920,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "ef71e1cbd1446df2e9af3df67967cb52fdd7c41341e9561b5e007a676f2d9b57"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "e40c0d9cc9c914ecdff06889a34e86e2856a86bfae841595bbfe63ebd3d7fc10",
+      "sha256After": "e40c0d9cc9c914ecdff06889a34e86e2856a86bfae841595bbfe63ebd3d7fc10",
+      "unmodified": true
+    },
+    "asmSha256": "af7e74b73a36ff168753863374d2578dd98e4d42fbc2444566c7dd882484667c",
+    "objSha256": "65bcca7183300645840ecf65824d1a0a37ccd4e0e92e2e765e018a94a814a874",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O3/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O3",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_ELIMINATED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "FULL",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 32,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199406,
+      "rip": 4199406,
+      "matched": true,
+      "expectedRsp": 140730193755376,
+      "rsp": 140730193755376,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140730193751280,
+      "hi": 140730193755440,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "f5dbe5cc6e5bbfd5df7392f9a8451014c4de63246550a1e8dec5022e7bc256d5"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "50e14d19ca1a0a7b6758e73be2db474382ded231c60e3bf54adb16f90eab6424",
+      "sha256After": "50e14d19ca1a0a7b6758e73be2db474382ded231c60e3bf54adb16f90eab6424",
+      "unmodified": true
+    },
+    "asmSha256": "afc36389abaf683337a046c1e97f09b5ce903758c213ee5d984035ffb5b6b73b",
+    "objSha256": "1e25f458be4e76cc114c212ebb2802b505c2dd7beb5f899880589d36ad76fbbf",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O3/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O3",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199582,
+      "rip": 4199582,
+      "matched": true,
+      "expectedRsp": 140728999460112,
+      "rsp": 140728999460112,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140728999456016,
+      "hi": 140728999460176,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "19f0d870b070db4759e28c65f89ee560e819e478d5610fe10901c4d61082d9e2"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "4e9a8b666560603b519762f01c2588e3829eac231b14ea2247daba874106a6c4",
+      "sha256After": "4e9a8b666560603b519762f01c2588e3829eac231b14ea2247daba874106a6c4",
+      "unmodified": true
+    },
+    "asmSha256": "79ce4113f9089ece0295c34ed6edf16f654eda849c8808436f9aa13e10445f7e",
+    "objSha256": "060ed71f0e89a70a5ebd65bf0f0e5ab860d5edde908c89553d9942e29e2dd6c7",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-O3/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-O3",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199438,
+      "rip": 4199438,
+      "matched": true,
+      "expectedRsp": 140735039060704,
+      "rsp": 140735039060704,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140735039056608,
+      "hi": 140735039060768,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "e472dbc1ab947107888086f45f6d6fbab9d53369a18fa37436182867bce6b0b9"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "cc394f0a8969816c6dde3ea22701376c3349c9e44402e1b83b90b60ede9c8590",
+      "sha256After": "cc394f0a8969816c6dde3ea22701376c3349c9e44402e1b83b90b60ede9c8590",
+      "unmodified": true
+    },
+    "asmSha256": "07c83743943f316c882bf6f527bf3da532901511ac9fd9129dbfe89295bb7029",
+    "objSha256": "8b1bbf2973fdfa8f2d5b7c88a041cb5a346372bbdcaa1cb9eb838edfffd05826",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-Os/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-Os",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_ELIMINATED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "FULL",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 32,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199390,
+      "rip": 4199390,
+      "matched": true,
+      "expectedRsp": 140726119031920,
+      "rsp": 140726119031920,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140726119027824,
+      "hi": 140726119031984,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "77875d2e4d22dfd884ffaef579b8c09c00d4f283568b1f8f6d0f9ea2d2821e30"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "18be366a26d64312866c938d49c6aab0646bf9aee1cd4efb9488a962850313a6",
+      "sha256After": "18be366a26d64312866c938d49c6aab0646bf9aee1cd4efb9488a962850313a6",
+      "unmodified": true
+    },
+    "asmSha256": "d52a00c9dc787779872f5b039eee03485798f3ed4b55d361859629d19afe018d",
+    "objSha256": "a9b54887836e0c970cd230e004695d937560cdf558fbbed016cf4dff27345a28",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-Os/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-Os",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199390,
+      "rip": 4199390,
+      "matched": true,
+      "expectedRsp": 140736726091024,
+      "rsp": 140736726091024,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140736726086928,
+      "hi": 140736726091088,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "0d61ca8ea0c6c7337ea6c681e2c4bb942b213b21ed8e9b4eaaf9b108e7562dde"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "e8a0b724375e5bccc9f9d20890d7c4d56d927e8d2d994a29a7050d1732b9cc66",
+      "sha256After": "e8a0b724375e5bccc9f9d20890d7c4d56d927e8d2d994a29a7050d1732b9cc66",
+      "unmodified": true
+    },
+    "asmSha256": "e5cae05459a3a6fc29190a3df5d2985b79d5bf6e860e6354e3e2cc05a65457ea",
+    "objSha256": "587c20e484d8c0d7c48ef3ea4bb834e75c44b6d360546d981114cea2be5a6cef",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/clang-18/-Os/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "clang-18",
+    "opt": "-Os",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199422,
+      "rip": 4199422,
+      "matched": true,
+      "expectedRsp": 140725886440688,
+      "rsp": 140725886440688,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140725886436592,
+      "hi": 140725886440752,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "f524544cd60e581f1c45add8bb0d9871d0b26ca0b1ff29c932ddd639cf4d7923"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "b86744edffa29b6b882b282f8b798d7173d6b34ccabf43a31d6465c475bc6fda",
+      "sha256After": "b86744edffa29b6b882b282f8b798d7173d6b34ccabf43a31d6465c475bc6fda",
+      "unmodified": true
+    },
+    "asmSha256": "9575f0178d1af963738941e4d6b72756709244e658f45306b5252e82275f1616",
+    "objSha256": "663c41b69c9fcecf379cbb778ef428e3d932be0faa6137486d2cfdd95c849f84",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O0/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O0",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199447,
+      "rip": 4199447,
+      "matched": true,
+      "expectedRsp": 140734316366160,
+      "rsp": 140734316366160,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140734316362064,
+      "hi": 140734316366224,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "9b562548226286e081470e2de40db6c75a9c3f852dde55030c4a77c611bf0dc7"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "b5137f95c6ef7b3ff9782d4c5de8568344a1b08ac61a19e3a6814d0d1741a6a5",
+      "sha256After": "b5137f95c6ef7b3ff9782d4c5de8568344a1b08ac61a19e3a6814d0d1741a6a5",
+      "unmodified": true
+    },
+    "asmSha256": "f044f0ba5fd7c0e215fb54b2648a2c42127bf6c465dc9c910bced96192445edf",
+    "objSha256": "0b07feeeabfd54c80c5d4c9cc33117ca320d48a21e6cd3eff0406e004490baba",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O0/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O0",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199453,
+      "rip": 4199453,
+      "matched": true,
+      "expectedRsp": 140734169746928,
+      "rsp": 140734169746928,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140734169742832,
+      "hi": 140734169746992,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "50de57caa25ca841f96063990a01d9c18ee1be5d42ec132d6a2b15e9804682fb"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 120,
+      "form": "push+sub",
+      "requiredBelow": 256,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "2c1ec008a872652c4f28e4dcd0b4d268f6a619788cf5f9069f6dcfc1755c4d12",
+      "sha256After": "2c1ec008a872652c4f28e4dcd0b4d268f6a619788cf5f9069f6dcfc1755c4d12",
+      "unmodified": true
+    },
+    "asmSha256": "32314f98ed2f2942dcfc3978d89e778c923fc6b90b69947257cb261b6a7cfdeb",
+    "objSha256": "8af5b3b9c8af00a29007c2b8839b9f2bf2def3823c52ffcb2d867039b7398c11",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O0/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O0",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199442,
+      "rip": 4199442,
+      "matched": true,
+      "expectedRsp": 140725102305232,
+      "rsp": 140725102305232,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140725102301136,
+      "hi": 140725102305296,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "d91ef7bcaa540719f3c32a6c14d39daa486979278ba4befc69a9166700e2ee97"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "ee20635a7d6f7f96b659ac6ef7d8420992829010dcc15e984bcdd152a6d56b07",
+      "sha256After": "ee20635a7d6f7f96b659ac6ef7d8420992829010dcc15e984bcdd152a6d56b07",
+      "unmodified": true
+    },
+    "asmSha256": "3daa1cd220a133aa81453736fcdf13a1f7540e58b074a1d083e16da19b3758a0",
+    "objSha256": "6919b3583b59ebdb04b147be777677f525e279d654236bf19cab028f4d016290",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O1/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O1",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_ELIMINATED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "FULL",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 32,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199381,
+      "rip": 4199381,
+      "matched": true,
+      "expectedRsp": 140727586569184,
+      "rsp": 140727586569184,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140727586565088,
+      "hi": 140727586569248,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "bebc7d1f2f4fc01426afe98d4443b88074953034557f170bf0a64698df7700fd"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "9d801a2436ae4e173567a142c32c790c034c4381c7f1450b3cb1e104c90aa072",
+      "sha256After": "9d801a2436ae4e173567a142c32c790c034c4381c7f1450b3cb1e104c90aa072",
+      "unmodified": true
+    },
+    "asmSha256": "cb513051f2378f77427f51a3995c97f5599483687abd851ada88b1f65203e181",
+    "objSha256": "dd168edec496eddbe57d1ec5398da61425b2c2f4fa8fff2d77c24605c8a6545f",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O1/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O1",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199406,
+      "rip": 4199406,
+      "matched": true,
+      "expectedRsp": 140734660834672,
+      "rsp": 140734660834672,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140734660830576,
+      "hi": 140734660834736,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "81871c7a500a91784463ffb570ad50076d5fd0a9cb802e5be6a42fb1513acd43"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "a4c9818b10de7435e54541672b1407ffed8dbcc2e28d9e825fdf62378a8b0430",
+      "sha256After": "a4c9818b10de7435e54541672b1407ffed8dbcc2e28d9e825fdf62378a8b0430",
+      "unmodified": true
+    },
+    "asmSha256": "cfb0e3f8f7bff42b6a725384f40a611c7ebeb83da9411481582963e2d7d35bed",
+    "objSha256": "9591e6f1efad51a501323f675fa1caac3b9adacb1646304c92dd99778f144e2c",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O1/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O1",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199420,
+      "rip": 4199420,
+      "matched": true,
+      "expectedRsp": 140729593208400,
+      "rsp": 140729593208400,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140729593204304,
+      "hi": 140729593208464,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "bbbbf2e9cef4865104fb6ef4e7e1dfeae816fe2ed28b5c117aefead56454923e"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "15af5338d5e7322e72ae36a62cbea4d5de1f66d06a741dc16d475719411505e0",
+      "sha256After": "15af5338d5e7322e72ae36a62cbea4d5de1f66d06a741dc16d475719411505e0",
+      "unmodified": true
+    },
+    "asmSha256": "d09fe718b09de13195993656e178dfbf18d53b8bb18cb3309840ea0a6e7e3f3a",
+    "objSha256": "62963924ca7630660218f46a7d1ef4b23193e49e89968db054232e42c6277981",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O2/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O2",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_ELIMINATED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "FULL",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 32,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199401,
+      "rip": 4199401,
+      "matched": true,
+      "expectedRsp": 140722868710768,
+      "rsp": 140722868710768,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140722868706672,
+      "hi": 140722868710832,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "441cfae54967ee7cd7e00ae0ce87a286d07b1fa6ae9e4e2a17951db88eb23aa0"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "2e9ec38b4f2ed973e6cbad954749d09e19f6da4e2469795cfdf67f9593ef2d85",
+      "sha256After": "2e9ec38b4f2ed973e6cbad954749d09e19f6da4e2469795cfdf67f9593ef2d85",
+      "unmodified": true
+    },
+    "asmSha256": "315c04874e737004bc4d796649706c7bcd1181fb359feab29cc4ec30fda4b558",
+    "objSha256": "3843045bfc8def199bd35f85ad5f2c9ca9c529a4634e5223c4e03b1c7ff377d8",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O2/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O2",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199433,
+      "rip": 4199433,
+      "matched": true,
+      "expectedRsp": 140735408166560,
+      "rsp": 140735408166560,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140735408162464,
+      "hi": 140735408166624,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "8adc0e4ddc1804a7c7b60eeb2f7f4d03c13e69583fb4650428ecb85c41596dac"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "ee6f43ff5f2aa1e1218e6beed57fcea88ec3552fb147c7420258780613062d85",
+      "sha256After": "ee6f43ff5f2aa1e1218e6beed57fcea88ec3552fb147c7420258780613062d85",
+      "unmodified": true
+    },
+    "asmSha256": "ed12b634964869c37e3f4fc0d4221938c76347e30d5819dc23846bb0b92864b9",
+    "objSha256": "dc022da7ce6fb8db4858175fa59cd72287ff18e384af13442c22fd00ebf1f57f",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O2/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O2",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199433,
+      "rip": 4199433,
+      "matched": true,
+      "expectedRsp": 140736825317648,
+      "rsp": 140736825317648,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140736825313552,
+      "hi": 140736825317712,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "403cddec8aaf532b375598ce6c433fd7042c95f3a6c530fe8a21f68a6536ceee"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "39b978e72829c79e5cb6a39afad194a120753b26034e5877fed83f8c3cf91b84",
+      "sha256After": "39b978e72829c79e5cb6a39afad194a120753b26034e5877fed83f8c3cf91b84",
+      "unmodified": true
+    },
+    "asmSha256": "fac86a54809aedb0b016590a5a39ebc722fafcc70a478103b781c55ee4d35212",
+    "objSha256": "f16cf1eb3eaa54085d07783e7bcc913abbb9090dd489893c1926911514e7618c",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O3/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O3",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_ELIMINATED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "FULL",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 32,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199401,
+      "rip": 4199401,
+      "matched": true,
+      "expectedRsp": 140721937242592,
+      "rsp": 140721937242592,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140721937238496,
+      "hi": 140721937242656,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "8744e7860fdc14692cd60ec7341ffd880c62667e99e7e032c0962fdff19e0c2b"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "5dc022c106127011f231ad76301377897bee6bcdfb6f9f5b46a585ba1533ffcf",
+      "sha256After": "5dc022c106127011f231ad76301377897bee6bcdfb6f9f5b46a585ba1533ffcf",
+      "unmodified": true
+    },
+    "asmSha256": "0fd9901957066d7651cf6e34547cb286aa8f6ef5f7f2b3e103c89cc6a37300d2",
+    "objSha256": "570ea241af071936822946f9d1971265c3aca45170d08dea7297202aa4876fba",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O3/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O3",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199433,
+      "rip": 4199433,
+      "matched": true,
+      "expectedRsp": 140731228639296,
+      "rsp": 140731228639296,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140731228635200,
+      "hi": 140731228639360,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "733ab02453db34eb973f654d7443053d43bca12103f885a3ea172e53fa06cba9"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "e766dea71e07325ca665aa81dbd96853abb5805279a325864fccdc520cea1143",
+      "sha256After": "e766dea71e07325ca665aa81dbd96853abb5805279a325864fccdc520cea1143",
+      "unmodified": true
+    },
+    "asmSha256": "19c23fc09330533a27d5c11ebed2ed7e783bebcdff91b25756d61d75c8d8c221",
+    "objSha256": "c6d480ca625aa9013e0f356d0d89b56815f551f27f83c9b478c9da215dfd9945",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-O3/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-O3",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199433,
+      "rip": 4199433,
+      "matched": true,
+      "expectedRsp": 140733515611792,
+      "rsp": 140733515611792,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140733515607696,
+      "hi": 140733515611856,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "c2efc77eba032e89ad294696733b7f165a222da2fbfe72a6f6fe5edc9457192e"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "d0d381990f14971ae500cb7c55429bb9c85e853498afa0cad23b1d8182f3ad28",
+      "sha256After": "d0d381990f14971ae500cb7c55429bb9c85e853498afa0cad23b1d8182f3ad28",
+      "unmodified": true
+    },
+    "asmSha256": "c3a962f4cd5bfc5319ed267972b764e44c11ae5c08155e302f7079fc6a4c1494",
+    "objSha256": "e8551d70d3356fdc9c7a077c9b04f8d611287a4a8a69bd3db8dc0f2331fee050",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-Os/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-Os",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_ELIMINATED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "rep-stos-fallback",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "FULL",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 32,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199389,
+      "rip": 4199389,
+      "matched": true,
+      "expectedRsp": 140727325748544,
+      "rsp": 140727325748544,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140727325744448,
+      "hi": 140727325748608,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "47b6653756028b502851281cf7832d774b8d3e21c561084df4e28bd47db6e070"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 120,
+      "form": "push+sub",
+      "requiredBelow": 256,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "2a6548bb337c7ad0075c07cd7b6b24bd94fe54686340334063a07f1c7d52d5b5",
+      "sha256After": "2a6548bb337c7ad0075c07cd7b6b24bd94fe54686340334063a07f1c7d52d5b5",
+      "unmodified": true
+    },
+    "asmSha256": "fc4e2ff1f9dfc4407506e2bf8a5a1b7ddec17d50e2e59e5c4369916a2bfd955e",
+    "objSha256": "7cf177364d51b8ba45ec9b516dc36df4ed0a5588afbca6c3c528766059792617",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-Os/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-Os",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "rep-stos-fallback",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199403,
+      "rip": 4199403,
+      "matched": true,
+      "expectedRsp": 140725089448832,
+      "rsp": 140725089448832,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140725089444736,
+      "hi": 140725089448896,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "3940a0d4cd68fcfa33a147c6c30c418e03e6fbf6842bc34b7462325ba28a5aae"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 120,
+      "form": "push+sub",
+      "requiredBelow": 256,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "51cadae44c0a2522d4ded714e7cf0793f246af09a466bc58338d44c5bc992486",
+      "sha256After": "51cadae44c0a2522d4ded714e7cf0793f246af09a466bc58338d44c5bc992486",
+      "unmodified": true
+    },
+    "asmSha256": "c88316b93e09b0bef10953d6fe279b85d1241b0d8f5e3778544dab72b3090a10",
+    "objSha256": "23c51bc606e2bbcebce64a99965070afe5e395292d3d62de943a7cc9b469c6f6",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "stock/gcc-13/-Os/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "stock",
+    "cc": "gcc-13",
+    "opt": "-Os",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "rep-stos-fallback",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199423,
+      "rip": 4199423,
+      "matched": true,
+      "expectedRsp": 140722177378640,
+      "rsp": 140722177378640,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140722177374544,
+      "hi": 140722177378704,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "42669f8163bbd7a909a42d3da11e93b07a33239e18678283b4ed3f8652c07d52"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 120,
+      "form": "push+sub",
+      "requiredBelow": 256,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "757dd2afb79ffd84f39e6f0e8dbf30ab664e7ce78be2935396f324fd87f8aaa8",
+      "sha256After": "757dd2afb79ffd84f39e6f0e8dbf30ab664e7ce78be2935396f324fd87f8aaa8",
+      "unmodified": true
+    },
+    "asmSha256": "00d6ad2abd2df9d8fc08be1548c94a4919d627fb8a81ac4c1cac9955f0d10cf2",
+    "objSha256": "6bb81c8367b7ad666e1d1df51978dc628d5c61a92c8f879c30d898086c48e099",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/clang-18/-O0/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "clang-18",
+    "opt": "-O0",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199454,
+      "rip": 4199454,
+      "matched": true,
+      "expectedRsp": 140722349164720,
+      "rsp": 140722349164720,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140722349160624,
+      "hi": 140722349164784,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "4d6362c1437ac0714eec8361373462f8bf59f6203bf499eb7961c2a50626397d"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "f16e5514187865cbde3efa8aed0b62fb0fdf745bd528a88b91f259f4a493059c",
+      "sha256After": "f16e5514187865cbde3efa8aed0b62fb0fdf745bd528a88b91f259f4a493059c",
+      "unmodified": true
+    },
+    "asmSha256": "3d8837ee6691db9faa394d0be276430dfddc1113b0ae12f0100ae8b0aafda146",
+    "objSha256": "5522a879587280df4987bf223dddca25ffe73253a0bcf649ae19e5ec86fc2c75",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/clang-18/-O0/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "clang-18",
+    "opt": "-O0",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199486,
+      "rip": 4199486,
+      "matched": true,
+      "expectedRsp": 140732473305376,
+      "rsp": 140732473305376,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140732473301280,
+      "hi": 140732473305440,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "ed92972e56c0546aed87b103c0803356eb3b78c546d5ffd4569591e539f4bd57"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "08cbfd772668c4e5bbd7399f69da961125b0428a3169ec69a4b60b36b0c3010e",
+      "sha256After": "08cbfd772668c4e5bbd7399f69da961125b0428a3169ec69a4b60b36b0c3010e",
+      "unmodified": true
+    },
+    "asmSha256": "6cea976e34781f2f4d6d6a9ac8c55f89b3212cba069dc5169b3c14c3bb18e760",
+    "objSha256": "0f3e31d4f4ccf1b0f397a8b2e9d3edefdc1c5c1cc8065e77430bd14208d83b14",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/clang-18/-O0/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "clang-18",
+    "opt": "-O0",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199470,
+      "rip": 4199470,
+      "matched": true,
+      "expectedRsp": 140726512841472,
+      "rsp": 140726512841472,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140726512837376,
+      "hi": 140726512841536,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "8c99bfb3b42a082cdd69bc183d2c62c66bf6bf444914a600b29f8f9aae369ad7"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "18d77ad8fba6b8d81b67b8edd8386d914de508d395e260027729df22a0a279ed",
+      "sha256After": "18d77ad8fba6b8d81b67b8edd8386d914de508d395e260027729df22a0a279ed",
+      "unmodified": true
+    },
+    "asmSha256": "6d1f89307df788a450a4a466636fa49b64d0b18fa31507fc149015ad01ff44a1",
+    "objSha256": "99e468c70d05611aed6681100b670695b3184a3af29a4cefba8fc9ae98aeadd3",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/clang-18/-O1/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "clang-18",
+    "opt": "-O1",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199422,
+      "rip": 4199422,
+      "matched": true,
+      "expectedRsp": 140733070692256,
+      "rsp": 140733070692256,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140733070688160,
+      "hi": 140733070692320,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "631bd594e24f9051111a5395c3db87621e056d0acff5145c2ab3324e89185f9f"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "5fe6043c6986f0311b0bbfe71fe09d07e5e56cf505449f4b03478959176cca1d",
+      "sha256After": "5fe6043c6986f0311b0bbfe71fe09d07e5e56cf505449f4b03478959176cca1d",
+      "unmodified": true
+    },
+    "asmSha256": "5a1468bf496fcb7fa0c3429381a19a0bcde3836a3bf9985e42c762b9912d3c85",
+    "objSha256": "6fdec3a890f31908bc5d64b8b879ac0894bb9dba9eeabe5ee397c32ed16fc8d8",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/clang-18/-O1/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "clang-18",
+    "opt": "-O1",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199438,
+      "rip": 4199438,
+      "matched": true,
+      "expectedRsp": 140729421994560,
+      "rsp": 140729421994560,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140729421990464,
+      "hi": 140729421994624,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "1fbbe1d3549e3a2fdf076d1d7e273780823efc7403054c50f07854faecd0364f"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "19ac0fabad733af62bced777fbe0b247f4898d38b5df53345a1d7d4ddb908b5e",
+      "sha256After": "19ac0fabad733af62bced777fbe0b247f4898d38b5df53345a1d7d4ddb908b5e",
+      "unmodified": true
+    },
+    "asmSha256": "ae5720037d6e6b79203cb2911408dde2da5cda127f28fc824bd36d7be19e5aea",
+    "objSha256": "d489719b27b0d95f4279007dca45e0c9cc3acadf433eb0a26ca688203329634d",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/clang-18/-O1/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "clang-18",
+    "opt": "-O1",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199438,
+      "rip": 4199438,
+      "matched": true,
+      "expectedRsp": 140724687346464,
+      "rsp": 140724687346464,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140724687342368,
+      "hi": 140724687346528,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "60a85843a8b942a5aaf21152d3b46d9cbda91efee0fef45c1f195033b4abb243"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "ad6e95705f777589afbd881f8c4bc5c90653a5fc4cfcd4c2af5b37b7ac0199f7",
+      "sha256After": "ad6e95705f777589afbd881f8c4bc5c90653a5fc4cfcd4c2af5b37b7ac0199f7",
+      "unmodified": true
+    },
+    "asmSha256": "93e0a1465b7199556e7e0e458437805b2a361a48cd55f3d936611796ce32b504",
+    "objSha256": "62aa174799a58aac94d321f8107ce81650d646346e7b348a79c765242ea12fe6",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/clang-18/-O2/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "clang-18",
+    "opt": "-O2",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199422,
+      "rip": 4199422,
+      "matched": true,
+      "expectedRsp": 140721769265264,
+      "rsp": 140721769265264,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140721769261168,
+      "hi": 140721769265328,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "fc17157a7b5ac2ae001704ba97223cf64db17ae5dbf3f19e02a7054bc024ec20"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "e669b61951e4fb4755dee99ff7a8b5efc5ecffaf4a49270d91717e1ad245a3c0",
+      "sha256After": "e669b61951e4fb4755dee99ff7a8b5efc5ecffaf4a49270d91717e1ad245a3c0",
+      "unmodified": true
+    },
+    "asmSha256": "6aac28b0729c229a0844256160e129b7fc583e9665600394dd859daa7add2c87",
+    "objSha256": "9157dc4f1eb799edf5eb1f48ff2ecca689f96f3a5281ce3d4863516289cd95ad",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/clang-18/-O2/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "clang-18",
+    "opt": "-O2",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199582,
+      "rip": 4199582,
+      "matched": true,
+      "expectedRsp": 140736524711920,
+      "rsp": 140736524711920,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140736524707824,
+      "hi": 140736524711984,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "f3a53b8388bed46db5324f7ec9c4bbca5eb0affd988e3e989fe531724adb2d0c"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "addbb690ed0c57d9ec9704383ae4022227f6e46829b27f0395458acb77cf1475",
+      "sha256After": "addbb690ed0c57d9ec9704383ae4022227f6e46829b27f0395458acb77cf1475",
+      "unmodified": true
+    },
+    "asmSha256": "1a83f1aabb4d110e2fc3473640fdc6b9d1e974d971a914a6022dbffd513f73e2",
+    "objSha256": "1911da8c98d9638b2a2b8d1b87c715fccfacd459128fef8d8139b0f1ca6c6f4a",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/clang-18/-O2/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "clang-18",
+    "opt": "-O2",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199438,
+      "rip": 4199438,
+      "matched": true,
+      "expectedRsp": 140726938426880,
+      "rsp": 140726938426880,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140726938422784,
+      "hi": 140726938426944,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "18a173726de187ddfe15755704a6866a8dad458a801cadf2564b41a390a6c274"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "b6e171c7ad916eaf86488aa8a3ac561abe1e4b1cd379480ddf5a584e79019206",
+      "sha256After": "b6e171c7ad916eaf86488aa8a3ac561abe1e4b1cd379480ddf5a584e79019206",
+      "unmodified": true
+    },
+    "asmSha256": "4c644de62ba421661aa45a0cc6f2348a7dc9db07c69d0921e5b2e24f4d26db05",
+    "objSha256": "cbbf6506ca89970d5fce1fe9d16c24db1c6a93ee3170aa863fe0c2e6186ddf1b",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/clang-18/-O3/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "clang-18",
+    "opt": "-O3",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199422,
+      "rip": 4199422,
+      "matched": true,
+      "expectedRsp": 140733210740560,
+      "rsp": 140733210740560,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140733210736464,
+      "hi": 140733210740624,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "71ff3621559130513057ee405d389faf9bff107d7cd92da1a43415b02d3ffff2"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "be8d04cfedc86774078fc8473664a8cb9d1d14b14191aa289a335b9cd793b2fc",
+      "sha256After": "be8d04cfedc86774078fc8473664a8cb9d1d14b14191aa289a335b9cd793b2fc",
+      "unmodified": true
+    },
+    "asmSha256": "c7e4b7c8b8891c2d9ec472a7d7e86331325a8b0fba6d2a5242854791d948e1d6",
+    "objSha256": "01eb921869eb23b8cae8ddad30b1e69a4ce9136bd88b181ee43b9648f2a64bac",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/clang-18/-O3/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "clang-18",
+    "opt": "-O3",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199582,
+      "rip": 4199582,
+      "matched": true,
+      "expectedRsp": 140731559804368,
+      "rsp": 140731559804368,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140731559800272,
+      "hi": 140731559804432,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "58602d8b1ce8134a41bdf5a14dc9ee9f579b7fd72347cafdb1ef9e6b62dfba37"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "dfaed01190d44a87698c990259cf1f1ca6b1aa4f157549aeca07b67729b48803",
+      "sha256After": "dfaed01190d44a87698c990259cf1f1ca6b1aa4f157549aeca07b67729b48803",
+      "unmodified": true
+    },
+    "asmSha256": "d5f700777315df4c416412b09b242062ac05657383e9fa48a7939ab9a5d0742f",
+    "objSha256": "75f948b29e1ca1f9435de8b788db58d0301c4ac687097d0c7662b0abd121c81e",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/clang-18/-O3/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "clang-18",
+    "opt": "-O3",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199438,
+      "rip": 4199438,
+      "matched": true,
+      "expectedRsp": 140725409081136,
+      "rsp": 140725409081136,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140725409077040,
+      "hi": 140725409081200,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "c717d4636411c1c697e127085bc9d8e962bdea79f194b41c88e0a2be9ccfd658"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "81fd357c8b3196f41c3cfd439946dcc12caf3467b57d110ec734750a2b246dda",
+      "sha256After": "81fd357c8b3196f41c3cfd439946dcc12caf3467b57d110ec734750a2b246dda",
+      "unmodified": true
+    },
+    "asmSha256": "82e06ab0f61b92e93b8ef9540e607b41133c15c2dd5a3be4b4f88c9a9ca3bb8f",
+    "objSha256": "c3ad87e7442fb9df264a796b08d48366a9d913c9da3aae0629a4569e7101fc19",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/clang-18/-Os/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "clang-18",
+    "opt": "-Os",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199390,
+      "rip": 4199390,
+      "matched": true,
+      "expectedRsp": 140736166373104,
+      "rsp": 140736166373104,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140736166369008,
+      "hi": 140736166373168,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "915dd2f6a278b101ddd97f448a41ca07e90ef90d36d0ffc36106f0af5fe5ce16"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "4028f7a45af6be5219b9356d0851101619e73399696cda31709326553114f3ef",
+      "sha256After": "4028f7a45af6be5219b9356d0851101619e73399696cda31709326553114f3ef",
+      "unmodified": true
+    },
+    "asmSha256": "38a84ba032c0268733f85efbce9339c06fd30d1871e2d08ef7d4a044be492617",
+    "objSha256": "f067c96f2c53f2c1a60faf29f8b8463adca22616c8ffebaab7ec6deaa56eda65",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/clang-18/-Os/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "clang-18",
+    "opt": "-Os",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199390,
+      "rip": 4199390,
+      "matched": true,
+      "expectedRsp": 140722100338272,
+      "rsp": 140722100338272,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140722100334176,
+      "hi": 140722100338336,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "aaff9d8e6ae8ea91678e7d60c7404e3931e914e743f21975832f58d67e08ea82"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "eba53daaca67db928f9ab5a26fe8674d57f425b06ebf3d334dc3844d3c09be06",
+      "sha256After": "eba53daaca67db928f9ab5a26fe8674d57f425b06ebf3d334dc3844d3c09be06",
+      "unmodified": true
+    },
+    "asmSha256": "1607eb5e9566d41615a8d025871469457cfd563041d59080a11ffc931eb20f8f",
+    "objSha256": "5c09a74948a6da94f86a823f45a23925999b7679e092de93053b80a9fe50432d",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/clang-18/-Os/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "clang-18",
+    "opt": "-Os",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199422,
+      "rip": 4199422,
+      "matched": true,
+      "expectedRsp": 140729247511904,
+      "rsp": 140729247511904,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140729247507808,
+      "hi": 140729247511968,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "879c8c91aa43b60eb92e69cb7ac39401ea0fea0c5348089ad58ea28c8b33fb74"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 88,
+      "form": "push+sub",
+      "requiredBelow": 224,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "50ab03e645fc541161c8d914f747c8e27e634e6d95fa59a962c9a0bd7dc107cc",
+      "sha256After": "50ab03e645fc541161c8d914f747c8e27e634e6d95fa59a962c9a0bd7dc107cc",
+      "unmodified": true
+    },
+    "asmSha256": "f0836d342049be2ce22f5d41683ef0e9766b16633f352d63a935a37bdcbc2359",
+    "objSha256": "b30def5f6199b552d6929b962832815e78e4c82b9f47d357dccfba68e9c596db",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/gcc-13/-O0/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "gcc-13",
+    "opt": "-O0",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199455,
+      "rip": 4199455,
+      "matched": true,
+      "expectedRsp": 140727061318032,
+      "rsp": 140727061318032,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140727061313936,
+      "hi": 140727061318096,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "e1138786820be99dbf72870f59d472b46f4dd690d6086cb9f25e068cc10ace3e"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "7f08ac9abc5196fd12d3e0721e732d538e3d074b5af9fdc1e27e64c4952b381d",
+      "sha256After": "7f08ac9abc5196fd12d3e0721e732d538e3d074b5af9fdc1e27e64c4952b381d",
+      "unmodified": true
+    },
+    "asmSha256": "0a2ff5e89e6d7b890b5e504e0e54c942d3aac84599eb472c3165bb6aac65f2c1",
+    "objSha256": "26913c7e138f46b161b092bb38d6992d59001d7ba3ea65b72388dee8f484db90",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/gcc-13/-O0/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "gcc-13",
+    "opt": "-O0",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199457,
+      "rip": 4199457,
+      "matched": true,
+      "expectedRsp": 140731034960736,
+      "rsp": 140731034960736,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140731034956640,
+      "hi": 140731034960800,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "31ba9b04e74be4eceaeff55ebadbf7f771da51fa18c320c3175505fafffb3d25"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 120,
+      "form": "push+sub",
+      "requiredBelow": 256,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "c4e14eeeb3dccb1bf638dd68b45fc9f10c6e6347a33bfc54437700e8c7c6ae8c",
+      "sha256After": "c4e14eeeb3dccb1bf638dd68b45fc9f10c6e6347a33bfc54437700e8c7c6ae8c",
+      "unmodified": true
+    },
+    "asmSha256": "f5ec5d96966be41dc2f09b3d2e08a6318499788ee77eacb7ed4c94f0d4e95f10",
+    "objSha256": "28ab3ac30f60dcba62f16f0e460e8510b28fbad755f62e07aea653cbce27dad4",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/gcc-13/-O0/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "gcc-13",
+    "opt": "-O0",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199446,
+      "rip": 4199446,
+      "matched": true,
+      "expectedRsp": 140724774573072,
+      "rsp": 140724774573072,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140724774568976,
+      "hi": 140724774573136,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "fb037164028044b041aec785084d2a1a84c14478159852a5bdae8ce7c3075ca6"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "0cac3dfcd07a866518adc8f1dc673b933b4e88cd34fd7213e7cdf200f86c919d",
+      "sha256After": "0cac3dfcd07a866518adc8f1dc673b933b4e88cd34fd7213e7cdf200f86c919d",
+      "unmodified": true
+    },
+    "asmSha256": "76433b1c07af746971d665857723d26e95281dace7186e32fcf7153542db8bf4",
+    "objSha256": "306a2d9e78c03052735a0b22c32dc5f4f4f88ea52f31e72a0f3de3ef48ff2ff6",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/gcc-13/-O1/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "gcc-13",
+    "opt": "-O1",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199399,
+      "rip": 4199399,
+      "matched": true,
+      "expectedRsp": 140734979681168,
+      "rsp": 140734979681168,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140734979677072,
+      "hi": 140734979681232,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "1cacb165d30131e74f2e821a96d5b63b62f05f765c93b5662363d8a99b9d5fe9"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "a7bcc364fd7061d4458c6da93a597cdbb5d1ee6ef7ca32959c0ae18fd04f8e4b",
+      "sha256After": "a7bcc364fd7061d4458c6da93a597cdbb5d1ee6ef7ca32959c0ae18fd04f8e4b",
+      "unmodified": true
+    },
+    "asmSha256": "a7258d7e74434cfb05b2f5deff969273b159e348187969614cab21921134a839",
+    "objSha256": "01a33e414817564b1a5658f77fae74030389e1407c0d4adbf509222e1f56ceb5",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/gcc-13/-O1/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "gcc-13",
+    "opt": "-O1",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199406,
+      "rip": 4199406,
+      "matched": true,
+      "expectedRsp": 140723636738208,
+      "rsp": 140723636738208,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140723636734112,
+      "hi": 140723636738272,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "33148547b389ee8a83b7bd3ce18f8714e4f0ddfe351deacf0f0e405ccd38ec57"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "90b35698dc58b3c91c146acd28a7ebc3a2ce28b94beef78b9e6057231025d088",
+      "sha256After": "90b35698dc58b3c91c146acd28a7ebc3a2ce28b94beef78b9e6057231025d088",
+      "unmodified": true
+    },
+    "asmSha256": "809cf7ac772410c59314ff8eb12b6d55ee1d53f693a2c2750bf989d73a8eafdd",
+    "objSha256": "339ad17274b7610c658b72a6f8d06212ced17177f0ef3a6e826461d5bc9e4778",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/gcc-13/-O1/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "gcc-13",
+    "opt": "-O1",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199420,
+      "rip": 4199420,
+      "matched": true,
+      "expectedRsp": 140733560952704,
+      "rsp": 140733560952704,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140733560948608,
+      "hi": 140733560952768,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "95f5b5619ccde4d30836e7f0d3310f7609a7e7d313835de5996658c28aea4388"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "b26d8c9eab86de6195f3f94a4f274da902f85ff772aa796b7a5ff8c9b1e13adf",
+      "sha256After": "b26d8c9eab86de6195f3f94a4f274da902f85ff772aa796b7a5ff8c9b1e13adf",
+      "unmodified": true
+    },
+    "asmSha256": "75974cb65ae11202e2404d7bce64b04e55b992b3c5e9fd1bafaa7f90a367e723",
+    "objSha256": "95771e3196fa02d6ceeec6c83ea21d2204fc3778bfbb9ad619c0dab85103c542",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/gcc-13/-O2/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "gcc-13",
+    "opt": "-O2",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199417,
+      "rip": 4199417,
+      "matched": true,
+      "expectedRsp": 140733057865056,
+      "rsp": 140733057865056,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140733057860960,
+      "hi": 140733057865120,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "5206e30a450ab243c6e06e5d1499e3afb12379496c4ed5777d5143079765893f"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "30981e004a89466cbf6dc7d7b4e0a89f13c808551fdf7851738a8c43b037bcaa",
+      "sha256After": "30981e004a89466cbf6dc7d7b4e0a89f13c808551fdf7851738a8c43b037bcaa",
+      "unmodified": true
+    },
+    "asmSha256": "752e514e5fc8d1c81d35b4c74daa9c284934d71a9314a554912ffa3b2229e9ac",
+    "objSha256": "be00a583147d0e29746b8460d0a131f11ede8a5a0e27a547d41ac7caf6a3107b",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/gcc-13/-O2/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "gcc-13",
+    "opt": "-O2",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199433,
+      "rip": 4199433,
+      "matched": true,
+      "expectedRsp": 140730659234864,
+      "rsp": 140730659234864,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140730659230768,
+      "hi": 140730659234928,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "d5cb7ca34b89e47967074efc1dfe462b72528ae0e4b58b915cd38c04341fa19b"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "2145202242d53696824de8b3179a6abfd8c8790803e62f1bb09082b53f80dfdc",
+      "sha256After": "2145202242d53696824de8b3179a6abfd8c8790803e62f1bb09082b53f80dfdc",
+      "unmodified": true
+    },
+    "asmSha256": "1c0bbfb4bfc8cc7181f55048b57f3e26bb16a1b241d90a037c06db86390996b1",
+    "objSha256": "e791c9f32f5f33a5f43796083a2235211d83e994eba3ef14aee90dc5da4297a7",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/gcc-13/-O2/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "gcc-13",
+    "opt": "-O2",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199433,
+      "rip": 4199433,
+      "matched": true,
+      "expectedRsp": 140728358209808,
+      "rsp": 140728358209808,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140728358205712,
+      "hi": 140728358209872,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "0a07268b8fe262699e73b43a307f65c3ea9028d2d3e62d1ddf6bd7cf8cf82428"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "a64bc8343499d335be228c73f80840e2d66d2feb54e670b08483e28959b922b7",
+      "sha256After": "a64bc8343499d335be228c73f80840e2d66d2feb54e670b08483e28959b922b7",
+      "unmodified": true
+    },
+    "asmSha256": "2510ad066d0ed686081a8f5458e32a18784a779afd8a5df151b7156e7212b03b",
+    "objSha256": "634ad77812e615636b2ef69132ae835b9921ac6bd1a243ab73112366d313cf7b",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/gcc-13/-O3/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "gcc-13",
+    "opt": "-O3",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199417,
+      "rip": 4199417,
+      "matched": true,
+      "expectedRsp": 140722057744976,
+      "rsp": 140722057744976,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140722057740880,
+      "hi": 140722057745040,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "0c8810364af491ff09b3b09e0990e81676fcd537f7f418d6a8cb246cff677b7f"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "d5df92b1d2e666c7962325f49e50d6a8ac81562b8cb3af47b39f77eb7e46e4e1",
+      "sha256After": "d5df92b1d2e666c7962325f49e50d6a8ac81562b8cb3af47b39f77eb7e46e4e1",
+      "unmodified": true
+    },
+    "asmSha256": "fe5ca04f83336ec113d41e9602e8ab196bf934016c97ec5872c9885eb2670f4d",
+    "objSha256": "12345aa00e283e911733fd45d01aa139ca3c7008ffc9b20777c9ec32bc29d6d6",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/gcc-13/-O3/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "gcc-13",
+    "opt": "-O3",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199433,
+      "rip": 4199433,
+      "matched": true,
+      "expectedRsp": 140728275963088,
+      "rsp": 140728275963088,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140728275958992,
+      "hi": 140728275963152,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "13f020df3bbc37edbb068babe4c934252f49df9f694ecc6c4d57c85742196c25"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "d5f1fd7c359b41342344cf81dabe12fcd16228c9e9b29d94f24f93f208792390",
+      "sha256After": "d5f1fd7c359b41342344cf81dabe12fcd16228c9e9b29d94f24f93f208792390",
+      "unmodified": true
+    },
+    "asmSha256": "85e924a87b24fe4bd79e0471dd71c52b17b04c63ad85c7e88349f292c137b587",
+    "objSha256": "93cf848b349df20c280aa8275e36d1b596d431fa9b2465d5b3e959dc909f83d7",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/gcc-13/-O3/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "gcc-13",
+    "opt": "-O3",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "oracle",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199433,
+      "rip": 4199433,
+      "matched": true,
+      "expectedRsp": 140721132504704,
+      "rsp": 140721132504704,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140721132500608,
+      "hi": 140721132504768,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "30167bf897a5395dc3d5ebd49db3de9e9cb0f05c8f9878a3673028c3da1178f0"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 104,
+      "form": "push+sub",
+      "requiredBelow": 240,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "e9056761ee34cadbd939745fb2d96c405bf7d98741174e850c2b1f5f50bd0a57",
+      "sha256After": "e9056761ee34cadbd939745fb2d96c405bf7d98741174e850c2b1f5f50bd0a57",
+      "unmodified": true
+    },
+    "asmSha256": "9bf5d192620b23ea43214b2fe6b108d9656163cdb614c6d0d866bdea45cb6bf2",
+    "objSha256": "4db90bddaeb466274cdacead8a59822bf356a041c2db6071b439051e7900d2f9",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/gcc-13/-Os/memset",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "gcc-13",
+    "opt": "-Os",
+    "subject": "memset",
+    "idiom": "memset",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "rep-stos-fallback",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 2,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199401,
+      "rip": 4199401,
+      "matched": true,
+      "expectedRsp": 140726136694704,
+      "rsp": 140726136694704,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140726136690608,
+      "hi": 140726136694768,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "5610b3022c0b194ba4b3bc5856697cb21ca8479756a70e62ccbd0fb9cbbdd039"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 120,
+      "form": "push+sub",
+      "requiredBelow": 256,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "f98e64ca6439c2e07b109a57158a85ac032fdfb244f41ce5c5bb7120702ca37e",
+      "sha256After": "f98e64ca6439c2e07b109a57158a85ac032fdfb244f41ce5c5bb7120702ca37e",
+      "unmodified": true
+    },
+    "asmSha256": "6260c6470aeb665558f5d963e619c044794222d542787a9353dafa2386300ec3",
+    "objSha256": "0e685b210abe5736ca40cd56865ed0e07f7786b3195e05023e210f8a83c8829b",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/gcc-13/-Os/volatile-loop",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "gcc-13",
+    "opt": "-Os",
+    "subject": "volatile-loop",
+    "idiom": "volatile-loop",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "rep-stos-fallback",
+    "nSpans": 2,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199403,
+      "rip": 4199403,
+      "matched": true,
+      "expectedRsp": 140721864490832,
+      "rsp": 140721864490832,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140721864486736,
+      "hi": 140721864490896,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "8c0dd5ffde27b5e7465ef9ccd146945c7d0796835259d26ede2e7f58e8f8fd99"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 120,
+      "form": "push+sub",
+      "requiredBelow": 256,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "e42d655136301eb20d905f9239c9d138b7f302eb833d21588dc2a5e45c73ac00",
+      "sha256After": "e42d655136301eb20d905f9239c9d138b7f302eb833d21588dc2a5e45c73ac00",
+      "unmodified": true
+    },
+    "asmSha256": "a0bced87e5a0283bbbf4a0a2d8ad8159b72fa7917cee1e0016cca20a7539765d",
+    "objSha256": "732de7891f15f2e95ca4dacff29598e5a1da1617037b747f3bdc143fa723ee6a",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  },
+  {
+    "cell": "wipepin/gcc-13/-Os/explicit-bzero",
+    "kind": "subject",
+    "control": null,
+    "arm": "wipepin",
+    "cc": "gcc-13",
+    "opt": "-Os",
+    "subject": "explicit-bzero",
+    "idiom": "explicit-bzero",
+    "confirmVerdict": "WIPE_SURVIVED",
+    "confirmControl": "PRESENT",
+    "confirmControlVia": "rep-stos-fallback",
+    "nSpans": 1,
+    "measurement": "OK",
+    "reason": null,
+    "controlHeld": true,
+    "residue": {
+      "stack": "NONE",
+      "gpr": "NONE",
+      "xmm": "NONE"
+    },
+    "longestRunBytes": 1,
+    "controlRunBytes": 32,
+    "needleLen": 32,
+    "controlNeedleLen": 32,
+    "scanAgrees": true,
+    "stop": {
+      "expectedRip": 4199423,
+      "rip": 4199423,
+      "matched": true,
+      "expectedRsp": 140721029173888,
+      "rsp": 140721029173888,
+      "rspMatched": true
+    },
+    "window": {
+      "lo": 140721029169792,
+      "hi": 140721029173952,
+      "bytesRead": 4160,
+      "belowReached": 4096,
+      "sha256": "7596d9dbc1148e25aef7b6b88edf889cc5a5c9533cd3c5e79f4fd90386454e2a"
+    },
+    "frame": {
+      "parsed": true,
+      "subjectBytes": 120,
+      "form": "push+sub",
+      "requiredBelow": 256,
+      "why": null
+    },
+    "textRestoredMatchesFile": true,
+    "exe": {
+      "sha256Before": "108a693fb6d0dd4fe07e98c14dacbef49ba3132b197c483fd549ebe40a31034e",
+      "sha256After": "108a693fb6d0dd4fe07e98c14dacbef49ba3132b197c483fd549ebe40a31034e",
+      "unmodified": true
+    },
+    "asmSha256": "92a6606c2ce17be616b0d6e6a8e04ee4c54131bb90aae6f4f1fe491381c010ca",
+    "objSha256": "db7c03f4f5a52bc41ba64137c9180d5f5de94fe30e3bdfa34560cf4be93eb9f7",
+    "unobserved": [
+      "ymm-upper",
+      "zmm-upper",
+      "heap",
+      "other-threads",
+      "kernel-saved-state",
+      "stack-below-the-window",
+      "stack-above-the-window"
+    ]
+  }
+]

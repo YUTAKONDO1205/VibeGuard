@@ -2,7 +2,10 @@ import {
   emptySummary,
   summarize,
   compareSeverity,
+  isCompileLossEvidence,
   isSecurityJudgementSeverity,
+  type CompileLossEvidence,
+  type CompileLossEvidenceRejection,
   type Finding,
   type RuleError,
   type ScanDegradation,
@@ -696,6 +699,60 @@ export class Analyzer {
     // so a directory walk handing the same array to every file indexes it once.
     const declared = buildDeclaredPackageIndex(request.declaredPackages ?? this.declaredPackages);
 
+    // `compileLossEvidence` (adopted 2026-09-12; spec in
+    // `compiler/eval/actuarial/README.md`, section "Product side"). Validated
+    // ONCE here rather than per match, for the same reason `declared` is built
+    // once: the supplied map is a pure function of the request, and re-checking
+    // it inside the loop would report the same rejection once per finding.
+    //
+    // The analyser does nothing to these values but carry them. It does not
+    // derive them — it cannot: a `RuleContext` is text and a path, and neither
+    // the vendor nor the optimisation level is knowable from it. It does not
+    // default them, does not repair them, and does not compute anything from
+    // `num` and `den`.
+    //
+    // Placed AFTER the empty-content early return, like every other channel in
+    // this method. A request with no content produces no findings, so there is
+    // nothing a cell could have annotated; the cost is that a producer who
+    // supplies a malformed cell alongside empty content hears nothing back.
+    const compileLoss = new Map<string, CompileLossEvidence>();
+    const compileLossRejections: CompileLossEvidenceRejection[] = [];
+    if (request.compileLossEvidence) {
+      for (const [ruleId, supplied] of Object.entries(request.compileLossEvidence)) {
+        if (isCompileLossEvidence(supplied)) {
+          compileLoss.set(ruleId, supplied);
+          continue;
+        }
+        // Dropped, and said out loud. A malformed cell is a bug in the code
+        // that built the request, and this response is the only place its
+        // author can find out about it.
+        compileLossRejections.push({
+          ruleId,
+          detail:
+            `compileLossEvidence supplied for ${ruleId} was dropped: it is not two integers ` +
+            'with a positive denominator no smaller than the numerator, plus a non-empty ' +
+            'corpusId, vendor and optLevel. Findings for this rule are reported without it.',
+        });
+      }
+      // A well-formed cell keyed to a rule this engine did not load reaches no
+      // finding and, until 2026-09-12, said nothing either: a typo in the
+      // ruleId was indistinguishable from a rule that simply did not fire. The
+      // engine cannot know whether the consumer meant a rule it has, so it
+      // reports rather than guesses, and it does not treat this as a reason to
+      // drop the value — a rule set that grows later is a normal thing.
+      const known = new Set(baseRules.map((r) => r.ruleId));
+      for (const ruleId of compileLoss.keys()) {
+        if (known.has(ruleId)) continue;
+        compileLossRejections.push({
+          ruleId,
+          detail:
+            `compileLossEvidence was supplied for ${ruleId}, which is not a rule this engine ` +
+            'loaded, so no finding can carry it. Check the id against the rule set, or ignore ' +
+            'this if the rule is disabled in this configuration on purpose.',
+        });
+      }
+    }
+
     // D2 — the normalization pre-pass. `ctx` deliberately keeps the ORIGINAL
     // content: rules run over both, and the results are unioned (see
     // canonicalizer.ts for why replacing the content would be unsound). When
@@ -959,6 +1016,14 @@ export class Analyzer {
           // Same conditional-spread contract: the key's absence means nothing
           // tried to suppress this finding, so it must not be present-but-false.
           ...(suppression.overridden ? { suppressionOverridden: suppression.overridden } : {}),
+          // Copied, never derived. Same conditional-spread contract again, and
+          // here it carries the most weight of the three: a finding with no
+          // supplied cell is the NORMAL case, so the key must be absent rather
+          // than present-and-undefined, and `'compileLossEvidence' in finding`
+          // has to keep meaning "a consumer counted a corpus for this rule".
+          ...(compileLoss.has(rule.ruleId)
+            ? { compileLossEvidence: compileLoss.get(rule.ruleId)! }
+            : {}),
           category: rule.category,
           language,
           filePath: request.filePath,
@@ -1002,6 +1067,12 @@ export class Analyzer {
       ...(ruleErrors.length ? { ruleErrors } : {}),
       ...(degradations.length ? { degradations } : {}),
       ...(suppressionTally.size ? { suppressions: collectSuppressions(suppressionTally) } : {}),
+      // Present only when a supplied cell was rejected, so a scan that supplies
+      // nothing — every Chrome scan, every snippet scan — is byte-identical to
+      // what it produced before this field existed.
+      ...(compileLossRejections.length
+        ? { compileLossEvidenceRejections: compileLossRejections }
+        : {}),
       // PRESENT WHENEVER THE VETO RAN — including when it removed nothing, in
       // which case this is an empty array.
       //

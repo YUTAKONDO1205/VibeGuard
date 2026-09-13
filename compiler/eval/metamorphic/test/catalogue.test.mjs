@@ -174,3 +174,112 @@ test('the instrument-limit boundary is stated: H breaks the property, the batter
     'the catalogue must state the division of labour with the calibration lane somewhere a reader '
     + 'will find it');
 });
+
+// --- the configurations, and the sequence that sweeps them -------------------
+//
+// `configurations` landed on 2026-09-13 with run-all.sh, for the reason
+// calibration/battery.json gives for its own `configs`: a list living in the
+// runner drifts from the table and nobody notices, because the runner is what a
+// person reads least. These three fences are what stop the table drifting into a
+// lane that can never qualify, and what stops the sequence losing the one step it
+// was written to carry.
+
+test('the catalogue declares the configurations, and at least one can express the survival axis', () => {
+  const cs = CATALOGUE.configurations;
+  assert.ok(Array.isArray(cs) && cs.length >= 2,
+    `catalogue.json declares ${cs?.length ?? 0} configuration(s). Two is the minimum this lane `
+    + 'means anything at: one where the optimiser has done nothing, so R1 invariance is checked '
+    + 'against an unfolded reading, and one where it folds, so the R2b cells actually ask the '
+    + 'instrument to tell PRESENT from LOST.');
+  for (const c of cs) {
+    assert.ok(typeof c.runId === 'string' && c.runId.length > 0, JSON.stringify(c));
+    assert.match(c.opt, /^-O/, `${c.runId}: opt ${JSON.stringify(c.opt)} is not an optimisation level`);
+    assert.equal(typeof c.r2bCanMove, 'boolean',
+      `${c.runId}: r2bCanMove must be an explicit boolean. A configuration that does not say `
+      + 'whether an R2b cell can move in it is a configuration nobody decided about, and a '
+      + 'missing key read as false would pass the next assertion for the wrong reason.');
+    assert.ok(typeof c.why === 'string' && c.why.length > 40,
+      `${c.runId}: no stated reason for being in the sweep`);
+  }
+  assert.equal(new Set(cs.map((c) => c.runId)).size, cs.length,
+    'two configurations share a runId; the second measurement would overwrite the first and the '
+    + 'sweep would grade one document as two');
+  assert.ok(cs.some((c) => c.r2bCanMove),
+    'no declared configuration carries r2bCanMove true, so no sweep this catalogue can produce '
+    + 'would ever ask the instrument to tell PRESENT from LOST. check-meta.py refuses exactly '
+    + 'that set (exit 3, the survival-axis fence), so this table describes a lane that can never '
+    + 'qualify.');
+  assert.ok(cs.some((c) => !c.r2bCanMove),
+    'every declared configuration folds, so R1 invariance is never checked where the optimiser '
+    + 'has done nothing -- and an R1 relation that only holds after optimisation was never about '
+    + 'the optimiser.');
+});
+
+test('every graded R2b operator is reachable: some declared configuration claims it can move', () => {
+  // The pairing the survival-axis fence depends on. A catalogue that grades R2b
+  // operators while declaring only configurations in which none can move is the
+  // exact state check-meta.py refuses at the end of a sweep; this says it before
+  // the first compile.
+  const r2b = OPS.filter((op) => op.class === 'R2b' && op.graded !== false);
+  assert.ok(r2b.length > 0, 'no graded R2b operator; the survival axis is then declared and unused');
+  assert.ok((CATALOGUE.configurations || []).some((c) => c.r2bCanMove),
+    `${r2b.length} R2b operator(s) are graded (${r2b.map((o) => o.operatorId).join(', ')}) and no `
+    + 'configuration claims one can move');
+});
+
+test('run-all.sh reads the configurations from the catalogue and ends with the falsifier', () => {
+  // The hole this lane had until 2026-09-13 was that scripts/falsify-meta.py --
+  // the demonstration that the grader can refuse -- was invoked by nothing. A
+  // run-all.sh that lost that step, or that grew its own hardcoded list of
+  // levels, would put it back silently. No shell is run here: this reads the file.
+  //
+  // Matched against the file with its COMMENT LINES REMOVED, and that is not a
+  // detail: the first version of this test matched the whole text, and deleting
+  // the falsify step from the script left it green, because the word
+  // falsify-meta.py still appeared in four comments explaining why the step is
+  // there. A fence that a comment satisfies fences nothing. Verified by deleting
+  // the step and watching this fail.
+  const raw = readFileSync(path.join(HERE, '..', 'run-all.sh'), 'utf8');
+  const sh = raw.split(/\r?\n/).filter((l) => !/^\s*#/.test(l)).join('\n');
+  assert.match(sh, /read-configurations\.py/,
+    'run-all.sh must project the configurations out of catalogue.json rather than carrying its own '
+    + 'list of levels');
+  // `step ... falsify-meta.py` and not merely the filename. The filename also
+  // appears in the --no-falsify branch's own output ("scripts/falsify-meta.py did
+  // not run"), so a fence matching the name alone stays green when the step is
+  // deleted -- which is what happened to the first version of this assertion, and
+  // is the same silence one layer up as the hole being fenced. The shape asserted
+  // is therefore an INVOCATION: `step` and the script on one line.
+  assert.match(sh, /^\s*step\s+.*falsify-meta\.py/m,
+    'run-all.sh must INVOKE scripts/falsify-meta.py through step(), so a failure stops the run. '
+    + 'A grader never shown to fail has not been shown to work, and a sequence that omits the '
+    + 'demonstration is the state this file exists to keep closed.');
+  // One LOGICAL line, backslash continuations joined first. `[\s\S]*?` was used
+  // here at first and it crossed newlines, so "some line starts with step" plus
+  // "the filename appears somewhere below" satisfied it — and replacing the step()
+  // call with a bare `python3 … || true`, which removes the stop-on-refusal this
+  // very message promises, left the test green. Same class as the comment-matching
+  // bug above, found the same way.
+  const logical = sh.replace(/\\\n\s*/g, ' ');
+  assert.match(logical, /^\s*step\s+[^\n]*account-for-documents\.py/m,
+    'run-all.sh must account for every document in the results directory before grading, through '
+    + 'step() on one command, so a refusal STOPS the run: check-meta.py grades whatever *.json it '
+    + 'finds and reports a verdict over "all N document(s)"');
+  assert.match(logical, /^\s*step\s+[^\n]*check-meta\.py/m,
+    'run-all.sh must invoke the grader through step() too');
+  assert.match(sh, /NOT ESTABLISHED/,
+    'the --no-falsify path must say so in its last line: a clean grader is also what a '
+    + 'switched-off grader reports');
+  for (const c of CATALOGUE.configurations || []) {
+    // `\\b` and `\\.`, not `\b` and `\.`: inside a template literal the latter are
+    // a BACKSPACE character and a bare dot, and a regex ending in U+0008 matches
+    // nothing at all. The first version of this loop was written that way and
+    // passed against a run-all.sh with the level hardcoded. Mutation-tested.
+    const literal = new RegExp(`run-metamorphic\\.sh.*${c.runId}\\b`);
+    assert.equal(literal.test(sh), false,
+      `run-all.sh names configuration ${c.runId} literally on its run-metamorphic.sh line; the `
+      + 'list must come from catalogue.json, or the table and the runner can drift apart');
+  }
+  assert.match(sh, /run-metamorphic\.sh"?\s+"\$RUN"/,
+    'run-all.sh must pass the projected run id through, so the loop is over the table');
+});

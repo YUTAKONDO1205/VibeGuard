@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "r2-regate/1",
+  "readMeFirst": "The tracked rows in r2-build-rows.json were measured on 2026-08-11, before compiler/eval/spike existed. The gate was wired into build-analyze.mjs on 2026-09-12 and the rows were NOT re-measured that day, so until this record the sentence 'these rows were taken with the instrument shown to be reading' was not true of them -- it was true of the code, and the rows predated it. This file is that re-measurement. The rows themselves are untouched: what is recorded here is whether the same corpus, measured again with the gate in front of it, holds the same MULTISET of rows (byte equality is not expected -- rows are pushed in pool completion order).",
+  "question": "does the corpus reproduce under the spike/recovery gate, and would the gate have refused a blind instrument?",
+  "measuredOn": "2026-09-12",
+  "toolchain": {
+    "cc": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+    "gcc": "gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "node": "v18.19.1",
+    "host": "Linux 6.6.87.2-microsoft-standard-WSL2 x86_64"
+  },
+  "gate": {
+    "established": true,
+    "configurations": { "num": 10, "den": 10 },
+    "discriminating": { "num": 8, "den": 10 },
+    "injectionHeld": true,
+    "nonDiscriminating": "the two -O0 configurations, one per vendor: at -O0 both spikes are registered to read the same word"
+  },
+  "run": {
+    "files": 720,
+    "rows": 4689,
+    "wallClockSeconds": 89,
+    "exit": 0,
+    "wroteTrackedRows": false
+  },
+  "rows": {
+    "tracked": {
+      "file": "data/r2-build-rows.json",
+      "sha256": "cb93551fe438256985fd30533fe0dbef51b51739f4d8c0de5ce5eef7e674bed9",
+      "rows": 4689
+    },
+    "regate": {
+      "file": "r2-build-rows.json (lab)",
+      "sha256": "0b956eb4b6f39f89bf5b0cdec7b390198801757ed7164489874b4e93987ccac2",
+      "rows": 4689
+    }
+  },
+  "comparison": {
+    "tool": "lib/compare-rows.mjs",
+    "identical": 4689,
+    "only_in_a": 0,
+    "only_in_b": 0,
+    "equal": true,
+    "exit": 0
+  },
+  "negativeControls": [
+    {
+      "name": "vendor-absent",
+      "how": "a gcc-13 first on PATH that exits 1 for every invocation",
+      "gateEstablished": false,
+      "reason": "not installed on this host: gcc-13",
+      "exit": 3,
+      "rowsWritten": 0
+    },
+    {
+      "name": "never-optimises",
+      "how": "a gcc-13 wrapper that rewrites every -O flag to -O0 and execs the real gcc-13, so the compiler still compiles and still answers, and the answer is the wrong one",
+      "gateEstablished": false,
+      "reason": "WRONG_VERDICT(disappearing)",
+      "redConfigurations": ["gcc-13 -O1", "gcc-13 -O2", "gcc-13 -O3", "gcc-13 -Os"],
+      "recoveryPerRedConfiguration": { "num": 1, "den": 2 },
+      "exit": 3,
+      "rowsWritten": 0,
+      "whyThisOneMatters": "the absent-vendor control only shows the probe works. This one is an instrument that runs, compiles, and reads the wrong word -- the failure the corpus cannot see in its own rows, because a wipe that survived and a wipe the instrument failed to see are the same row."
+    }
+  ],
+  "provenance": {
+    "comparison": "recomputed -- test/regate.test.mjs recomputes the sha256 of data/r2-build-rows.json and its row count and holds this record to them",
+    "gate": "recomputed from this run's manifest, which build-analyze.mjs writes beside the lab rows",
+    "regateSha256": "lab-run -- the lab file is not tracked, so nothing here can recompute it. It is recorded so a later re-run can say whether it got the same bytes on the same machine",
+    "negativeControls": "lab-run -- typed from the two run logs. Nothing recomputes them; the reproduction command is in README.md"
+  }
+}

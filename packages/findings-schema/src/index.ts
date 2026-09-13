@@ -1,3 +1,18 @@
+// `compileLossEvidence` — the corpus-counted build-loss ratio a consumer may
+// attach to a finding. Kept in its own module because its wording rule is
+// enforced by a vocabulary test that scans the whole file, and this one is a
+// 1,000-line schema that will legitimately want the words that rule forbids.
+export {
+  isCompileLossEvidence,
+  renderCompileLossEvidence,
+  type CompileLossEvidence,
+  type CompileLossEvidenceRejection,
+} from './compile-loss-evidence.js';
+import type {
+  CompileLossEvidence,
+  CompileLossEvidenceRejection,
+} from './compile-loss-evidence.js';
+
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 export type Confidence = 'high' | 'medium' | 'low';
 export type SourceEngine = 'core-rule' | 'semgrep' | 'external';
@@ -150,6 +165,33 @@ export interface Finding {
   endColumn?: number;
   snippet?: string;
   evidence?: string[];
+  /**
+   * A ratio, counted over a corpus, about what a build toolchain did to code of
+   * this shape — `113 of 133 files with this idiom lost the wipe under
+   * clang-18 -O2 in corpus r2`. Adopted 2026-09-12; see `CompileLossEvidence`
+   * for the full contract, which is quoted from
+   * `compiler/eval/actuarial/README.md`.
+   *
+   * Three things about it, each of which is the spec's own wording:
+   *
+   *  - It is "not `confidence`, and not a modifier of it". The confidence axis
+   *    is downgrade-only because the context it reads is attacker-controlled; a
+   *    corpus-sourced ratio attached to it would be a raise. Nothing may fold
+   *    this into `confidence`.
+   *  - It is "supplied by the consumer, never derived by the analyser". A
+   *    `RuleContext` is `{ filePath?, language?, content, lines }` and names no
+   *    compiler and no optimisation level, so the two axes that decide the cell
+   *    cannot be known here. It arrives on `ScanRequest.compileLossEvidence`.
+   *  - A finding WITHOUT it is the normal case, not a degraded one. Absence is
+   *    the contract — spread in conditionally, never set to `undefined` — so
+   *    `'compileLossEvidence' in finding` is the question a consumer asks.
+   *
+   * Deliberately NOT folded into `evidence` above. That is a `string[]` of text
+   * a rule matched in THIS file; this is a count over somebody else's corpus,
+   * and a consumer rendering `evidence` must not print the two as one kind of
+   * thing.
+   */
+  compileLossEvidence?: CompileLossEvidence;
   remediation?: Remediation;
   references?: string[];
   sourceEngine: SourceEngine;
@@ -486,6 +528,54 @@ export interface ScanRequest {
    * producer, and only the producer can report which happened.
    */
   declaredPackages?: readonly string[];
+  /**
+   * Build-loss ratios the CONSUMER counted, keyed by the rule each one is
+   * about. Adopted 2026-09-12; the contract is on `CompileLossEvidence`.
+   *
+   * Shaped as data on the request for the same reason `declaredPackages` is:
+   * the engine stays free of I/O, a rule's `match()` stays a pure function of
+   * one file's text, and the channels that have no filesystem (Chrome, the
+   * editor's snippet path) keep working by supplying nothing. The analyser does
+   * not derive, fetch, interpolate or default any part of this — it copies a
+   * supplied entry onto the findings of the rule it is keyed by, and that is
+   * the whole of its involvement.
+   *
+   * WHY IT IS KEYED BY `ruleId` AND NOT BY FINDING. A finding does not exist
+   * when the request is built: `findingId` is generated inside the scan, in the
+   * per-rule match loop in `analyzer.ts`, so a finding-keyed map could not be
+   * addressed by the producer at all. The rule id is the only handle the two
+   * sides share before the scan, and it is also the right granularity — the
+   * ratio is per IDIOM, and a rule is what recognises an idiom. Every finding
+   * the rule produces in this scan carries the same cell, which is correct: the
+   * cell is a statement about the corpus, not about any one line.
+   *
+   * WHAT MAY GO IN HERE: a cell that was counted, by whoever built this
+   * request, over a named corpus, for the vendor and optimisation level THIS
+   * CONSUMER ACTUALLY BUILDS WITH. Both axes are required and neither has a
+   * default: `clang-18 -O2` and `gcc-13 -O1` disagree about which files lose a
+   * wipe and they disagree about WHERE, so a cell quoted under the wrong axis
+   * is a wrong number, not an approximate one. The vendor keeps its version
+   * (`clang-18`, not `clang`) because the version is the thing that was
+   * measured.
+   *
+   * WHAT MUST NOT: anything derived from the file being scanned, anything the
+   * producer did not count (a cell for a neighbouring optimisation level
+   * "because it is close"), and anything reshaped from a number that had no
+   * denominator — the two integers are the point. Also not a cell for a rule
+   * the corpus never covered: this map says "a corpus was counted for this
+   * rule", and an entry that is really about a different idiom makes the
+   * printed sentence false while looking perfectly well-formed. The analyser
+   * cannot check any of that, which is why the constraint is stated here, at
+   * the boundary, rather than left to the reader — the same reason
+   * `declaredPackages` states its own.
+   *
+   * Entries that fail `isCompileLossEvidence` are dropped and reported in
+   * `ScanResponse.compileLossEvidenceRejections`; they are never partially
+   * applied and never silently repaired. Absent and empty behave identically —
+   * no finding carries the field — but they mean different things to the
+   * producer, and only the producer can report which happened.
+   */
+  compileLossEvidence?: Readonly<Record<string, CompileLossEvidence>>;
 }
 
 /**
@@ -648,6 +738,23 @@ export interface ScanResponse {
    * the flag was given.
    */
   afterBuild?: AfterBuildSummary;
+  /**
+   * Entries of `ScanRequest.compileLossEvidence` that failed
+   * `isCompileLossEvidence` and were therefore copied onto nothing.
+   *
+   * Present only when non-empty, so a scan that supplied nothing — or supplied
+   * only well-formed cells — is byte-identical to what it produced before this
+   * field existed.
+   *
+   * The alternative was to drop a malformed cell in silence, which this
+   * codebase does not allow of any channel that removes something: the producer
+   * is the only party that can fix the bug and the response is the only place
+   * it could learn of it. Same posture as `degradations` and `suppressions` —
+   * it does not contribute to `summary`, does not appear in `findings`, and
+   * does not affect the exit code. A rejected entry is NOT an error in the
+   * scan: every finding it would have annotated is still reported, unannotated.
+   */
+  compileLossEvidenceRejections?: CompileLossEvidenceRejection[];
 }
 
 /**

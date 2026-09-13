@@ -24,7 +24,12 @@
 # entry nobody measures.
 #
 # EXIT CODES (interfaces.md section 7)
-#   0  every configuration measured, assembled and graded; both graders clean
+#   0  every configuration measured, assembled and graded; both graders clean. With
+#      --no-falsify the last line says NOT ESTABLISHED instead: the step that shows
+#      the graders REFUSING was skipped, and two clean graders is also what a
+#      switched-off grader reports. The code does not move -- a flag a caller passed
+#      on purpose is not a fault -- which is check-battery.py's own convention at its
+#      `broken_seen == 0` branch, and the reason the last line has to differ
 #   1  the toolchain refused an invocation; its diagnostics have already been printed
 #   2  a grader found something: a reference cell misread its true value, an
 #      invariant was falsified, or a catalogue sentence disagrees with the measurement
@@ -107,3 +112,42 @@ echo "every configuration measured, assembled and graded; both graders clean."
 echo "a battery pass is a SHAPE qualification -- necessary for promotion to"
 echo "\`implemented\` in compiler/schema/properties.json and never sufficient, because"
 echo "every cell here is a (synthetic-specimen, configuration) measurement."
+# The falsify verdict goes LAST, after the qualification paragraph above. Until
+# 2026-09-13 those three echoes came after the `fi`, which made the last line -- and
+# the last three lines -- byte-identical with and without --no-falsify, while the
+# comment in the else branch below cited check-battery.py on "what it changes is the
+# last line". It did not change the last line. Found while the metamorphic lane next
+# door copied this shape and inherited the same defect; both were corrected together.
+if [ "$RUN_FALSIFY" = "1" ]; then
+  # No count is written here on purpose. run-battery.sh's header says why in its
+  # own words: an earlier version of it asserted "fifteen" and stayed saying it
+  # after a sixteenth cell landed. falsify-battery.py prints how many corruptions
+  # it applied and how many it skipped, and that line is the one to read.
+  echo "check-battery.py was also shown REFUSING every applicable corruption above,"
+  echo "each with the exit code interfaces.md section 7 assigns to it, on the reports"
+  echo "this run produced. check-claims.py has no such demonstration and was not shown"
+  echo "to refuse anything in any run."
+else
+  # NOT the same line as above, and this is the whole point of these four.
+  #
+  # --no-falsify skips the one step that shows the graders can refuse. Both graders
+  # then exit 0 and this script exits 0, which is also what a grader with its
+  # predicates inverted, its loop never entered or its return value discarded would
+  # produce -- and until this line existed, the last thing a reader saw was
+  # identical either way. compiler/eval/spike/lib/gate.mjs:178-183 refuses that
+  # shape outright (INJECTION_NOT_DETECTED: "no injected configuration was run, so
+  # the gate was never shown to go red"); this lane's own settled convention is
+  # softer and is followed here instead of importing that one.
+  #
+  # It is deliberately NOT an error and does not move the exit code. That is
+  # check-battery.py's own precedent, set at its `broken_seen == 0` branch and
+  # stated there: "Not an error, and deliberately not an exit code. What it
+  # changes is the last line, which is what a reader takes away." A flag a caller
+  # passed on purpose is not a fault; a run whose last line hid what the flag
+  # turned off would be.
+  echo
+  echo "NOT ESTABLISHED: --no-falsify was passed, so scripts/falsify-battery.py did not"
+  echo "run and NOTHING IN THIS RUN WAS SHOWN TO REFUSE ANYTHING. A clean check-battery"
+  echo "is also what a grader with its predicates inverted would report. Re-run without"
+  echo "the flag before reading this as a qualification."
+fi

@@ -1,0 +1,419 @@
+{
+  "record": "vibeguard.spike-gate-data/1",
+  "schemaVersion": "vibeguard.spike-gate/1",
+  "established": true,
+  "summaryLine": "spike gate: ESTABLISHED -- clang-18-O0 2/2 | clang-18-O1 2/2 | clang-18-O2 2/2 | clang-18-O3 2/2 | clang-18-Os 2/2 | gcc-13-O0 2/2 | gcc-13-O1 2/2 | gcc-13-O2 2/2 | gcc-13-O3 2/2 | gcc-13-Os 2/2 | clang-18-O2[obs] 2/2 -- injection RED (as required) -- 9/11 discriminating",
+  "requested": {
+    "compilers": [
+      "clang-18",
+      "gcc-13"
+    ],
+    "levels": [
+      "-O0",
+      "-O1",
+      "-O2",
+      "-O3",
+      "-Os"
+    ],
+    "injectedAt": [
+      "-O0",
+      "-O2"
+    ]
+  },
+  "subjects": [
+    {
+      "spike": "disappearing",
+      "file": "spike-disappearing.c",
+      "fn": "vgspike_disappearing"
+    },
+    {
+      "spike": "surviving",
+      "file": "spike-surviving.c",
+      "fn": "vgspike_surviving"
+    }
+  ],
+  "counting": {
+    "configurations": {
+      "num": 11,
+      "den": 11
+    },
+    "discriminating": {
+      "num": 9,
+      "den": 11
+    },
+    "byChannel": {
+      "differential": 10,
+      "observer": 1
+    },
+    "readings": 22,
+    "injectedConfigurations": 5
+  },
+  "configurations": [
+    {
+      "channel": "differential",
+      "vendor": "clang-18",
+      "opt": "-O0",
+      "recovery": "2/2",
+      "recovered": {
+        "num": 2,
+        "den": 2
+      },
+      "held": true,
+      "discriminating": false,
+      "sharedAnswer": "WIPE_SURVIVED",
+      "readings": [
+        {
+          "spike": "disappearing",
+          "verdict": "WIPE_SURVIVED",
+          "control": "PRESENT",
+          "n_spans": 1
+        },
+        {
+          "spike": "surviving",
+          "verdict": "WIPE_SURVIVED",
+          "control": "PRESENT",
+          "n_spans": 1
+        }
+      ]
+    },
+    {
+      "channel": "differential",
+      "vendor": "clang-18",
+      "opt": "-O1",
+      "recovery": "2/2",
+      "recovered": {
+        "num": 2,
+        "den": 2
+      },
+      "held": true,
+      "discriminating": true,
+      "sharedAnswer": null,
+      "readings": [
+        {
+          "spike": "disappearing",
+          "verdict": "WIPE_ELIMINATED",
+          "control": "PRESENT",
+          "n_spans": 1
+        },
+        {
+          "spike": "surviving",
+          "verdict": "WIPE_SURVIVED",
+          "control": "PRESENT",
+          "n_spans": 1
+        }
+      ]
+    },
+    {
+      "channel": "differential",
+      "vendor": "clang-18",
+      "opt": "-O2",
+      "recovery": "2/2",
+      "recovered": {
+        "num": 2,
+        "den": 2
+      },
+      "held": true,
+      "discriminating": true,
+      "sharedAnswer": null,
+      "readings": [
+        {
+          "spike": "disappearing",
+          "verdict": "WIPE_ELIMINATED",
+          "control": "PRESENT",
+          "n_spans": 1
+        },
+        {
+          "spike": "surviving",
+          "verdict": "WIPE_SURVIVED",
+          "control": "PRESENT",
+          "n_spans": 1
+        }
+      ]
+    },
+    {
+      "channel": "differential",
+      "vendor": "clang-18",
+      "opt": "-O3",
+      "recovery": "2/2",
+      "recovered": {
+        "num": 2,
+        "den": 2
+      },
+      "held": true,
+      "discriminating": true,
+      "sharedAnswer": null,
+      "readings": [
+        {
+          "spike": "disappearing",
+          "verdict": "WIPE_ELIMINATED",
+          "control": "PRESENT",
+          "n_spans": 1
+        },
+        {
+          "spike": "surviving",
+          "verdict": "WIPE_SURVIVED",
+          "control": "PRESENT",
+          "n_spans": 1
+        }
+      ]
+    },
+    {
+      "channel": "differential",
+      "vendor": "clang-18",
+      "opt": "-Os",
+      "recovery": "2/2",
+      "recovered": {
+        "num": 2,
+        "den": 2
+      },
+      "held": true,
+      "discriminating": true,
+      "sharedAnswer": null,
+      "readings": [
+        {
+          "spike": "disappearing",
+          "verdict": "WIPE_ELIMINATED",
+          "control": "PRESENT",
+          "n_spans": 1
+        },
+        {
+          "spike": "surviving",
+          "verdict": "WIPE_SURVIVED",
+          "control": "PRESENT",
+          "n_spans": 1
+        }
+      ]
+    },
+    {
+      "channel": "differential",
+      "vendor": "gcc-13",
+      "opt": "-O0",
+      "recovery": "2/2",
+      "recovered": {
+        "num": 2,
+        "den": 2
+      },
+      "held": true,
+      "discriminating": false,
+      "sharedAnswer": "WIPE_SURVIVED",
+      "readings": [
+        {
+          "spike": "disappearing",
+          "verdict": "WIPE_SURVIVED",
+          "control": "PRESENT",
+          "n_spans": 1
+        },
+        {
+          "spike": "surviving",
+          "verdict": "WIPE_SURVIVED",
+          "control": "PRESENT",
+          "n_spans": 1
+        }
+      ]
+    },
+    {
+      "channel": "differential",
+      "vendor": "gcc-13",
+      "opt": "-O1",
+      "recovery": "2/2",
+      "recovered": {
+        "num": 2,
+        "den": 2
+      },
+      "held": true,
+      "discriminating": true,
+      "sharedAnswer": null,
+      "readings": [
+        {
+          "spike": "disappearing",
+          "verdict": "WIPE_ELIMINATED",
+          "control": "PRESENT",
+          "n_spans": 1
+        },
+        {
+          "spike": "surviving",
+          "verdict": "WIPE_SURVIVED",
+          "control": "PRESENT",
+          "n_spans": 1
+        }
+      ]
+    },
+    {
+      "channel": "differential",
+      "vendor": "gcc-13",
+      "opt": "-O2",
+      "recovery": "2/2",
+      "recovered": {
+        "num": 2,
+        "den": 2
+      },
+      "held": true,
+      "discriminating": true,
+      "sharedAnswer": null,
+      "readings": [
+        {
+          "spike": "disappearing",
+          "verdict": "WIPE_ELIMINATED",
+          "control": "PRESENT",
+          "n_spans": 1
+        },
+        {
+          "spike": "surviving",
+          "verdict": "WIPE_SURVIVED",
+          "control": "PRESENT",
+          "n_spans": 1
+        }
+      ]
+    },
+    {
+      "channel": "differential",
+      "vendor": "gcc-13",
+      "opt": "-O3",
+      "recovery": "2/2",
+      "recovered": {
+        "num": 2,
+        "den": 2
+      },
+      "held": true,
+      "discriminating": true,
+      "sharedAnswer": null,
+      "readings": [
+        {
+          "spike": "disappearing",
+          "verdict": "WIPE_ELIMINATED",
+          "control": "PRESENT",
+          "n_spans": 1
+        },
+        {
+          "spike": "surviving",
+          "verdict": "WIPE_SURVIVED",
+          "control": "PRESENT",
+          "n_spans": 1
+        }
+      ]
+    },
+    {
+      "channel": "differential",
+      "vendor": "gcc-13",
+      "opt": "-Os",
+      "recovery": "2/2",
+      "recovered": {
+        "num": 2,
+        "den": 2
+      },
+      "held": true,
+      "discriminating": true,
+      "sharedAnswer": null,
+      "readings": [
+        {
+          "spike": "disappearing",
+          "verdict": "WIPE_ELIMINATED",
+          "control": "PRESENT",
+          "n_spans": 1
+        },
+        {
+          "spike": "surviving",
+          "verdict": "WIPE_SURVIVED",
+          "control": "PRESENT",
+          "n_spans": 1
+        }
+      ]
+    },
+    {
+      "channel": "observer",
+      "vendor": "clang-18",
+      "opt": "-O2",
+      "recovery": "2/2",
+      "recovered": {
+        "num": 2,
+        "den": 2
+      },
+      "held": true,
+      "discriminating": true,
+      "sharedAnswer": null,
+      "readings": [
+        {
+          "spike": "disappearing",
+          "verdict": "LOST",
+          "control": "PRESENT",
+          "subjectResolutionExit": 0,
+          "firstLossPass": "DSEPass"
+        },
+        {
+          "spike": "surviving",
+          "verdict": "PRESENT",
+          "control": "PRESENT",
+          "subjectResolutionExit": 0,
+          "firstLossPass": null
+        }
+      ]
+    }
+  ],
+  "injected": {
+    "misspeltSuffix": "X",
+    "wentRed": true,
+    "configurations": [
+      {
+        "channel": "differential",
+        "vendor": "clang-18",
+        "opt": "-O0",
+        "recovery": "0/2",
+        "wentRed": true,
+        "gradeable": true,
+        "redBecause": [
+          "NOT_A_READING"
+        ]
+      },
+      {
+        "channel": "differential",
+        "vendor": "clang-18",
+        "opt": "-O2",
+        "recovery": "0/2",
+        "wentRed": true,
+        "gradeable": true,
+        "redBecause": [
+          "NOT_A_READING"
+        ]
+      },
+      {
+        "channel": "differential",
+        "vendor": "gcc-13",
+        "opt": "-O0",
+        "recovery": "0/2",
+        "wentRed": true,
+        "gradeable": true,
+        "redBecause": [
+          "NOT_A_READING"
+        ]
+      },
+      {
+        "channel": "differential",
+        "vendor": "gcc-13",
+        "opt": "-O2",
+        "recovery": "0/2",
+        "wentRed": true,
+        "gradeable": true,
+        "redBecause": [
+          "NOT_A_READING"
+        ]
+      },
+      {
+        "channel": "observer",
+        "vendor": "clang-18",
+        "opt": "-O2",
+        "recovery": "0/2",
+        "wentRed": true,
+        "gradeable": true,
+        "redBecause": [
+          "NOT_A_READING"
+        ]
+      }
+    ]
+  },
+  "observerChannel": {
+    "requested": true,
+    "available": true,
+    "vendor": "clang-18",
+    "opt": "-O2"
+  }
+}

@@ -9,6 +9,34 @@ verdict, on the assembly the LTO backend writes.
 Its twin for gcc-13 and WipePinGcc, `lto-probe-gcc.mjs`, has its own section
 below (*gcc-13*); everything before that section is about clang.
 
+> **Every figure in this file was measured before the gate.** Both probes have
+> called `compiler/eval/spike`'s gate since 2026-09-12 (`lto-probe.mjs:278`,
+> `lto-probe-gcc.mjs:312`); this file's last content change was earlier the same
+> day, so the code was gated and the prose was not — the same split
+> `../data/r2-regate.json` records for the tracked rows, and the one it named the
+> LTO probes as *not* covering.
+>
+> **2026-09-13: re-measured under the gate, at every level and both idioms.** The
+> outcome columns of the tables below were produced again with the gate in front of
+> the run — `-O1`, `-O2`, `-O3`, `-Os` and the `--all-removable` idiom, on both
+> vendors, and at `-O2` with two different builds of the same source. The gate held
+> in every run and **every number reproduced**. `../data/lto-regate.json` is the
+> record — **18 entries over 15 distinct rows** of the tables below, the three `-O2`
+> rows appearing once per binary — and `../test/lto-regate.test.mjs` holds it to
+> those tables column by column, denominators and the `HELD`/`FAILED` word included.
+> The probes write no tracked data (`--write-data` is exit 4), so nothing wrote that
+> record as part of a run: it was parsed out of the captured output by a throwaway
+> script that is not tracked, which is why the test reads the numbers back out of
+> **this** file rather than trusting it.
+>
+> What the re-runs do **not** cover, and the record says so in its own
+> `notMeasuredHere`: the `wipe-pin-v1` binary runs A–D were made with
+> (`aa7329c3…`) — its outcome columns are covered by the v2 re-runs, but run A's
+> `(ii)` figures predate the link-time line the probe now requires and are
+> unreproducible by design; run D's `--force-fallback` path; `--sample`, `--plan`
+> and `--files` selections; and anything about a second machine, since these runs
+> and the originals share one host.
+
 **Answer, for what was run** (`clang-18` / `lld` 18.1.3, x86-64, one object per
 link, `-shared`): every wipe the stock LTO build loses comes back when WipePin is
 loaded at compile time — 113/113 at `-O2` under full and under thin LTO, 62/62 at

@@ -373,7 +373,9 @@ test('every row count the README prints is the count the rows file actually has'
   const withCell = rows.filter((r) => r && r.cc && r.opt).length;
 
   // the Re-running section: what build-analyze.mjs writes
-  const reRun = README.match(/node build-analyze\.mjs\s+#\s+([\d,]+) rows/);
+  // build-analyze.mjs took no arguments until 2026-09-12; it now requires --out,
+  // so the count may sit behind the flags rather than straight after the name.
+  const reRun = README.match(/node build-analyze\.mjs[^\n#]*#\s+([\d,]+) rows/);
   assert.ok(reRun, 'the Re-running section no longer states a row count for build-analyze.mjs');
   assert.equal(Number(reRun[1].replace(/,/g, '')), total,
     `README says build-analyze.mjs writes ${reRun[1]} rows; data/r2-build-rows.json has ${total}`);

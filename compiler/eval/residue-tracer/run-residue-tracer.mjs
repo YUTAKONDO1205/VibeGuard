@@ -50,7 +50,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 import { longestRun, longestRunOverSlots, hexToBytes, needleSanity, agrees, PARTIAL_FLOOR } from './lib/scan.mjs';
-import { CONTROLS, gradeCell, gradeControl, runValidity, assertPairing, crossTab, anomalies } from './lib/grade.mjs';
+import {
+  CONTROLS, gradeCell, gradeControl, runValidity, assertPairing, crossTab, anomalies, writeDataRefusals,
+} from './lib/grade.mjs';
 import { parseFrame, requiredBelow, FRAME_MARGIN_BYTES, WINDOW_MAX_BYTES } from './lib/frame.mjs';
 import {
   OPTS, VENDORS, IDIOMS, ARMS, plannedCells, buildRow, assertIntegers, assertNoPaths, renderCrossTab,
@@ -475,10 +477,26 @@ async function main() {
     process.exit(1);
   }
   if (args.writeData) {
-    if (args.controlsOnly) die(5, '--write-data refused: a controls-only run measures the instrument, not the matrix');
+    // Every reason at once: a person fixing the command should need one more
+    // run, not three. See writeDataRefusals in lib/grade.mjs for what this
+    // used to let through -- a twelve-cell run over the sixty-cell record.
+    const why = writeDataRefusals({
+      ccs: args.ccs, opts: args.opts, idioms: args.idioms, controlsOnly: args.controlsOnly, rows,
+    });
+    if (why.length) {
+      die(5, `--write-data refused, the tracked rows are the full matrix:\n  ${why.join('\n  ')}\n`
+        + '  the lab rows at --out are written and are what this run measured');
+    }
     const DATA = join(HERE, 'data');
     mkdirSync(DATA, { recursive: true });
-    writeFileSync(join(DATA, `residue-rows-${ccs.join('-')}.json`), `${JSON.stringify(rows, null, 2)}\n`, 'utf8');
+    // VENDORS order, not the order they were typed on the command line: the
+    // refusal above already requires every vendor, so `--cc gcc-13,clang-18`
+    // measures the same matrix as `--cc clang-18,gcc-13` and must not land in
+    // a second file. It used to, and the lane's drift test -- which asserts
+    // there is exactly one tracked rows file -- would have failed on a run
+    // that measured everything it was supposed to.
+    const name = `residue-rows-${VENDORS.filter((v) => ccs.includes(v)).join('-')}.json`;
+    writeFileSync(join(DATA, name), `${JSON.stringify(rows, null, 2)}\n`, 'utf8');
     process.stdout.write(`wrote ${rows.length} rows to data/\n`);
   }
   process.exit(0);
