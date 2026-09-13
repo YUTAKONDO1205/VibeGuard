@@ -60,7 +60,7 @@
     }
   ],
   "notMeasuredHere": [
-    "The LTO probes (tools/lto-probe.mjs, tools/lto-probe-gcc.mjs). They are gated the same way and write no tracked rows at all, so there is nothing in data/ of theirs to compare against; what their prose quotes are lab runs, and the ones already written down predate the gate.",
+    "The LTO probes (tools/lto-probe.mjs, tools/lto-probe-gcc.mjs). They are gated the same way and write no tracked rows at all, so there is nothing in data/ of theirs to compare against by the route this file uses; what their prose quotes are lab runs, and the ones written down in tools/LTO.md predate the gate. Closed separately on 2026-09-13 by data/lto-regate.json, which re-ran the -O2 configuration of both probes under the gate -- twice per vendor, once with the exact plugin binary the prose quotes -- and compares the counts against LTO.md rather than against tracked rows. The levels other than -O2 are still not covered anywhere.",
     "The -O0 configuration's contribution to the gate. 4 of 5 configurations discriminate on each vendor -- at -O0 both spikes are registered to read the same word -- which is the same shape the corpus lane records."
   ],
   "provenance": {

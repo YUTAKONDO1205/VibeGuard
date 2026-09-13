@@ -79,17 +79,33 @@ other bytes** are different states of the world, and a caller that could not tel
 them apart would re-run the wrong thing. `lib/controls-receipt.mjs` holds the
 comparison and `test/controls-receipt.test.mjs` exercises it in both directions.
 
-**What has actually been run, and what has not.** The refusing direction was
-measured on 2026-09-12: with no receipt in `--out`, `run-second-vendor.mjs`
-exits 3, compiles nothing and leaves neither a work directory nor an output
-file. **The accepting direction has not been run**: it needs a fixture set
-carrying all five of `erasure`, `nullcheck`, `signedovf`, `authz` and
-`configguard`, and the machine this was written on has no such set, so no
-`run-controls.mjs` run has produced a green receipt for `run-second-vendor.mjs`
-to accept. The both-directions claim in the paragraph above is about
-`test/controls-receipt.test.mjs`, which is a unit test over synthetic receipts;
-it is not a run. Anyone with the full fixture set should run the pair and
-replace this paragraph with what happened.
+**What has actually been run — all four paths, 2026-09-13.** An earlier version of
+this paragraph said the accepting direction *could not* be run here, because the
+machine had no fixture set carrying all five of `erasure`, `nullcheck`, `signedovf`,
+`authz` and `configguard`. **That was wrong**: ten such sets were sitting in the lab,
+every one of them 5 × (`target.c`, `opaque.c`, `main.c`) with byte-identical
+`target.c` across all ten. Recorded rather than quietly replaced, because the claim
+that had been written down was "this cannot be measured here" and the reason it was
+written was that nobody looked.
+
+What was run, on a copy of one of those sets (`erasure/target.c` sha256
+`14023f4b0b53…`, spec `8711a087c60c`, clang-18 / gcc-13):
+
+| path | command | result |
+|---|---|---|
+| **accepting** | `run-controls.mjs` then `run-second-vendor.mjs`, same `--fixtures`/`--out` | controls **exit 0**, receipt `ALL_CONTROLS_PASSED over 10 block(s), spec 8711a087c60c, 5 fixture file(s)`; envelope **exit 0**, first line `controls receipt … -- proceeding.`, 80 cells written (19 `both-preserved`, 17 `both-lost`, 4 `clang-preserved-gcc-lost`) |
+| **nobody ran them** | `run-second-vendor.mjs` into an empty `--out` | **exit 3**, "no controls receipt at …", nothing compiled, **zero files** in `--out` |
+| **they ran and something failed** | one blank line prepended to `erasure/target.c`, then the pair | controls **exit 2** and `CONTROLS_FAILED` (failed: `erasure.wipe/clang-18`, `erasure.wipe/gcc-13`); envelope **exit 3**, naming both failed blocks, no envelope written |
+| **they ran on other bytes** | the green receipt above placed beside the *edited* fixtures | **exit 3**, `fixture erasure/target.c has changed since the controls ran (14023f4b0b53 -> 3d0dad7fa24b)`, no envelope written |
+
+The third row is also the first demonstration of the `1 → 2` change described below:
+until this run, a failing control had never been observed to exit 2 rather than 1.
+
+`test/controls-receipt.test.mjs` remains a unit test over synthetic receipts, and the
+"both directions" claim in the paragraph above is about it. The table here is the
+runs. What is still **not** established by either: that the accepting direction holds
+for a fixture set other than this one — all ten in the lab share the same `target.c`
+bytes, so they are one set, measured once.
 
 `run-controls.mjs` also now exits **2** rather than 1 when a control fails.
 `interfaces.md` §7 spends 1 on "the underlying tool failed (compile error, link

@@ -471,7 +471,8 @@ jobs:
       - name: compiler/ Python suites that need no toolchain
         run: |
           set -u
-          for t in compiler/eval/metamorphic/test/test_check_meta_survival_axis.py; do
+          for t in compiler/eval/metamorphic/test/test_check_meta_survival_axis.py \
+                   compiler/eval/metamorphic/test/test_run_all_projection.py; do
             [ -s "$t" ] || { echo "::error::no test file, or an empty one, at $t"; exit 1; }
             echo "--- $t"
             if out=$(python3 "$t" 2>&1); then rc=0; else rc=$?; fi

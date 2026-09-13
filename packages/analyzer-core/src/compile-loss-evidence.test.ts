@@ -162,33 +162,40 @@ describe('a malformed cell is refused out loud', () => {
   });
 });
 
+// These two went in built by hand rather than through `request()` above, with a
+// `language` key `ScanRequest` does not have, no `targetType` or `mode`, and an
+// `await` on a synchronous `scan`. Vitest transpiles without typechecking, so all
+// four mistakes ran green here while `tsc -p` — which is what `npm run build`
+// runs, and what CI's build-test job runs — failed on them. They are routed
+// through the same helper as everything else above now.
+const EVAL_SNIPPET = 'const p = "password123";\neval(p);\n';
+
 describe('a well-formed cell for a rule this engine did not load', () => {
-  it('is reported rather than dropped in silence', async () => {
-    const res = await scan({
-      filePath: 'x.js',
-      language: 'javascript',
-      content: 'const p = "password123";\neval(p);\n',
-      compileLossEvidence: {
-        'VG-NOT-A-RULE': { num: 1, den: 2, corpusId: 'r2', vendor: 'clang-18', optLevel: '-O2' },
-      },
-    });
+  it('is reported rather than dropped in silence', () => {
+    const res = scan(
+      request({
+        content: EVAL_SNIPPET,
+        compileLossEvidence: supply(
+          { num: 1, den: 2, corpusId: 'r2', vendor: 'clang-18', optLevel: '-O2' },
+          'VG-NOT-A-RULE',
+        ),
+      }),
+    );
     const rejections = res.compileLossEvidenceRejections ?? [];
     expect(rejections.map((r) => r.ruleId)).toEqual(['VG-NOT-A-RULE']);
-    expect(rejections[0].detail).toMatch(/not a rule this engine loaded/);
+    expect(rejections[0]?.detail).toMatch(/not a rule this engine loaded/);
     // And the findings are otherwise untouched: this is a report, not a refusal.
     expect(res.findings.length).toBeGreaterThan(0);
     for (const f of res.findings) expect('compileLossEvidence' in f).toBe(false);
   });
 
-  it('says nothing when the id IS a loaded rule', async () => {
-    const res = await scan({
-      filePath: 'x.js',
-      language: 'javascript',
-      content: 'const p = "password123";\neval(p);\n',
-      compileLossEvidence: {
-        'VG-INJ-004': { num: 113, den: 133, corpusId: 'r2', vendor: 'clang-18', optLevel: '-O2' },
-      },
-    });
+  it('says nothing when the id IS a loaded rule', () => {
+    const res = scan(
+      request({
+        content: EVAL_SNIPPET,
+        compileLossEvidence: supply(R2_CLANG_O2, 'VG-INJ-004'),
+      }),
+    );
     expect(res.compileLossEvidenceRejections).toBeUndefined();
   });
 });

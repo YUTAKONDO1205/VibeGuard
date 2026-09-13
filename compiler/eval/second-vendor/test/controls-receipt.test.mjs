@@ -228,3 +228,51 @@ test('readReceipt finds the block run-controls.mjs writes, and reports an absent
     rmSync(out, { recursive: true, force: true });
   }
 });
+
+// --- the README records runs, not intentions -------------------------------
+//
+// Everything above is a unit test over synthetic receipts, and that distinction
+// is the one this lane got wrong once already: between 2026-09-12 and 2026-09-13
+// README.md said the accepting direction "has not been run" and could not be,
+// "the machine this was written on has no such set" -- while ten complete fixture
+// sets sat in the lab. The claim was not measured; it was assumed, and a unit
+// suite passing in both directions was read as covering for it.
+//
+// All four paths were run on 2026-09-13. This keeps the record from reverting to
+// an intention: a README that goes back to saying the green path is unrun, or
+// that drops the refusals, fails here. It asserts the SHAPE of the record, not
+// its numbers -- re-measuring on another fixture set should change the digests in
+// that table without touching this test.
+
+test('README.md records the accepting direction as run, and all three refusals with it', () => {
+  const readme = readFileSync(path.join(HERE, '..', 'README.md'), 'utf8');
+
+  assert.doesNotMatch(readme, /accepting direction has not been run/i,
+    'README.md says the accepting direction is unrun. It was run on 2026-09-13 (exit 0, receipt '
+    + 'ALL_CONTROLS_PASSED over 10 blocks, 80 cells). If it has genuinely become unrunnable, say '
+    + 'why and when here rather than restoring a sentence that was false the first time.');
+  assert.doesNotMatch(readme, /machine this was written on has no such set/i,
+    'README.md repeats the claim that this machine has no five-property fixture set. It has ten, '
+    + 'verified byte-identical across all five properties.');
+
+  for (const [what, re] of [
+    ['the accepting run and its verdict', /ALL_CONTROLS_PASSED over 10 block\(s\)/],
+    ['the cell count it produced', /80 cells/],
+    ['the no-receipt refusal', /no controls receipt at/],
+    ['the failed-controls refusal', /CONTROLS_FAILED/],
+    ['the other-bytes refusal', /has changed since the controls ran/],
+    ['the exit 2 a failing control now carries', /exit 2/],
+  ]) {
+    assert.match(readme, re,
+      `README.md no longer records ${what}. The four paths are the evidence that this is a gate `
+      + 'rather than a convention; a README that records only the green one records the state '
+      + 'this lane was already in.');
+  }
+
+  // And the boundary the runs do NOT cross, kept stated.
+  // \s+ and not a space: the sentence wraps across a line in the source.
+  assert.match(readme, /all ten in the lab share the same `target\.c`\s+bytes/,
+    'README.md must keep saying that the ten fixture sets are one set measured once: otherwise '
+    + '"ten sets" reads as ten independent confirmations, which is exactly the overclaim this '
+    + 'paragraph was rewritten to avoid.');
+});

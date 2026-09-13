@@ -302,10 +302,28 @@ which component ran.
 | 1 | The underlying tool failed (compile error, link error). Its diagnostics pass through unchanged. |
 | 2 | Findings at or above the policy's failure threshold. |
 | 3 | A check could not be completed. **Never conflated with 0** — this is the code that keeps "we did not look" from being reported as "it is clean". |
-| 4 | Toolchain or policy integrity failure: a digest does not match the pin, or the policy is malformed. Nothing else runs. |
+| 4 | Toolchain or policy integrity failure: a digest does not match the pin, or the policy is malformed. Nothing else runs. Extended by the measuring harnesses to the invocation itself — an argument they cannot act on, an output path inside the repository, an id the corpus does not hold. |
+| 5 | The harness could not be set up, or refused to write what it produced. Before any cell: a plugin, a shared module, a tracked rows file or a plan it depends on could not be used, or a preflight of its own instrument failed. After every cell: text about to be tracked carried something a tracked file may not carry — an absolute path, a non-integer, a string naming a machine — and **nothing was written**. Not 3, which is a check that ran and could not be completed; not 4, which is about the pinned toolchain, the policy or the invocation. An uncaught failure of the harness itself lands here too, so that a crash is never reported as 0. |
+| 6 | The thing measured is not the thing it was named as: a compiler whose banner or `-dumpversion` major disagrees with the `N` in `clang-N` / `gcc-N`, an unversioned spelling, or a version the declared ladder does not carry. Kept apart from 4 because every verdict of such a run would be filed under the wrong rung, which is a different failure from an argument the caller got wrong. |
 
 Fail closed. An unreadable policy, an unresolvable plugin digest, or a missing
 observation is 3 or 4 — never 0 with a warning.
+
+5 and 6 are emitted by the measuring harnesses under `compiler/eval/` and nowhere
+else. The driver, the verifier, the envelope and the link wrapper keep to 0–4, and
+`observation.schema.json` holds a verdict's `exitCode` at 0–4 deliberately: a
+record's verdict is about the build it describes, never about the harness that
+recorded it. `compiler/schema/exit-codes.test.mjs` reads this table and every
+literal exit in the tree and fails if either carries a code the other does not —
+added 2026-09-13, after 5 had spread to 101 sites in 15 files and 6 to one, with
+neither in this table.
+
+Two departures from the table are known and deliberately not corrected here, so
+that a reader does not mistake the table for a claim of uniformity: a compiler
+absent from `PATH` is 3 in `compiler/eval/spike` and 5 in `compiler/eval/repair-loop`,
+and `compiler/eval/negative-controls` maps a tool failure to 5 where the table
+spends 1. Both are a lane's settled convention; unifying them is a change to those
+lanes, not to this section.
 
 One consequence worth stating because the repository's own scanner will catch
 it otherwise: **do not put a security decision inside `assert`**. It disappears

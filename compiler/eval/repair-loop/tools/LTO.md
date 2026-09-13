@@ -9,6 +9,21 @@ verdict, on the assembly the LTO backend writes.
 Its twin for gcc-13 and WipePinGcc, `lto-probe-gcc.mjs`, has its own section
 below (*gcc-13*); everything before that section is about clang.
 
+> **Every figure in this file was measured before the gate.** Both probes have
+> called `compiler/eval/spike`'s gate since 2026-09-12 (`lto-probe.mjs:278`,
+> `lto-probe-gcc.mjs:312`); this file's last content change was earlier the same
+> day, so the code was gated and the prose was not — the same split
+> `../data/r2-regate.json` records for the tracked rows, and the one it named the
+> LTO probes as *not* covering. On 2026-09-13 the `-O2` runs were made again with
+> the gate in front of them, on both vendors, each with the exact plugin binary
+> quoted here as well as with a rebuild of it: **the gate held and every number
+> reproduced**. That is written down in `../data/lto-regate.json` and held to this
+> file by `../test/lto-regate.test.mjs`, which reads the Run E and gcc Run A rows
+> back out of the tables below. The probes write no tracked data (`--write-data`
+> is exit 4), so that record is transcribed by hand and the test is what keeps the
+> transcription honest. **The other levels were not re-run**: `-O1`, `-O3`, `-Os`,
+> clang run F and gcc run B are still pre-gate lab output, and the record says so.
+
 **Answer, for what was run** (`clang-18` / `lld` 18.1.3, x86-64, one object per
 link, `-shared`): every wipe the stock LTO build loses comes back when WipePin is
 loaded at compile time — 113/113 at `-O2` under full and under thin LTO, 62/62 at

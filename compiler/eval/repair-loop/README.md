@@ -690,10 +690,37 @@ already had. This lane writes its rows in a fixed order, so unlike
 `../ai-generated` it can make that claim rather than settling for the multiset.
 
 `data/r2-regate.json` is the record and `test/regate.test.mjs` recomputes both
-digests and row counts from the tracked files. What is **not** covered: the two
-LTO probes, which are gated the same way and write no tracked rows at all, so
-there is nothing of theirs in `data/` to compare against — their READMEs' runs
-are lab output, and the ones already written down predate the gate.
+digests and row counts from the tracked files.
+
+### The two LTO probes, closed differently — 2026-09-13
+
+`tools/lto-probe.mjs` and `tools/lto-probe-gcc.mjs` are gated the same way and
+write **no tracked rows at all**, so there is nothing of theirs in `data/` to
+compare against and the route above is not available to them. What they do have is
+prose: `tools/LTO.md` quotes concrete counts, and its last content change was
+hours before the gate was wired into them, so every number in it was taken
+pre-gate.
+
+So the `-O2` runs were made again with the gate in front of them — **four runs, two
+per vendor**: once with the exact plugin binary `LTO.md` quotes (clang
+`db3298cf…`, gcc `a023b047…`, both found in the lab with the digest verified) and
+once with this branch's rebuild of the same source, because reproducing a figure
+with the gate added *and* the binary changed does not separate the two. The gate
+held on all four (`ESTABLISHED`, injection RED, the one registered discriminating
+pair at `-O2`) and **every number reproduced**: clang 113 cells per form,
+113 `RETAINED`, dry-run `HELD` 113/113, (ii) `HELD` over 226 links, 452/452
+relinks; gcc 108 cells, 108 `RETAINED`, 216 links at two lto1 refusals each,
+1296/1296 relinks. All four exited 0; nothing was written to `data/` by a probe.
+
+`data/lto-regate.json` is the record — transcribed by hand, because both probes
+refuse `--write-data` with exit 4 — and `test/lto-regate.test.mjs` reads the Run E
+and gcc Run A rows back **out of `LTO.md`** and holds the record to them, so a
+mistyped figure and a later edit of the prose fail the same test.
+
+What is still **not** covered, and `data/lto-regate.json` says so in its own
+`notMeasuredHere`: every level except `-O2` — `-O1`, `-O3`, `-Os`, clang run F and
+gcc run B remain pre-gate lab output — and anything about a second machine, since
+all four runs and `LTO.md`'s originals share one host.
 
 `--plan` compiles only the (file, level) cells the plan names, each with exactly
 the names it lists, and refuses a plan whose names no longer match this tree's
