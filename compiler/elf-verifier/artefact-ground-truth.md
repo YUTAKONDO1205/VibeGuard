@@ -74,7 +74,7 @@ it. Both are asserted, in both directions, in `properties.test.mjs`.
 
 ### 2.3 `DT_BIND_NOW` is absent everywhere
 
-On all 23 fixtures — including the fully hardened link, including
+On all 24 fixtures — including the fully hardened link, including
 `-Wl,-z,now` — the historical `DT_BIND_NOW` tag (24) **is not emitted**. GNU ld
 2.42 spells eager binding only through `DT_FLAGS`/`DT_FLAGS_1`. A checker that
 looks only for `DT_BIND_NOW` reports *partial RELRO for every binary this
@@ -162,10 +162,21 @@ clean artefact.
 | `dbg-off` (`-g0`) | 0 | found | found |
 | `hardened` | 0 | found | found |
 | `unhardened` (`-g`) | **1** | found | found |
+| `clean` (added 2026-09-14) | 0 | found | **absent** |
 
 The control string is the extractor's 0-vs-nonzero control: it is compiled into
-every fixture and must always be found. If it is not, the extractor has stopped
-working and the run reports `INCOMPLETE` rather than clean.
+every fixture built from `fixture.c` and `clean.c`, and must always be found in
+them. If it is not, the extractor has stopped working and the run reports
+`INCOMPLETE` rather than clean. (`wx-on` and `libshared.so` are built from
+other sources and carry neither string; a scan pointed at one of them is
+`BROKEN`, which is the same mechanism seen from the other side.)
+
+The last row is the one the other three cannot produce. Every fixture built
+from `fixture.c` carries the marker, so those rows can only ever be `HITS`;
+`clean.c` is the same translation unit with the planted line deleted, built
+under the hardened row's flags, and it is the only artefact here for which the
+scan reports `CLEAN` with a forbidden string configured. Measured 2026-09-14 by
+`test/artefact-scan-verdicts.test.mjs`.
 
 Note that the interpreter path `/lib64/ld-linux-x86-64.so.2` is in `.interp` of
 every dynamic executable. A detector that flags any absolute path flags every

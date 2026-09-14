@@ -820,9 +820,28 @@ Named here rather than discovered later.
 
 # Edits requested in files this lane does not own
 
-Nothing below has been applied. Each is a file another lane owns, or
-`compiler/schema/`, whose own rule is that nobody edits it while implementing
-against it.
+Nothing below had been applied when this section was written on 2026-09-12. Each
+is a file another lane owns, or `compiler/schema/`, whose own rule is that nobody
+edits it while implementing against it.
+
+**Most of it has since been granted**, and the requests are kept as written
+rather than deleted or rewritten in the past tense, because what was asked for
+and what was granted are two different facts and only the second one is readable
+from the schema. Recounted against `compiler/schema/properties.json` and
+`compiler/schema/observation.schema.json` on 2026-09-14:
+
+| § | State on 2026-09-14 |
+|---|---|
+| 1 | Applied. The entry reads `"status": "partial"`. |
+| 2 | Applied. `readMeFirst` carries the proposed distribution sentence word for word. |
+| 3 | Applied, in different words: the `must-remain-unobservable` coverage line no longer begins `none`. |
+| 4 | Applied and then corrected again on the same day — the `linked` owner line now records both corrections and withdraws the first. |
+| 5 | Applied in substance, not in the form asked for: the extractor is registered as `linked.secret-residue` with `"checkpoints": ["process"]`, not as `process.stack-residue` with an empty array. Granting §6 is what made that possible. |
+| 6 | **Granted** by user adjudication on 2026-09-12: `process` is in the checkpoint enum. |
+| 7 | Asked for nothing to be registered, and nothing was. |
+
+So every "currently reads" and "the current counts are" below is a quotation of
+2026-09-12 and not a statement about today.
 
 **`properties.json` is not read by one test only.** An earlier draft of this file
 said the coverage line in §3 was the only edit below with a test coupling. That
@@ -909,11 +928,23 @@ line 895 onwards with:
 
 Two clauses in that sentence become false: `partial` is no longer used by exactly
 one entry, and the distribution changes. Recounted from the file rather than
-remembered — the current counts are `implemented 7, unimplemented 14, candidate
-2, partial 1` over 24 entries, and `notappear.forbidden-external-call` is today
-the only `partial`. Replace the two sentences beginning `'partial' means` with:
+remembered — the counts **as this request was written, on 2026-09-12** were
+`implemented 7, unimplemented 14, candidate 2, partial 1` over 24 entries, and
+`notappear.forbidden-external-call` was then the only `partial`. Replace the two
+sentences beginning `'partial' means` with:
 
 > `'partial' means an extractor measures part of what the title claims and the entry's statusDetail says which part -- it is used by two entries (notappear.forbidden-external-call, unobservable.secret-buffer-residue), and it went unlisted in this paragraph for months because a reader checking the vocabulary against the catalogue would have to count all 24 entries to notice. Current distribution, recomputed rather than remembered: implemented 7, unimplemented 13, candidate 2, partial 2.`
+
+**Granted, and now checked rather than trusted.** `readMeFirst` carries that
+replacement today, and the distribution it states — `implemented 7,
+unimplemented 13, candidate 2, partial 2` over 24 entries — is no longer only
+asserted: `compiler/driver/test/properties.test.mjs` parses those four numbers
+back out of the prose and recounts them from `properties[]`, so a status that
+moves without the sentence moving is a red suite instead of a paragraph that
+quietly stopped being true. The check was added on 2026-09-14, after the same
+paragraph had already gone stale once inside the catalogue itself — it "said
+three until 2026-08-18 while the file below already used the fourth" — and once
+here, where these very counts sat one revision behind while reading as current.
 
 ## 3. `compiler/schema/properties.json` — `kindCoverage.must-remain-unobservable`, line 124 (coupled)
 

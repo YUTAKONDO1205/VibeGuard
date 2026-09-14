@@ -27,6 +27,16 @@
 // translation unit is compiled separately here, with its own OBS_OUT, and the
 // objects are linked afterwards -- which is also how a build system does it.
 //
+// ★ 2026-09-15: the ThinLTO cell (NI-09..NI-11) was added, and until it existed
+// this harness established byte-identity for the compile-time path and for
+// nothing else -- no LTO of either form was linked here at all. That mattered
+// once the plugin stopped keeping a process-global tracker: under -flto=thin
+// lld builds one PassBuilder per backend module, on its own thread, so the
+// allocation and I/O the byte-identity claim is about is a different shape
+// there. The ThinLTO cell carries its own negative control (NI-11) rather than
+// borrowing NI-04's: NI-04 perturbs a cc1 process and says nothing about
+// whether anything in this harness can move the bytes lld emits.
+//
 // Usage:  node compiler/pass-instrumentation/observer/scripts/noninvasive.mjs
 //         OBS_LAB=<lab dir> OBS_PLUGIN=<libPropertyObserver.so> node .../noninvasive.mjs
 //         OBS_LAB defaults to ~/vg-lab/pass-observer and OBS_PLUGIN to
@@ -81,6 +91,22 @@ function check(id, claim, expected, measured, ok) {
 }
 
 if (!fs.existsSync(OBS)) { console.error(`missing ${OBS}`); process.exit(3); }
+
+// lld, for the ThinLTO cell: it is the only linker here that runs LTO backends
+// with a pass plugin loaded. Resolved to a path and handed to clang with
+// `--ld-path` rather than asked for with `-fuse-ld=lld`, because the latter
+// needs an `ld.lld` in PATH and the `lld-18` package installs `ld.lld-18`; on a
+// machine where the unversioned alternative is not set up, `-fuse-ld=lld` fails
+// at the link and the cell would look like a plugin fault. Absent altogether
+// this is exit 3, the harness could not run -- not a check that quietly does
+// not appear, which is what the report's check count exists to catch.
+const LLD = ['ld.lld-18', 'ld.lld']
+  .map((t) => sh('which', [t]).stdout.trim().split('\n')[0])
+  .find((p) => p && fs.existsSync(p));
+if (!LLD) {
+  console.error('missing ld.lld-18 and ld.lld; the ThinLTO checks (NI-09..NI-11) cannot run');
+  process.exit(3);
+}
 
 const obsEnv = (out, mode = 'standard') => ({
   OBS_TARGET_FN: TARGET, OBS_CONTROL_FN: CONTROL, OBS_EFFECT_SYMBOLS: SYMBOLS,
@@ -202,6 +228,87 @@ const bisectSummary = fs.existsSync(bisectSummaryPath)
   : [];
 const bisectTarget = bisectSummary.find((f) => f[1] === TARGET);
 
+// --- ThinLTO ----------------------------------------------------------------
+// Everything above is the compile-time window: one process, one tracker, one
+// log, and the plugin loaded with -fpass-plugin. ThinLTO is the other shape,
+// and it is the one the per-module change in the plugin was made for: lld
+// builds one PassBuilder per backend module, each on its own thread, and the
+// plugin's registration callback runs once per PassBuilder.
+//
+// The plugin is loaded at the LINK here, not at the compile. Both arms link the
+// same bitcode objects, produced once without any plugin, so the only thing
+// that differs between the two executables is whether the observer ran inside
+// the backends -- which is the claim, stated as narrowly as it can be.
+const THIN = path.join(WORK, 'thin');
+fs.mkdirSync(THIN, { recursive: true });
+const thinOpt = '-O2';
+const thinObjs = TUS.map((tu) => {
+  const o = path.join(THIN, tu.replace('.c', '.o'));
+  sh('clang-18', [thinOpt, '-flto=thin', '-c', path.join(FIX, tu), '-o', o]);
+  return o;
+});
+const thinLink = (out, extra = [], env = {}) => sh('clang-18',
+  [thinOpt, '-flto=thin', `--ld-path=${LLD}`, ...thinObjs, '-o', out, ...extra], env).code;
+
+const thinStock = path.join(THIN, 'app.stock');
+const thinStock2 = path.join(THIN, 'app.stock2');
+const thinObserved = path.join(THIN, 'app.observed');
+const thinBisect = path.join(THIN, 'app.bisect');
+const thinLog = path.join(THIN, 'thin.tsv');
+
+const thinRc = {
+  stock: thinLink(thinStock),
+  stock2: thinLink(thinStock2),
+  observed: thinLink(thinObserved, [`-Wl,--load-pass-plugin=${OBS}`], obsEnv(thinLog)),
+  bisect: thinLink(thinBisect, ['-Wl,-mllvm,-opt-bisect-limit=40']),
+};
+
+// Column 2 of the manifest, and not a re-derived filename. Which backend gets
+// the unsuffixed OBS_OUT is a race: measured on 2026-09-15 over five runs of
+// this same three-unit link, opaque.o claimed it three times, target.o once
+// and main.o once. The suffix the others get is sanitised from the module id
+// with a length fallback, so a reader that rebuilds the name agrees on the
+// easy cases and is wrong on the rest. The manifest says which file was
+// opened, and that is what is read here.
+const thinManifest = thinLog + '.modules';
+const thinBackends = fs.existsSync(thinManifest)
+  ? fs.readFileSync(thinManifest, 'utf8').split('\n').filter((l) => l.includes('\t'))
+      .map((l) => { const [id, logPath] = l.split('\t'); return { id, logPath, ev: evCount(logPath) }; })
+  : [];
+const thinEv = thinBackends.reduce((n, b) => n + b.ev, 0);
+const thinShort = (p) => short(sha(p));
+
+check('NI-09',
+  `${thinOpt} -flto=thin: two plugin-free ThinLTO links of the same objects agree (the comparison is not vacuous)`,
+  'identical sha256 from two stock links',
+  `stock=${thinShort(thinStock)} stock2=${thinShort(thinStock2)} rc=${thinRc.stock}/${thinRc.stock2}`,
+  thinRc.stock === 0 && thinRc.stock2 === 0
+    && sha(thinStock) !== null && sha(thinStock) === sha(thinStock2));
+
+// Same AND as NI-02 and NI-03, for the same reason: a link in which the plugin
+// declined to install produces identical bytes trivially. The backend count is
+// part of the condition because a ThinLTO check that ran one backend would be
+// the full-LTO check under another name, and the defect this path exists to
+// cover -- N trackers, N logs -- needs N > 1 to exist at all.
+check('NI-10',
+  `${thinOpt} -flto=thin: the linked executable is byte-identical with and without the observer loaded into the LTO backends, AND the observer observed, in more than one backend`,
+  'identical sha256, EV records > 0, and a manifest naming at least two backend modules',
+  `stock=${thinShort(thinStock)} observed=${thinShort(thinObserved)} ev=${thinEv} `
+  + `backends=[${thinBackends.map((b) => `${b.id}:ev=${b.ev}`).join(' ')}] rc=${thinRc.observed}`,
+  thinRc.observed === 0 && sha(thinStock) !== null && sha(thinStock) === sha(thinObserved)
+    && thinEv > 0 && thinBackends.length >= 2);
+
+// The ThinLTO path's own negative control. NI-04 perturbs a cc1 process; it
+// says nothing about whether anything reachable from this harness can move the
+// bytes lld emits, and without that "the link did not change" is not
+// information. `-Wl,-mllvm,...` reaches the LTO backends' pass manager, which is
+// the same knob NI-04 turns, one process further along.
+check('NI-11',
+  `negative control for the ThinLTO path: -Wl,-mllvm,-opt-bisect-limit=40 does change the linked executable`,
+  'different sha256 from the stock ThinLTO link',
+  `stock=${thinShort(thinStock)} bisect=${thinShort(thinBisect)} rc=${thinRc.bisect}`,
+  thinRc.bisect === 0 && sha(thinBisect) !== null && sha(thinBisect) !== sha(thinStock));
+
 // --- (i) again, after everything --------------------------------------------
 const toolsAfter = Object.fromEntries(TOOLS.map((t) => [t, sha(t)]));
 const toolsUnchanged = TOOLS.every((t) => toolsBefore[t] !== null && toolsBefore[t] === toolsAfter[t]);
@@ -241,6 +348,12 @@ const report = {
       firstLossPass: bisectTarget[6] === '-' ? null : bisectTarget[6],
       finalState: bisectTarget[10], fate: bisectTarget[15],
     } : null,
+  },
+  thinLto: {
+    opt: thinOpt, linker: LLD, exitCodes: thinRc,
+    execStock: sha(thinStock), execStock2: sha(thinStock2),
+    execObserved: sha(thinObserved), execBisect: sha(thinBisect),
+    backends: thinBackends, evRecords: thinEv,
   },
   checks, passed: checks.length - failed.length, failed: failed.length,
 };

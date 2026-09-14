@@ -102,7 +102,86 @@ export const REASON = Object.freeze({
   // property was not there to read" are the two claims this lane exists to keep
   // apart, and one word for both would merge them in the exclusion list.
   NO_SUBJECT_READING: 'no-reading-of-the-subject-at-this-point',
+  // ThinLTO, since 2026-09-14. The observer now writes one log per backend
+  // module plus `<OBS_OUT>.modules` naming every tracker, so the single word
+  // MULTI_PASSBUILDER no longer covers everything that can go wrong there --
+  // and it must not, because it used to be asserted for all of them. Each of
+  // these is reached only from a measured value; see lib/thin-logs.mjs.
+  //
+  // MULTI_PASSBUILDER keeps its original meaning and nothing else: a backend's
+  // log came back shredded. It is no longer the word for "we did not look",
+  // for "a backend's log is missing", or for "the link failed".
+  THINLTO_EVIDENCE_NOT_TAKEN: 'thinlto-evidence-not-taken-in-this-run',
+  THINLTO_LINK_FAILED: 'thinlto-link-did-not-survive-the-plugin',
+  THINLTO_NO_MANIFEST: 'thinlto-no-backend-manifest',
+  THINLTO_BACKEND_LOG_LOST: 'thinlto-backend-log-named-in-the-manifest-is-not-here',
+  THINLTO_ROW_IN_SEVERAL_BACKENDS: 'thinlto-summary-row-for-one-name-in-more-than-one-backend',
+  // The check exitDecision() applies to full-LTO cells, as a cell-level word
+  // for the form where it is taken inside the cell instead.
+  NON_INVASIVENESS_NOT_ESTABLISHED: 'stock-and-observed-executables-were-not-compared',
 });
+
+/**
+ * The gcc cell's refusal, from the gcc probes' own rc values.
+ *
+ * A pure function here rather than four lines in the runner, because the defect
+ * this closes could not be reached by any test while it lived there. Until
+ * 2026-09-15 `gccProbes()` ran three real probes, recorded their rc values into
+ * `probes.*`, and then built the cell as an UNCONDITIONAL
+ * `{ UNSUPPORTED, LINKER_REFUSED_PLUGIN_OPTION }` with the comment "UNSUPPORTED,
+ * earned" above it. No rc appeared in the expression. A gcc link that ACCEPTED
+ * `--load-pass-plugin` would have published `UNSUPPORTED /
+ * linker-refused-plugin-option: no diagnostic` -- the `?? 'no diagnostic'`
+ * fallback being where the success case was anticipated and then not handled,
+ * since a refusal that prints nothing is the only other way to reach it. Same
+ * defect as the ThinLTO one closed the day before, in the other vendor's branch:
+ * evidence measured, recorded, and not consulted by the verdict it was measured
+ * for.
+ *
+ * ALL THREE probes gate, not just the one the reason quotes. UNSUPPORTED is a
+ * claim about the toolchain refusing the invocation, not about one option: GNU
+ * ld not knowing `--load-pass-plugin`, `lto1` loading plugins but not LLVM ones,
+ * and lld not optimising gcc's `.gnu.lto_*` ELF are three separate channels, and
+ * three are probed precisely because one refusal is not the vendor. If any one
+ * of them is ever accepted, a channel exists, the vendor did not refuse, and the
+ * word is not earned however loudly the other two fail.
+ *
+ * The accepted case is BROKEN_MEASUREMENT, not UNSUPPORTED with a different
+ * reason: 3.1 reserves UNSUPPORTED for an invocation that was refused and this
+ * one was taken, while BROKEN_MEASUREMENT is this module's word for an
+ * invocation that was accepted and produced no usable reading -- which it did
+ * not, because there is no gcc pass observer in this tree for an open channel to
+ * load. NO_OBSERVER_FOR_VENDOR was already defined here and referenced by
+ * nothing; this is what it was for.
+ *
+ * Never yet reached: all three probes measured rc=1 on gcc-13 at every level
+ * this lane runs. It is deliberately loud rather than silent, because reaching
+ * it means the gcc row stopped being the row the README describes.
+ *
+ * @param probes  `{ <channel>: { rc, stderr: string[] } }`, the runner's
+ *                `probes` object verbatim.
+ */
+export function gccChannelRefusal(probes) {
+  const entries = Object.entries(probes ?? {});
+  if (entries.length === 0) throw new Error('the gcc cell cannot be graded from no probes at all');
+  const rcs = entries.map(([k, p]) => `${k} rc=${p?.rc}`).join(', ');
+  const accepted = entries.filter(([, p]) => p?.rc === 0).map(([k]) => k);
+  if (accepted.length === 0) {
+    return {
+      measurement: MEASUREMENT.UNSUPPORTED,
+      reason: `${REASON.LINKER_REFUSED_PLUGIN_OPTION}: `
+        + `${probes.loadPassPluginOnGccLink?.stderr?.[0] ?? 'no diagnostic'}`,
+      details: [`all ${entries.length} gcc channels refused: ${rcs}`],
+    };
+  }
+  return {
+    measurement: MEASUREMENT.BROKEN_MEASUREMENT,
+    reason: REASON.NO_OBSERVER_FOR_VENDOR,
+    details: [`gcc did NOT refuse every channel -- accepted: ${accepted.join(', ')} (${rcs}). `
+      + 'A channel that opens still needs an observer to load into it and this tree has no gcc pass observer, '
+      + 'so no reading was taken here; the UNSUPPORTED word this cell used to carry unconditionally is not earned.'],
+  };
+}
 
 /**
  * Things a cell records without refusing.
@@ -143,7 +222,12 @@ export function stateFromSummary(summary) {
  * how a refused cell acquires a verdict.
  */
 export function gradeCell({
-  refusal = null,          // { measurement, reason } when the cell must not be read
+  // { measurement, reason, details? } when the cell must not be read. `details`
+  // are extra strings appended after the reason, for a refusal whose word is
+  // fixed but whose numbers are not -- "3 backends in the manifest, 2 logs
+  // readable" is the difference between a reader who can act on the refusal and
+  // one who has to re-run to find out what happened.
+  refusal = null,
   guards = {},             // { inputs, linkerPipeline, passAgreement, byteIdentity, logIntact, summaryLogIntact, evidenceRecords }
   subject = null,          // SUMMARY row for the subject, or null
   control = null,          // SUMMARY row for the control, or null
@@ -158,7 +242,7 @@ export function gradeCell({
       state: STATE.NOT_OBSERVED,
       controlHeld: null,
       attribution: null,
-      reasons: [refusal.reason],
+      reasons: [refusal.reason, ...(refusal.details ?? [])],
     });
   }
 
@@ -312,6 +396,24 @@ export function finish(cell) {
     reasons: cell.reasons ?? [],
     notes: cell.notes ?? [],
   };
+  // FIRST, because every check below it asks whether the state EQUALS
+  // NOT_OBSERVED, and a state that is not a state at all answers "no" to that
+  // and sails through. Added 2026-09-15. The three throws below were written as
+  // the backstop for the pairing rule and they are, but none of them looks at
+  // whether `state` is one of section 3's six words -- and the success path
+  // does not either: it copies `summary.finalState` straight out of the log
+  // text (stateFromSummary) with no validation. So `undefined` from a SUMMARY
+  // row torn before field 10, or a `PRESNET` from a future typo in the
+  // observer's stateName(), reached the published record as a literal, and
+  // `undefined` did not even reach it as a literal -- JSON.stringify drops the
+  // key, so the artifact carried no `state` at all. lib/pass-log.mjs now tears
+  // the short row before it becomes a summary, which closes the input this was
+  // measured through; this is the second and independent layer, and it is the
+  // one that holds for an input nobody has thought of yet.
+  if (!Object.values(STATE).includes(out.state)) {
+    throw new Error(`interfaces.md 3: ${JSON.stringify(out.state)} is not one of the states `
+      + `(${Object.values(STATE).join(', ')})`);
+  }
   if (out.measurement !== MEASUREMENT.OK && out.state !== STATE.NOT_OBSERVED) {
     throw new Error(`interfaces.md 3.1: measurement ${out.measurement} requires state NOT_OBSERVED, got ${out.state}`);
   }

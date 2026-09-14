@@ -43,7 +43,7 @@ clang-18 -O2 -c target.c -o target.o \
 | `OBS_TARGET_FN` | the subject function |
 | `OBS_CONTROL_FN` | the control function, whose effect cannot be removed |
 | `OBS_EFFECT_SYMBOLS` | comma-separated callees that count as the effect |
-| `OBS_OUT` | the log. **One translation unit per file** — a clang invocation with three sources runs three frontends, and the last one to open this path is the one whose log survives |
+| `OBS_OUT` | the log **stem**, not a filename — see [What the plugin writes](#what-the-plugin-writes). **One translation unit per file** — a clang invocation with three sources runs three frontends, and the last one to open this path is the one whose log survives |
 | `OBS_MODE` | `standard`, `trace` or `forensic` |
 | `OBS_SNAPSHOT_DIR` | where `forensic` writes IR; required in that mode |
 | `OBS_REQUIRE_LIVE_BRANCH` | `1` to count the effect only while a conditional branch still depends on a value |
@@ -234,6 +234,59 @@ deleted call leaves its `declare` behind, and a name search then blames whicheve
 pass eventually sweeps the declaration away instead of the pass that removed the
 call.
 
+## What the plugin writes
+
+`OBS_OUT` is a stem. One process can hold more than one tracker — the
+registration callback runs once per `PassBuilder`, and under `-flto=thin` lld
+builds one per backend module, on its own thread — so a single filename cannot
+be right. What lands on disk:
+
+| File | Written by |
+|---|---|
+| `<OBS_OUT>` | the first tracker in the process to reach a module boundary |
+| `<OBS_OUT>.summary.tsv` | that same tracker's side file |
+| `<OBS_OUT>.<sanitised module id>.tsv` | every later tracker |
+| `<OBS_OUT>.<sanitised module id>.tsv.summary.tsv` | each of those trackers' side files |
+| `<OBS_OUT>.modules` | all of them: one line each, `<raw module id>\t<the log path that tracker opened>` |
+
+A plain compile and a full-LTO link create exactly one tracker, so both write
+`<OBS_OUT>` and `<OBS_OUT>.summary.tsv` and nothing else changes about them —
+measured byte for byte against the previous plugin, together with the object
+file and stderr. The only addition on those paths is `<OBS_OUT>.modules`, which
+is one line long.
+
+The manifest is the part worth explaining. **Read it, do not re-derive the
+names.** Which backend ends up with the unsuffixed file is a race and is not
+worth resolving; the manifest records the path each tracker actually opened, so
+a reader never has to know the naming convention and never has to guess. It also
+covers the case the convention cannot express: a module id too long for a
+filename falls back to `module-<index>`. A tracker writes its line *before* it
+opens its log, so **N lines and fewer than N logs means a backend's history was
+lost** — which is exactly the fact that used to be silent. The file is truncated
+by the tracker that takes the unsuffixed name, so it describes one run and not
+every run that reused the stem.
+
+The log is opened at the first module boundary rather than in the tracker's
+constructor, because that is the first moment the module id — and therefore the
+name — exists. Records produced before that boundary are buffered and written
+ahead of the `HANDSHAKE`, so nothing is dropped by the delay. A tracker that
+never reaches a boundary still opens its log from `finish()`: an empty log says
+"this process ran the plugin and observed nothing", and a missing one says
+nothing at all.
+
+Two consequences of the tracker no longer being a process-global, both measured:
+
+- **Under full LTO the main log now carries `SUMMARY`, `HIST` and `STATS`.** The
+  tracker belongs to the `PassInstrumentationCallbacks`, which lld destroys when
+  the backend finishes, so `Tracker::finish()` runs where it previously never
+  did. The attribution rows are identical to the ones the side file already
+  carried; the `STATS` counters differ, because the side file's were written at
+  the last state change and the main log's are written at the end. A reader that
+  prefers the main log's summary when there is one will now take it from there.
+- **Under ThinLTO the attribution exists at all.** Each backend gets its own
+  intact log, so `DSEPass on handle` can be read from the link rather than from a
+  file three backends were overwriting.
+
 ## Log format
 
 Line-oriented TSV; field one is the record type. `History.h` carries the full
@@ -268,6 +321,15 @@ same compilation and the object file is *required* to differ, because if nothing
 in the harness can change those bytes then "they did not change" is not
 information.
 
+★ 2026-09-15: both halves now cover **ThinLTO** as well as the compile-time
+path. Until that date `scripts/noninvasive.mjs` linked no LTO of any form, and
+the byte-identity claim was a claim about one process holding one tracker — the
+shape the plugin stopped having on 2026-09-14. Under `-flto=thin` lld builds one
+`PassBuilder` per backend module on its own thread, and the plugin's allocation
+and I/O follow. NI-09..NI-11 in the table below are that coverage, and NI-11 is
+its own negative control: NI-04 perturbs a `cc1` process and says nothing about
+whether anything in this harness can move the bytes lld emits.
+
 ### In CI
 
 `scripts/noninvasive.mjs` runs in the `native-plugins` job of
@@ -289,7 +351,7 @@ OBS_PLUGIN="$RUNNER_TEMP/build/pass-observer/libPropertyObserver.so" \
 neither set measures what it measured before `OBS_PLUGIN` existed.
 
 The step fails unless the harness exits 0 **and** its report,
-`<lab>/rq2/results/noninvasive.json`, holds exactly these 21 checks, every one
+`<lab>/rq2/results/noninvasive.json`, holds exactly these 24 checks, every one
 passing, with a `pluginSha256` equal to the sha256 of the `.so` the job built:
 
 | Check | At | Passes when |
@@ -303,6 +365,9 @@ passing, with a `pluginSha256` equal to the sha256 of the `.so` the job built:
 | NI-06 | -O2 | the skipped-pass callback fired under that limit: at least one skipped-pass record |
 | NI-07 | — | `clang-18`, `opt` and `libLLVM.so.1` under `/usr/lib/llvm-18` have the same sha256 after the run as before it |
 | NI-08 | — | `ldd` exits 0 and lists the plugin's libraries, and none is libLLVM or libclang (an empty listing fails) |
+| NI-09 | -O2 `-flto=thin` | two plugin-free ThinLTO links of the same bitcode objects give the same executable |
+| NI-10 | -O2 `-flto=thin` | the executable is byte-identical with and without `-Wl,--load-pass-plugin`, and the observer left `EV` records in a `.modules` manifest naming at least two backends |
+| NI-11 | -O2 `-flto=thin` | `-Wl,-mllvm,-opt-bisect-limit=40` changes the linked executable (the ThinLTO negative control) |
 
 The count, the ids and the digest are read from the report and not only from
 the exit code, so a harness that exits 0 and writes no report, a report
@@ -310,24 +375,43 @@ measured on another plugin, and a check that stopped running each fail the
 step. So does the harness pointed at a plugin that does change the object:
 with `OBS_PLUGIN` set to `libWipePin.so`, `WPIN_SCOPE=module` and `WPIN_OUT`
 set, the `target.c` object differed at all four levels and the run ended
-7/21 (measured locally, not in CI).
+9/24 on 2026-09-15 (measured locally, not in CI; it was 7/21 before NI-09..NI-11
+existed).
+
+**That run does not exercise NI-10's byte comparison, and saying so is the
+point of recording it.** WipePin registers on the pipeline-start extension
+point, and an LTO link builds a pipeline without one — it prints exactly that
+and pins nothing — so the ThinLTO executable came back byte-identical and NI-10
+failed on its *observation* half (`ev=0`, an empty manifest) rather than on its
+bytes. What shows the byte half is live is NI-11, which moves those same bytes
+in the same run (`5d34e026ceaae346` stock, `cd753dcbbc3201e1` under the bisect
+limit), and a deliberate one-line mutation of the harness on 2026-09-15 that
+gave the observed link the bisect limit too: NI-10 then failed with `ev=4` and
+three backends and two different digests, 23/24. If a plugin that mutates
+inside an LTO backend ever exists here, that is the better demonstration and
+this paragraph should be replaced by it.
 
 What the CI run does **not** cover:
 
 * one toolchain: `clang-18` as the Ubuntu 24.04 archive ships it (the job
   prints the version it got) on an x86-64 runner;
 * one fixture: the erasure fixture's three translation units at `-O0`..`-O3`,
-  plus `target.c` at `-O2` under `-opt-bisect-limit=40`; no `-Os` or `-Oz`, no
-  LTO;
+  plus `target.c` at `-O2` under `-opt-bisect-limit=40`, plus the same three
+  units linked with `-flto=thin` at `-O2` (NI-09..NI-11); no `-Os` or `-Oz`,
+  and **no full LTO** — a full-LTO link creates one tracker, so it is the
+  compile-time shape under another name, and it is the ThinLTO shape that is
+  not covered anywhere else;
 * NI-07 digests three files, in the same job, before and after the run. On a
   runner that exists for one job, that says this run did not change them, and
   nothing about any other file of the toolchain;
 * the job builds with no `CMAKE_BUILD_TYPE`, as the cmake line under
   [Building](#building) does; `scripts/run-all.sh` builds `Release`. Those are
   two different `.so` files with two different sha256s. Built from the same
-  sources against LLVM 18.1.3 with g++ 13.3.0, both ran 21/21 locally; a CI
-  report and a `run-all.sh` report of the same sources therefore carry
-  different `pluginSha256` values;
+  sources against LLVM 18.1.3 with g++ 13.3.0, both ran 24/24 locally on
+  2026-09-15, and they really are two different files: `d644978e2b80cf57…`
+  for the default build, `3449b8e1deceb3a4…` for `Release`. A CI report and a
+  `run-all.sh` report of the same sources therefore carry different
+  `pluginSha256` values;
 * the other four harnesses `scripts/run-all.sh` runs (`rq2/rq2.mjs`,
   `rq2/modes.mjs`, `rq2/broken-controls.mjs`, `scripts/crosscheck.mjs`) are not
   in CI. `tools/check-subject-resolution.mjs` **is** called automatically since
@@ -350,7 +434,16 @@ filesystem (`interfaces.md` §1):
 
 `lib/` and `test/` are the exception: they read a recorded log and need no
 compiler, so they run anywhere and are tested with `node --test` like the rest
-of the repository.
+of the repository. `test-link/` is the exception to the exception — it links,
+with `clang-18` and an `ld.lld`, and it is the only suite here that loads the
+`.so` at all. It takes the plugin from `OBS_PLUGIN` (same default as
+`scripts/noninvasive.mjs`) rather than building one, and without the toolchain
+it FAILS; `VG_OBS_LINK_ALLOW_SKIP=1` authorises the skip and names each case.
+Its subject is the per-module change of 2026-09-14: one log per backend module,
+one `HANDSHAKE` per log, a manifest whose column 2 is the path that was
+actually opened, and no NUL byte or torn line in any of them. ci.yml runs it in
+`native-plugins`, beside `compiler/fingerprint`, because `native-toolchain`
+installs no linker.
 
 The ground-truth harness exists because "how often is the first-loss pass right"
 has no answer until *right* is defined, and no real `-O2` compilation supplies

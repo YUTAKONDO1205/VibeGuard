@@ -4,7 +4,7 @@
 //
 // TWO KINDS OF INPUT, AND THE REASON THE FILE SAYS WHICH IS WHICH.
 //
-//   REAL   the 23-row matrix built by ../artefact-fixtures.sh with gcc and GNU
+//   REAL   the 24-row matrix built by ../artefact-fixtures.sh with gcc and GNU
 //          ld. Everything a real link can express is asserted against these.
 //          Looked for in ../_results/artefact-matrix/bin (git-ignored) or in
 //          $VG_ART_MATRIX.
@@ -56,6 +56,11 @@ const MATRIX_ROWS = [
   'sp-on', 'sp-off', 'pie-on', 'pie-off', 'relro-full', 'relro-part', 'relro-none',
   'nx-on', 'nx-off', 'fortify-on', 'fortify-off', 'buildid-on', 'buildid-off',
   'dbg-on', 'dbg-off', 'rpath', 'hardened', 'hardened-stripped', 'unhardened',
+  // `clean` was added 2026-09-14: the row that holds the control string and
+  // NOT the marker, which is the only shape the byte scan can report CLEAN
+  // for. A matrix built before that date does not have it, and the coverage
+  // case at the bottom of this file names it as missing rather than passing.
+  'clean',
   'static-hardened', 'static-plain', 'libshared.so', 'wx-on',
 ];
 
@@ -288,7 +293,7 @@ describe('byte scan', () => {
     assert.equal(r.controls[0].found, false);
   });
 
-  test('REAL: 21 of the 23 rows carry the control string', { skip: skipReal }, () => {
+  test('REAL: 22 of the 24 rows carry the control string', { skip: skipReal }, () => {
     const without = MATRIX_ROWS.filter((n) => !scanBytes(fixture(n), { expect: [CONTROL] }).controls[0].found);
     assert.deepEqual(without.sort(), ['libshared.so', 'wx-on']);
   });
@@ -404,7 +409,7 @@ describe('PIE / NX / RELRO', () => {
     assert.equal(r.decidedBy.find((d) => d.field === 'DT_BIND_NOW').observed, 'absent');
   });
 
-  test('REAL: DT_BIND_NOW is absent on all 23 rows, hardened included', { skip: skipReal }, () => {
+  test('REAL: DT_BIND_NOW is absent on all 24 rows, hardened included', { skip: skipReal }, () => {
     const withTag = MATRIX_ROWS.filter((n) =>
       decideRelroLevel(fixture(n)).decidedBy.find((d) => d.field === 'DT_BIND_NOW').observed === 'present');
     assert.deepEqual(withTag, []);

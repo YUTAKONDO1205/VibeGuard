@@ -509,7 +509,7 @@ jobs:
   #
   # It also builds the property observer (compiler/pass-instrumentation/observer)
   # and runs that plugin's non-invasiveness measurement, scripts/noninvasive.mjs,
-  # which no workflow ran before; it had only been run by hand. Its 21 checks,
+  # which no workflow ran before; it had only been run by hand. Its 24 checks,
   # over the three translation units of the erasure fixture: at each of
   # -O0..-O3, that two plugin-free compiles agree (NI-01), that every object
   # file and the linked executable are byte-identical with and without the
@@ -524,6 +524,26 @@ jobs:
   # libLLVM of its own (NI-08; an ldd that lists nothing fails it). The step
   # takes its verdict from the harness's JSON report as well as its exit code,
   # and the report has to name the .so this job built.
+  #
+  # ★ 2026-09-15: NI-09..NI-11 took the count from 21 to 24, and they are the
+  # first LTO of any form this harness links. The plugin stopped keeping a
+  # process-global tracker on 2026-09-14 and now opens one log per PassBuilder;
+  # under -flto=thin lld builds one of those per backend module, on its own
+  # thread, so the allocation and I/O the byte-identity claim is about has a
+  # shape there that -O0..-O3 above never exercised. At -O2 with the same three
+  # units compiled to bitcode and the plugin loaded at the LINK
+  # (-Wl,--load-pass-plugin), the three checks are: two plugin-free ThinLTO
+  # links agree (NI-09); the executable is byte-identical with and without the
+  # plugin AND the observer recorded EV records in a manifest naming at least
+  # two backends (NI-10, the same AND as NI-02/NI-03 for the same reason, plus
+  # the backend count, because a one-backend ThinLTO check is the full-LTO check
+  # under another name); and -Wl,-mllvm,-opt-bisect-limit=40 does change the
+  # linked executable (NI-11). NI-11 is not decoration and NI-04 does not cover
+  # it: NI-04 perturbs a cc1 process and says nothing about whether anything
+  # here can move the bytes lld emits. This is also why lld-18 (installed below
+  # for the WipePin fixture loop) is now load-bearing for noninvasive.mjs: with
+  # no ld.lld on the machine the harness exits 3 rather than dropping the three
+  # checks, which the count assertion below would catch anyway.
   #
   # The other four C++ components under compiler/ are built here too, and
   # only built: the AST gate (compiler/clang-plugin, IntentGate, which is why
@@ -706,7 +726,7 @@ jobs:
           done
 
       # The harness exits 0 only when every check passed, and that is half of
-      # the verdict. The other half is its report, read back: exactly the 21
+      # the verdict. The other half is its report, read back: exactly the 24
       # checks named in the header above, every one passing, and a pluginSha256
       # equal to the sha256 of the .so the build step wrote, taken before the
       # harness runs. That is what fails a harness that exits 0 and writes no
@@ -752,7 +772,39 @@ jobs:
             node --test $files
           done
 
-      - name: Property observer non-invasiveness (noninvasive.mjs, 21 checks)
+      # The observer's OTHER suite, and the reason there are two.
+      #
+      # compiler/pass-instrumentation/observer/test-link is a ThinLTO link of
+      # two modules, and it is the only place the per-module change of
+      # 2026-09-14 can be observed at all: a compile creates one tracker and so
+      # does a full-LTO link, so `run_suite observer` in the job above -- 22
+      # pure-JS cases over lib/subject-resolution.mjs, no .so, no linker --
+      # could not have caught a regression of it. It is HERE and not in that
+      # run_suite list for the same reason compiler/fingerprint is: it spawns a
+      # linker, and native-toolchain installs none. Dropping these files into
+      # ../test/ without moving this step would run them where there is no lld.
+      #
+      # OBS_PLUGIN names the .so this job built; the suite does not build one,
+      # and with the variable unset it would measure whatever is at the
+      # by-hand default path, which on a runner is nothing -- a FAILURE, not a
+      # skip, unless VG_OBS_LINK_ALLOW_SKIP=1 is set, which nothing here sets.
+      #
+      # NOT YET SEEN ON A RUNNER at the time this step was written: ci.yml fires
+      # on `pull_request` and on `push: [main]` and on nothing else, so a step
+      # added on a feature branch is unobserved until a PR opens. Measured under
+      # WSL with clang-18 18.1.3 and LLD 18.1.3: 5 cases, 5 pass, 0 skipped, and
+      # with the linker hidden 5 fail / 0 skipped by default.
+      - name: compiler/pass-instrumentation/observer/test-link (ThinLTO, needs ld.lld-18)
+        env:
+          OBS_PLUGIN: ${{ runner.temp }}/build/pass-observer/libPropertyObserver.so
+        run: |
+          set -eu
+          files=$(ls compiler/pass-instrumentation/observer/test-link/*.test.mjs 2>/dev/null || true)
+          [ -n "$files" ] || { echo "::error::observer/test-link: no test files"; exit 1; }
+          [ -s "$OBS_PLUGIN" ] || { echo "::error::libPropertyObserver.so is missing or empty, so there is nothing to link against"; exit 1; }
+          node --test $files
+
+      - name: Property observer non-invasiveness (noninvasive.mjs, 24 checks)
         run: |
           set -u
           lab="$RUNNER_TEMP/lab/pass-observer"
@@ -776,14 +828,14 @@ jobs:
             const want = process.env.NI_WANT_SHA256;
             const ids = ["-O0", "-O1", "-O2", "-O3"]
               .flatMap((o) => ["NI-01", "NI-02", "NI-03", "NI-03b"].map((n) => n + o))
-              .concat(["NI-04", "NI-05", "NI-06", "NI-07", "NI-08"]);
+              .concat(["NI-04", "NI-05", "NI-06", "NI-07", "NI-08", "NI-09", "NI-10", "NI-11"]);
             const checks = Array.isArray(r.checks) ? r.checks : [];
             const passing = checks.filter((c) => c && c.pass === true).length;
             const bad = [];
             if (r.schemaVersion !== "noninvasive-v1") bad.push(`schemaVersion is ${r.schemaVersion}, not noninvasive-v1`);
-            if (checks.length !== 21) bad.push(`it holds ${checks.length} checks, not 21`);
-            if (checks.map((c) => c && c.id).sort().join(" ") !== ids.sort().join(" ")) bad.push("its check ids are not NI-01..NI-03b at -O0..-O3 plus NI-04..NI-08");
-            if (r.passed !== 21 || passing !== 21) bad.push(`passed is ${r.passed} (${passing} checks with pass: true), not 21`);
+            if (checks.length !== 24) bad.push(`it holds ${checks.length} checks, not 24`);
+            if (checks.map((c) => c && c.id).sort().join(" ") !== ids.sort().join(" ")) bad.push("its check ids are not NI-01..NI-03b at -O0..-O3 plus NI-04..NI-11");
+            if (r.passed !== 24 || passing !== 24) bad.push(`passed is ${r.passed} (${passing} checks with pass: true), not 24`);
             if (r.failed !== 0) bad.push(`failed is ${r.failed}, not 0`);
             if (r.pluginSha256 !== want) bad.push(`pluginSha256 is ${r.pluginSha256}, not ${want}, the sha256 of the .so this job built`);
             for (const b of bad) console.log(`::error::noninvasive.json: ${b}`);

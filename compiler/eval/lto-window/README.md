@@ -70,9 +70,10 @@ for OPT in -O1 -O2 -O3 -Os; do
 done
 ```
 
-Each of those runs exits 3 by construction (`--forms thin` and the gcc row are in
-the default), so a non-zero exit from the loop is not by itself a failure — read
-the printed reasons.
+Each of those runs exits 3 (the gcc row is in the default and is `UNSUPPORTED`),
+so a non-zero exit from the loop is not by itself a failure — read the printed
+reasons. Until 2026-09-14 `--forms thin` forced the 3 as well, because the thin
+cell was refused whatever it measured; it is not the reason any more.
 
 `--out` inside the checkout is refused (exit 4). Nothing this lane writes is
 tracked data; `scripts/check-packaging-invariants.mjs` refuses any path under
@@ -475,9 +476,20 @@ negativeControl.erasure  fired: true   measurement: BROKEN_MEASUREMENT
 ```
 
 Both halves fire, independently: the inputs are ELF **and** the linker's log is
-empty **and** the observer wrote nothing. If it ever does not fire, the harness
-exits 2 — because at that point nothing in the lane distinguishes a link-time
-reading from a compile-time one.
+empty **and** the observer wrote nothing. If it ever does not fire — **or cannot
+be run at all** — the harness exits 2, because at that point nothing in the lane
+distinguishes a link-time reading from a compile-time one.
+
+The second half of that sentence is new on 2026-09-15 and it was not true
+before. `negativeControl()` has two paths that return `{ran: false, why}` — a
+fixture that will not compile without `-flto`, and any of its links failing —
+and that object used to defeat *both* gates at once: the "did not fire" gate
+skipped it because `ran` was false, and the "no record at all" gate below
+skipped it because the key existed. Measured: one clean full-link cell plus
+`{xtu: {ran: false, why: 'the stock link failed'}}` returned exit **0**. The
+rule is stated positively now — the only control that may be present and not
+have fired is one turned off by flag — and a `{ran: false}` is a finding that
+names its `why`.
 
 **It runs once per family, including a new one, and a family that misses it is
 exit 2.** The negative control and the `sha256` equality check below are
@@ -487,8 +499,12 @@ present and whose checks quietly never ran, which reads in the results exactly
 like a clean family. `exitDecision` is therefore given the list of families the
 run was **asked** for, and refuses (code 2) a family with no negative-control
 record at all, and any full-LTO clang link cell whose `byteIdentical` is `null`
-rather than `true`. Both are detected by *absence*: a check that did not run
-writes no field. It is the same shape the adversarial review caught in lane A2
+rather than `true`. Both are detected by *absence* — but absence is only half of
+it, and this sentence used to claim it was all of it ("a check that did not run
+writes no field"). A check that did not run *can* write a field: the
+`{ran: false, why}` above is one, and it was invisible to every gate for exactly
+that reason. So the negative-control gate reads what the field *says* as well as
+whether it is there. It is the same shape the adversarial review caught in lane A2
 (`../spike/`), where a configuration kept its `ESTABLISHED` word after the thing
 that established it had gone quiet.
 
@@ -587,13 +603,17 @@ bytes, so the guard-1 reading is taken from the same program as the result. If
 the bytes ever differ with the plugin loaded, the harness exits 2 and says so;
 it does not suppress it.
 
-## ThinLTO is refused, and the refusal is measured
+## ThinLTO: what was broken, what was fixed, and what the cells say now
+
+**Everything from here to "The refusal that was asserted" is the pre-2026-09-14
+state, kept because it is the record of what was wrong.** The sections after it
+say what replaced it and what is still open.
 
 Under `-flto=thin` lld runs one backend per input module, each with its own
 `PassBuilder`, and calls `llvmGetPassPluginInfo()` once per backend
 (`../../docs/toolchain-probes.md` §2.2 measured `PLUGIN_LOADED=2` for two
-modules). The observer is not built for that. Three lines, verified in the
-sources for this lane:
+modules). The observer was not built for that. Three lines, as they stood then,
+verified in the sources for this lane:
 
 ```
 compiler/pass-instrumentation/observer/PropertyObserver.cpp:55
@@ -613,16 +633,49 @@ opens `OBS_OUT` with `OF_Text` and no append flag, so every replacement
 **truncates** the file the previous backend was writing. And `dispatch` reads the
 global (`PropertyObserver.cpp:61`) while other backend threads are replacing it.
 
-It is worse than "the last log wins", which is why the lane does not write that
-sentence. Measured, on this lane's own fixtures, with lld's default thread pool:
+It was worse than "the last log wins", which is why the lane did not write that
+sentence. **Measured BEFORE the plugin change, and kept as the record of what
+was wrong** -- these are readings of the single `<OBS_OUT>` that one
+process-global tracker left behind, on this lane's own fixtures, with lld's
+default thread pool:
 
-| | `xtu` | `erasure` |
+| pre-fix, one file | `xtu` | `erasure` |
 |---|---|---|
 | observer log size | 147192 B | 237506 B |
 | `HANDSHAKE` records | 78 | 93 |
 | distinct module ids in them | 4 | 7 |
 | torn lines | 25 | 77 |
 | `intact` | false | false |
+
+Those numbers are one sample of a race and they do not reproduce. The same
+pre-fix plugin re-measured on `xtu` on 2026-09-14 gave 186315 B, 109
+`HANDSHAKE`, 4 distinct ids and 30 torn lines — different numbers, same fact,
+which is what the paragraph below the table always said a race would look like.
+
+**Since 2026-09-14 the shape that reproduces is a different one.** The observer
+writes one log per backend module plus `<OBS_OUT>.modules`, and the `xtu`
+family comes back as:
+
+| post-fix, per backend | `xtu` | `xtu-inline` | `erasure` |
+|---|---|---|---|
+| manifest lines | 3 | 3 | 3 |
+| logs on disk | 3 | 3 | 3 |
+| bytes per log | 73016 / 16935 / 15639 | 73471 / 17390 / 60141 | 108461 / 31233 / 15915 |
+| `HANDSHAKE` records | 1 per log | 1 per log | 1 per log |
+| NUL bytes | 0 per log | 0 per log | 0 per log |
+| torn lines | 0 | 0 | 0 |
+| `intact` | true | true | true |
+
+Read off the harness's own record, `-O2`, 2026-09-14, on the serialised
+observed link; the default-pool link of the same run came back `intact: true`
+with the same three manifest lines and three logs. A separate by-hand ThinLTO
+link of `xtu` on the same day gave 71976 / 14599 / 15895 B for the three logs —
+the byte counts move with the link, the *shape* does not, which is the whole
+difference from the table above it.
+
+Manifest lines == logs is the invariant, and the lane refuses the cell when it
+does not hold. What is *not* fixed by any of this is lld's own stderr; see
+"the linker's half" below.
 
 There are three input modules. The extra "module ids" are torn fragments:
 `<woHANDSHAKE>`, `after`, `""`. Sample torn lines:
@@ -638,7 +691,11 @@ truncating reopen leaves behind — and one harness run of `xtu` **failed the li
 outright**, with two backends' diagnostics spliced mid-word on stderr. The shape
 varies run to run, which is what a race looks like.
 
-Serialising the backends does not fix it, it only makes the loss quiet.
+Serialising the backends did not fix it, it only made the loss quiet — **with
+the process-global tracker.** This sentence is why the change below serialises
+only the link the READING comes from, keeps a default-pool link beside it for
+the integrity question, and proves by sha256 that the two produce the same
+program; serialisation on its own is still not a fix and never was.
 `--thinlto-jobs=1` produced a log that parses cleanly and contains one module's
 history — `main.t.o`, `HANDSHAKE` once, both names `declaration-only`, 248 `PASS`
 records — ending in `STATS 248 0 0 0 0 trace`: 248 passes seen, **zero** `EV`
@@ -654,19 +711,123 @@ this. It carried a clean `SUMMARY handle … LOST` with `DSEPass` — a plausibl
 well-formed attribution sitting beside a shredded main log. A lane that read only
 the side file would have published it.
 
-So: the ThinLTO link cell is `measurement = BROKEN_MEASUREMENT`,
-`state = NOT_OBSERVED`, reason `plugin-multi-passbuilder`, and the fixture is
-named in the record's `unobserved` list. The lane **runs** the ThinLTO link by
-default, so that word is earned by this run's own evidence rather than asserted;
-`--skip-thinlto-evidence` skips it and the cell then says `evidenceThisRun:
-false`, which is a different claim and is written as one — in the cell, in
-`thinLto.<family>.evidence` (`skipped: true` with the flag), in the printed
-summary, and in an exit code that cannot be 0.
+### The refusal that was asserted, and the reading that replaced it
 
-### Plugin change required to close the ThinLTO window (specification, not applied)
+Until 2026-09-14 the paragraph here said the ThinLTO cell's
+`plugin-multi-passbuilder` was "earned by this run's own evidence rather than
+asserted". **That mechanism did not exist.** `run-lto-window.mjs` computed the
+evidence and then called `gradeCell` with an unconditional refusal;
+`evidence.intact` reached no branch, and only `evidence.attempted` was copied
+into the cell as `evidenceThisRun`. The sentence was accidentally true for as
+long as the evidence always came back broken, and became simply false the
+moment the observer was fixed: a run whose evidence said `intact: true,
+handshakeRecords: 1, nulBytes: 0` still printed
+`xtu.thin.link  lto-backend  BROKEN_MEASUREMENT  NOT_OBSERVED`.
 
-This lane does not modify `compiler/pass-instrumentation/observer/**`. What it
-would take:
+The mechanism exists now and lives in `lib/thin-logs.mjs`. Every word the cell
+can carry is reached from a value the run produced, and
+`plugin-multi-passbuilder` has been narrowed to the one thing it always meant —
+a backend's log came back shredded. The other four situations it used to stand
+for have their own words:
+
+| what happened | word |
+|---|---|
+| `--skip-thinlto-evidence`: nobody looked | `thinlto-evidence-not-taken-in-this-run` |
+| the link did not survive the plugin | `thinlto-link-did-not-survive-the-plugin` |
+| no `<OBS_OUT>.modules`, or an empty one | `thinlto-no-backend-manifest` |
+| N manifest lines, fewer logs, or a torn manifest line | `thinlto-backend-log-named-in-the-manifest-is-not-here` |
+| a log with >1 `HANDSHAKE`, NUL bytes or torn lines | `plugin-multi-passbuilder` |
+| one name with a `SUMMARY` row in two backends | `thinlto-summary-row-for-one-name-in-more-than-one-backend` |
+| the stock and observed executables were not compared | `stock-and-observed-executables-were-not-compared` |
+
+**Reading one backend's log and calling it the link was the second defect, and
+it was the dangerous one.** The unsuffixed `<OBS_OUT>` goes to whichever tracker
+reaches a module boundary first, which is a race: measured twice on one fixture
+with two different winners. The old reader read that file alone, found it
+perfectly intact, and reported `distinctHandshakeModuleIds: 1` — on the run
+that exposed this the winner was `wipe.o`, which does not contain the subject at
+all, while two other backends' logs sat unread beside it. A healthy-looking
+reading of the wrong module is exactly what the paragraph above calls the
+dangerous part. Subject resolution had the same shape and is now decided over
+every log in the manifest: `use.o` `resolved`, `main.o` `declaration-only`,
+`wipe.o` `not-in-module` is the NORMAL result for one link, and a first-log
+reader would have called two of those three `subject-did-not-resolve`.
+
+**No manifest under ThinLTO is refused, not read as a one-module link.** An
+observer without the per-module change writes no manifest and leaves exactly
+one shredded file behind — the same shape a single-backend link has — so
+treating the absence as "there was only one backend" would rebuild the defect
+on the reading side.
+
+### The linker's half, which the plugin change does not touch
+
+Guard 2 needs lld's own account of the pipeline, and under `-flto=thin` lld
+writes that to one stderr shared by N concurrent backends and by the plugin's
+own diagnostics. It comes apart. Measured 2026-09-14 in this harness on the
+default pool: 237 parsed `Running pass:` lines and a `lineKinds` map full of
+shapes like `" (22 instruction instructionss))Running pass"` and
+`" on  on main (secure_wipe3Running pass"`. The first version of this change
+fed that to `comparePassReadings`, and all three families were refused for
+`pass-readings-disagree` — the observer blamed for the linker's stream.
+
+`--thinlto-jobs=1` makes the second reading whole: 431 `Running pass:` lines,
+five line kinds all legitimate, zero lines carrying an embedded second marker,
+`subset` true for every backend. So the lane takes the READING from a
+serialised link, and answers the obvious objection by measurement rather than
+by argument:
+
+```
+fbc65b30e7fd90dbe2f4570aa50ba7e7b56d5748910e22a0f993fa02e6cff61f  stock, default pool, no plugin  (x3)
+fbc65b30e7fd90dbe2f4570aa50ba7e7b56d5748910e22a0f993fa02e6cff61f  observed, default pool
+fbc65b30e7fd90dbe2f4570aa50ba7e7b56d5748910e22a0f993fa02e6cff61f  observed, default pool, --lto-debug-pass-manager
+fbc65b30e7fd90dbe2f4570aa50ba7e7b56d5748910e22a0f993fa02e6cff61f  observed, --thinlto-jobs=1
+```
+
+One sha256 across six links of the `xtu` objects. Scheduling backends one at a
+time does not change the program, and `byteIdentical` in every thin cell is
+that comparison — stock default-pool executable against observed serialised
+one — so a run where it *does* change the program says so instead of reading
+it.
+
+Serialising is also how a lane could accidentally buy itself a green reading of
+the one defect it exists to detect, because `--thinlto-jobs=1` cannot show a
+race. So the **default-pool link is run as well**, with the plugin and no debug
+flag, purely for the integrity of the observer's files, and
+`concurrent.intact !== true` refuses the cell with `plugin-multi-passbuilder`
+whatever the serialised logs say. Four links per thin family: stock, the
+plugin-free pass-log link guard 1 already needed, concurrent, serialised.
+
+### What the thin cells say now
+
+Measured 2026-09-14, `-O2`, clang/lld 18.1.3, the fixed plugin:
+
+```
+xtu.thin.link          lto-backend  OK                  LOST          DSEPass on handle
+xtu-inline.thin.link   lto-backend  BROKEN_MEASUREMENT  NOT_OBSERVED  -
+erasure.thin.link      lto-backend  OK                  ABSENT        -
+```
+
+`xtu.thin.link` is a link-time attribution under ThinLTO, which this lane has
+never had before: `handle` `LOST` at `DSEPass`, control `wipe_kept` `PRESENT`,
+three intact backend logs, `subset` true across all three, `byteIdentical`
+true. `erasure.thin.link` reads `ABSENT` with a control that HELD — and its
+full-LTO sibling is still `BROKEN_MEASUREMENT` because the control fell there,
+so ThinLTO is currently the only form in which this lane has measured anything
+about `handle_request` at the link.
+
+`xtu-inline.thin.link` is refused for a reason the full-LTO form cannot
+produce: without `noinline` the subject is inlined into `main`, and `main.o`'s
+backend records a `handle` unit of its own, so `handle` has a `SUMMARY` row in
+**two** backends. Which of the two the reading would come from is a choice, and
+the lane refuses rather than making it silently.
+
+### Plugin change required to close the ThinLTO window — items 1-5 APPLIED, CI runner unobserved
+
+This lane does not modify `compiler/pass-instrumentation/observer/**`. Items 1,
+2 and 3 below were applied there on 2026-09-14 by the change this lane's reader
+was rewritten against; the wording is kept so the reader can see what was asked
+for and check it against what landed. **Items 4 and 5 are still outstanding.**
+What it took:
 
 1. **A tracker per `PassBuilder`, not per process.** Replace the file-scope
    `std::shared_ptr<Tracker> TheTracker` (`PropertyObserver.cpp:55`) with one
@@ -699,8 +860,62 @@ would take:
    with a subject in each, asserting two logs and a two-line manifest, is the
    minimum.
 
-Until that lands, ThinLTO pass attribution is `NOT_OBSERVED` here, and this lane
-will keep saying so.
+Items 1-3 landed. The observer builds a tracker per `PassBuilder`, opens it
+lazily at the first module boundary with a sanitised per-module suffix, and
+appends one `<module id>\t<log path>` line per tracker to `<OBS_OUT>.modules`
+under a mutex. One detail item 2 left open decided how defect 2 above looked:
+the tracker that claims index 0 keeps the **unsuffixed** name, and which
+tracker that is, is a race. Under a plain compile and under full LTO there is
+exactly one tracker, so the unsuffixed name is used and every existing reader
+is unaffected; only ThinLTO produces extra files — with the line written *before* the open is attempted, so a line
+with no log beside it is the signal a reader needs. Column 2 is authoritative:
+the suffix is sanitised and falls back to `module-<index>` past 128 characters,
+so a reader that re-derives the filename agrees on the easy cases and misses the
+hard ones. This lane never re-derives it.
+
+**Item 4 and item 5 landed on 2026-09-15**, outside this lane, and this
+paragraph said they were outstanding until they did. What this lane establishes
+on its own is still narrow and is worth keeping separate from what they
+establish: for the ThinLTO LINK, this lane compares its own stock and observed
+executables and records the answer per cell as `guards.byteIdentical`. It says
+nothing about the compile-time path and runs no negative control of its own.
+
+- **4 — the non-invasiveness re-run**, in
+  `compiler/pass-instrumentation/observer/scripts/noninvasive.mjs`. Three checks
+  were added and the count moved 21 → 24, in `.github/workflows/ci.yml` (the
+  comment, the step name and the `checks.length` assertion) and in the observer
+  README, together. They are a triple rather than one check, because each of the
+  other two is what makes the middle one mean anything. Measured in WSL on
+  clang 18.1.3 / LLD 18.1.3, 24/24:
+  - `NI-09` the ThinLTO link is byte-DETERMINISTIC — two plugin-free links give
+    one hash (`5d34e026…` twice). Without this, an equal pair proves nothing.
+  - `NI-10` stock and observed are byte-identical (`5d34e026…` both) AND the
+    observer observed: `ev=4` across three named backends. A comparison of two
+    builds in which the plugin did nothing is vacuous, and this is the clause
+    that refuses to be vacuous.
+  - `NI-11` the negative control, on this path rather than borrowed: under
+    `-opt-bisect-limit=40` the executable DOES change (`5d34e026…` →
+    `cd753dcb…`). "The bytes did not change" is information only because this
+    line shows the comparison can see a change at all.
+- **5 — the multi-module test**, in
+  `compiler/pass-instrumentation/observer/test-link/thinlto-per-module.test.mjs`
+  (5 cases, 5 pass). It links two modules with a subject in each and asserts N
+  logs, an N-line manifest, one `HANDSHAKE` per log, no module appearing in two
+  logs, and column 2 naming the path actually opened. N comes from lld's own
+  `<out>.resolution.txt` rather than from the manifest, so the manifest is not
+  checked against itself. It is in `test-link/` and not `test/` on purpose: the
+  `run_suite observer` glob runs in `native-toolchain`, which installs no lld,
+  and a linking test there would turn that job red. It has its own step in
+  `native-plugins`, and `scripts/ci-suite-coverage.test.mjs` is what stops that
+  step from being forgotten — removing the directory's name from `ci.yml` makes
+  that test name it (measured, 2026-09-15).
+
+So ThinLTO pass attribution is no longer `NOT_OBSERVED` here by construction —
+`xtu.thin.link` carries one — and the plugin that made it readable is held to
+the same byte-identity claim on the ThinLTO path that it was already held to on
+the compile path. **What is still unobserved is the CI runner**: `ci.yml` fires
+only on `pull_request` and `push` to `main`, so nothing above has run on the
+`native-plugins` job. Everything in this section is "green in WSL".
 
 ## gcc: `UNSUPPORTED`, and it is a different word
 
@@ -841,8 +1056,11 @@ WSL2, `-O2`. Plugin `libPropertyObserver.so`
 sha256 `ee6c8555…60173c32`, built from
 `compiler/pass-instrumentation/observer` at this commit.
 
-**The table below predates the `xtu-inline` family.** It is ten cells from the
-two families that existed then. The default run is fifteen now, and the five
+**The table below predates the `xtu-inline` family AND the 2026-09-14 ThinLTO
+change**; its three `*.thin.link` rows are the unconditional refusal, not a
+reading. The fifteen-cell shape measured with the fixed observer is at the end
+of the ThinLTO section above: 10 OK, exit 3, `xtu.thin.link` carrying
+`DSEPass on handle`. It is ten cells from the two families that existed then. The default run is fifteen now, and the five
 cells of the pair's second half — and the `interventionPairs` record they feed —
 **were measured on 2026-09-12 at four levels**; they are reported in their own
 section above (*Measured, 2026-09-12 — all four levels*) rather than appended
@@ -868,7 +1086,8 @@ negativeControl: xtu fired, erasure fired
 
 Exit 3, not 0, and that is correct: five of the ten cells could not be completed,
 and `../../schema/interfaces.md` §7 reserves 0 for "everything asked for was
-checked". A run that asks for `--forms thin` or leaves gcc in cannot return 0.
+checked". A run that leaves gcc in cannot return 0. `--forms thin` used to
+guarantee it too and no longer does — see the ThinLTO section.
 
 The subject's whole history at the link, from the observer's own side file:
 
@@ -886,21 +1105,31 @@ effect. Both are link-time, both are inside `ld-temp.o`, and the control is
 
 ## Things this lane does not do, and things that surprised it
 
-- **`finish()` never runs at link time.** lld exits without unwinding, so the
-  tracker's destructor — the only caller of `Tracker::finish()` — does not fire,
-  and the main log of a healthy full-LTO link has **no** `SUMMARY`, `HIST` or
-  `STATS` at all (measured: `HANDSHAKE` 1, `SUBJECTRES` 2, `PASS` 448, `EV` 388,
-  `UNIT` 2, and nothing else). The attribution survives only because
-  `writeSummaryFile()` rewrites `<OBS_OUT>.summary.tsv` on every change. A reader
-  that looked only at the main log would find no attribution in a run that
-  produced one. This lane reads both — and, since 2026-09-12, guards both. The
-  integrity guards (`logIntact`, `evidenceRecords`) were computed on the MAIN log
-  only, so under full LTO the file that was guarded and the file the verdict came
-  out of were two different files, and the unguarded one is the file this lane's
-  own ThinLTO section calls the dangerous one. Each cell now carries
-  `counts.summarySource` (`main` / `side` / `none`) plus the side file's own torn
-  lines and NUL bytes, and a side file that is not intact is
-  `BROKEN_MEASUREMENT` with reason `observer-summary-file-not-intact`.
+- **`finish()` runs at link time now — it did not before, and that changed
+  where the verdict comes from.** Until 2026-09-14 the tracker was a
+  process-global that lld, which exits without unwinding, never destroyed; its
+  destructor is the only caller of `Tracker::finish()`, so the main log of a
+  healthy full-LTO link had **no** `SUMMARY`, `HIST` or `STATS` at all
+  (measured then: `HANDSHAKE` 1, `SUBJECTRES` 2, `PASS` 448, `EV` 388, `UNIT`
+  2, and nothing else), and the attribution survived only because
+  `writeSummaryFile()` rewrote `<OBS_OUT>.summary.tsv` on every change. The
+  per-module change ties the tracker's lifetime to the
+  `PassInstrumentationCallbacks`, which lld **does** destroy per backend, so
+  `finish()` fires. Measured after the change: every full-LTO link cell reports
+  `counts.summarySource = main`, where it reported `side` before. The complaint
+  the old version of this bullet ended on — "the guarded file and the file the
+  verdict came out of were two different files" — is therefore resolved for
+  full LTO, because both are now the main log.
+
+  The guards that closed it on 2026-09-12 stay, and they are the reason this
+  paragraph can be checked rather than believed: `logIntact` and
+  `evidenceRecords` were computed on the MAIN log while the verdict came out of
+  the side file, so each cell carries `counts.summarySource` (`main` / `side` /
+  `none`) plus the side file's own torn lines and NUL bytes, and a side file
+  that is not intact is `BROKEN_MEASUREMENT` with reason
+  `observer-summary-file-not-intact`. What tells you the lifetime changed is
+  that field moving from `side` to `main`; nothing else in the lane had to
+  move.
 - **What a cell publishes is what was measured.** The linker's per-kind line
   counts (`Running pass:`, `Running analysis:`, `Invalidating analysis:`, …) were
   computed on every run by `parseLldPassLog`, carried as far as the cell, and
@@ -926,22 +1155,32 @@ effect. Both are link-time, both are inside `ld-temp.o`, and the control is
   was added on 2026-09-12, and this line said ten for long enough to contradict
   the sentence 77 lines above it. The box is shared and a compile timeout is
   recorded as a failure, which would manufacture data.
-- **The `erasure` link cell has no working control**, so this lane has measured
-  nothing about `handle_request` at link time. It is `NOT_OBSERVED`, not
-  `ABSENT`, even though the by-hand disassembly says the wipe is not there —
-  because with a broken control, "the wipe is gone" and "the instrument is blind"
-  are the same reading.
-- **The ThinLTO corruption is nondeterministic.** Log size, `HANDSHAKE` count and
-  torn-line count differ between runs, and one run failed the link. The *fact* of
-  corruption reproduced every time; the numbers in the table above are from one
-  run and should be read as one sample.
+- **The `erasure` FULL-LTO link cell has no working control**, so this lane has
+  measured nothing about `handle_request` at a full-LTO link. It is
+  `NOT_OBSERVED`, not `ABSENT`, even though the by-hand disassembly says the
+  wipe is not there — because with a broken control, "the wipe is gone" and
+  "the instrument is blind" are the same reading. **The ThinLTO cell is a
+  different matter since 2026-09-14**: `erasure.thin.link` reads `OK` /
+  `ABSENT` with `controlHeld: true`, three intact backend logs and `subset`
+  true, so ThinLTO is currently the only form in which this lane has measured
+  anything about `handle_request` at the link. Why the control holds under one
+  form and falls under the other is not something this lane has established.
+- **The ThinLTO corruption was nondeterministic, and the numbers above are
+  dated for that reason.** Pre-fix, log size, `HANDSHAKE` count and torn-line
+  count differed between runs and one run failed the link; the *fact* of
+  corruption reproduced every time and no number did. Post-fix the shape is
+  stable (one log per backend, one `HANDSHAKE` each, zero torn lines, manifest
+  lines == logs) but **which backend gets the unsuffixed name is still a race**
+  — measured twice on `xtu` with two different winners. Nothing in this lane
+  may depend on that, which is why the manifest's column 2 is read verbatim and
+  resolution is decided over every log rather than over the first.
 - **`--lto-emit-asm` / `--save-temps` are not used.** The verdict here comes from
   the observer's IR-level oracle, not from assembly. The assembly readings quoted
   above are context, taken by hand and by `objdump_fill.py`, not the verdict.
 
 ## Edits requested in files this lane does not own
 
-Three, **one of them since applied**. Each is a request, and the lane works
+Four, **one of them since applied**. Each is a request, and the lane works
 without them.
 
 **1. `.github/workflows/ci.yml`** — ~~the unit tests reach no runner~~
@@ -973,6 +1212,27 @@ addition to that subsection's table:
 If the answer is meant to be `null` regardless, say so there and this lane will
 change; what it should not do is decide it privately.
 
+**2b. `compiler/schema/interfaces.md` §3.1 has no word for "the second reading
+could not be taken".** Guard 2 compares the observer's log with the linker's
+own, and under ThinLTO the linker's half is one stderr stream shared by N
+concurrent backends — it comes back spliced, so the comparison is not merely
+absent, it is *not defined* on that form. This lane works around it by reading
+a `--thinlto-jobs=1` link and proving by sha256 that the executable is the one
+the default-pool build produces, and it reports the folded agreement's
+`sequenceEqual` as `null` rather than `false` for the same reason. `null` for
+"not comparable" versus `false` for "two readings drifted apart" is a
+distinction §3.1 does not make and every consumer of a cell has to.
+
+The new reason strings this lane added for ThinLTO
+(`thinlto-evidence-not-taken-in-this-run`,
+`thinlto-link-did-not-survive-the-plugin`, `thinlto-no-backend-manifest`,
+`thinlto-backend-log-named-in-the-manifest-is-not-here`,
+`thinlto-summary-row-for-one-name-in-more-than-one-backend`,
+`stock-and-observed-executables-were-not-compared`) are lane-local and live in
+`lib/cell.mjs`. They are not proposed for the shared vocabulary; if another
+lane ever needs "a backend's log is missing", that is when the word should be
+promoted rather than copied.
+
 **3. No `VG-ART` finding id was claimed.** `VG-ART-064`…`069` are free, but that
 range is the **evidence store's** finding vocabulary
 (`compiler/evidence/STORE.md`, `store.mjs`, `validate-store.mjs`) — ids for
@@ -990,6 +1250,9 @@ run-lto-window.mjs        the harness: cells, guards, records
 lib/lto-inputs.mjs        guard 1a — object magic and LTO form, from bytes
 lib/pass-log.mjs          guard 1b and guard 2 — the two pipeline readings
 lib/cell.mjs              the two vocabularies and the pairing rule
+lib/thin-logs.mjs         ThinLTO: the manifest, N backends' logs instead of
+                          one, and the grading the refusal used to be asserted
+                          in place of
 lib/record.mjs            what a skip records, what a cell publishes, what a
                           family without the intervention is a reading of, what
                           the scan refuses, and what the exit code is

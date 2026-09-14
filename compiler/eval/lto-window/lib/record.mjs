@@ -51,7 +51,13 @@ export const SKIP_WHY = Object.freeze({
   negativeControl:
     'guard 1 was not shown to fire, so nothing in this run distinguishes a link-time reading from a compile-time one',
   gcc: 'gcc was not probed, so no UNSUPPORTED row is earned here',
-  thinltoEvidence: 'the ThinLTO link that earns the BROKEN_MEASUREMENT word was not run; the word is not earned here',
+  // Reworded 2026-09-14. It used to say "the link that earns the
+  // BROKEN_MEASUREMENT word", which stopped being true when the thin cell
+  // started being graded rather than refused: the link the flag turns off is
+  // the one the cell is READ from, and it can now earn OK as easily as a
+  // refusal. What the skip costs is the reading, whichever way it would have
+  // gone.
+  thinltoEvidence: 'the ThinLTO links the thin cell is graded from were not run; no word about ThinLTO is earned here',
 });
 
 /**
@@ -383,6 +389,15 @@ export function scrubbed(json) {
  *     run was ASKED for, so a
  *     family that never reached the negative control is detected by its absence
  *     rather than by a field it did not write.
+ *
+ *     DETECTED BY ABSENCE IS NOT ENOUGH, and saying only that is what let the
+ *     next one through until 2026-09-15. A check can fail to happen and still
+ *     write a field: `negativeControl()` returns `{ran: false, why}` when the
+ *     fixture will not compile or one of its links fails, and that object has
+ *     a key, so the absence gate does not see it. It is a finding now, on the
+ *     same code, and the rule is stated positively rather than as an absence:
+ *     the only control that may be present and not have fired is a deliberate
+ *     `skippedRecord`.
  */
 export function exitDecision({
   cells = [],
@@ -400,7 +415,35 @@ export function exitDecision({
     };
   }
   for (const [name, nc] of Object.entries(negativeControls)) {
-    if (nc && nc.ran && !nc.fired) {
+    if (!nc) continue;              // absence is the gate below, and it has its own message.
+    // The ONLY non-firing control this lane accepts is a deliberate skip.
+    // `skippedRecord` is the one thing that writes `skipped: true` with a
+    // `flag`, and a run that carries one cannot return 0 either: the flag is
+    // reported by skipSummaryLines at the bottom and lands on code 3.
+    if (nc.skipped === true && nc.flag) continue;
+    // A control that COULD NOT RUN, added 2026-09-15. `negativeControl()` in
+    // ../run-lto-window.mjs returns `{ran: false, why}` on two paths -- a
+    // source that will not compile without `-flto`, and any of its links
+    // failing -- and until now that object defeated both gates at once: this
+    // one was skipped because `ran` is false, and the missing-record gate below
+    // was skipped because the KEY EXISTS. Measured: `exitDecision` with one
+    // clean full-link cell and `{xtu: {ran: false, why: 'the stock link
+    // failed'}}` returned `{code: 0, messages: []}`. The family's own table
+    // reads clean and nothing anywhere says guard 1 was never shown to fire for
+    // it, which is precisely the shape the two gates around this one exist to
+    // refuse -- so it gets their code rather than a new one. It is code 2 and
+    // not 3 for the same reason they are: this is not a check that ran and
+    // could not finish, it is a check that did not happen while the row it
+    // guards reads as a result.
+    if (!nc.ran) {
+      return {
+        code: 2,
+        messages: [`the negative control for ${name} DID NOT RUN (${nc.why ?? 'no reason recorded'}), and it was `
+          + 'not skipped by flag either: guard 1 was never shown to fire for this family, so its cells do not '
+          + 'distinguish a link-time reading from a compile-time one'],
+      };
+    }
+    if (!nc.fired) {
       return {
         code: 2,
         messages: [`the negative control for ${name} was NOT refused: guard 1 did not fire on a non-LTO link, `
