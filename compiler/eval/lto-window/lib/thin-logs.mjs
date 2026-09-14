@@ -201,8 +201,18 @@ export function gradeThinLtoCell({ evidence = null, inputs = null, linkerPipelin
       ['no ThinLTO link was run in this invocation, so nothing here measured what the ThinLTO word would mean']);
   }
   if (evidence.linkFailed === true) {
-    return refuse(REASON.THINLTO_LINK_FAILED,
-      [`the ${evidence.where ?? 'ThinLTO'} link exited ${JSON.stringify(evidence.linkRc ?? null)}`]);
+    // Which link failed decides which word, and `withPlugin` is the field that
+    // says so. The stock link carries no plugin, so its failure is the host's
+    // and not the instrument's; blaming the plugin for it would be the same
+    // mistake in the opposite direction as the refusal this module replaced.
+    // `withPlugin !== false` rather than `=== true`: an evidence object from
+    // before that field existed should keep the old, louder word rather than
+    // silently become the milder one.
+    const plugged = evidence.withPlugin !== false;
+    return refuse(plugged ? REASON.THINLTO_LINK_FAILED : REASON.THINLTO_STOCK_LINK_FAILED,
+      [`the ${evidence.where ?? 'ThinLTO'} link exited ${JSON.stringify(evidence.linkRc ?? null)}`,
+        ...(plugged ? [] : ['this link was built WITHOUT the plugin, so nothing here is evidence about the observer']),
+      ]);
   }
 
   // The concurrency question, before any reading. The reading is taken from a

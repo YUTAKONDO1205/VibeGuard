@@ -71,9 +71,18 @@
 //    earliest point at which a tracker knows which module it is the tracker for.
 //    The first tracker in the process to get there keeps the unsuffixed name --
 //    a plain compile and a full-LTO link make exactly one tracker, so both write
-//    exactly the files they wrote before, byte for byte -- and every later one
-//    writes `<OBS_OUT>.<sanitised module id>.tsv` with its `.summary.tsv`
-//    alongside.
+//    the same FILE NAMES they wrote before -- and every later one writes
+//    `<OBS_OUT>.<sanitised module id>.tsv` with its `.summary.tsv` alongside.
+//
+//    "Byte for byte" is true of the compile path and is NOT true of full LTO,
+//    and this comment claimed it of both until 2026-09-15. Compile: the object,
+//    the main log, the side file and stderr are all identical to the previous
+//    plugin's, measured. Full LTO: the file names are unchanged and the main
+//    log is not, because the tracker now dies with the callbacks lld destroys,
+//    so `finish()` runs where it never used to and writes `SUMMARY`, `HIST` and
+//    `STATS` into it. The `SUMMARY` rows match the side file's; the `STATS`
+//    counters do not, because the side file's were written at the last state
+//    change and the main log's at the end.
 //
 //    Which tracker gets the unsuffixed name under ThinLTO is a race, and it is
 //    deliberately not worth resolving: `<OBS_OUT>.modules` names every tracker.

@@ -88,10 +88,16 @@ export const REASON = Object.freeze({
   CONTROL_DID_NOT_HOLD: 'control-did-not-hold',
   OBSERVER_LOG_NOT_INTACT: 'observer-log-not-intact',
   // The verdict is read from `<OBS_OUT>.summary.tsv` whenever the main log has
-  // no SUMMARY rows, which under full LTO is always (lld exits without
-  // unwinding, so the tracker's destructor never calls finish()). The file the
-  // verdict comes out of gets its own integrity word, because the file the
-  // guard ran on and the file the answer came from were two different files.
+  // no SUMMARY rows. That file gets its own integrity word because the file the
+  // guard ran on and the file the answer came from used to be two different
+  // ones. ★ 2026-09-15: this said "which under full LTO is always (lld exits
+  // without unwinding, so the tracker's destructor never calls finish())", and
+  // that stopped being true when the tracker stopped being a process-global.
+  // It now belongs to the PassInstrumentationCallbacks, which lld does destroy,
+  // so `finish()` runs at link and the main log carries SUMMARY there too --
+  // measured, every full-LTO cell reports `counts.summarySource: main` where it
+  // reported `side`. The side path is still reachable and still guarded; it is
+  // no longer the only one, which is the divergence this word was added for.
   SUMMARY_LOG_NOT_INTACT: 'observer-summary-file-not-intact',
   NO_EVIDENCE_RECORDS: 'observer-produced-no-evidence',
   SUBJECT_DID_NOT_RESOLVE: 'subject-did-not-resolve',
@@ -113,6 +119,13 @@ export const REASON = Object.freeze({
   // for "a backend's log is missing", or for "the link failed".
   THINLTO_EVIDENCE_NOT_TAKEN: 'thinlto-evidence-not-taken-in-this-run',
   THINLTO_LINK_FAILED: 'thinlto-link-did-not-survive-the-plugin',
+  // ★ 2026-09-15: the word above was given to all three of this lane's ThinLTO
+  // links, and one of them -- the stock link the byte comparison needs -- is
+  // built WITHOUT the plugin. A toolchain that cannot link these objects would
+  // have been recorded as the plugin breaking the link, which is a claim about
+  // the instrument made from evidence about the host. Two words, chosen from
+  // the evidence's own `withPlugin` field rather than from its prose.
+  THINLTO_STOCK_LINK_FAILED: 'thinlto-plugin-free-link-failed-on-this-host',
   THINLTO_NO_MANIFEST: 'thinlto-no-backend-manifest',
   THINLTO_BACKEND_LOG_LOST: 'thinlto-backend-log-named-in-the-manifest-is-not-here',
   THINLTO_ROW_IN_SEVERAL_BACKENDS: 'thinlto-summary-row-for-one-name-in-more-than-one-backend',
@@ -166,6 +179,24 @@ export function gccChannelRefusal(probes) {
   if (entries.length === 0) throw new Error('the gcc cell cannot be graded from no probes at all');
   const rcs = entries.map(([k, p]) => `${k} rc=${p?.rc}`).join(', ');
   const accepted = entries.filter(([, p]) => p?.rc === 0).map(([k]) => k);
+  // A PROBE THAT DID NOT RUN IS NOT A REFUSAL, and splitting rc into two cases
+  // made it one. ★ 2026-09-15, found by review of this very fix: `run()` in the
+  // runner returns `rc: null` when spawnSync itself fails -- the binary is not
+  // on PATH, or the 180s timeout fired -- so a channel that was never put to
+  // gcc arrived here as "not 0" and was counted with the refusals. The third
+  // probe passes `-fuse-ld=lld`, so on a host without lld the lane would have
+  // published UNSUPPORTED, the word for "the toolchain refused", partly on the
+  // strength of a question nobody asked. Three outcomes, not two.
+  const unrun = entries.filter(([, p]) => typeof p?.rc !== 'number').map(([k]) => k);
+  if (unrun.length > 0) {
+    return {
+      measurement: MEASUREMENT.BROKEN_MEASUREMENT,
+      reason: REASON.NO_OBSERVER_FOR_VENDOR,
+      details: [`${unrun.length} of ${entries.length} gcc channels could not be put to the toolchain at all `
+        + `(${rcs}); not-run: ${unrun.join(', ')}. UNSUPPORTED says the toolchain refused, and a probe that `
+        + 'never ran did not refuse. Whether gcc would have refused these is not established by this run.'],
+    };
+  }
   if (accepted.length === 0) {
     return {
       measurement: MEASUREMENT.UNSUPPORTED,
@@ -340,10 +371,13 @@ export function gradeCell({
   //
   // (a) is reachable, and an earlier version of this comment claimed it was not
   // ("a resolved subject always gets a row"). It does not: the observer resolves
-  // a subject by LINEAGE (`lineageRoot(F.getName()) == OBS_TARGET_FN`,
-  // History.cpp:119-129) and records each unit under its own, possibly mangled,
-  // NAME (History.cpp:187, `U.Name = Key`; History.cpp:190, `U.Clone =
-  // (Key != Root)`), while the
+  // a subject by LINEAGE (`lineageRoot(F.getName())`, History.cpp:238) and
+  // records each unit under its own, possibly mangled, NAME (History.cpp:312,
+  // `U.Name = Key`; History.cpp:315, `U.Clone = (Key != Root)`), while the
+  // ★ 2026-09-15: these three line numbers were 119-129 / 187 / 190 and drifted
+  // when the per-module change added ~120 lines above them. A stale reference
+  // into another component is worse than none: it sends a reader to whatever
+  // happens to sit there now.
   // harness looks the row up by the fixture's plain name. A subject that
   // survives a link only as `handle.llvm.1041` therefore resolves and has no row
   // under `handle`. Requiring a measured, HELD control before reading that as

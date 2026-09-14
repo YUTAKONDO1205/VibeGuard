@@ -466,6 +466,31 @@ test('gccChannelRefusal earns UNSUPPORTED only when every channel was refused', 
   assert.match(r.details[0], /all 3 gcc channels refused: loadPassPluginOnGccLink rc=1, llvmPluginIntoLto1 rc=1, gccObjectsThroughLld rc=1/);
 });
 
+test('a gcc probe that NEVER RAN does not publish UNSUPPORTED either', () => {
+  // The second half of the same defect, and the half the first fix left open:
+  // splitting rc into "0" and "not 0" files a probe that was never put to the
+  // toolchain with the refusals. `run()` in the runner returns `rc: null` when
+  // spawnSync fails -- no such binary, or the 180s timeout -- and the third
+  // probe passes `-fuse-ld=lld`, so on a host without lld the lane would have
+  // called it a refusal. UNSUPPORTED means the toolchain refused; silence is
+  // not refusal. Found reviewing the fix, not the code it replaced.
+  for (const missing of [null, undefined]) {
+    const probes = gccProbesAllRefused();
+    probes.gccObjectsThroughLld = { rc: missing, stderr: ['spawnSync ld.lld-18 ENOENT'] };
+    const r = gccChannelRefusal(probes);
+    assert.equal(r.measurement, MEASUREMENT.BROKEN_MEASUREMENT, `rc: ${String(missing)}`);
+    assert.equal(r.reason, REASON.NO_OBSERVER_FOR_VENDOR);
+    assert.match(r.details[0], /could not be put to the toolchain at all/);
+    assert.match(r.details[0], /not-run: gccObjectsThroughLld/);
+    // The rc values stay in the record: which channel was silent is the fact a
+    // reader needs, and it is the one an UNSUPPORTED row would have hidden.
+    assert.match(r.details[0], /loadPassPluginOnGccLink rc=1/);
+  }
+  // All three genuinely refused is still UNSUPPORTED -- this test must not be
+  // satisfiable by a function that never returns it.
+  assert.equal(gccChannelRefusal(gccProbesAllRefused()).measurement, MEASUREMENT.UNSUPPORTED);
+});
+
 test('a gcc probe that SUCCEEDED does not publish UNSUPPORTED', () => {
   // The defect, synthesised: until 2026-09-15 the cell was built with no rc
   // anywhere in the expression, so this input published `UNSUPPORTED /

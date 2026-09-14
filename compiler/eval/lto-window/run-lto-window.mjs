@@ -331,8 +331,16 @@ function readObserver(outPath) {
   const main = fs.existsSync(outPath) ? parseObserverLog(fs.readFileSync(outPath)) : null;
   const sidePath = `${outPath}.summary.tsv`;
   const side = fs.existsSync(sidePath) ? parseObserverLog(fs.readFileSync(sidePath)) : null;
-  // finish() runs from the tracker's destructor, and lld exits without
-  // unwinding, so under full LTO the SUMMARY rows exist only in the side file.
+  // Which file the SUMMARY rows are in is a property of the plugin, not of the
+  // link form, and it MOVED. ★ 2026-09-15: this said "finish() runs from the
+  // tracker's destructor, and lld exits without unwinding, so under full LTO
+  // the SUMMARY rows exist only in the side file." That held while the tracker
+  // was a process-global nothing destroyed. It now belongs to the
+  // PassInstrumentationCallbacks, which lld DOES destroy per backend, so
+  // `finish()` runs at link and the main log has them -- measured, every
+  // full-LTO cell moved from `summarySource: side` to `main`. The branch below
+  // was already written to ask the file rather than assume the form, which is
+  // why the change cost nothing here; the comment was the part that was wrong.
   const fromMain = Boolean(main?.summaries?.length);
   const summaries = (fromMain ? main.summaries : side?.summaries) ?? [];
   // WHICH file the verdict is being read out of, and whether THAT file is
@@ -677,14 +685,21 @@ function thinLtoEvidence({ o, fx, name, work, plugin, symbols, objects }) {
   fs.mkdirSync(dir, { recursive: true });
   const base = [o.opt, '-flto=thin', '-fuse-ld=lld', ...objects.all];
   const env = (outPath) => ({ env: observerEnv({ subject: fx.subject, control: fx.control, symbols, outPath }) });
-  const failed = (where, r) => ({
-    attempted: true, linkFailed: true, where, linkRc: r.rc, signal: r.signal,
+  // `withPlugin` is carried rather than inferred from `where`. ★ 2026-09-15:
+  // the grader named every failure here `thinlto-link-did-not-survive-the-plugin`,
+  // and one of the three links below is the STOCK one, which is built without
+  // the plugin. A toolchain that cannot link these objects at all would have
+  // been reported as the plugin breaking the link. The three `where` strings
+  // are for a human reading the record; a verdict must not be decided by
+  // matching prose, so the fact the verdict needs is its own field.
+  const failed = (where, r, withPlugin) => ({
+    attempted: true, linkFailed: true, where, withPlugin, linkRc: r.rc, signal: r.signal,
     stderr: redact(r.stderr).slice(0, 1200),
   });
 
   const appStock = path.join(dir, 'app.thin.stock');
   const s = run(o.cc, [...base, '-o', appStock]);
-  if (s.rc !== 0) return failed('stock ThinLTO', s);
+  if (s.rc !== 0) return failed('stock ThinLTO', s, false);
 
   // The concurrency question, asked where the answer used to be "shredded". No
   // debug flag: this link is read for the integrity of the observer's own
@@ -693,14 +708,14 @@ function thinLtoEvidence({ o, fx, name, work, plugin, symbols, objects }) {
   const obsC = path.join(dir, 'concurrent.tsv');
   const c = run(o.cc, [...base, '-o', path.join(dir, 'app.thin.concurrent'),
     `-Wl,--load-pass-plugin=${plugin}`], env(obsC));
-  if (c.rc !== 0) return failed('concurrent ThinLTO', c);
+  if (c.rc !== 0) return failed('concurrent ThinLTO', c, true);
   const concurrent = { linkRc: c.rc, ...rollUp(readThinLtoBackends({ obsPath: obsC, fx, lldRuns: [] })) };
 
   const obs = path.join(dir, 'observer.tsv');
   const appObs = path.join(dir, 'app.thin');
   const r = run(o.cc, [...base, '-o', appObs, `-Wl,--load-pass-plugin=${plugin}`,
     '-Wl,--thinlto-jobs=1', '-Wl,--lto-debug-pass-manager'], env(obs));
-  if (r.rc !== 0) return failed('serialised ThinLTO', r);
+  if (r.rc !== 0) return failed('serialised ThinLTO', r, true);
   const lld = parseLldPassLog(r.stderr);
   const backends = readThinLtoBackends({ obsPath: obs, fx, lldRuns: lld.runs });
 

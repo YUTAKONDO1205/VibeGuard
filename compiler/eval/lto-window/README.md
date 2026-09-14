@@ -605,9 +605,15 @@ it does not suppress it.
 
 ## ThinLTO: what was broken, what was fixed, and what the cells say now
 
-**Everything from here to "The refusal that was asserted" is the pre-2026-09-14
-state, kept because it is the record of what was wrong.** The sections after it
-say what replaced it and what is still open.
+**This section carries both states, and every table says which one it is.** The
+pre-2026-09-14 material is kept because it is the record of what was wrong, and
+the post-fix readings are set beside it rather than replacing it, so the two can
+be compared. Until 2026-09-15 this paragraph said everything down to "The
+refusal that was asserted" was the pre-fix state, which stopped being true the
+moment a post-fix table was added in the middle of it — and the paragraph about
+torn module-id fragments, which belongs to the pre-fix table, then read as
+though it described the fixed observer. Each table is labelled in its own first
+column.
 
 Under `-flto=thin` lld runs one backend per input module, each with its own
 `PassBuilder`, and calls `llvmGetPassPluginInfo()` once per backend
@@ -677,8 +683,10 @@ Manifest lines == logs is the invariant, and the lane refuses the cell when it
 does not hold. What is *not* fixed by any of this is lld's own stderr; see
 "the linker's half" below.
 
-There are three input modules. The extra "module ids" are torn fragments:
-`<woHANDSHAKE>`, `after`, `""`. Sample torn lines:
+Back to the PRE-FIX table, which is what the rest of this section is about.
+There are three input modules, so the four and seven "distinct module ids" it
+counts are not modules. The extras are torn fragments: `<woHANDSHAKE>`,
+`after`, `""`. Sample torn lines:
 
 ```
 WholeProgramDevirtPass	wipe_kept	wipe_kept	ERASED
@@ -826,8 +834,9 @@ the lane refuses rather than making it silently.
 This lane does not modify `compiler/pass-instrumentation/observer/**`. Items 1,
 2 and 3 below were applied there on 2026-09-14 by the change this lane's reader
 was rewritten against; the wording is kept so the reader can see what was asked
-for and check it against what landed. **Items 4 and 5 are still outstanding.**
-What it took:
+for and check it against what landed. Items 4 and 5 were applied a day later,
+outside this lane as well; the section after the list says what each of them
+turned out to be. What it took:
 
 1. **A tracker per `PassBuilder`, not per process.** Replace the file-scope
    `std::shared_ptr<Tracker> TheTracker` (`PropertyObserver.cpp:55`) with one
@@ -1036,9 +1045,11 @@ paragraph (`lib/cell.mjs`, the `!subject` branch; `test/cell.test.mjs`):
 The first row is reachable rather than theoretical, and the comment that used to
 sit there ("a resolved subject always gets a row") was the reason nobody looked:
 the observer resolves a subject by **lineage**
-(`lineageRoot(F.getName()) == OBS_TARGET_FN`, `History.cpp:119-129`) and records
-each unit under its own, possibly mangled, **name** (`History.cpp:187`,
+(`lineageRoot(F.getName())`, `History.cpp:238`) and records
+each unit under its own, possibly mangled, **name** (`History.cpp:312`,
 `U.Name = Key`), while this harness looks the row up by the fixture's plain name.
+(Those line numbers read 119-129 and 187 until 2026-09-15, when the per-module
+change moved them.)
 A subject that survives a link only as `handle.llvm.1041` resolves and has no row
 under `handle`. Requiring a measured, held control before reading that as the
 third situation is what keeps it from becoming a hiding place.

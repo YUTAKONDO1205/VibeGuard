@@ -135,8 +135,30 @@ describe('CI runs every suite this tree has', () => {
       .filter((body) => RUNNER.test(body));
     expect(runnerSteps.length, 'no step in ci.yml invokes a test runner; the SEARCH broke')
       .toBeGreaterThan(2);
-    const missing = dirs.filter(
-      (d) => !runnerSteps.some((body) => body.includes(d.replace(/\/test$/, ''))));
+    // ★ 2026-09-15: A PLAIN `includes` OF THE `/test`-STRIPPED KEY LET A SIBLING
+    // DIRECTORY ANSWER FOR ITS NEIGHBOUR. `compiler/pass-instrumentation/observer/test`
+    // stripped to `compiler/pass-instrumentation/observer`, and the step added
+    // that same day for `compiler/pass-instrumentation/observer/test-link`
+    // contains that string -- so `run_suite observer` could be deleted from
+    // ci.yml and this file stayed green. Measured: the line was removed and all
+    // five cases passed. Two sibling suites, one of them covering for the other,
+    // is exactly the silence this file exists to break, and the fix that
+    // introduced `test-link` is what opened it.
+    //
+    // The stripping itself has to stay: the `compiler/fingerprint` /
+    // `compiler/link-wrapper` step builds its path at run time
+    // (`for suite in ...; do ls "$suite"/test/...`), so the literal
+    // `compiler/fingerprint/test` is nowhere in ci.yml and only the parent is.
+    // So a directory counts as named when the body holds EITHER the full path
+    // with its separator (`<dir>/`, which is how every glob spells it) OR the
+    // stripped parent as a WHOLE path token -- bounded by whitespace or a quote,
+    // never by `/`. `.../observer/test-link/*.test.mjs` fails both for
+    // `.../observer/test`: the full path is absent, and the parent is followed
+    // by `/`, which makes it part of a longer path rather than a name of its own.
+    const rx = (s) => s.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
+    const namedBy = (body, d) => body.includes(`${d}/`)
+      || new RegExp(`(^|[\\s"'])${rx(d.replace(/\/test$/, ''))}([\\s"']|$)`, 'm').test(body);
+    const missing = dirs.filter((d) => !runnerSteps.some((body) => namedBy(body, d)));
     expect(
       missing,
       'test directories no test-running CI step names (a cmake build line or a prose comment '

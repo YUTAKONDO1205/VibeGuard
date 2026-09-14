@@ -250,10 +250,14 @@ be right. What lands on disk:
 | `<OBS_OUT>.modules` | all of them: one line each, `<raw module id>\t<the log path that tracker opened>` |
 
 A plain compile and a full-LTO link create exactly one tracker, so both write
-`<OBS_OUT>` and `<OBS_OUT>.summary.tsv` and nothing else changes about them —
-measured byte for byte against the previous plugin, together with the object
-file and stderr. The only addition on those paths is `<OBS_OUT>.modules`, which
-is one line long.
+`<OBS_OUT>` and `<OBS_OUT>.summary.tsv` under the names they always used, and
+the only new file on those paths is `<OBS_OUT>.modules`, one line long.
+
+**Byte-for-byte sameness holds for the compile path only**, and this paragraph
+claimed it for both until 2026-09-15. On a compile, the object, the main log,
+the side file and stderr are identical to the previous plugin's — measured. On
+a full-LTO link the names are the same and the main log is not: see the two
+consequences below, the first of which is that `finish()` now runs there.
 
 The manifest is the part worth explaining. **Read it, do not re-derive the
 names.** Which backend ends up with the unsuffixed file is a race and is not

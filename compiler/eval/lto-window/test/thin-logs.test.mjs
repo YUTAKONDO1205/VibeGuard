@@ -152,6 +152,10 @@ test('plugin-multi-passbuilder is now reachable ONLY from a shredded log', () =>
     [null, REASON.THINLTO_EVIDENCE_NOT_TAKEN],
     [{ skipped: true, check: 'thinltoEvidence' }, REASON.THINLTO_EVIDENCE_NOT_TAKEN],
     [{ attempted: true, linkFailed: true, where: 'observed ThinLTO', linkRc: 1 }, REASON.THINLTO_LINK_FAILED],
+    // withPlugin absent keeps the louder word: an evidence object written
+    // before that field existed must not quietly become the milder one.
+    [{ attempted: true, linkFailed: true, where: 'serialised ThinLTO', linkRc: 1, withPlugin: true },
+      REASON.THINLTO_LINK_FAILED],
     [evidenceOf([], { manifest: { present: false, lines: 0, malformedLines: 0 } }), REASON.THINLTO_NO_MANIFEST],
   ]) {
     const cell = grade(evidence);
@@ -205,6 +209,27 @@ test('a MISSING DEFAULT-pool reading refuses the cell too, and does not read as 
     assert.match(cell.reasons[1], /no DEFAULT-thread-pool reading was taken/);
     assert.equal(cell.attribution, null,
       'a cell with no concurrency evidence must not publish an attribution');
+  }
+});
+
+test('a STOCK link failure is not blamed on the plugin that was not in it', () => {
+  // Three links are run for a thin cell and only two carry the plugin. Until
+  // 2026-09-15 all three failures were named
+  // `thinlto-link-did-not-survive-the-plugin`, so a host that could not link
+  // these objects at all would have been recorded as the observer breaking the
+  // link -- a claim about the instrument drawn from evidence about the machine.
+  const stock = grade({ attempted: true, linkFailed: true, where: 'stock ThinLTO', linkRc: 1, withPlugin: false });
+  assert.equal(stock.measurement, MEASUREMENT.BROKEN_MEASUREMENT);
+  assert.equal(stock.reasons[0], REASON.THINLTO_STOCK_LINK_FAILED);
+  assert.ok(stock.reasons.some((r) => /WITHOUT the plugin/.test(r)),
+    'the record says why this one is not about the observer');
+  assert.ok(!stock.reasons.includes(REASON.THINLTO_LINK_FAILED));
+
+  // The two that DO carry it keep the original word, so this test cannot be
+  // satisfied by a function that stopped blaming the plugin for anything.
+  for (const where of ['concurrent ThinLTO', 'serialised ThinLTO']) {
+    const c = grade({ attempted: true, linkFailed: true, where, linkRc: 1, withPlugin: true });
+    assert.equal(c.reasons[0], REASON.THINLTO_LINK_FAILED, where);
   }
 });
 
