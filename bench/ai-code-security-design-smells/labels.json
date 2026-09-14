@@ -1,0 +1,467 @@
+{
+  "benchmark": "ai-code-security-design-smells",
+  "generatedBy": "scripts/bench-build-manifest.mjs",
+  "rubricVersion": "s010-label-v1",
+  "rubricDocument": "docs/smell010-labeling-rubric.md",
+  "family": "inline-authorization",
+  "humanConfirmed": {
+    "num": 0,
+    "den": 5
+  },
+  "rateWithheld": "No rate may be computed from this label set. The verdicts are an AI-prepared draft and no human has read the implicated handlers; a precision figure over unreviewed verdicts measures the drafter, not the tool. The scorer therefore emits integer counts only. Flip humanConfirmed at the source, rebuild, and the withholding lifts by itself.",
+  "labels": [
+    {
+      "repository": "Jizhidemu52__Vincent-s-Canvas",
+      "family": "inline-authorization",
+      "toolRuleIdAtLabelTime": "VG-SMELL-010",
+      "verdict": "TP",
+      "anchor": {
+        "file": "server/src/routes/accounts.ts",
+        "line": 39
+      },
+      "sites": [
+        {
+          "file": "server/src/routes/accounts.ts",
+          "line": 39
+        },
+        {
+          "file": "server/src/routes/accounts.ts",
+          "line": 53
+        },
+        {
+          "file": "server/src/routes/accounts.ts",
+          "line": 56
+        },
+        {
+          "file": "server/src/routes/accounts.ts",
+          "line": 59
+        },
+        {
+          "file": "server/src/routes/accounts.ts",
+          "line": 97
+        },
+        {
+          "file": "server/src/routes/accounts.ts",
+          "line": 99
+        },
+        {
+          "file": "server/src/routes/accounts.ts",
+          "line": 174
+        },
+        {
+          "file": "server/src/routes/assets.ts",
+          "line": 211
+        },
+        {
+          "file": "server/src/routes/assets.ts",
+          "line": 225
+        },
+        {
+          "file": "server/src/routes/assets.ts",
+          "line": 226
+        },
+        {
+          "file": "server/src/routes/assets.ts",
+          "line": 275
+        },
+        {
+          "file": "server/src/routes/audit-logs.ts",
+          "line": 14
+        },
+        {
+          "file": "server/src/routes/auth.ts",
+          "line": 167
+        },
+        {
+          "file": "server/src/routes/groups.ts",
+          "line": 43
+        },
+        {
+          "file": "server/src/routes/groups.ts",
+          "line": 72
+        },
+        {
+          "file": "server/src/routes/groups.ts",
+          "line": 130
+        },
+        {
+          "file": "server/src/routes/groups.ts",
+          "line": 144
+        },
+        {
+          "file": "server/src/routes/groups.ts",
+          "line": 151
+        },
+        {
+          "file": "server/src/routes/groups.ts",
+          "line": 160
+        },
+        {
+          "file": "server/src/routes/groups.ts",
+          "line": 168
+        },
+        {
+          "file": "server/src/routes/groups.ts",
+          "line": 187
+        },
+        {
+          "file": "server/src/routes/history.ts",
+          "line": 147
+        },
+        {
+          "file": "server/src/routes/performance.ts",
+          "line": 39
+        },
+        {
+          "file": "server/src/routes/performance.ts",
+          "line": 56
+        },
+        {
+          "file": "server/src/routes/performance.ts",
+          "line": 57
+        },
+        {
+          "file": "server/src/routes/performance.ts",
+          "line": 82
+        },
+        {
+          "file": "server/src/routes/performance.ts",
+          "line": 83
+        },
+        {
+          "file": "server/src/routes/projects.ts",
+          "line": 72
+        },
+        {
+          "file": "server/src/routes/projects.ts",
+          "line": 115
+        },
+        {
+          "file": "server/src/routes/prompt-templates.ts",
+          "line": 170
+        },
+        {
+          "file": "server/src/routes/prompt-templates.ts",
+          "line": 186
+        },
+        {
+          "file": "server/src/routes/prompt-templates.ts",
+          "line": 188
+        },
+        {
+          "file": "server/src/routes/prompt-templates.ts",
+          "line": 222
+        },
+        {
+          "file": "server/src/routes/prompt-templates.ts",
+          "line": 280
+        },
+        {
+          "file": "server/src/routes/prompt-templates.ts",
+          "line": 287
+        },
+        {
+          "file": "server/src/routes/prompt-templates.ts",
+          "line": 296
+        },
+        {
+          "file": "server/src/routes/prompt-templates.ts",
+          "line": 305
+        },
+        {
+          "file": "server/src/routes/prompt-templates.ts",
+          "line": 323
+        },
+        {
+          "file": "server/src/routes/prompt-templates.ts",
+          "line": 324
+        },
+        {
+          "file": "server/src/routes/tasks.ts",
+          "line": 63
+        },
+        {
+          "file": "server/src/routes/tasks.ts",
+          "line": 70
+        },
+        {
+          "file": "server/src/routes/tasks.ts",
+          "line": 312
+        },
+        {
+          "file": "server/src/routes/tasks.ts",
+          "line": 314
+        },
+        {
+          "file": "server/src/routes/tasks.ts",
+          "line": 318
+        },
+        {
+          "file": "server/src/routes/tasks.ts",
+          "line": 345
+        },
+        {
+          "file": "server/src/routes/tasks.ts",
+          "line": 363
+        },
+        {
+          "file": "server/src/routes/tasks.ts",
+          "line": 382
+        },
+        {
+          "file": "server/src/routes/tasks.ts",
+          "line": 433
+        }
+      ],
+      "rubricVersion": "s010-label-v1",
+      "groundTruth": "ai-draft-unconfirmed",
+      "humanConfirmed": false,
+      "labeledBy": "claude-opus-5 (Claude Code main agent) — AI-prepared draft, NOT human-reviewed",
+      "rationale": "A: 54 sites across 10 route files branch on the CALLER role (actor.role === \"super_admin\" / \"department_admin\" / \"designer\"), read from the authenticated request. B: all sites sit in route-handler bodies created by createXRouter(db). C: after discarding the 5 duplicate file:line entries and the non-authorization sites (auth.ts:167 is a UI redirect target, and several are SQL row-scoping rather than access decisions), well over 3 sites across well over 2 files remain. D: the project DOES centralise the COARSE decision — server/src/rbac.ts exports requireRole() and routers apply it (router.use(requireRole(\"super_admin\", \"department_admin\"))). The FINE-GRAINED decision (which department a department_admin may touch, and whether it may change a role) is NOT centralised and is re-derived in 10 route files. Per rubric §1 D note, duplication alongside an applied guard is still TP because the claim \"policy does not live in one place\" remains true. PRECISION CAVEAT recorded rather than hidden: a meaningful minority of the 54 sites are row-scoping (building a WHERE clause), not access control, so the site COUNT overstates the number of authorization decisions."
+    },
+    {
+      "repository": "blueoceanintern-sudo__CompanyBrain",
+      "family": "inline-authorization",
+      "toolRuleIdAtLabelTime": "VG-SMELL-010",
+      "verdict": "FP",
+      "anchor": {
+        "file": "apps/api/src/routes/access.ts",
+        "line": 241
+      },
+      "sites": [
+        {
+          "file": "apps/api/src/routes/access.ts",
+          "line": 241
+        },
+        {
+          "file": "apps/api/src/routes/admin.ts",
+          "line": 263
+        },
+        {
+          "file": "apps/api/src/routes/admin.ts",
+          "line": 384
+        },
+        {
+          "file": "apps/api/src/routes/admin.ts",
+          "line": 388
+        }
+      ],
+      "rubricVersion": "s010-label-v1",
+      "groundTruth": "ai-draft-unconfirmed",
+      "humanConfirmed": false,
+      "labeledBy": "claude-opus-5 (Claude Code main agent) — AI-prepared draft, NOT human-reviewed",
+      "rationale": "Fails the re-count required by rubric §1 C, and the project has the aggregation point rubric §1 D asks about. Of the 4 reported sites: access.ts:241 (target.role === \"external_client\" -> 400 INVALID_USERS) and admin.ts:263 (body.role === \"external_client\" -> 400 INVALID_GROUPS) are BUSINESS VALIDATION about the target/payload, not authorization of the caller, so they fail criterion A; admin.ts:384 (target.role === \"super_admin\" -> 403) protects the target rather than reading the caller privilege and is borderline at best. Only admin.ts:388 reads the caller (actorRole !== \"super_admin\"). Re-counting leaves 1-2 qualifying sites in 1 file (admin.ts), below the >=3 sites AND >=2 files bar -> rubric §2 F4. Decisively, the real authorization IS centralised: admin.ts:258 calls hasPermission(actorRole, \"users:manage\"), the delegated form this rule recommends (and which the rule correctly did not count as a site)."
+    },
+    {
+      "repository": "peegee1985__macaly-kuryr4-you-dispecink-qxs5v8",
+      "family": "inline-authorization",
+      "toolRuleIdAtLabelTime": "VG-SMELL-010",
+      "verdict": "FP",
+      "anchor": {
+        "file": "convex/hr.ts",
+        "line": 287
+      },
+      "sites": [
+        {
+          "file": "convex/hr.ts",
+          "line": 287
+        },
+        {
+          "file": "convex/teams.ts",
+          "line": 249
+        },
+        {
+          "file": "convex/teams.ts",
+          "line": 253
+        }
+      ],
+      "rubricVersion": "s010-label-v1",
+      "groundTruth": "ai-draft-unconfirmed",
+      "humanConfirmed": false,
+      "labeledBy": "claude-opus-5 (Claude Code main agent) — AI-prepared draft, NOT human-reviewed",
+      "rationale": "Fails the re-count in rubric §1 C. Two of the three sites are genuine caller-privilege checks (hr.ts:287 and teams.ts:249, both `caller.role !== \"dispatcher\"` inside a convex mutation({handler})). The third, teams.ts:253 (`driver.role !== \"driver\"`), validates that the TARGET entity being added to a team is a driver — it does not read the privilege of the subject of the request — so it fails criterion A. Removing it leaves 2 qualifying sites, below the >=3 bar -> rubric §2 F4. This is exactly the \"the count only just reached the threshold\" case the rubric says must not be scored TP. NOTE for #22d: this is the one finding of the five whose HIGH severity comes solely from the new mutatesData boost (elevated=false, securityPath=false, routingLayer=false, mutatesData=true on all 3 sites) — i.e. the boost promoted a false positive."
+    },
+    {
+      "repository": "roboburr__klonkt",
+      "family": "inline-authorization",
+      "toolRuleIdAtLabelTime": "VG-SMELL-010",
+      "verdict": "TP",
+      "anchor": {
+        "file": "src/routes/account.js",
+        "line": 122
+      },
+      "sites": [
+        {
+          "file": "src/routes/account.js",
+          "line": 122
+        },
+        {
+          "file": "src/routes/admin-sites.js",
+          "line": 332
+        },
+        {
+          "file": "src/routes/admin-users.js",
+          "line": 67
+        },
+        {
+          "file": "src/routes/admin-users.js",
+          "line": 87
+        },
+        {
+          "file": "src/routes/admin.js",
+          "line": 40
+        }
+      ],
+      "rubricVersion": "s010-label-v1",
+      "groundTruth": "ai-draft-unconfirmed",
+      "humanConfirmed": false,
+      "labeledBy": "claude-opus-5 (Claude Code main agent) — AI-prepared draft, NOT human-reviewed",
+      "rationale": "A+B: account.js:122, admin-sites.js:332 and admin.js:40 all branch on the CALLER privilege (req.session.user.role / user.role vs \"god\"/\"kijker\") inside express route handlers. C: two reported sites (admin-users.js:67 and :87) are business rules protecting the TARGET (\"Prevent removing the last god\") and fail criterion A, and admin.js:40 is reported TWICE for the same physical line (rubric §2 F5 double-count). After discarding both, 3 qualifying sites across 3 distinct files remain — still >=3 sites and >=2 files. D: the only shared middleware is requireAuth (AUTHENTICATION); there is no requireGod/requireRole, so the role decision genuinely has no aggregation point and is re-derived per handler."
+    },
+    {
+      "repository": "webaz-protocol__webaz",
+      "family": "inline-authorization",
+      "toolRuleIdAtLabelTime": "VG-SMELL-010",
+      "verdict": "TP",
+      "anchor": {
+        "file": "src/pwa/routes/admin-events.ts",
+        "line": 63
+      },
+      "sites": [
+        {
+          "file": "src/pwa/routes/admin-events.ts",
+          "line": 63
+        },
+        {
+          "file": "src/pwa/routes/admin-ops.ts",
+          "line": 132
+        },
+        {
+          "file": "src/pwa/routes/admin-users-lifecycle.ts",
+          "line": 94
+        },
+        {
+          "file": "src/pwa/routes/admin-users-lifecycle.ts",
+          "line": 97
+        },
+        {
+          "file": "src/pwa/routes/admin-users-lifecycle.ts",
+          "line": 115
+        },
+        {
+          "file": "src/pwa/routes/admin-users-lifecycle.ts",
+          "line": 116
+        },
+        {
+          "file": "src/pwa/routes/admin-users-lifecycle.ts",
+          "line": 194
+        },
+        {
+          "file": "src/pwa/routes/agent-reputation.ts",
+          "line": 47
+        },
+        {
+          "file": "src/pwa/routes/ai.ts",
+          "line": 32
+        },
+        {
+          "file": "src/pwa/routes/ai.ts",
+          "line": 88
+        },
+        {
+          "file": "src/pwa/routes/announcements.ts",
+          "line": 97
+        },
+        {
+          "file": "src/pwa/routes/arbitrator.ts",
+          "line": 95
+        },
+        {
+          "file": "src/pwa/routes/cart.ts",
+          "line": 91
+        },
+        {
+          "file": "src/pwa/routes/coupons.ts",
+          "line": 79
+        },
+        {
+          "file": "src/pwa/routes/coupons.ts",
+          "line": 99
+        },
+        {
+          "file": "src/pwa/routes/direct-pay-pending-accept.ts",
+          "line": 61
+        },
+        {
+          "file": "src/pwa/routes/dispute-cases.ts",
+          "line": 164
+        },
+        {
+          "file": "src/pwa/routes/external-anchors.ts",
+          "line": 77
+        },
+        {
+          "file": "src/pwa/routes/listings.ts",
+          "line": 112
+        },
+        {
+          "file": "src/pwa/routes/listings.ts",
+          "line": 263
+        },
+        {
+          "file": "src/pwa/routes/manifests.ts",
+          "line": 166
+        },
+        {
+          "file": "src/pwa/routes/orders-read.ts",
+          "line": 81
+        },
+        {
+          "file": "src/pwa/routes/orders-read.ts",
+          "line": 151
+        },
+        {
+          "file": "src/pwa/routes/p2p-products.ts",
+          "line": 50
+        },
+        {
+          "file": "src/pwa/routes/products-create.ts",
+          "line": 309
+        },
+        {
+          "file": "src/pwa/routes/returns.ts",
+          "line": 214
+        },
+        {
+          "file": "src/pwa/routes/seller-quota.ts",
+          "line": 47
+        },
+        {
+          "file": "src/pwa/routes/seller-quota.ts",
+          "line": 196
+        },
+        {
+          "file": "src/pwa/routes/shipping-templates.ts",
+          "line": 129
+        },
+        {
+          "file": "src/pwa/routes/skills.ts",
+          "line": 81
+        },
+        {
+          "file": "src/pwa/routes/snf.ts",
+          "line": 130
+        },
+        {
+          "file": "src/pwa/routes/verifier-user.ts",
+          "line": 75
+        }
+      ],
+      "rubricVersion": "s010-label-v1",
+      "groundTruth": "ai-draft-unconfirmed",
+      "humanConfirmed": false,
+      "labeledBy": "claude-opus-5 (Claude Code main agent) — AI-prepared draft, NOT human-reviewed",
+      "rationale": "A+B: 33 sites across 23 files branch on the caller privilege (u.role !== \"admin\", user.role !== \"admin\", target.role === \"admin\") inside express route handlers, most returning 403. C: only 1 duplicate file:line pair; 32+ sites across 23 files remain after dedup. D: the project HAS a requireAdmin(req, res) guard and applies it at other routes (const admin = requireAdmin(req, res); if (!admin) return), and also has a adminCanOperateOn() helper in server.ts — yet admin-events.ts:63 re-derives the admin check inline on a separate SSE-ticket authentication path. Per rubric §1 D this duplication is TP: the guard exists, is applied elsewhere, and the policy is still not in one place."
+    }
+  ]
+}

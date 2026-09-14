@@ -1,0 +1,24 @@
+{
+  "schema": "bench/rule-families@1",
+  "readThisFirst": "A family map is the single place where this benchmark could quietly become VibeGuard-shaped. If the only rule id that maps to a family is the one this repository emits, then every other tool scores zero by construction and the leaderboard measures vocabulary rather than detection. The guard against that is not a longer list -- it is that an unmapped rule id is reported as UNMAPPED in its own count, never as a miss and never as a zero. Read the counts before reading any comparison.",
+  "families": [
+    {
+      "family": "inline-authorization",
+      "claim": "An authorization decision is re-derived inline in request handlers across several files, rather than being taken once by a shared guard. The claim is about WHERE the policy lives, not about whether any individual check is wrong.",
+      "rubric": "docs/smell010-labeling-rubric.md",
+      "rubricVersion": "s010-label-v1",
+      "rules": [
+        {
+          "tool": "vibeguard",
+          "ruleId": "VG-SMELL-010",
+          "provenance": "VERIFIED IN THIS REPOSITORY. The id is emitted by the cross-file design-smell rule defined in packages/analysis-graph/src/design-smells-crossfile/scattered-authorization.ts; the label rows were written against that rule's output."
+        }
+      ],
+      "rulesNotMapped": {
+        "semgrep": "NO SEMGREP RULE IS MAPPED, AND NONE IS INVENTED HERE. No rule in a public Semgrep pack has been confirmed by anyone working on this benchmark to make this family's claim, and a plausible-looking id written from memory is worse than an empty list: it would produce agreements and disagreements that were never measured against a real rule. Semgrep findings therefore land in UNMAPPED until a submitter supplies a mapping with --family-map, which is recorded in the result file so the reader can see whose mapping produced the row.",
+        "codeql": "Same position, same reason."
+      }
+    }
+  ],
+  "supplyYourOwn": "A submitter maps their tool's rule ids with `--family-map <file>`, a JSON document of the same shape as `families` above. The path and the sha256 of that file are copied into the result, because a score computed under a mapping nobody can see is not reproducible."
+}

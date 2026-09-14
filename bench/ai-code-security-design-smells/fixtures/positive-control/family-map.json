@@ -1,0 +1,18 @@
+{
+  "schema": "bench/rule-families@1",
+  "readThisFirst": "A SUBMITTER-SUPPLIED family map, of the shape --family-map takes. It exists so the Semgrep-shaped intake can be exercised end to end without the benchmark itself shipping a mapping for a rule nobody has confirmed. The scorer records this file's path and sha256 in the result, which is what keeps a score computed under a private mapping distinguishable from one computed under the benchmark's own.",
+  "families": [
+    {
+      "family": "inline-authorization",
+      "claim": "Same claim as the benchmark's own family of this name.",
+      "rubricVersion": "s010-label-v1",
+      "rules": [
+        {
+          "tool": "semgrep",
+          "ruleId": "local.rules.inline-authorization-duplicated",
+          "provenance": "A user-written Semgrep rule, named in the shape-derived fixture beside this file. It is NOT a rule from any published pack."
+        }
+      ]
+    }
+  ]
+}

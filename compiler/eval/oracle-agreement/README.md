@@ -82,20 +82,37 @@ corpus cell — and until this lane there was nothing that did it.
 ## What is here
 
 ```
-run-oracle-agreement.mjs   the CLI: selects cells, runs O2, tabulates, exits 0/2/3/4/5
-lib/agreement.mjs          the 2x2 table and every rule about what enters it. PURE.
+run-oracle-agreement.mjs   the CLI: selects cells, runs the second oracle, tabulates, exits 0/2/3/4/5
+lib/agreement.mjs          the 2x2 table, the two vocabularies, and what may enter. PURE.
 lib/rows.mjs               the O1 side: the tracked rows, read; and the selection
 lib/observe.mjs            the O2 side: one corpus cell under libPropertyObserver.so
+lib/disasm.mjs             the O3 side: one corpus cell built, LINKED, and disassembled
+lib/bufferbytes.mjs        how many bytes should the wipe have written? the compiler answers
+lib/liveo1.mjs             O1 recomputed NOW, as a third column beside the frozen one
+lib/fixtures.mjs           the synthetic sources the two apparatus checks put questions to
 lib/callsites.mjs          were there any wipe call sites to watch? -O0 IR, counted
 lib/record.mjs             the tracked record: what may go in it, and what may not
 data/                      one record per compiler, written only by a full --write-data run
+tools/check-bytes-readout.mjs   does the byte-count read-out work here, and refuse what it must?
+tools/check-o3-apparatus.mjs    can O3 tell a wipe that cannot be removed from one that was?
 test/agreement.test.mjs    the arithmetic, over synthetic rows
 test/rows.test.mjs         indexing and selection, plus facts re-derived from the rows
+test/second-oracle.test.mjs the two vocabularies, the O3 table, and the live O1 column
+test/bufferbytes.test.mjs  there is no default byte count, and every refusal has a name
+test/fixtures.test.mjs     the controls' fixtures are the things they claim to be
 test/callsites.test.mjs    the counting rule, over IR text and no compiler
 test/record.test.mjs       the three fences on the record, each tested by trying to pass it
 test/data.test.mjs         the record against the numbers printed in THIS file
 test/lane.test.mjs         hygiene, the plugin configuration, and the four-oracle map
 ```
+
+The two `tools/` files are CHECKS and not tests, and the difference is the point.
+They need a compiler, python and objdump; the suite needs none of those and must
+keep needing none, so a compiler-dependent question cannot live in it. Put behind
+a fence in a test file it would go GREEN on every host without a compiler --
+which is what the first draft of `tools/check-bytes-readout.mjs` did: seventeen
+milliseconds, four green ticks, no compiler present. These exit **3** when they
+cannot run, and name what was missing.
 
 The only thing written under `compiler/` is the record in `data/`. The copied
 sources, the object files, the plugin logs, the emitted IR and the report all go
@@ -123,18 +140,35 @@ For a chosen set of corpus cells — a cell is one `(generation id, vendor,
 optimisation level)` — the lane obtains two verdicts:
 
 * **O1** from the tracked rows. `WIPE_ELIMINATED` or `WIPE_SURVIVED`. Not
-  re-measured.
-* **O2** by compiling the same generation now, with `CONTROL` appended exactly as
-  the corpus run appends it, under `-fpass-plugin=libPropertyObserver.so`, and
-  reading the subject's `finalState` out of the plugin's SUMMARY record.
+  re-measured for the table. (`--live-o1` recomputes it beside the tracked
+  reading; see below. The table still grades the tracked one.)
+* **the second oracle**, measured now, on the same generation, with `CONTROL`
+  appended exactly as the corpus run appends it. WHICH second oracle depends on
+  the driver, because gcc does not load an LLVM pass plugin:
 
-and files the pair in one of four cells:
+| driver | second oracle | what it reads | its two gradable words |
+|---|---|---|---|
+| `clang-18` | **O2** | the subject's `finalState` in the plugin's SUMMARY record, `-fpass-plugin=libPropertyObserver.so` | `LOST` / `PRESENT` |
+| `gcc-13` | **O3** | the zero fill of the subject function in the **linked program**, through `../lto-window/tools/read-wipe.py` | `ABSENT` / `PRESENT` |
+
+and files the pair in one of four cells — named in the second oracle's OWN words,
+so a gcc record reads `ELIMINATED/ABSENT` and never `ELIMINATED/LOST`:
 
 ```
-                      O2 LOST      O2 PRESENT
-   O1 ELIMINATED       agree        DISAGREE
-   O1 SURVIVED        DISAGREE       agree
+                      O2 LOST      O2 PRESENT          O3 ABSENT    O3 PRESENT
+   O1 ELIMINATED       agree        DISAGREE            agree        DISAGREE
+   O1 SURVIVED        DISAGREE       agree             DISAGREE       agree
 ```
+
+**The two column headings are not the same heading.** O2's `LOST` is "an effect
+call site that existed at one observation point does not exist at a later one".
+O3's `ABSENT` is "the linked function contains no zero fill and no memset call".
+And `ABSENT` is *also* one of O2's words, where it means a third thing — "the
+site was never there to lose" — which this lane refuses to fold into `LOST`
+because that fold is the hypothesis under test. Mapping O3's `ABSENT` onto O2's
+`LOST` to keep one table would perform the same merge one level up, inside the
+module whose job is to keep two sentences apart, so the vocabulary is a parameter
+of the tabulator and the cell names are built from it.
 
 Every off-diagonal cell is printed **individually, by id**, with the vendor, the
 level, the idiom the corpus run recorded, both verdicts, and the pass the
@@ -341,17 +375,258 @@ generation — the split the result section below is built on. It is required fo
 `--write-data` because without it that split would be recorded with its
 provenance as prose rather than as a count.
 
-`gcc-13` is accepted by `--cc` and will not work: the plugin is an LLVM pass
-plugin and `gcc` does not load it. `../lto-window` hit the same wall from the
-other side and named the result `UNSUPPORTED`. Cross-vendor comparison here needs
-O3 (`read-wipe.py`) as the second oracle instead, which this lane does not
-implement — see below.
+### gcc, and the sentence this section used to carry
+
+This section said, from the day the lane was written until 2026-09-14:
+
+> `gcc-13` is accepted by `--cc` and will not work: the plugin is an LLVM pass
+> plugin and `gcc` does not load it. […] Cross-vendor comparison here needs O3
+> (`read-wipe.py`) as the second oracle instead, **which this lane does not
+> implement**.
+
+The first half was true and the behaviour was bad: a `--cc gcc-13` run compiled
+every cell, failed to load the plugin, and produced a table of
+`BROKEN_MEASUREMENT` — fifty compiles spent to discover an argument that could
+have been refused before the first one. The second half is no longer true.
+
+**The second oracle now follows the vendor.** `--second-oracle` defaults to `O2`
+for a `clang` driver and `O3` for anything else, and an impossible pairing is
+refused in `parseArgs`, before a compile, with the reason named. `--second-oracle
+O2 --cc gcc-13` exits 4 rather than measuring a plugin that never ran.
+
+##### One pairing is impossible; the other one was only preferred
+
+| | | |
+|---|---|---|
+| `--second-oracle O2 --cc gcc-13` | **refused, exit 4** | The PropertyObserver is an LLVM pass plugin and this driver does not load it. Every cell would read `BROKEN_MEASUREMENT`. An **impossibility**. |
+| `--second-oracle O3 --cc clang-18` | **allowed** | It was refused, and the reason given was that the pass observer *"says more than a reading of the finished program"*. That is a **preference between instruments**, not an obstacle. |
+
+There is no obstacle. `read-wipe.py` and `objdump_fill.py` match x86-64
+disassembly — a vector register zeroed against itself and stored, an immediate
+zero stored, a call to `memset`/`__memset_chk` — and none of those is a spelling
+only gcc emits; `lib/disasm.mjs` compiles and links with whatever `--cc` names
+and stubs the symbols the **linker** reported, which is vendor-neutral; and
+`lib/bufferbytes.mjs` establishes its count with `_Static_assert` under
+`-fsyntax-only`, which clang has. `test/second-oracle.test.mjs` greps both
+modules, comments stripped, for a vendor name and finds none.
+
+And the preference foreclosed the cheapest validation this lane's newest
+instrument has. O3 over **clang** cells is the one place where every cell can be
+read **three ways** — O1's differential text comparison, O2's IR call-site count,
+and O3's zero fill in the linked program — on one vendor, on one build, with no
+second toolchain to attribute a disagreement to. A gcc-only O3 table has no
+second opinion for its off-diagonal to disagree with; this one does.
+
+**What it may still not do is `--write-data`,** and that refusal *is* an
+impossibility: `lib/record.mjs` `dataFileName` names the record after the
+compiler alone, so an O3 run on clang wants
+`data/oracle-agreement-clang-18.json` — the O2 record that is this lane's
+measured result — and would replace a table of `ELIMINATED/LOST` with a table of
+`ELIMINATED/ABSENT` under a name that says neither. `writeDataRefusals` names it;
+run it without `--write-data` and quote the report.
+
+```sh
+# the three-way reading: O3 over clang cells O2 has already answered.
+node compiler/eval/oracle-agreement/run-oracle-agreement.mjs \
+     --cc clang-18 --second-oracle O3 --opt -O0,-O2 --per-bucket 24 \
+     --restrict-domain --live-o1 \
+     --out ~/vg-lab/oracle-agreement          # no --write-data: see above
+```
+
+```sh
+# the gcc side. No --observer: the disassembly reader loads no pass plugin, and
+# naming one here is REFUSED, because a record that named it would be recording
+# an instrument that did not run.
+node compiler/eval/oracle-agreement/run-oracle-agreement.mjs \
+     --cc gcc-13 --opt -O0,-O2 --per-bucket 24 \
+     --restrict-domain --live-o1 \
+     --out ~/vg-lab/oracle-agreement
+
+# before believing anything the line above prints, on a host that has not run it:
+node compiler/eval/oracle-agreement/tools/check-bytes-readout.mjs --cc gcc-13 --lab ~/vg-lab/oracle-agreement
+node compiler/eval/oracle-agreement/tools/check-o3-apparatus.mjs  --cc gcc-13 --lab ~/vg-lab/oracle-agreement
+```
+
+#### How many bytes should the wipe have written?
+
+This is the question O3 needs answered and the tracked rows cannot answer. A row
+is `id, model, framing, scen, rep, fam, fn, kind, idiom, cc, opt, n_spans,
+named_secret, scoped, control, control_via, verdict` — **there is no buffer size
+anywhere in it**, because O1 never needed one: it compares two listings as text.
+`../lto-window` takes its `bufferBytes` from the generator that wrote its
+fixtures; this corpus has 720 files written by three models and no generator.
+
+Three answers were rejected before the fourth was taken, and they are recorded
+because each is the obvious one:
+
+* **A default.** A fixed 32 turns every surviving wipe of another size into
+  `PARTIAL` and every reading into a statement about the default. There is no
+  default in `lib/bufferbytes.mjs` and no argument that supplies one;
+  `test/bufferbytes.test.mjs` greps the lane for `bytes ?? <n>` and for a literal
+  assignment, because that is a one-line edit that reads like a convenience.
+* **A number read out of the source text.** This repository has been burned by
+  exactly that twice: the first pass at the O2 exclusion split grepped the corpus
+  for `memset(` and matched the word inside the files' own comments (see "A false
+  trail worth recording" below), and §2.20(c)3 of the implementation order got
+  twenty cells wrong the same way.
+* **Reading the `-O0` zero fill back out of a disassembly**, which is the
+  corroboration that first suggests itself and **does not work on this corpus**.
+  At `-O0` a `memset` of 32 bytes is a CALL, so the byte count read back is 0;
+  and a `volatile` pointer loop is a LOOP with one one-byte store in it, so the
+  byte count read back is 1. Neither number is the buffer's size. A corroboration
+  that returns 0 or 1 for the two commonest idioms in the corpus is not one.
+
+**The number comes from the compiler**, by constant-expression evaluation, with
+`_Static_assert` as the read-out. The text supplies only the LOCATION of the wipe
+— from `wipeSpans`, the corpus run's own span finder, so O3 is pointed at the
+wipe O1 ablated rather than at a second opinion about where the wipe is — and the
+EXPRESSION in its length argument. Every digit is the compiler's:
+
+1. **The apparatus control, first.** `_Static_assert(1, …)` at the probe point
+   must compile and `_Static_assert(0, …)` must not. An assertion inserted
+   somewhere that is not compiled succeeds for every question anybody asks it.
+2. **Is the length constant at all?** `(LEN) <= 65536` and `(LEN) > 65536` are
+   complementary: exactly one compiles for a constant. Neither means a runtime
+   length, and the cell leaves by name.
+3. **The value, by bisection** on `(LEN) <= mid`. Seventeen `-fsyntax-only`
+   compiles at most.
+4. **Confirmed** by the same complementary trick at the answer: `(LEN) == N`
+   compiles, `(LEN) == N + 1` does not.
+5. **It is the WIPED OBJECT's size**, not merely a constant in the last argument
+   position: `(LEN) == sizeof(OBJ)` must compile, where `OBJ` is the identifier
+   the wipe's first argument names.
+
+**A cell that does not get a number leaves the denominator BY NAME**, under
+`o3-buffer-bytes-unestablished` or `o3-no-single-wipe`, counted and listed with
+its id like every other exclusion. It is never defaulted and never guessed.
+
+#### What O3 can be ASKED, measured over the tracked rows
+
+Counted by `locateWipe` over the 321 gcc-13 erasure generations at `-O2`, without
+a compiler, and re-derived by `test/bufferbytes.test.mjs`:
+
+| | generations |
+|---|---|
+| one wipe span, written as a call, resolvable | **162** |
+| more than one wipe span — no single `(caller, helper, bytes)` triple | 155 |
+| through a `volatile` function pointer — the call is indirect, so `objdump` resolves no target | 4 |
+
+Of the 162, the O1 column reads 79 `WIPE_ELIMINATED` and 83 `WIPE_SURVIVED`, so a
+balanced selection over that domain is possible. `--restrict-domain` selects from
+it; without the flag roughly half of any gcc selection is spent on cells that
+leave by name. **A restricted run's denominator is over that domain and is not a
+statement about the gcc half of the corpus**, and the record says so in its
+`domain` field.
+
+#### The reader's own control, per cell — and the fabrication it stops
+
+`objdump_fill.py` recognises exactly three things: a vector register zeroed
+against itself and stored, an immediate zero stored, and a call to `memset` or
+`__memset_chk`. **A wipe written any other way is invisible to it.** Two shapes
+in this corpus are:
+
+| written as | what the reader sees | the verdict it produces |
+|---|---|---|
+| `explicit_bzero(token, 32)` | a call to a symbol not on its list, and no zero store | **`ABSENT`** |
+| a `volatile` byte loop | ONE one-byte store, against a buffer of 32 | **`PARTIAL`** |
+
+`PARTIAL` is `NOT_COMPARABLE` and merely leaves the denominator. **`ABSENT` is
+O3's gradable word**, so the first of those rows is an *elimination manufactured
+out of the reader's symbol list* — a wipe that is plainly in the linked program,
+graded as gone, on exactly the `nonremovable` cells where O1 says it survived. It
+would enter the table as an off-diagonal entry and read as a finding.
+
+So **every cell is read twice**: once at its own level, and once at `-O0`. `-O0`
+is the right level for it because the corpus has never recorded an elimination
+there — 319 gcc rows and 319 clang rows, re-derived from the frozen record by
+`test/rows.test.mjs` and again by `test/second-oracle.test.mjs` — so a wipe the
+reader cannot see at `-O0` is a wipe the reader cannot see.
+
+| `-O0` subject reads | what the cell is |
+|---|---|
+| `PRESENT` | the reader recognised this wipe **as it is written at `-O0`**; whatever it says at the cell's level is a reading |
+| anything else | `o3-reader-blind-to-this-wipe`, `BROKEN_MEASUREMENT`, out of the denominator, listed by id — **never an elimination** |
+
+It doubles the builds and it is not optional; `test/second-oracle.test.mjs`
+checks that there is no flag which turns it off, and that the control read comes
+before the cell's own.
+
+##### Exactly what that control qualifies, and what it does not
+
+This file used to call the `-O0` reading a positive control **for the cell** —
+flatly, for every cell. (The exact wording is not reproduced: it is grepped for
+by `test/second-oracle.test.mjs`, which would then fail on a corrected file.) That is too strong in two places, and both are now recorded per
+reading in `readerControl.qualification` by `lib/disasm.mjs` `qualificationOf`,
+which is a pure function with tests rather than a paragraph:
+
+| | what it means | field |
+|---|---|---|
+| **At `-O0` it is not a control at all** | The cell's level and the control's level are the same level: one build, one read, returned twice. And `observeCellO3` cannot return a `-O0` reading unless that read was `PRESENT` — anything else becomes `o3-reader-blind-to-this-wipe` before it — so **no `-O0` cell can be graded `ABSENT` and this control cannot fail on one**. A check that cannot fail is not a check. | `independent: false` |
+| **Above `-O0` it may exercise a different recognizer** | `objdump_fill.py`'s three recognizers are three separate matchers. At `-O0` a `memset(...)` wipe is usually a **call**; at `-O2` the same wipe is usually **inlined into stores**. Recognising the call says nothing about whether the store matcher would have fired, and the store matcher is what an `-O2` `PRESENT` reading depends on. | `branchRelevant` |
+| **On the cell that matters most it qualifies nothing about the branch** | A subject that read *no fill at all* — the `ABSENT` reading, the one that becomes an elimination — fired **no** recognizer branch. There is no branch for the control to have exercised, so the control cannot speak to the blindness that would have produced that `ABSENT`. | `branchRelevant: false`, with the sentence in `doesNotEstablish` |
+
+**What it does establish, and this is the whole of it:** at the cell's own level,
+that the reader recognised *this wipe, in its `-O0` form, in this program*. That
+is enough to close the `explicit_bzero` fabrication — a call to a symbol not on
+the reader's list is unrecognised at `-O0` too, so the cell leaves under
+`o3-reader-blind-to-this-wipe` instead of being graded as an elimination — and it
+is measurably not enough to close a reader that recognises calls and not stores.
+Closing that one needs a control built at the cell's own level out of a wipe that
+cannot be removed there; `tools/check-o3-apparatus.mjs`'s `kept` fixture is that
+control **for the host**, at `-O2`, and there is no per-cell equivalent in this
+lane. Neither the qualification nor its absence excludes a cell: it travels with
+the reading so an off-diagonal `ABSENT` can be read with the control's reach
+beside it. **The prediction that follows is that most of the
+`nonremovable` idiom leaves under this word rather than appearing as a
+disagreement**, which is a domain boundary of the same kind as the 23 `ABSENT`
+exclusions on the O2 side. It is written down here so the first run can
+contradict it.
+
+#### The two halves, measured together
+
+`--live-o1` recomputes O1 **now**, with this driver, through the same
+`wipeSpans` / `ablateSpans` / `verdictOf` the corpus run used, and prints it
+beside the tracked verdict. This closes the limitation `lib/rows.mjs` states in
+its own header and the project ledger states as a refusal:
+
+> O1 は 2026-09-11 の tracked rows、O2 は 2026-08-17 の plugin。別の日・別の条件で
+> 測ったものを突き合わせているので、不一致をどちらの器に帰属させることもできない。
+
+With the column, an off-diagonal cell can be read three ways instead of two:
+tracked == live means the two **instruments** disagree about this build, and
+tracked != live means the O1 reading itself has moved and the cell establishes
+nothing about the second oracle either way. **The table still grades the TRACKED
+verdict** — the frozen rows are read and never rewritten — and the live column is
+lab output: it is in the report under `--out` and is never written into `data/`.
 
 The suite needs no compiler and no plugin:
 
 ```sh
 node --test compiler/eval/oracle-agreement/test/*.test.mjs
 ```
+
+## NOT MEASURED, as of 2026-09-14: the gcc side has code and no run
+
+The O3 channel, the byte-count read-out, the live O1 column and their two
+apparatus checks are implemented and their suites are green, and **no gcc run has
+been performed**. There is no `data/oracle-agreement-gcc-13.json`, this file
+carries no gcc table, and `test/data.test.mjs` checks the gcc record only if one
+appears — it will not invent one and it does not skip: the clang record is still
+required and anything else in `data/` fails immediately.
+
+So every gcc sentence in this file is **[SPEC]**: a description of what the code
+will do, not a reading. The numbers that ARE measured on the gcc side are the two
+counted over the tracked rows without a compiler — the 162/155/4 domain split and
+the 79/83 verdict balance within it — and `test/bufferbytes.test.mjs` re-derives
+them. The `PARTIAL` prediction is written down precisely so that the first run
+can contradict it.
+
+The order for that run, and what each exit means, is under "gcc, and the sentence
+this section used to carry" above. **Run the two `tools/` checks first.** An O3
+channel that is subtly broken produces a clean, quotable, entirely wrong table:
+every cell reads `ABSENT` and the run reports that gcc eliminated every wipe in
+the corpus. Nothing in the reading distinguishes that from the truth; the
+`kept`/`removed` fixture pair does.
 
 ## Measured, 2026-09-12 — and the comparison was refused
 
@@ -495,24 +770,42 @@ right for a stronger reason than it gave.
 
 ## What is NOT measured
 
-* **Anything about O3 or O4.** This lane compares O1 against O2 only. The
-  disassembly reader (`read-wipe.py`) and the ptrace residue observer are named
-  in the four-oracle map above and are not run here. A three-way or four-way
-  table is the obvious next lane and is not this one.
-* **gcc.** The plugin is an LLVM pass plugin. Every O2 reading in this lane is
-  clang, whatever `--cc` is passed, and a gcc run will exit 3 or produce
-  `BROKEN_MEASUREMENT` for every cell. The corpus's gcc-13 half therefore has no
-  second oracle at all in this lane.
+* **THREE ORACLES AT ONCE.** O3 was added on 2026-09-14 and it is a SECOND
+  second oracle, not a third column: a run tabulates O1 against O2 *or* O1
+  against O3, never both in one table. The two never meet on the same cell here,
+  so nothing in this lane says whether the pass observer and the disassembly
+  reader agree with each other — which is a real question and the obvious next
+  lane. Two bullets above this one used to say "anything about O3" was not
+  measured; that is now half wrong and the half that changed is stated rather
+  than deleted.
+* **O4.** The ptrace residue observer is named in the four-oracle map above and
+  is not run here.
+* **A gcc reading of anything O3 cannot be pointed at.** O3 reads ONE
+  `(caller, helper, bytes)` triple out of a linked program. 155 of the 321 gcc-13
+  erasure generations perform more than one wipe and 4 wipe through a `volatile`
+  function pointer; all 159 leave the denominator by name. What a gcc run
+  measures is the 162 that remain, and `--restrict-domain` says so in the record.
+* **Anything about a wipe the disassembly reader cannot see.** `objdump_fill.py`
+  reads static zero stores and calls to `memset` / `__memset_chk`, so an
+  `explicit_bzero` or a `volatile` byte loop is invisible to it. Every such cell
+  is caught by the reader's own `-O0` control and leaves as
+  `o3-reader-blind-to-this-wipe`. **This lane does not say whether those wipes
+  survived** — it says O3 cannot be asked, which is a different sentence and the
+  only one it has earned.
 * **Whether O1 is right.** Agreement does not make either instrument correct; two
   instruments can share a blind spot, and these two share the `CONTROL` function,
   the corpus, the effect-symbol registry and the definition of "the wipe". What a
   disagreement establishes is that at least one of them is wrong about that cell.
   What an agreement establishes is weaker than it looks.
-* **Toolchain drift.** O1's half of every pair was measured on another day, on
-  the machine that ran the corpus. A disagreement could be a compiler that has
-  moved rather than a difference between the instruments, and nothing here can
-  tell those apart. `../ai-generated/lib/compare-rows.mjs` is the tool for that
-  question.
+* **Toolchain drift — in a run WITHOUT `--live-o1`.** O1's half of every pair was
+  measured on another day, on the machine that ran the corpus, so a disagreement
+  could be a compiler that has moved rather than a difference between the
+  instruments. `--live-o1` recomputes O1 in the same run and prints it beside the
+  tracked verdict, which is what lets a disagreement be attributed; a run without
+  it still cannot tell the two apart, and the output says so in as many words.
+  What the live column does NOT do is re-derive the tracked rows or replace them
+  in the table — `../ai-generated/lib/compare-rows.mjs` is still the tool for the
+  question a moved reading raises.
 * **`-O1`, `-O3`, `-Os`, LTO, and any level not passed on the command line.**
 * **The corpus's agreement rate.** See the section on the balanced selection: the
   marginals are chosen, so the proportion is not an estimate.
@@ -541,8 +834,12 @@ right for a stronger reason than it gave.
 
 ## Edits requested in files this lane does not own
 
-Neither has been applied. Both change a file that produces readings somebody
-quotes, and this lane does not get to make that edit on its own.
+Four requests, of which **one has been applied** (#3, the CI line) and three have
+not. Each changes a file that produces readings somebody quotes, or a schema this
+lane reads and does not own, and this lane does not get to make those edits on
+its own. The applied one is kept in place rather than deleted, with what is now
+stale about the lines around it, because a request that disappears on the day it
+is granted leaves nobody able to tell an applied request from one nobody read.
 
 ### 1. `../spike/lib/observer.mjs` — export the checker path and the env builder
 
@@ -565,31 +862,54 @@ path is not on the list of files the packaging check scans. Every other caller i
 the tree spells the same location with a tilde. Changing it changes a default
 that a recorded run may have relied on, so it is reported rather than edited.
 
-### 3. `.github/workflows/ci.yml` — this lane's suite reaches no runner
+### 3. `.github/workflows/ci.yml` — APPLIED, and now one line behind
 
-Line 443 ends a block of `run_suite` lines that already carries the other six
-A1–A7 lanes. One more is needed, or the 108 tests in `test/` run only on the
-machine of whoever last edited the lane:
+This section asked for a `run_suite` line because the suite reached no runner.
+**It has been added** — `ci.yml` carries `run_suite oracle-agreement` in the same
+block as the other A1–A7 lanes, and `scripts/ci-suite-coverage.test.mjs` asserts
+that this directory is named there. The request is kept rather than deleted
+because what it asked for is the line below, and because the count beside it has
+moved: the comment above that line still says the suite "compares the shared
+differential oracle against the IR observer", which is now the clang half only,
+and `ci.yml` elsewhere says this lane "ship[ped] with 109 tests" where the suite
+now has **204**. Both are comments, neither gates anything, and neither is edited
+from here — workflow files are changed centrally.
+
+The line itself, unchanged and still correct:
 
 ```yaml
           run_suite oracle-agreement     compiler/eval/oracle-agreement/test/*.test.mjs
 ```
 
 It is cheap and needs no compiler: the whole suite is pure functions plus reads
-of the tracked rows. Two of its tests read files in *other* lanes
-(`../lto-window`, `../residue-tracer`) to re-derive the four-oracle map, so this
-is also the thing that would notice if one of those lanes started using the
-shared oracle.
+of the tracked rows, and it stayed that way when the gcc-side oracle was added —
+the two questions that need a compiler are in `tools/`, as checks that exit 3
+when they cannot run, precisely so this line stays a line anybody can add. Two of
+its tests read files in *other* lanes (`../lto-window`, `../residue-tracer`) to
+re-derive the four-oracle map, so this is also the thing that would notice if one
+of those lanes started using the shared oracle.
 
-### 4. `../../schema/interfaces.md` §3 — a word for "two instruments, one cell"
+### 4. `../../schema/interfaces.md` §3 — `PARTIAL`, and a word for "two instruments, one cell"
 
-The vocabulary has words for what the property did and for whether the
-instrument worked. It has none for *this cell was read by two instruments and
-they said different things*, which is the only output this lane produces. The
-lane uses `NOT_COMPARABLE` for the vocabulary boundary and plain table cells for
-the disagreement; if a second cross-oracle lane is ever written, the word should
-be in the schema first. `interfaces.md` is not edited during implementation (its
-own first rule), so this is a request and not a change.
+Two things, and the first is older than this lane.
+
+**`PARTIAL` is not in §3's table.** `../../gcc-repair/scripts/objdump_fill.py`
+has returned it since long before this lane existed — "some zero fill, but not
+the buffer's worth" — and §3 lists `PRESENT`, `ABSENT`, `LOST`, `REINTRODUCED`,
+`NOT_APPLICABLE`, `NOT_OBSERVED` and nothing else. O3 now carries that word into
+this lane, where it is handled as `NOT_COMPARABLE`, so the gap is no longer
+confined to one script. §3's own rule is that "a component that needs a
+[seventh] reports that and it is added here first"; this is the report. Nothing
+here edits that file.
+
+**And a word for the cross-oracle cell.** The vocabulary has words for what the
+property did and for whether the instrument worked. It has none for *this cell
+was read by two instruments and they said different things*, which is the only
+output this lane produces. The lane uses `NOT_COMPARABLE` for the vocabulary
+boundary and plain table cells for the disagreement; if a second cross-oracle
+lane is ever written, the word should be in the schema first. `interfaces.md` is
+not edited during implementation (its own first rule), so this is a request and
+not a change.
 
 ---
 

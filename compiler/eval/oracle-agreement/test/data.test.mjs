@@ -86,9 +86,121 @@ const aboveOf = (r) => {
 
 // ---------------------------------------------------------- the file ---------
 
-test('the tracked record exists, and it is the only thing in data/', () => {
+/**
+ * The compilers a record in `data/` may be of.
+ *
+ * One file per compiler, named after it (`lib/record.mjs` `dataFileName`), so a
+ * second vendor's run can never overwrite the first's. The clang record is
+ * REQUIRED -- it is the run this README's result section is of. The gcc one is
+ * OPTIONAL and is checked when it is there, because the gcc-side second oracle
+ * is a lab run on a host with gcc, objdump and python, and a test that demanded
+ * it here would fail on every machine that has not done that run yet.
+ *
+ * That is not a skip. The clang half still fails loudly when it is missing, and
+ * anything in `data/` that is neither of these two fails immediately: an
+ * unexpected file in the directory whose name says it is the result is exactly
+ * the shape this test exists to catch.
+ */
+const GCC = 'gcc-13';
+const GCC_RECORD_PATH = join(DATA, dataFileName(GCC));
+const GCC_RECORD_EXISTS = existsSync(GCC_RECORD_PATH);
+
+/** The command that produces the gcc record, printed wherever its absence is reported. */
+const GCC_HOW = 'node compiler/eval/oracle-agreement/tools/check-o3-apparatus.mjs --cc gcc-13 --lab ~/vg-lab/oracle-agreement'
+  + '  &&  node compiler/eval/oracle-agreement/run-oracle-agreement.mjs --cc gcc-13 --second-oracle O3'
+  + ' --opt -O0,-O2 --per-bucket 24 --restrict-domain --write-data --out ~/vg-lab/oracle-agreement';
+
+/**
+ * THE ABSENCE IS AN OUTCOME WITH A NAME, not a green assertion over nothing.
+ *
+ * What this replaced: one test that opened with `if (!existsSync(...)) { assert
+ * that it does not exist; return; }`. On this tree, and on every tree until a
+ * lab run happens -- which is the state the README says persists -- that test
+ * passed without reading a record, and it passed under the heading "a gcc
+ * record, if one has been produced, is a record of O3 and says so". A skip
+ * wearing a denial: the suite counted it among its passes and nothing in the
+ * output said the gcc half of this lane has never been measured.
+ *
+ * Now the absence is reported THREE ways, none of which is a silent pass:
+ *
+ *   - the record test is a TODO while the record is missing, so node's summary
+ *     line separates it from the passes instead of absorbing it;
+ *   - a test that always runs prints the state as a diagnostic, so an operator
+ *     reading the output sees which half of the lane is unmeasured and the
+ *     command that ends it;
+ *   - and the README must AGREE with the filesystem -- it carries its "NOT
+ *     MEASURED" section exactly while the record is absent. That one is a real
+ *     assertion with two sides, and it fails whichever side moves without the
+ *     other.
+ */
+const UNMEASURED = `the gcc half of this lane is UNMEASURED: data/${dataFileName(GCC)} has not been produced.\n`
+  + `    ${GCC_HOW}`;
+
+test('the gcc record is either present and checked, or ABSENT and said to be', (t) => {
+  // Always runs, on either state, and says which one it found. A count of
+  // passing tests that does not distinguish "checked a record" from "there was
+  // no record" is the thing this lane's exit-code contract forbids elsewhere.
+  t.diagnostic(GCC_RECORD_EXISTS
+    ? `the gcc record is present and is checked by the test below (data/${dataFileName(GCC)})`
+    : UNMEASURED);
+
+  // The README and the directory must tell the same story. `NOT MEASURED` is the
+  // README's own heading for the state; it is there exactly while the record is
+  // not, and a lab run that writes the record without deleting the section
+  // leaves this red.
+  const saysUnmeasured = /## NOT MEASURED, as of [0-9-]+: the gcc side has code and no run/.test(README);
+  assert.equal(saysUnmeasured, !GCC_RECORD_EXISTS, GCC_RECORD_EXISTS
+    ? 'a gcc record exists and the README still says the gcc side has never been run'
+    : 'there is no gcc record and the README no longer says the gcc side is unmeasured');
+  if (!GCC_RECORD_EXISTS) {
+    // The section is not decoration: it has to name the artefact whose absence
+    // it is about, so that a reader is not left to infer which file is missing.
+    assert.match(README, new RegExp(`There is no \`data/${dataFileName(GCC).replace(/\./g, '\\.')}\``),
+      'the README says the gcc side is unmeasured without naming the record that is missing');
+  }
+});
+
+test('the tracked record exists, and data/ holds nothing but per-compiler records', () => {
   load();
-  assert.deepEqual(readdirSync(DATA).filter((f) => !f.startsWith('.')).sort(), [dataFileName(CC)]);
+  const here = readdirSync(DATA).filter((f) => !f.startsWith('.')).sort();
+  const allowed = [dataFileName(CC), dataFileName(GCC)].sort();
+  assert.ok(here.includes(dataFileName(CC)), `data/ has no ${dataFileName(CC)}`);
+  for (const f of here) assert.ok(allowed.includes(f), `data/ holds ${f}, which is not a record of a compiler this lane runs`);
+});
+
+// TODO rather than pass while the record is absent: node reports it on its own
+// `todo` line, so the summary can never read as though this check was made.
+test('a gcc record, if one has been produced, is a record of O3 and says so',
+  { todo: GCC_RECORD_EXISTS ? false : UNMEASURED }, () => {
+  if (!GCC_RECORD_EXISTS) return;
+  const text = readFileSync(GCC_RECORD_PATH, 'utf8');
+  const r = JSON.parse(text);
+  assert.equal(r.schemaVersion, SCHEMA);
+  assert.equal(r.toolchain.cc, GCC);
+  assert.equal(r.toolchain.vendor, 'gcc');
+  assert.equal(r.secondOracle.name, 'O3');
+  assert.equal(r.secondOracle.gone, 'ABSENT');
+  assert.equal(r.secondOracle.kept, 'PRESENT');
+  // The plugin field is present and null: gcc loads no pass plugin, and a record
+  // that named one would be naming an instrument that did not run.
+  assert.equal(r.plugin, null);
+  assert.ok(r.instrument && r.instrument.reader, 'the gcc record does not identify the reader it read through');
+  // Every byte count came from the compiler. There is no other provenance and no
+  // default; refusals are counted here and listed among the exclusions by id.
+  assert.equal(r.bytes.provenance, 'compiler');
+  assert.equal(typeof r.bytes.established, 'number');
+  assert.equal(typeof r.bytes.refused, 'number');
+  // The same fences the clang record is under.
+  assert.deepEqual(nonIntegerNumbers(r), []);
+  assert.deepEqual(absolutePathHits(text), []);
+  assert.ok(!text.includes('%'), 'the gcc record carries a percentage sign');
+  const above = r.strata.find((x) => x.name === STRATUM.ABOVE_O0);
+  assert.ok(above, 'the gcc record has no above--O0 stratum');
+  assert.deepEqual(Object.keys(above.table).sort(),
+    ['ELIMINATED/ABSENT', 'ELIMINATED/PRESENT', 'SURVIVED/ABSENT', 'SURVIVED/PRESENT'],
+    'the gcc record carries O2 column names over an O3 reading');
+  assert.equal(above.den, above.table['ELIMINATED/ABSENT'] + above.table['ELIMINATED/PRESENT']
+    + above.table['SURVIVED/ABSENT'] + above.table['SURVIVED/PRESENT']);
 });
 
 test('the record declares its schema, its lane and the compiler it is of', () => {

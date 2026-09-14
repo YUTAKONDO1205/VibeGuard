@@ -17,7 +17,7 @@
  * shorter implementation would have produced a number that looks the same and
  * means something else.
  *
- * 1. A CALL SITE IS NOT A NAME. `../../schema/interfaces.md` section 4 forbids
+ * 1. A CALL SITE IS NOT A NAME. `../../../schema/interfaces.md` section 4 forbids
  *    deciding presence by searching for a symbol name, and this lane's README
  *    records what happens when you do: a first pass grepped the SOURCE for
  *    `memset(`, found five of the twenty-three exclusions apparently calling it,
@@ -198,7 +198,7 @@ export const irPathOf = ({ lab, id, cc }) => join(lab, `oa.ir.${id}.${vendorLabe
 /**
  * The driver arguments, split out so they can be tested without a compiler.
  *
- * `../observe.mjs` splits `observerArgs` out for the same reason: the one place
+ * `./observe.mjs` splits `observerArgs` out for the same reason: the one place
  * a flag reaches the toolchain should be one function, and the flag that is
  * wrong here (`-O2` instead of `-O0`, or the source with the control appended)
  * produces a plausible count rather than an error.

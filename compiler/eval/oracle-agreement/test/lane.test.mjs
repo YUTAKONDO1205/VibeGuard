@@ -83,24 +83,48 @@ test('nothing in this lane writes under compiler/eval/ai-generated at all', () =
   }
   // The stronger, simpler statement: every writeFileSync in this lane writes
   // either into the lab -- which is checked to be outside the repository -- or
-  // into this lane's OWN data/ directory, and there are exactly three of them.
+  // into this lane's OWN data/ directory, and the number of them per file is
+  // pinned rather than merely bounded.
   //
   // Amended 2026-09-12, when `--write-data` was added. Before it, the sentence
   // was "the only writeFileSync in the lane writes into the lab", and a test
   // whose sentence has stopped being true is worse than no test: it reports
-  // green about a guarantee nobody is making any more. The count is kept,
-  // because the count is the part that fires when a fourth write appears.
-  const runner = read(join(LANE, 'run-oracle-agreement.mjs'));
-  const observe = read(join(LANE, 'lib/observe.mjs'));
-  const record = read(join(LANE, 'lib/record.mjs'));
-  assert.equal((runner.match(/writeFileSync\(/g) || []).length, 1);
-  assert.equal((observe.match(/writeFileSync\(/g) || []).length, 1);
-  assert.equal((record.match(/writeFileSync\(/g) || []).length, 1);
-  assert.match(runner, /insideRepo\(lab\)/);
-  assert.match(observe, /insideRepo\(lab\)/);
-  const others = LANE_SOURCES.filter((p) => ![
-    join(LANE, 'run-oracle-agreement.mjs'), join(LANE, 'lib/observe.mjs'), join(LANE, 'lib/record.mjs'),
-  ].includes(p) && !p.includes(`${sep}test${sep}`));
+  // green about a guarantee nobody is making any more.
+  //
+  // Amended again 2026-09-14, when the lane grew a gcc-side second oracle. Three
+  // modules write now that did not before -- the byte-count prober writes one
+  // probe source, the disassembly channel writes the appended unit and its link
+  // stubs, and the live-O1 column writes the two forms it compiles -- and every
+  // one of them writes into the lab. What is kept is the SHAPE of the old test:
+  // an exact count per file, and an empty set everywhere else, so a write that
+  // appears in a module with no business writing still fires. Loosening this to
+  // "at most one write per file" would have been the amendment that made it stop
+  // catching anything.
+  const WRITERS = Object.freeze({
+    'run-oracle-agreement.mjs': 1,
+    'lib/observe.mjs': 1,
+    'lib/record.mjs': 1,
+    'lib/bufferbytes.mjs': 1,
+    'lib/disasm.mjs': 2,
+    'lib/liveo1.mjs': 2,
+    // The two apparatus checks. They write their own fixtures into the lab and
+    // nothing else; `tools/check-bytes-readout.mjs` writes none at all, because
+    // the byte-count prober writes its own probe sources.
+    'tools/check-o3-apparatus.mjs': 1,
+  });
+  for (const [rel, n] of Object.entries(WRITERS)) {
+    const src = read(join(LANE, rel));
+    assert.equal((src.match(/writeFileSync\(/g) || []).length, n, `${rel} no longer writes ${n} file(s)`);
+  }
+  // Every writer that takes a lab directory checks that it is outside the
+  // repository, before it writes. `lib/record.mjs` is the exception and is the
+  // one that writes into `data/`; its own fences are tested above.
+  for (const rel of ['run-oracle-agreement.mjs', 'lib/observe.mjs', 'lib/bufferbytes.mjs', 'lib/disasm.mjs',
+    'lib/liveo1.mjs', 'tools/check-o3-apparatus.mjs', 'tools/check-bytes-readout.mjs']) {
+    assert.match(read(join(LANE, rel)), /insideRepo\(lab\)/, `${rel} writes into a lab it never checked`);
+  }
+  const others = LANE_SOURCES.filter((p) => !Object.keys(WRITERS).some((rel) => p === join(LANE, rel))
+    && !p.includes(`${sep}test${sep}`));
   for (const p of others) assert.ok(!/writeFileSync\(/.test(read(p)), `${p} writes a file`);
 });
 
@@ -229,6 +253,61 @@ test('the plugin is named the way the rest of the tree names it -- a tilde, not 
 });
 
 // --------------------------------------- the four-oracle map, re-derived -----
+
+// ------------------------------------ a path in a comment is a path, or nothing --
+
+/**
+ * Comment text only: the `//` and block comments of one module, with the code
+ * removed.
+ *
+ * Import specifiers are code and are checked by the module loader every time the
+ * suite runs -- a wrong one is a crash, not a rotted signpost. A path written in
+ * a COMMENT is checked by nobody, which is how this lane came to carry eight of
+ * them pointing at `compiler/eval/schema/` and `compiler/eval/gcc-repair/`,
+ * neither of which has ever existed: the directories are `compiler/schema/` and
+ * `compiler/gcc-repair/`, and the references were written as though from the
+ * lane root by somebody editing a file one directory below it.
+ *
+ * A reader who follows one of those finds nothing and has no way to tell a
+ * mis-typed signpost from a file that was deleted.
+ */
+const commentsOf = (src) => {
+  const blocks = src.match(/\/\*[\s\S]*?\*\//g) || [];
+  const lines = src.match(/(?:^|\s)\/\/[^\n]*/g) || [];
+  return [...blocks, ...lines].join('\n');
+};
+
+/** Every `../`-relative reference in a blob of comment text. */
+const relativeRefs = (text) => (text.match(/(?<![\w./-])\.\.(?:\/[\w.@+-]+)+/g) || []);
+
+test('every relative path named in a comment in this lane resolves to something that exists', () => {
+  const files = [...LANE_SOURCES, join(LANE, 'README.md')];
+  const broken = [];
+  for (const file of files) {
+    const text = file.endsWith('.md') ? read(file) : commentsOf(read(file));
+    for (const ref of new Set(relativeRefs(text))) {
+      // Resolved from the directory of the file that names it, which is what a
+      // reader does and what the wrong ones got wrong.
+      if (!existsSync(resolve(dirname(file), ref))) broken.push(`${file.slice(LANE.length + 1)}: ${ref}`);
+    }
+  }
+  assert.deepEqual(broken, [], `these references point at nothing:\n  ${broken.join('\n  ')}`);
+});
+
+test('the four sibling lanes and tools this lane names are named from the right depth', () => {
+  // The specific corrections, pinned so the same mistake cannot be reintroduced
+  // by a copy from the lane root: a module under `lib/` is TWO directories below
+  // `compiler/eval`, so `compiler/schema` is reached with THREE `..` segments
+  // from there and never with two. The wrong spellings are not written out here:
+  // this file is one of the files the test above reads.
+  for (const rel of ['lib/agreement.mjs', 'lib/bufferbytes.mjs', 'lib/callsites.mjs', 'lib/disasm.mjs', 'lib/record.mjs']) {
+    const src = read(join(LANE, rel));
+    assert.ok(!/(?<![\w./-])\.\.\/\.\.\/(schema|gcc-repair|pass-instrumentation)\//.test(src),
+      `${rel} names compiler/${'schema'} or compiler/gcc-repair as though it were under compiler/eval/`);
+    assert.ok(!/(?<![\w./-])\.\.\/(lto-window|spike|ai-generated|repair-loop)\//.test(src),
+      `${rel} names a sibling LANE as though this file were in the lane root`);
+  }
+});
 
 test('CORRECTION: the lto-window lane (A7) does not go through the shared oracle at all', () => {
   // Section 2.20(g) lists A7 among the lanes that reach their verdict through

@@ -1,0 +1,33 @@
+{
+  "benchmark": "ai-code-security-design-smells/positive-control",
+  "manifestVersion": "control-v0",
+  "generatedBy": "hand-written; the corpus it names is in this repository, under ./corpus",
+  "redistribution": "Not applicable. Every byte of this control corpus was written for this benchmark. It is the one corpus here that CAN live in the repository, which is exactly why it is the control: the real manifest's entries are third-party and cannot.",
+  "provenance": {
+    "corpus": "positive-control",
+    "corpusRepositories": 1,
+    "upstreamPinsRecorded": null,
+    "entriesPublished": 1,
+    "note": "The repositoryUrl below is a placeholder on a reserved-for-examples domain. Nothing fetches it: bench-fetch.mjs is never pointed at this manifest, and the corpus is already on disk beside it."
+  },
+  "licenceResolved": {
+    "num": 1,
+    "den": 1
+  },
+  "entries": [
+    {
+      "id": "acme-svc",
+      "repositoryUrl": "https://example.invalid/positive-control/acme-svc",
+      "commit": "0000000000000000000000000000000000000000",
+      "defaultBranch": "main",
+      "committedAt": null,
+      "primaryLanguage": "TypeScript",
+      "sizeKb": 1,
+      "licence": {
+        "spdx": "MIT",
+        "status": "resolved",
+        "reason": "Written for this repository and covered by this repository's own licence."
+      }
+    }
+  ]
+}

@@ -117,6 +117,7 @@ export function selectCells(rows, {
   perBucket = 8,
   ids = null,
   fam = COMPARABLE_FAMILY,
+  keep = null,
 } = {}) {
   const wanted = ids && ids.length ? new Set(ids) : null;
   const buckets = new Map();
@@ -125,6 +126,22 @@ export function selectCells(rows, {
     if (r.fam !== fam) continue;
     if (!ccs.includes(r.cc) || !opts.includes(r.opt)) continue;
     if (wanted && !wanted.has(r.id)) continue;
+    // An optional DOMAIN filter, applied before the balancing and never after.
+    //
+    // The second oracle is not always askable about a cell. O3 reads ONE
+    // (caller, helper, bytes) triple out of a linked program, so a subject that
+    // performs four wipes, or wipes through a volatile function pointer, has no
+    // reading for it to take -- and a run that spends its whole selection on
+    // such cells learns only that, at the cost of the compiles. Filtering HERE
+    // rather than afterwards keeps the balancing honest: `perBucket` cells are
+    // drawn from each (vendor, level, O1 verdict) bucket OF THE FILTERED
+    // POPULATION, so the marginals are still balanced on O1.
+    //
+    // It also narrows what the run is about, and that is not hidden: the
+    // predicate's name travels into the report and into the record, because a
+    // denominator over "cells O3 can be asked" is not a denominator over the
+    // corpus.
+    if (keep && !keep(r)) continue;
     // A cell whose O1 half is not one of the two verdicts cannot be balanced
     // against anything, and spending a compile on it only to exclude it
     // afterwards would be spending it to learn something the rows already say.

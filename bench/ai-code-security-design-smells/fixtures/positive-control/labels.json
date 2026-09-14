@@ -1,0 +1,52 @@
+{
+  "benchmark": "ai-code-security-design-smells/positive-control",
+  "generatedBy": "hand-written alongside ./corpus, whose lines it cites",
+  "rubricVersion": "s010-label-v1",
+  "rubricDocument": "docs/smell010-labeling-rubric.md",
+  "family": "inline-authorization",
+  "humanConfirmed": {
+    "num": 2,
+    "den": 2
+  },
+  "rateWithheld": null,
+  "readThisBeforeReusingTheseRows": "groundTruth is `by-construction`, not `human-review`, and the difference is load-bearing. A corpus label says 'somebody read this third-party code and judged it'; these rows say 'this code was WRITTEN to be an instance, and here are the lines'. That is why humanConfirmed is true here while it is false on every row of the real label set, and why no rate is withheld here: there is no judgement to be unreviewed. These rows measure the SCORER. They say nothing about any tool's accuracy on real code.",
+  "labels": [
+    {
+      "repository": "acme-svc",
+      "family": "inline-authorization",
+      "toolRuleIdAtLabelTime": "VG-SMELL-010",
+      "verdict": "TP",
+      "anchor": {
+        "file": "src/routes/admin.ts",
+        "line": 25
+      },
+      "sites": [
+        { "file": "src/routes/admin.ts", "line": 25 },
+        { "file": "src/routes/admin.ts", "line": 35 },
+        { "file": "src/routes/admin.ts", "line": 45 },
+        { "file": "src/routes/billing.ts", "line": 19 }
+      ],
+      "groundTruth": "by-construction",
+      "humanConfirmed": true,
+      "labeledBy": "the author of ./corpus, in the same commit",
+      "rationale": "Four role decisions in four handler bodies across two files, with no shared guard anywhere in the corpus. Every clause of the family's claim is satisfied by construction rather than by inspection."
+    },
+    {
+      "repository": "acme-svc",
+      "family": "inline-authorization",
+      "toolRuleIdAtLabelTime": "VG-SMELL-010",
+      "verdict": "FP",
+      "anchor": {
+        "file": "src/routes/billing.ts",
+        "line": 32
+      },
+      "sites": [
+        { "file": "src/routes/billing.ts", "line": 32 }
+      ],
+      "groundTruth": "by-construction",
+      "humanConfirmed": true,
+      "labeledBy": "the author of ./corpus, in the same commit",
+      "rationale": "A chat transcript's `role` field. Same spelling as the family's shape, no authorization decision: nothing here reads the caller's permissions, and no branch grants or denies anything. A tool that reports this location is matching a word. The row exists so that 'reported a known false positive' is a count the control can actually produce."
+    }
+  ]
+}

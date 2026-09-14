@@ -1,0 +1,10 @@
+{
+  "benchmark": "ai-code-security-design-smells/negative-control",
+  "generatedBy": "hand-written",
+  "rubricVersion": "s010-label-v1",
+  "family": "inline-authorization",
+  "humanConfirmed": { "num": 0, "den": 0 },
+  "rateWithheld": null,
+  "readThisFirst": "THE NEGATIVE CONTROL. An empty label set, whose only purpose is to be refused. A scorer handed this must exit non-zero saying nothing was scored; if it instead prints a score of zero it will print that same zero for every tool forever, and the leaderboard becomes a ranking of an empty set. Reporting 0/0 as a result is the failure mode; this file is the test for it.",
+  "labels": []
+}
