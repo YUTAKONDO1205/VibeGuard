@@ -23,9 +23,9 @@
       "position": "the attributed leaf of clang's own -print-pipeline-passes string"
     },
     "gcc/fdisable-tree-pass": {
-      "what": "[SPEC] gcc's -fdisable-tree-<pass>, the same idea on the other vendor",
-      "instrument": "not implemented anywhere in this tree",
-      "position": "[SPEC]"
+      "what": "take the GIMPLE pass out of gcc's pipeline with -fdisable-tree-<pass> and rebuild, the same idea as the clang candidate through the only channel gcc offers",
+      "instrument": "tools/intervene.mjs --cc gcc-13 (lab only, gcc)",
+      "position": "the pass gcc's own -fdump-tree-all sequence names as the first dump at which the wipe stops making a difference"
     },
     "none": {
       "what": "no repair candidate exists at this position: the shape is already gone, or is not yet a memset, when every pass this project can load runs",
@@ -105,7 +105,12 @@
       "shapeSeenAs": "a zero-fill __builtin_memset call in the target function once cfg has run, deleted by a later GIMPLE or RTL pass",
       "candidate": "gcc/fdisable-tree-pass",
       "status": "unmeasured",
-      "note": "[SPEC] gcc exposes -fdisable-tree-<pass>, so the pass-deletion candidate has a channel on this vendor too. Nothing in this tree drives it, no reading of any kind exists, and the clang result on the sibling shape does not transfer: it is a statement about clang's pipeline and its backend. Listed so that the gap is a row rather than an absence."
+      "channel": {
+        "state": "driven, not yet run",
+        "driver": "tools/intervene.mjs --cc gcc-13",
+        "why": "the channel is implemented and carries its own four controls -- gcc must announce every disable on stderr in both units, a misspelled pass name must fail the build, both positive controls must stay PRESENT, and the walk must have read the target function in at least one dump -- and its fail-closed guards are pinned by test/intervene-gcc-driver.test.mjs. No run of it exists anywhere in this tree or beside it. Implementing an instrument is not measuring with it, and neither is unit-testing it, so the row stays unmeasured and carries no ratio."
+      },
+      "note": "gcc exposes -fdisable-tree-<pass>, so the pass-deletion candidate has a channel on this vendor too, and tools/intervene.mjs now drives it: it walks gcc's own -fdump-tree-all sequence differentially to name the pass, then rebuilds with that pass disabled. What does not exist is a reading. The clang result on the sibling shape does not transfer either: it is a statement about clang's pipeline and its backend. Listed so that the gap is a row rather than an absence, and so that promoting it later has to move this row and the prose together."
     },
     {
       "property": "survive.secure-wipe",

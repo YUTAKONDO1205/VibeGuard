@@ -330,6 +330,18 @@ word were added: all 495 rows, all 90 appearances and all 11 rung digests came
 back identical, so what changed in `data/` is the two new fields and nothing
 measured.
 
+**`data/` was written before the docker probe existed, and it still carries the
+literal the probe replaced.** `data/version-ladder.txt` still carries the flat
+pre-probe sentence — the one that names an absent CLI on a machine that has one
+— and `data/version-ladder.json`'s `manifest.docker` is still
+`{done: false, reason: …}`, because that is what the runner of 2026-09-12 wrote. Neither file was edited to
+match the new code: a record is what a run produced, and hand-correcting one is
+worse than leaving it stale. It is stale in a named way instead —
+`test/records.test.mjs` pins the old shape and says why — and the next run with
+`--write-data` replaces it with a measurement (`manifest.docker.probes`, naming
+each command and whether it answered). That run needs the eleven apt rungs and
+so has to happen on the Linux side.
+
 **The result is negative, and it is worth stating plainly: no verdict moved with
 compiler version.** Of the 90 ladder questions, **0 had a verdict that varies
 across the rungs at all**, and **0 of the 38 first appearances is a transition**
@@ -403,13 +415,51 @@ as wipe helpers — their headers say so. See "Edits requested" below.
 
 ## What was NOT measured
 
-- **docker: NOT DONE.** The daemon is not reachable from this machine and the WSL
-  distro has no docker CLI, so a container per upstream release was not
-  available; the ladder is the distribution apt ladder instead. **This is a limit
-  on which versions were reached. It is not a statement that no disappearance was
-  found** — what was found is the table above, over the versions listed there.
-  A docker ladder would add upstream point releases and non-Ubuntu builds, and
-  would let the same version be compared across distributions.
+- **The docker ladder produced no cell — and that is now a reading rather than a
+  sentence.** Five rungs are declared (`docker-gcc-10` … `docker-gcc-14`,
+  `lib/docker.mjs`) and a run that ASKS FOR ONE probes for a docker, because the
+  report's docker paragraph is built out of what the probe returned rather than
+  out of a sentence. A run that asks for no docker rung spends no probe and its
+  report says `NOT PROBED` — the two probes are two subprocesses and the second
+  opens the daemon socket, and a run that asked nothing about docker should not
+  be paying for an answer, nor reporting one it did not take. Measured on this
+  machine, 2026-09-14, by running the runner and reading what came back:
+
+  ```
+  $ node run-version-ladder.mjs --out <lab> --ccs docker-gcc-13 --opts -O2         --ids haiku_E_aeskey_r1 --no-subjects --docker-pins <pins>
+  version-ladder: docker rung not obtained: docker-gcc-13 (gcc@sha256:aaaa…):
+  the probe `docker info` did not establish a usable docker: a docker CLI answered
+  but no daemon did: (detail withheld: it carries npipe://, /pipe/). The rung is
+  declared and it was not obtained; nothing here reports it as measured
+  EXIT=7
+  ```
+
+  **The daemon's own words are withheld and the markers that withheld them are
+  named**, which is what a record may carry: the refusal quotes a named pipe, and
+  a detail is redacted when it carries one. The shared provenance scan does not
+  look for those — it looks for `/home/`, `/root/`, `/mnt/`, `/Users/` and a
+  drive letter, because it is about a measurement carrying the measuring
+  machine's layout — so the canonical Linux refusal
+  (`unix:///var/run/docker.sock`) and this Windows one were being published into
+  the manifest verbatim. `lib/docker.mjs` adds the daemon's own markers on top of
+  the shared list.
+
+  **Read which probe failed, because the line this replaces got it wrong.** It
+  said the machine "has no docker CLI" — a CLI is present and answers
+  `--version`; what is absent is the daemon behind it. It said so as a literal in
+  the report writer, printed on every run on every machine, and `--write-data`
+  copied it from there into `data/version-ladder.txt`. An assertion cannot become
+  wrong about a machine it never looked at; it can only stay wrong. The refusal
+  above names a command and an exit code, and it stops being printed the moment
+  that command answers.
+
+  **This is a limit on which BUILDS were reached. It is not a statement that no
+  disappearance was found** — what was found is the table above, over the
+  versions listed there. The apt ladder is a DISTRIBUTION ladder: it can say
+  `gcc-11` and it cannot say which 11, because this release carries exactly one
+  build of each series. The docker rungs are what reach past that edge, and
+  "Making the docker rung runnable" below is the list of things a person has to
+  do before they can.
 - **~~The corpus-scale sweep.~~ RUN on 2026-09-12 — see "What the corpus sweep
   found" below.** The numbers in the smoke section above are still over 8 scored
   subjects; the sweep is a separate record and a separate section.
@@ -426,6 +476,147 @@ as wipe helpers — their headers say so. See "Edits requested" below.
   see below), but no CI job compiles a ladder: 990 compiles of research readings
   produced by a job nobody reviewed is not a measurement anybody should quote.
   The exit-code tests compile at most two files each and compare nothing.
+
+## Making the docker rung runnable
+
+The rung is defined and the refusal is measured; what is NOT done is a docker
+cell, and it cannot be done from here. The refusal quoted above is the reason,
+and it is the only statement about this machine's docker anywhere in this lane
+that is not a reading. This lane will not start a daemon, will not install one
+and will not fetch an image — everything below is a person's job, and the runner
+will keep refusing by name until each step is done.
+
+**1. Start the daemon.** What this lane has measured is the two probes quoted
+above and nothing else: a CLI answered `docker --version` and no daemon answered
+`docker info`, on 2026-09-14. **Everything else about this machine's docker is
+outside what this lane read, and this document does not assert it** — whether a
+daemon is installed, whether it starts with the machine, and what state its
+backing distro is in are things the person doing this step will see for
+themselves, and a tracked file that claimed them would be asserting machine
+state one section below the paragraph that exists to stop exactly that. Start
+whatever daemon this machine has and leave it running; step 3 is how you check
+it, and it is the lane's own probe rather than a claim.
+
+**2. Give the Linux distro access to it.** Docker Desktop → Settings → Resources
+→ WSL integration, and enable the Ubuntu distro this lane's compilers live in.
+Without it that distro has no `docker` on its `PATH` and no
+`/var/run/docker.sock`, which is a different failure from "no daemon" and the
+probe names it as one (`docker --version` rather than `docker info`).
+
+**3. Check it the way the lane does.** One command, and it is the lane's own
+second probe:
+
+```bash
+docker info --format '{{.ServerVersion}}'
+```
+
+Anything but a version on stdout and a zero exit is what the runner will refuse
+on, quoting the same text.
+
+**4. Pull the images YOURSELF.** The lane runs every container with
+`--pull=never`, so a missing image is exit 5 and never a download — several
+gigabytes decided by a rung name is not a thing a measurement script may do on
+somebody's behalf, and `compiler/schema/interfaces.md` §1 says nothing in this
+directory fetches.
+
+**That rule is structural, not textual.** Every docker argv this lane spawns
+goes through one gate (`neverFetchProblem()` in `lib/docker.mjs`), which
+allowlists the four invocations the lane runs — `--version`, `info`,
+`image inspect`, `run` — refuses every other subcommand *by default*, and
+**requires** `--pull=never` and `--network=none` on anything that could pull. It
+was a grep for the string `--pull=never` before, and a grep cannot see the case
+that matters: a second composer written later, with `docker run` and no flag,
+whose own default (`--pull=missing`) fetches. The gate refuses that argv whoever
+built it, and `run-version-ladder.mjs` puts every argv through it at the spawn
+site as well as at the composer.
+
+One image per rung you want, from the official `gcc` repository, and it is one
+command per rung — **this** is the fetch, and it is yours:
+
+```bash
+docker image pull gcc:13        # and gcc:10, gcc:11, gcc:12, gcc:14 as wanted
+```
+
+Each is roughly 1–1.5 GB and needs a network, which is the other reason this step
+belongs to a person rather than to a measurement script.
+
+**5. Resolve the digests and write the pins file.** A tag is not a rung. Take the
+digest the registry gave the image you pulled:
+
+```bash
+docker image inspect --format '{{index .RepoDigests 0}}' gcc:13
+#   gcc@sha256:<64 hex>          -> the part AFTER the @ is the pin
+```
+
+and write them into a JSON file **outside the repository** — a digest is
+evidence, not a declaration, and one written into the tree by somebody who never
+resolved it would be a fabricated measurement:
+
+```json
+{ "docker-gcc-13": "sha256:<64 hex>", "docker-gcc-11": "sha256:<64 hex>" }
+```
+
+A pin for a rung the ladder does not declare is exit 4, not a new rung: the
+ladder is declared, and a pins file may not add to it.
+
+**6. Run it, with the apt rung of the same major beside it.**
+
+```bash
+node compiler/eval/version-ladder/run-version-ladder.mjs     --out "$HOME/vg-lab/version-ladder/docker"     --ccs gcc-13,docker-gcc-13 --opts -O1,-O2 --ids removable --no-subjects     --docker-pins "$HOME/vg-lab/docker-pins.json"
+```
+
+### What would then be measured
+
+**Whether the docker rung's verdict agrees with the apt rung at the overlapping
+compiler version**, per (file, level), printed as
+
+```
+  - docker IS reachable on this machine (server <version>).
+    1 of 1 requested docker rung(s) were obtained.
+    cross-distribution: N/M cell(s) agree with the apt rung at the same major.
+```
+
+and kept in the manifest under `docker.crossDistribution`. A disagreement is a
+**finding and not a fault**: two builds of one release series differing on
+whether the wipe survives is exactly the thing the apt ladder cannot see, and it
+would mean that some part of this project's erasure numbers is a fact about one
+distribution's build of gcc-13 rather than about gcc 13.
+
+Three things that stay true when the daemon comes up, because they are what make
+the answer worth reading:
+
+- **A docker rung is never an anchor rung.** The tracked find-step rows are apt
+  rows, so a run made only of docker rungs compares nothing against them and
+  exits 2 like any other unanchored run. `gcc-13` has to be in `--ccs` beside
+  `docker-gcc-13` — which is also what gives the cross-distribution join
+  something to join to.
+- **0 of 0 agreeing is not agreement, here either, and it reaches the exit
+  code.** A run that obtained a docker rung and no apt rung of the same major has
+  established that a container compiled and nothing about any wipe;
+  `crossDistro().problem` says so, the report prints `NOT COMPARED`, **and the
+  run exits 8**. That last clause is the one that was missing: the problem was
+  computed, written into the record and printed, and nothing read it, so the run
+  that failed the item's headline claim exited 0. `ladderExit()` is now the one
+  place the exit code is decided and it is decided from every problem a run
+  produced; `test/wiring.test.mjs` pins it.
+- **A docker cell answers no ladder question.** `firstAppearance` runs over the
+  declared apt ladders, and a one-rung docker ladder has no "first" to find. The
+  cells are counted and named on their own line (`N of those cells are on a
+  ladder with no first-appearance rule`) rather than dropped, so they cannot go
+  missing between the cell count and the ladder questions.
+
+The identity guard applies unchanged and in its containerised form: the image is
+resolved by digest, and `gcc --version` and `-dumpversion` are run INSIDE it and
+must agree with the major the rung names. An image whose `gcc` is a wrapper for
+another release is the containerised form of the symlinked `clang-17` the native
+guard exists for, and it is refused the same way (exit 6).
+
+**No clang docker rung is declared.** The official images set has a `gcc` image
+and no clang image, so a clang docker ladder would be some third party's
+packaging — and a rung whose packaging nobody can account for measures the
+packaging rather than the release, which is the thing the docker rung was added
+to see past. If an upstream-owned clang image appears it is declared in
+`lib/docker.mjs` and nothing else has to change.
 
 ## What the corpus sweep found
 
@@ -596,31 +787,36 @@ node compiler/eval/version-ladder/run-version-ladder.mjs \
     --fixture "$HOME/vg-lab/version-ladder/fixtures/erasure" \
     --conc 4 --write-data
 
-# the suite: 56 tests, 2.1 s
+# the suite: 105 tests, ~4 s (5 skip with a printed reason when no compiler is installed)
 node --test compiler/eval/version-ladder/test/*.test.mjs
 
 # what the __memset_chk paragraph above rests on (needs the gcc rungs)
 node compiler/eval/version-ladder/tools/fortify-spelling-probe.mjs --opts -O0,-O1,-O2
 ```
 
-52 of the 59 tests need no compiler: they are the identity guard, the
-first-appearance rule, the counting, the anchor join and what `data/` must
-contain, on tables and on the tracked record. The other 7 spawn something —
-`test/exit-codes.test.mjs` **runs the runner and asserts the exit code** (one
-subject, one level, at most two compiles per case), and one test in
-`test/records.test.mjs` runs the fortify probe. Each of those names the rung it
-needs and **skips with that reason printed** when it is absent, so a green tick on
-a machine with no clang never means more than it should:
+Most of the suite needs no compiler: the identity guard, the first-appearance
+rule, the counting, the anchor join, the docker rung's declaration and refusal,
+**the wiring between them** (`test/wiring.test.mjs` — the exit code, the docker
+report sections, and the fact that `main()` still calls them), and what `data/`
+must contain. Five tests need one and name the rung they need, **skipping with
+that reason printed** when it is absent, so a green tick on a machine with no
+clang never means more than it should: four in `test/exit-codes.test.mjs`, which
+**runs the runner and asserts the exit code** (one subject, one level, at most
+two compiles per case), and one in `test/records.test.mjs`, which runs the
+fortify probe. The docker cases in `test/docker.test.mjs` and
+`test/wiring.test.mjs` that spawn the runner need no compiler and no daemon: they
+refuse before either is reached, which is the point of them.
 
-| machine | runs | skips |
-|---|---|---|
-| this one (whole ladder) | 59 | 0 |
-| CI's `native-toolchain` (clang-17 + clang-18) | 58 | 1 (the gcc probe) |
-| clang-18 only | 57 | 2 |
-| no compiler at all | 54 | 5 |
+| machine | tests | runs | skips |
+|---|---|---|---|
+| no compiler at all, no docker daemon | 105 | 100 | 5 |
 
-Those rows are measured, not estimated: each was run with a `PATH` holding only
-the named compilers and coreutils.
+That row is measured, not estimated (2026-09-14). **The rows that were here
+before were stale and are removed rather than adjusted**: they read 59 / 58 / 57
+/ 54 against a suite that already held 69 tests before the docker rung was
+added, so every number in the table was wrong by ten and the three
+compiler-holding rows cannot be re-measured from a box with no compiler. Whoever
+next runs this on the full ladder should put them back, measured.
 
 `--out` inside the repository is refused (exit 4). What that refusal is about is
 the **run's** directory: the build scratch (two `.c` and two `.s` per cell), the
@@ -647,14 +843,44 @@ with the same restraint.
 |---|---|
 | 0 | ran, the anchor compared **at least one** cell, and every compared cell reproduced the tracked find-step verdict |
 | 2 | the anchor did not hold: a compared cell disagreed, a compared cell had no tracked verdict, or **nothing was compared** — no anchor rung obtained, no anchorable subject selected, or rows that name no erasure row for an obtained anchor rung |
-| 3 | nothing selected (no subject, or no rung obtained) |
+| 3 | a check could not be completed: nothing was selected (no subject, or no rung obtained), **or** docker cells were produced and none could be read against an apt rung at the same major, **or** a row's ladder and rung name disagree |
 | 4 | bad arguments |
 | 5 | rows unreadable, output unwritable, or a text carries an absolute path |
-| 6 | the identity guard refused a `--cc` |
+| 6 | the identity guard refused a `--cc`, native or containerised |
+| 7 | a declared **docker rung** was requested and could not be obtained: no digest pinned, or `docker --version` / `docker info` / `docker image inspect <ref>` did not answer. The refusal names the probe |
+Row 7 is a refusal and never a download: the lane runs `--pull=never`, so an
+image that is not already in the local store ends the run instead of fetching
+a gigabyte nobody asked for.
+
+**Row 3's second clause is the same rule as row 2, one layer up, and it is
+late.** `crossDistro()` computed the problem, the manifest recorded it and the
+report printed `NOT COMPARED` — and **nothing read it**, so the run that failed
+the docker item's headline claim exited 0. Both are decided in one place now
+(`ladderExit()`), and `test/wiring.test.mjs` fails if `main()` stops calling it.
+It is 3 rather than a code of this lane's own because 3 is what
+`compiler/schema/interfaces.md` §7 already defines as *a check could not be
+completed — never conflated with 0*, which is exactly what a docker cell read
+against nothing is; and it is kept apart from 2 because the apt ladder above
+still stands. **This lane may not add a row to that table**, and a code the table
+does not carry is one a caller cannot branch on.
 
 Row 0 and row 2 are the ones `test/exit-codes.test.mjs` runs the runner to check,
 because they were the ones that were not true: exit 0 used to include "the
-anchor rungs never ran".
+anchor rungs never ran". Row 3's docker clause cannot be reached on a machine
+with no daemon — producing a docker cell needs one — so what is pinned in
+`test/wiring.test.mjs` is the decision (`ladderExit`) and the call site, not an
+end-to-end run.
+
+**Row 7 is not in `interfaces.md` §7, and that is an open defect this lane
+introduced, not a decision.** That table is the tree's one numbering, §7 says 7
+is "a number this section does not define" (it is spent by
+`compiler/driver/test/observer-fixture.mjs`, a stand-in for an *external* tool),
+and `compiler/schema/exit-codes.test.mjs` fails on the two `die(7, …)` sites in
+this runner. It was green before the docker rung was added here. Closing it is
+either a row in §7 for "a declared rung of a lane's ladder was requested and
+could not be obtained" — which this lane may not write — or a renumbering of the
+refusal onto a code the table already carries. Until one of those happens, that
+fence is red and the red is this file's.
 
 ## Edits requested in files this lane does not own
 

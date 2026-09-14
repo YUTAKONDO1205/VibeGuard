@@ -32,6 +32,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
+import { pickReleaseTag, releasedRuleIds } from './site-release-tag.mjs';
 
 const SCRIPTS_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(SCRIPTS_DIR, '..');
@@ -43,18 +44,140 @@ afterAll(() => {
   for (const dir of tempRoots) rmSync(dir, { recursive: true, force: true });
 });
 
+/**
+ * The release the fixtures pretend to be, and the rules it pretends shipped.
+ *
+ * ★ WHY THE FIXTURES INJECT THIS RATHER THAN LETTING R4 READ REAL TAGS.
+ *
+ * R4 asks two questions — does this ID exist, and has it shipped — and the
+ * second one is answered by `git tag`. A fixture that let it resolve real tags
+ * would be testing the tag list of whatever clone happened to run it: green on
+ * a full clone, red on the `--no-tags` fetch CI uses, and the failure would be
+ * in the fixture's environment rather than in anything the fixture wrote. So
+ * every fixture states its own released set, which is also the positive control
+ * for the injection point itself — if `--released-ids` stopped being read, the
+ * ID the clean fixture prints would stop being accepted and this whole file
+ * would go red at once.
+ *
+ * `VG-AUTH-001` and `VG-SMELL-020` are the two the fixtures need: one from each
+ * registry, both genuinely in the newest release. The tag resolution itself is
+ * tested against the real repository at the bottom of this file, and the
+ * fail-closed branch is tested by taking the git repository away.
+ */
+const FIXTURE_RELEASE_TAG = 'v0.0.0-fixture';
+const FIXTURE_RELEASED_IDS = ['VG-AUTH-001', 'VG-SMELL-020'];
+
+/**
+ * An ID this repository writes down and no rule declares.
+ *
+ * `VG-SMELL-031` is a cross-file candidate that was DROPPED rather than
+ * implemented; the only trace of it is prose in
+ * `design-smells-crossfile/refused-security-inheritance.ts`. Both halves of
+ * that sentence are asserted where the constant is used, because the comment
+ * this replaced claimed the opposite and nobody had checked.
+ */
+const PROSE_ONLY_RULE_ID = 'VG-SMELL-031';
+
+/**
+ * ★ WHY THE TAG PROBE IS TWO FUNCTIONS AND NOT A try/catch (Defect 4).
+ *
+ * The real-repository test below can only run where `git tag --list` answers.
+ * It used to decide that with `try { … } catch { return '' }` and a single skip
+ * reason reading "NO RELEASE TAG IN THIS CHECKOUT: fetch tags". An empty string
+ * is what git returns when a checkout genuinely has no tags AND what the catch
+ * returns when git is not installed, when the directory is not a repository,
+ * and when the call is refused — four causes, one message, three of them
+ * misattributed. The reader is then sent to deepen a fetch that was never the
+ * problem, and the thing the message is really reporting (that this assertion
+ * did not run) is filed under the wrong cause.
+ *
+ * So the probe REPORTS which of the two it saw, the naming is a pure function
+ * of that, and the naming is unit-tested below. A skip that lies about why it
+ * skipped is a silent pass wearing a warning label.
+ */
+type TagProbe = { ok: true; tagList: string } | { ok: false; failure: string };
+
+function probeReleaseTags(cwd: string): TagProbe {
+  try {
+    return {
+      ok: true,
+      tagList: execFileSync('git', ['tag', '--list', 'v*'], {
+        cwd,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    };
+  } catch (error) {
+    const e = error as { message?: string; stderr?: string };
+    const detail = String(e.stderr ?? '').trim() || e.message || String(error);
+    return { ok: false, failure: detail.split('\n')[0].trim().slice(0, 200) };
+  }
+}
+
+export function releaseTagAvailability(probe: TagProbe): {
+  hasReleaseTag: boolean;
+  testName: string;
+} {
+  if (!probe.ok) {
+    return {
+      hasReleaseTag: false,
+      testName:
+        '!!! SKIPPED — GIT DID NOT ANSWER: `git tag --list` failed (' +
+        probe.failure +
+        '). This is NOT the same as a checkout without tags: the list was never read, so the ' +
+        'cause is git missing from PATH, a directory that is not a repository, or a refused ' +
+        'call — and none of those is fixed by deepening a fetch. The released-set resolution ' +
+        'was NOT verified against the real repository',
+    };
+  }
+  const tags = probe.tagList
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!tags.some((tag) => /^v\d+\.\d+\.\d+$/.test(tag))) {
+    return {
+      hasReleaseTag: false,
+      testName:
+        `!!! SKIPPED — GIT ANSWERED WITH NO RELEASE TAG: it listed ${tags.length} tag(s), none ` +
+        'of the form vMAJOR.MINOR.PATCH. This is the shallow or --no-tags fetch: fetch tags ' +
+        '(actions/checkout with fetch-depth: 0 and without --no-tags). The released-set ' +
+        'resolution was NOT verified against the real repository',
+    };
+  }
+  return {
+    hasReleaseTag: true,
+    testName: 'reads a set out of the real repository that is a subset of the working tree',
+  };
+}
+
+const tagProbe = probeReleaseTags(REPO_ROOT);
+const { hasReleaseTag, testName: realRepoTest } = releaseTagAvailability(tagProbe);
+
 interface LintResult {
   status: number;
   output: string;
 }
 
 function runLint(siteDir: string, extraArgs: string[] = []): LintResult {
+  // A caller that names its own release source means it: the fail-closed test
+  // points --tag-repo at a directory with no repository in it, and handing that
+  // run an injected set as well would answer the question it exists to refuse.
+  const overridden = extraArgs.includes('--released-ids') || extraArgs.includes('--tag-repo');
+  const idsFile = join(siteDir, 'released-ids.json');
+  const injected =
+    overridden || !existsSync(idsFile)
+      ? []
+      : ['--released-ids', idsFile, '--release-tag', FIXTURE_RELEASE_TAG];
   try {
-    const stdout = execFileSync(process.execPath, [LINTER, '--site', siteDir, ...extraArgs], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const stdout = execFileSync(
+      process.execPath,
+      [LINTER, '--site', siteDir, ...injected, ...extraArgs],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
     return { status: 0, output: stdout };
   } catch (err) {
     const e = err as { stdout?: string; stderr?: string; status?: number };
@@ -144,7 +267,20 @@ function makeSite(): string {
 
   write(root, 'src/styles/tokens.css', ':root { --vg-ink: #101418; --vg-paper: rgb(255 255 255); }\n');
   write(root, 'src/styles/base.css', 'body { color: var(--vg-ink); background: var(--vg-paper); }\n');
-  write(root, 'src/data/rules.json', JSON.stringify({ rules: [{ ruleId: 'VG-AUTH-001' }] }, null, 2));
+  // The generated data in the shape site-export-rules.mjs writes it: the
+  // release it filtered by, and the rules of that release. The tag is part of
+  // the fixture rather than decoration — R4 refuses data that declares none,
+  // because a file without one did not come from the generator and leaves the
+  // stale-data cross-check silently unperformed.
+  write(
+    root,
+    'src/data/rules.json',
+    JSON.stringify({ releaseTag: FIXTURE_RELEASE_TAG, rules: [{ ruleId: 'VG-AUTH-001' }] }, null, 2),
+  );
+
+  // Not part of the site. `runLint` passes it to --released-ids, and it sits
+  // outside src/ and public/ so that no rule reads it as content.
+  write(root, 'released-ids.json', JSON.stringify(FIXTURE_RELEASED_IDS, null, 2));
 
   writeDist(root);
   return root;
@@ -395,7 +531,7 @@ describe('R4 rule IDs exist in the engine', () => {
   it('fails when the site prints no rule ID at all', () => {
     const site = makeSite();
     write(site, 'src/pages/rules.astro', productPage('Rules', 'Everything the engine looks for.'));
-    write(site, 'src/data/rules.json', JSON.stringify({ rules: [] }));
+    write(site, 'src/data/rules.json', JSON.stringify({ releaseTag: FIXTURE_RELEASE_TAG, rules: [] }));
     const result = runLint(site);
     expect(result.status).toBe(1);
     expect(result.output).toContain('R4 compared an empty set');
@@ -414,16 +550,62 @@ describe('R4 rule IDs exist in the engine', () => {
     expect(result.status).toBe(0);
   });
 
-  // The other edge of the same boundary. analysis-graph exports rules it has
-  // not registered, so that the corpus sweep can measure a candidate before it
-  // ships. An unregistered rule runs for nobody, so describing it on the site
-  // is precisely the accident this linter exists to prevent.
-  it('rejects a cross-file rule that is exported but not registered', () => {
+  // ★ THIS TEST'S RATIONALE WAS FALSE, AND THE FIX IS THE RATIONALE.
+  //
+  // It used to be called "rejects a cross-file rule that is exported but not
+  // registered", and its comment said the tag's source text DOES contain
+  // unregistered candidates. Both halves are wrong, and neither was ever
+  // measured. `VG-SMELL-031` has no `ruleId:` declaration in the working tree
+  // or at v0.3.6; it survives only in two prose comments in
+  // `design-smells-crossfile/refused-security-inheritance.ts` recording that
+  // the candidate was DROPPED rather than implemented. So it is not exported,
+  // it is not in any registry, and the tag's parse has never yielded it.
+  //
+  // What the fixture actually demonstrates is narrower and still worth having:
+  // an ID that exists in this repository's own prose — which is exactly where
+  // somebody writing copy would find one — is rejected unless a rule declares
+  // it. The premise is pinned below rather than asserted in a comment, because
+  // a sentence about the state of another package is the kind of claim that
+  // rots silently, and this file already shipped one.
+  it('rejects a rule ID that the repository only ever mentions in prose', () => {
+    const crossFileDir = join(REPO_ROOT, 'packages', 'analysis-graph', 'src', 'design-smells-crossfile');
+    const files = walkTs(crossFileDir);
+    expect(files.length, 'the cross-file rule directory moved').toBeGreaterThan(0);
+
+    const declared = new Set<string>();
+    const mentionedInProse: string[] = [];
+    for (const file of files) {
+      const text = readFileSync(file, 'utf8');
+      const re = /ruleId: '(VG-[A-Z]+-\d+)'/g;
+      for (let m = re.exec(text); m; m = re.exec(text)) declared.add(m[1]);
+      if (text.includes(PROSE_ONLY_RULE_ID)) mentionedInProse.push(file);
+    }
+    // Both halves of the premise, so that the test name stays true. If the
+    // candidate is ever implemented the first goes red; if the comments that
+    // record its rejection are deleted the second does, and either way the
+    // next person rewrites this rationale instead of inheriting it.
+    expect(
+      [...declared],
+      `${PROSE_ONLY_RULE_ID} now has a ruleId declaration; this fixture needs a different ID`,
+    ).not.toContain(PROSE_ONLY_RULE_ID);
+    expect(
+      mentionedInProse.length,
+      `${PROSE_ONLY_RULE_ID} is no longer mentioned anywhere in ${crossFileDir}`,
+    ).toBeGreaterThan(0);
+
     const site = makeSite();
-    write(site, 'src/pages/rules.astro', productPage('Rules', 'VG-AUTH-001 and VG-SMELL-031.'));
+    write(
+      site,
+      'src/pages/rules.astro',
+      productPage('Rules', `VG-AUTH-001 and ${PROSE_ONLY_RULE_ID}.`),
+    );
     const result = runLint(site);
     expect(result.status).toBe(1);
-    expect(result.output).toContain('VG-SMELL-031');
+    expect(result.output).toContain(PROSE_ONLY_RULE_ID);
+    // It must fail as an ID nothing defines. Reported as "not in the release"
+    // it would tell a reader to wait for a version that will never carry it.
+    expect(result.output).toContain('does not exist in @vibeguard/rules');
+    expect(result.output).not.toContain('exists in this checkout but is NOT in');
   });
 
   it('names which registries answered, and whether they were built', () => {
@@ -434,6 +616,384 @@ describe('R4 rule IDs exist in the engine', () => {
     expect(result.output).toMatch(/crossFileRules|analysis-graph src text/);
   });
 });
+
+// ── The release gate: R4's second question ──────────────────────────────────
+//
+// `/rules` listed 89 rule IDs under a footer reading `Latest: v0.3.6`, which
+// ships 85. The four extra were real — registered, tested, running on main —
+// and in no artefact a visitor could install. R4 passed the page, because until
+// now "exists" was the only question it asked, and the four exist.
+//
+// The tests below are the ones that would have caught it. The first is the one
+// that did not exist before: an ID that IS in the checkout and is NOT in the
+// release. The old fixture only ever used `VG-FAKE-999`, an ID that exists
+// nowhere, which a checkout-scoped rule rejects just as happily — so the suite
+// was green in a way that said nothing about the failure that actually shipped.
+describe('R4 release gate: a rule has to have shipped, not merely to exist', () => {
+  it('fails on a rule that exists in this checkout but is not in the release', () => {
+    const site = makeSite();
+    // Registered in `@vibeguard/rules` on this branch, absent from v0.3.6, and
+    // one of the four that reached the public site early.
+    write(site, 'src/pages/rules.astro', productPage('Rules', 'VG-AUTH-001 and VG-AUTH-009.'));
+    const result = runLint(site);
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('VG-AUTH-009');
+    expect(result.output).toContain('exists in this checkout but is NOT in');
+    // It must fail for the RIGHT reason. Reported as an unknown ID it would be
+    // a lie of a different kind — the rule is real, and a reader sent to check
+    // whether it exists will find that it does.
+    expect(result.output).not.toContain('VG-AUTH-009, which does not exist');
+  });
+
+  it('accepts the same page when the ID is in the released set', () => {
+    // The positive control for the test above: the difference between the two
+    // runs is membership of the released set and nothing else.
+    const site = makeSite();
+    write(site, 'released-ids.json', JSON.stringify([...FIXTURE_RELEASED_IDS, 'VG-AUTH-009']));
+    write(site, 'src/pages/rules.astro', productPage('Rules', 'VG-AUTH-001 and VG-AUTH-009.'));
+    const result = runLint(site);
+    expect(result.output).not.toContain('VG-AUTH-009');
+    expect(result.status).toBe(0);
+  });
+
+  it('fails when the generated data names a different release than the run resolved', () => {
+    const site = makeSite();
+    write(
+      site,
+      'src/data/rules.json',
+      JSON.stringify({ releaseTag: 'v0.0.1-stale', rules: [{ ruleId: 'VG-AUTH-001' }] }, null, 2),
+    );
+    const result = runLint(site);
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('was generated as of v0.0.1-stale');
+    expect(result.output).toContain('The generated data is stale');
+  });
+
+  it('says so in the summary when the generated data agrees', () => {
+    const site = makeSite();
+    write(
+      site,
+      'src/data/rules.json',
+      JSON.stringify(
+        { releaseTag: FIXTURE_RELEASE_TAG, rules: [{ ruleId: 'VG-AUTH-001' }] },
+        null,
+        2,
+      ),
+    );
+    const result = runLint(site);
+    expect(result.status).toBe(0);
+    expect(result.output).toContain(`generated rules.json agrees it is ${FIXTURE_RELEASE_TAG}`);
+  });
+
+  // ★ THIS USED TO ASSERT THE SILENT PASS. The test was called 'distinguishes
+  // "the tags agree" from "there was no tag to compare"', and it pinned the
+  // behaviour that generated data with no releaseTag produces the note
+  // "(tag NOT cross-checked)" on a run that exits 0 — a check that had stopped
+  // happening, described accurately, in the summary of a green build. The
+  // distinction it drew was real; the exit code was the defect.
+  it('refuses generated data that declares no releaseTag, rather than noting it and passing', () => {
+    const site = makeSite();
+    write(
+      site,
+      'src/data/rules.json',
+      JSON.stringify({ rules: [{ ruleId: 'VG-AUTH-001' }] }, null, 2),
+    );
+    const result = runLint(site);
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('declares no releaseTag');
+    expect(result.output).not.toContain('site copy lint OK');
+  });
+
+  it('distinguishes "the tags agree" from "there was nothing to compare it to"', () => {
+    // `--released-ids` without `--release-tag` is a caller answering the first
+    // question and declining the second: it says which rules shipped without
+    // naming a release. The data's own tag then has nothing to be compared
+    // against, and the summary must not let that read like agreement.
+    const site = makeSite();
+    const result = runLint(site, ['--released-ids', join(site, 'released-ids.json')]);
+    expect(result.status).toBe(0);
+    expect(result.output).toContain(`says ${FIXTURE_RELEASE_TAG} (nothing to compare it to)`);
+    expect(result.output).not.toContain('agrees it is');
+  });
+
+  it('exits non-zero naming the reason when no release can be resolved, and does not skip', () => {
+    const site = makeSite();
+    // A directory with no repository in it: the same position a `--no-tags` or
+    // shallow CI checkout is in, reachable without writing tags into anybody's
+    // clone in order to take them away again.
+    const notARepo = mkdtempSync(join(tmpdir(), 'vg-no-git-repo-'));
+    tempRoots.push(notARepo);
+    const result = runLint(site, ['--tag-repo', notARepo]);
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('could not determine which rules have SHIPPED');
+    expect(result.output).toContain('could not list git tags');
+    expect(result.output).toContain('This is a FAILURE and not a skip');
+    // And it must not have quietly gone on to report an OK line as well.
+    expect(result.output).not.toContain('site copy lint OK');
+  });
+
+  it('refuses an override that hands it no rule IDs at all', () => {
+    const site = makeSite();
+    const emptyFile = join(site, 'empty-released-ids.json');
+    writeFileSync(emptyFile, '[]', 'utf8');
+    const result = runLint(site, ['--released-ids', emptyFile]);
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('contains none');
+    expect(result.output).toContain('An empty override is not an answer');
+  });
+
+  it('names the released set it used and where it came from', () => {
+    const result = runLint(makeSite());
+    expect(result.output).toContain('released set from');
+    expect(result.output).toContain(FIXTURE_RELEASE_TAG);
+    expect(result.output).toContain(`(${FIXTURE_RELEASED_IDS.length} shipped)`);
+  });
+});
+
+// ── The generated data itself: present, and the one the artefact came from ──
+//
+// Two defects lived here, and they are the same defect in two modes.
+//
+// A MISSING `src/data/rules.json` was a note on an exit-0 run — one paragraph
+// after R4's own header says it refuses to run when it cannot resolve which
+// rules shipped. The cross-check simply did not happen and the log said OK.
+//
+// In ARTEFACT mode the cross-check reads `SITE_DIR/src/data/rules.json`, which
+// is a SOURCE file: it answered a question about the working tree while the run
+// claimed to be checking what will be served. Nothing in the built HTML names a
+// release, so the artefact is tied to that file through the one thing it does
+// carry — the rule IDs it rendered — and the two are now compared in both
+// directions.
+describe('R4 generated data: present, and the data the artefact was built from', () => {
+  it('fails when the generated rules.json does not exist at all', () => {
+    const site = makeSite();
+    rmSync(join(site, 'src/data/rules.json'));
+    const result = runLint(site);
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('This is a FAILURE and not a note');
+    expect(result.output).not.toContain('site copy lint OK');
+  });
+
+  it('fails in artefact mode on an ID the built pages render and the data does not hold', () => {
+    const site = makeSite();
+    // dist/ built from data that listed one more rule than the tree now holds.
+    // VG-SMELL-020 is released and registered, so every other half of R4 is
+    // happy with it: only the artefact-to-data link can object.
+    write(
+      site,
+      'dist/rules/index.html',
+      [
+        '<!doctype html>',
+        '<html lang="en"><head><meta charset="utf-8" /><title>Rules</title></head>',
+        '<body>',
+        '<main id="main">VG-AUTH-001 is one of them, and so is VG-SMELL-020.</main>',
+        '<footer><a href="/install">Install</a></footer>',
+        '</body></html>',
+        '',
+      ].join('\n'),
+    );
+    const result = runLint(site, ['--dist']);
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('do not describe the same rule set');
+    expect(result.output).toContain('Only in the built HTML (1): VG-SMELL-020');
+  });
+
+  it('fails in artefact mode on an ID the data holds and the built pages never render', () => {
+    const site = makeSite();
+    write(
+      site,
+      'src/data/rules.json',
+      JSON.stringify(
+        {
+          releaseTag: FIXTURE_RELEASE_TAG,
+          rules: [{ ruleId: 'VG-AUTH-001' }, { ruleId: 'VG-SMELL-020' }],
+        },
+        null,
+        2,
+      ),
+    );
+    const result = runLint(site, ['--dist']);
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('Only in the generated data (1): VG-SMELL-020');
+  });
+
+  it('says in the artefact summary that the built pages and the data agree', () => {
+    const result = runLint(makeSite(), ['--dist']);
+    expect(result.status).toBe(0);
+    expect(result.output).toMatch(/built pages render the same \d+ ID\(s\) the generated data holds/);
+  });
+});
+
+// ── The producing side of the field the linter reads ───────────────────
+//
+// ★ THE HALF THAT DID NOT EXIST. Everything above tests what the LINTER does
+// with `releaseTag`. Nothing tested that `site-export-rules.mjs` writes it —
+// the field appeared in this file only inside consumer-side fixtures the test
+// author typed by hand. Deleting `releaseTag` from the generator's payload left
+// the entire suite green, and the stale-data cross-check degraded to a note on
+// a passing run: a whole guard removed, reported as OK.
+//
+// So there are two controls, and the first one runs everywhere. A checkout with
+// no tags or unbuilt packages cannot run the generator at all, and "the guard
+// only works where the generator runs" would put this back where it started.
+describe('site-export-rules writes the release it filtered by', () => {
+  const EXPORTER = join(SCRIPTS_DIR, 'site-export-rules.mjs');
+
+  it('binds releaseTag in the payload it writes, from the release gate', () => {
+    const source = readFileSync(EXPORTER, 'utf8');
+    const payload = /const payload = \{([\s\S]*?)\n\};/.exec(source);
+    expect(payload, 'the payload literal in site-export-rules.mjs could not be found').not.toBeNull();
+    // The field is in the written object …
+    expect(payload![1], 'site-export-rules.mjs writes no releaseTag field').toMatch(
+      /^\s*releaseTag,\s*$/m,
+    );
+    // … and it is the gate's tag rather than some other value that happens to
+    // share the name. Shorthand is what makes the second check cheap, and it is
+    // also what makes the first one insufficient on its own.
+    expect(source, 'releaseTag is no longer bound to the release gate').toMatch(
+      /const \{ tag: releaseTag[^}]*\} = releaseGate\(\);/,
+    );
+  });
+
+  const canRun = hasReleaseTag && existsSync(join(REPO_ROOT, 'packages', 'rules', 'dist', 'index.js'));
+  const endToEndName = canRun
+    ? 'writes a file whose releaseTag the linter then cross-checks against the same tag'
+    : '!!! SKIPPED — GENERATOR NOT RUNNABLE HERE: ' +
+      (hasReleaseTag
+        ? 'packages/rules/dist is missing (npm run build -w @vibeguard/rules)'
+        : 'this checkout resolved no release tag') +
+      '; the producer-to-consumer loop was NOT run end to end. The static control above ' +
+      'still holds';
+
+  it.runIf(canRun)(endToEndName, () => {
+    const out = join(mkdtempSync(join(tmpdir(), 'vg-export-rules-')), 'rules.json');
+    tempRoots.push(dirname(out));
+    execFileSync(process.execPath, [EXPORTER, '--out', out], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    const written = JSON.parse(readFileSync(out, 'utf8')) as { releaseTag?: string };
+    const { tag } = releasedRuleIds();
+    expect(written.releaseTag, 'the generated payload carries no releaseTag').toBe(tag);
+
+    // The loop closed: hand the generator's own output to the consumer that
+    // reads the field, resolving the tag from the real repository rather than
+    // from an injected set. This is the pair that was silently broken — one
+    // side writing, the other reading, and no test on the join.
+    const site = makeSite();
+    cpSync(out, join(site, 'src', 'data', 'rules.json'));
+    const result = runLint(site, ['--tag-repo', REPO_ROOT]);
+    expect(result.output).toContain(`generated rules.json agrees it is ${tag}`);
+    expect(result.status).toBe(0);
+  });
+});
+
+// ── The module both the linter and the generator read ───────────────────────
+//
+// `site-release-tag.mjs` exists because R4 and `site-export-rules.mjs` used to
+// answer "which rules have shipped" separately, and the site went out advertising
+// four rules on the strength of that disagreement. These tests are of the answer
+// itself, rather than of either caller's reaction to it.
+describe('site-release-tag: which rules have shipped', () => {
+  it('takes the newest release tag and ignores the moving and working ones', () => {
+    // `v0` is what the GitHub Action resolves and `v0-remote-check` is a
+    // working tag. Neither is a release, and neither is filtered by name.
+    expect(pickReleaseTag('v0\nv0-remote-check\nv0.3.6\nv0.3.5\nv0.2.0\n')).toBe('v0.3.6');
+  });
+
+  it('refuses a tag list containing no release, rather than returning nothing', () => {
+    // The branch a shallow or --no-tags checkout lands on. Returning an empty
+    // set here is the whole accident in miniature: the generator would publish
+    // a page with no rules on it and R4 would compare against nothing.
+    expect(() => pickReleaseTag('v0\nv0-remote-check\n')).toThrow(
+      /no release tag of the form vMAJOR\.MINOR\.PATCH/,
+    );
+    expect(() => pickReleaseTag('')).toThrow();
+    try {
+      pickReleaseTag('');
+      expect.unreachable('pickReleaseTag accepted an empty tag list');
+    } catch (error) {
+      expect((error as { code?: string }).code).toBe('NO_RELEASE_TAG');
+    }
+  });
+
+  // The real repository. Skipped, loudly and — since the defect this replaced
+  // — accurately: `releaseTagAvailability` names WHICH of the two states this
+  // checkout is in, and is unit-tested immediately below.
+  it('names a git failure and a tagless checkout as different reasons to skip', () => {
+    const gitBroke = releaseTagAvailability({ ok: false, failure: 'git: command not found' });
+    expect(gitBroke.hasReleaseTag).toBe(false);
+    expect(gitBroke.testName).toContain('GIT DID NOT ANSWER');
+    expect(gitBroke.testName).toContain('git: command not found');
+    // The misattribution itself: a failed call must not be reported as the
+    // shallow-fetch case, which is the only one a deeper fetch repairs.
+    expect(gitBroke.testName).not.toContain('vMAJOR.MINOR.PATCH');
+
+    const noTags = releaseTagAvailability({ ok: true, tagList: '' });
+    expect(noTags.hasReleaseTag).toBe(false);
+    expect(noTags.testName).toContain('GIT ANSWERED WITH NO RELEASE TAG');
+    expect(noTags.testName).toContain('0 tag(s)');
+
+    const onlyMoving = releaseTagAvailability({ ok: true, tagList: 'v0\nv0-remote-check\n' });
+    expect(onlyMoving.hasReleaseTag).toBe(false);
+    expect(onlyMoving.testName).toContain('2 tag(s)');
+
+    expect(releaseTagAvailability({ ok: true, tagList: 'v0\nv0.3.6\n' })).toEqual({
+      hasReleaseTag: true,
+      testName: 'reads a set out of the real repository that is a subset of the working tree',
+    });
+  });
+
+  it.runIf(hasReleaseTag)(realRepoTest, () => {
+    const { tag, ids } = releasedRuleIds();
+    expect(tag).toMatch(/^v\d+\.\d+\.\d+$/);
+    expect(ids.size).toBeGreaterThan(50);
+    // VG-AUTH-001 is the rule the front page leads with, and has shipped in
+    // every release the site has ever described.
+    expect(ids.has('VG-AUTH-001')).toBe(true);
+
+    // The other half of the claim this file used to make in a comment: that the
+    // tag's source text contains unregistered candidates, VG-SMELL-031 among
+    // them. It does not — the parse looks for `ruleId:` declarations and that ID
+    // has never had one. Measured here rather than asserted in prose.
+    expect(
+      ids.has(PROSE_ONLY_RULE_ID),
+      `${PROSE_ONLY_RULE_ID} is in the parse of ${tag}; the R4 comment about the registry half needs rewriting`,
+    ).toBe(false);
+
+    // The invariant that matters: a rule that shipped is a rule that is still
+    // written down here. The opposite direction is the one that is allowed to
+    // be non-empty, and is exactly what the gate withholds.
+    const declaredNow = new Set<string>();
+    for (const dir of [
+      join(REPO_ROOT, 'packages', 'rules', 'src', 'rules'),
+      join(REPO_ROOT, 'packages', 'analysis-graph', 'src', 'design-smells-crossfile'),
+    ]) {
+      for (const file of walkTs(dir)) {
+        const text = readFileSync(file, 'utf8');
+        const re = /ruleId: '(VG-[A-Z]+-\d+)'/g;
+        for (let m = re.exec(text); m; m = re.exec(text)) declaredNow.add(m[1]);
+      }
+    }
+    expect(declaredNow.size).toBeGreaterThan(ids.size - 1);
+    const vanished = [...ids].filter((id) => !declaredNow.has(id));
+    expect(vanished, `shipped at ${tag} but no longer declared in the working tree`).toEqual([]);
+  });
+});
+
+/** Every .ts under `dir`, recursively. */
+function walkTs(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walkTs(full));
+    else if (entry.name.endsWith('.ts')) out.push(full);
+  }
+  return out;
+}
 
 describe('R5 /go targets equal README.md', () => {
   it('fails when a channel URL drifts from the Install table, in both directions', () => {

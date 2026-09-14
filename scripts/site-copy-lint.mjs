@@ -29,6 +29,19 @@
 // Exit 0 when every rule holds, 1 otherwise, with the file, line and reason
 // named.
 //
+// R4 also needs to know which rules have SHIPPED, which it reads from the
+// newest release tag in this checkout. Three overrides exist for a caller that
+// cannot resolve one — a shallow or `--no-tags` fetch, or a test:
+//
+//   --released-ids FILE   the shipped IDs, as a JSON array or one per line
+//   --release-tag NAME    resolve the rule set at this tag, not the newest
+//   --tag-repo DIR        resolve the tag in another checkout
+//
+// with VIBEGUARD_SITE_RELEASED_RULE_IDS (a comma- or whitespace-separated
+// list), VIBEGUARD_SITE_RELEASE_TAG and VIBEGUARD_SITE_TAG_REPO saying the same
+// three things. None of them turns R4 off. An override that resolves to nothing
+// fails, and so does the absence of all of them in a tree with no tags.
+//
 // ── WHY THERE ARE TWO MODES ─────────────────────────────────────────────────
 //
 // They ask different questions and neither subsumes the other.
@@ -69,6 +82,11 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative, sep } from 'node:path';
+// The one relative import. It is not a dependency in the sense the note above
+// forbids — it is this repository, and it is here so that R4 and
+// site-export-rules.mjs cannot hold different opinions about which rules have
+// shipped, which is the disagreement that put four unrunnable IDs on the site.
+import { ReleaseTagError, releasedRuleIds } from './site-release-tag.mjs';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -91,6 +109,84 @@ function flagValue(name) {
   return value && !value.startsWith('--') ? value : null;
 }
 const SITE_DIR = flagValue('--site') ?? join(REPO_ROOT, 'site');
+
+/**
+ * Which rules have SHIPPED — R4's second half, and the three ways to say it.
+ *
+ * The default is the newest release tag in this checkout, resolved by
+ * `site-release-tag.mjs`, which is the same module `site-export-rules.mjs`
+ * filters the generated data with. One answer, two consumers: the reason this
+ * check was wrong for a release was that there were two.
+ *
+ * The overrides exist because a checkout is allowed not to know. A `--no-tags`
+ * or shallow fetch genuinely cannot resolve a release, and the only two honest
+ * responses to that are to fail or to be told. Both are here; what is NOT here
+ * is the third response, which is to shrug and check the weaker half. So an
+ * override is a way of ANSWERING the question, never of suppressing it: an
+ * empty `--released-ids` file fails exactly as loudly as no tag at all.
+ *
+ * `--tag-repo` looks like the odd one out and is the one that makes the
+ * fail-closed branch demonstrable: the test suite points it at a directory that
+ * is not a git repository, which is the only way to watch this rule refuse
+ * without writing tags into somebody's checkout to take them away again.
+ */
+const RELEASE_TAG_OVERRIDE = flagValue('--release-tag') ?? process.env.VIBEGUARD_SITE_RELEASE_TAG ?? null;
+const RELEASED_IDS_FILE = flagValue('--released-ids') ?? null;
+const RELEASED_IDS_INLINE = process.env.VIBEGUARD_SITE_RELEASED_RULE_IDS ?? null;
+const TAG_REPO = flagValue('--tag-repo') ?? process.env.VIBEGUARD_SITE_TAG_REPO ?? REPO_ROOT;
+
+/** Rule IDs out of a JSON array or a comma/whitespace-separated list. */
+function parseRuleIdList(text) {
+  const trimmed = text.trim();
+  if (trimmed.startsWith('[')) {
+    const parsed = JSON.parse(trimmed);
+    if (!Array.isArray(parsed)) throw new Error('the JSON is not an array of rule IDs');
+    return parsed.map(String).map((s) => s.trim()).filter(Boolean);
+  }
+  return trimmed.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+}
+
+/**
+ * @returns {{ids: Set<string>, tag: string|null, source: string}} on success,
+ *   `{error: string}` on failure. Never a partial answer and never an empty
+ *   set: both of those would be read by R4 as "nothing has shipped".
+ */
+function loadReleaseGate() {
+  const explicit = RELEASED_IDS_FILE
+    ? { where: rel(RELEASED_IDS_FILE), read: () => readFileSync(RELEASED_IDS_FILE, 'utf8') }
+    : RELEASED_IDS_INLINE !== null
+      ? { where: 'VIBEGUARD_SITE_RELEASED_RULE_IDS', read: () => RELEASED_IDS_INLINE }
+      : null;
+
+  if (explicit) {
+    let ids;
+    try {
+      ids = new Set(parseRuleIdList(explicit.read()));
+    } catch (error) {
+      return { error: `the released rule IDs given in ${explicit.where} could not be read: ${error?.message ?? error}` };
+    }
+    if (ids.size === 0) {
+      return {
+        error:
+          `${explicit.where} was given as the set of shipped rule IDs and contains none.\n` +
+          'An empty override is not an answer; it is the question again, spelled in a way that would pass.',
+      };
+    }
+    return {
+      ids,
+      tag: RELEASE_TAG_OVERRIDE,
+      source: `${explicit.where}${RELEASE_TAG_OVERRIDE ? `, declared as ${RELEASE_TAG_OVERRIDE}` : ''}`,
+    };
+  }
+
+  try {
+    const { tag, ids } = releasedRuleIds({ cwd: TAG_REPO, tag: RELEASE_TAG_OVERRIDE });
+    return { ids, tag, source: `git tag ${tag}` };
+  } catch (error) {
+    if (!(error instanceof ReleaseTagError)) throw error;
+    return { error: error.message };
+  }
+}
 
 /**
  * Repo-relative POSIX path, so failure messages read the same on both
@@ -439,11 +535,25 @@ function ruleIdsFromSource(dir) {
  * choose between being incomplete and turning this rule off.
  *
  * ★ AND `crossFileRules` RATHER THAN "every ruleId in that package", which is
- * the sharper half. `analysis-graph` deliberately exports rules it has NOT
- * registered — `VG-SMELL-031` is exported so the corpus sweep can measure it,
- * and is not in the registry, so it never runs for anybody. Documenting it
- * would be the 0.3.5 accident exactly: describing a rule that produces no
- * finding on any user's machine. The registry is what ships; the export is not.
+ * the sharper half. `analysis-graph` supports a state in which a rule is
+ * EXPORTED but NOT REGISTERED: `scripts/crossfile-corpus-sweep.mjs` resolves
+ * candidates from that module's named exports, so a candidate can be measured
+ * over the corpus before it is admitted to `crossFileRules`, and until it is
+ * admitted it runs for nobody. Documenting one would be the 0.3.5 accident
+ * exactly: describing a rule that produces no finding on any user's machine.
+ * The registry is what ships; the export is not.
+ *
+ * ★ THAT SET IS EMPTY TODAY, AND THIS PARAGRAPH USED TO CLAIM OTHERWISE.
+ * It named `VG-SMELL-031` as the rule that is "exported so the corpus sweep can
+ * measure it". There is no such rule. `VG-SMELL-031` has no `ruleId:`
+ * declaration anywhere — not at v0.3.6, not on this branch — and appears only in
+ * two prose comments in `design-smells-crossfile/refused-security-inheritance.ts`
+ * recording that the candidate was DROPPED rather than implemented. Measured
+ * 2026-09-14. `analysis-graph`'s own header says the exported-but-unregistered
+ * set is pinned at 0 by `a1:crossfile-surface-census`, so the distinction this
+ * paragraph draws is structural rather than currently load-bearing — which is
+ * worth saying out loud, because an example nobody checked is how the sentence
+ * got written in the first place.
  *
  * Preferred source is therefore the BUILT packages, because only the modules
  * know what those two arrays evaluate to. The fallback reads source text so
@@ -626,7 +736,59 @@ if (contentPages.length >= CONTENT_PAGE_FLOOR && researchPagesScanned === 0) {
   );
 }
 
-// ---- R4: every rule ID on the site exists in the engine ------------------
+/// ---- R4: every rule ID on the site exists, and has SHIPPED ---------------
+//
+// ★ TWO QUESTIONS, AND THIS RULE ASKED ONLY THE FIRST ONE UNTIL NOW.
+//
+// "Does this ID exist?" is answered by the registries in the working tree.
+// "Can the visitor run it?" is answered by the newest release tag, and they are
+// not the same question for exactly as long as it takes to merge a detector and
+// cut a release. The public site spent that window listing 89 rule IDs under a
+// footer reading `Latest: v0.3.6`, which ships 85: `VG-AUTH-009`, `-010`, `-011`
+// and `VG-SEC-005` were merged after the tag and went out with a restyle.
+// `site-export-rules.mjs` was fixed to withhold them; this rule was not, so the
+// linter written to catch a promise the repository cannot keep would have passed
+// the page making it. A second layer that accepts what the first layer refuses
+// is not a second layer.
+//
+// So the accepted set is the INTERSECTION of the two. The halves are not
+// interchangeable — but only one of them is doing any rejecting today, and this
+// comment is the wrong place to round that up:
+//
+//   release tag — `VG-AUTH-009`, `-010`, `-011` and `VG-SEC-005` are registered,
+//                 run on this branch, and are in no artefact a visitor can
+//                 install. MEASURED 2026-09-14: the parse of v0.3.6 yields 85
+//                 IDs, the built registries hold 89, and those four are the
+//                 whole difference.
+//   registries   — the release half is a TEXT parse (`ruleId: '…'` under the two
+//                 rule directories) and cannot see the registry boundary, so an
+//                 ID declared in a rule module but absent from `crossFileRules`
+//                 would pass it. MEASURED at the same time: every ID that parse
+//                 yields IS in the registries today, so this half currently
+//                 rejects nothing the other half accepts — `analysis-graph`
+//                 pins its exported-but-unregistered set at 0. What it still
+//                 decides is WHICH failure gets reported: an invented ID is
+//                 missing from both halves, and "wait for the release" is the
+//                 wrong advice for a rule that will never have one.
+//
+// ★ WHAT THIS COMMENT USED TO SAY, KEPT BECAUSE THE DEFECT IS THE SUBJECT.
+// It justified the registry half with `VG-SMELL-031`: "exported so the corpus
+// sweep can measure it", "IS in the tag's source text". Both halves are false
+// and neither was ever measured. `VG-SMELL-031` has no `ruleId:` declaration in
+// any release or on this branch; it survives only in two prose comments
+// recording that the candidate was dropped, so the tag's parse has never
+// contained it and no registry has ever omitted it. A measured-sounding
+// sentence nobody measured, inside the guard written to stop measured-sounding
+// sentences nobody measured, is worse than no comment: it is the failure mode
+// with the guard's own authority behind it.
+//
+// ★ AND IT FAILS CLOSED. A checkout with no release tag does not get a pass
+// here. "No tags, so skip R4" is the silent pass this repository refuses
+// everywhere else, and it would be the most comfortable possible place to put
+// one: CI checkouts are the tree least likely to have tags and the run most
+// likely to be believed. A caller that genuinely cannot resolve a tag says so
+// explicitly with --released-ids or --release-tag, which is a decision in a
+// command line rather than a condition nobody sees.
 {
   const { ids: knownIds, source } = await loadKnownRuleIds();
   rulesNote = `rule IDs: checked against ${source}`;
@@ -637,6 +799,23 @@ if (contentPages.length >= CONTENT_PAGE_FLOOR && researchPagesScanned === 0) {
         '  so R4 would have accepted any ID the site prints. Fix the load path rather than\n' +
         '  letting the one check that ties copy to the real product pass over nothing.',
     );
+  }
+
+  const gate = loadReleaseGate();
+  if (gate.error) {
+    failures.push(
+      'R4 could not determine which rules have SHIPPED, so it refuses to run.\n' +
+        `  ${gate.error.split('\n').join('\n  ')}\n` +
+        '  This is a FAILURE and not a skip. R4 exists to stop the site promising a detector\n' +
+        '  nobody can run, and the release tag is the only thing that knows which those are;\n' +
+        '  passing over that question would leave the rule checking the weaker half of itself\n' +
+        '  while printing the same OK line as a full run.\n' +
+        '  A checkout that legitimately has no tags (a shallow or --no-tags fetch) has to say\n' +
+        '  which rules shipped out loud: --released-ids FILE, or --release-tag NAME, or the\n' +
+        '  environment variables VIBEGUARD_SITE_RELEASED_RULE_IDS / VIBEGUARD_SITE_RELEASE_TAG.',
+    );
+  } else {
+    rulesNote += `, released set from ${gate.source} (${gate.ids.size} shipped)`;
   }
 
   const RULE_ID = /\bVG-[A-Z]+-\d+\b/g;
@@ -650,13 +829,26 @@ if (contentPages.length >= CONTENT_PAGE_FLOOR && researchPagesScanned === 0) {
   }
 
   for (const [id, file] of seen) {
-    if (knownIds.has(id)) continue;
+    if (!knownIds.has(id)) {
+      failures.push(
+        `${rel(file)} mentions rule ${id}, which does not exist in @vibeguard/rules.\n` +
+          `  A rule ID is the one element of this site that can be checked one-to-one against\n` +
+          `  the product. An ID nobody can look up is direct evidence the copy was written\n` +
+          `  without reading the engine, and it tells a visitor to search for something that\n` +
+          `  will never appear in their output.`,
+      );
+      continue;
+    }
+    if (!gate.ids || gate.ids.has(id)) continue;
     failures.push(
-      `${rel(file)} mentions rule ${id}, which does not exist in @vibeguard/rules.\n` +
-        `  A rule ID is the one element of this site that can be checked one-to-one against\n` +
-        `  the product. An ID nobody can look up is direct evidence the copy was written\n` +
-        `  without reading the engine, and it tells a visitor to search for something that\n` +
-        `  will never appear in their output.`,
+      `${rel(file)} mentions rule ${id}, which exists in this checkout but is NOT in ` +
+        `${gate.tag ? gate.tag : 'the released set this run was given'}.\n` +
+        `  Every channel a visitor can install is built from a release. A rule merged after\n` +
+        `  the tag runs on this branch and in nobody else's editor, so naming it here is a\n` +
+        `  promise of a detector that produces no finding on any machine but this one — the\n` +
+        `  same accident as an invented ID, arriving through a door that looks legitimate.\n` +
+        `  Either wait for the release, or cut one. site-export-rules.mjs already withholds\n` +
+        `  these from the generated data; a page that hard-codes the ID goes around it.`,
     );
   }
 
@@ -669,6 +861,164 @@ if (contentPages.length >= CONTENT_PAGE_FLOOR && researchPagesScanned === 0) {
     );
   }
   rulesNote += `, ${seen.size} distinct ID(s) found on the site`;
+
+  // ── Is the generated data describing the release this run resolved? ──────
+  //
+  // `src/data/rules.json` is git-ignored and written by site-export-rules.mjs,
+  // which records the tag it filtered by. Two independent answers to "which
+  // release is this?" are worth having precisely because the failure they catch
+  // is invisible: data generated before the last release describes a smaller
+  // product perfectly consistently, every ID on it passes every check above,
+  // and the only symptom is a page that is quietly a release behind. Naming
+  // that as its own failure is the difference between a stale page and a stale
+  // page somebody was told about.
+  const generatedData = join(SITE_DIR, 'src', 'data', 'rules.json');
+  if (!existsSync(generatedData)) {
+    // ★ A FAILURE, AND IT USED TO BE A NOTE ON AN EXIT-0 RUN.
+    //
+    // One paragraph above, this rule refuses to run at all when it cannot
+    // resolve which release shipped, on the grounds that checking the weaker
+    // half while printing the same OK line is the silent pass this file exists
+    // to refuse. A missing `rules.json` is that same shape: the cross-check
+    // does not happen, the summary says so in a sentence nobody reads, and the
+    // exit code says the site is clean. Two opposite answers to one question,
+    // eleven lines apart.
+    //
+    // There is no legitimate run in this position. The generated data is what
+    // every rule page renders from, so the site cannot BUILD without it; the
+    // deploy pipeline runs the generators before either lint mode, and the
+    // suite's real-tree tests skip by name when it is absent. A checkout that
+    // has not generated has not been linted — that is a fact about the checkout
+    // and it should cost an exit code, not a footnote.
+    failures.push(
+      `${rel(generatedData)} does not exist, so R4's release cross-check had nothing to\n` +
+        `  read and every rule fact on the site is unverifiable.\n` +
+        `  This is a FAILURE and not a note. R4 refuses to run at all when it cannot resolve\n` +
+        `  which release shipped; a missing generated file leaves it in exactly that position\n` +
+        `  one question later — the pages render from this file, so "no file" means the tag\n` +
+        `  was never compared while the run still exits 0 and prints OK.\n` +
+        `  Generate it: node scripts/site-export-rules.mjs (build the packages first).`,
+    );
+  } else {
+    let parsed = null;
+    try {
+      parsed = JSON.parse(readFileSync(generatedData, 'utf8'));
+    } catch (error) {
+      failures.push(
+        `${rel(generatedData)} is not parseable JSON: ${error?.message ?? error}\n` +
+          `  Every page imports it directly, so this is a build that cannot happen — and it\n` +
+          `  is reported here rather than skipped, because an unreadable file is the one\n` +
+          `  input whose absence of complaints means least.`,
+      );
+    }
+    // ── ARTEFACT MODE: tie the built pages to the file above ───────────────
+    //
+    // ★ THE HOLE THIS CLOSES. `generatedData` is `SITE_DIR/src/data/rules.json`
+    // in BOTH modes — a SOURCE file. So in artefact mode the tag cross-check
+    // above was reading a file the artefact does not contain, and answering a
+    // question about the working tree while claiming to check what will be
+    // served. `dist/` is written once and then sits there: regenerate the data
+    // after a build, or build from data generated before the last release, and
+    // the source file and the artefact describe different products while every
+    // check passes.
+    //
+    // The artefact cannot be asked THIS file's release directly. The footer does
+    // print `Latest: vX.Y.Z`, and it is tempting — but that string is rendered
+    // from `src/data/releases.json`, a different generator's output, and it
+    // answers "which release is newest" rather than "which release was this rule
+    // table built from". Reading it here would tie R4's cross-check to a field
+    // no part of R4 produces, and would go on agreeing while rules.json sat a
+    // release behind. Inventing a marker for the build to emit instead would be
+    // a claim written for this linter's benefit rather than a property of the
+    // site. What the artefact does carry is the rule IDs
+    // it rendered, and those come from exactly one place. So the chain is made
+    // of two links that each hold on their own: the built pages render the same
+    // ID set the data file holds, and the data file declares the release this
+    // run resolved. Both together say the artefact describes that release.
+    //
+    // Compared in both directions on purpose. An ID in the artefact and not in
+    // the data means the data was regenerated after the build; an ID in the
+    // data and not in the artefact means the build predates the data. Those are
+    // the same defect arriving from opposite sides, and a one-way check waves
+    // one of them through.
+    if (DIST_MODE && parsed) {
+      const dataIds = new Set(
+        [...JSON.stringify(parsed).matchAll(/VG-[A-Z]+-\d+/g)].map((m) => m[0]),
+      );
+      const artefactIds = new Set(seen.keys());
+      const onlyArtefact = [...artefactIds].filter((id) => !dataIds.has(id)).sort();
+      const onlyData = [...dataIds].filter((id) => !artefactIds.has(id)).sort();
+      if (dataIds.size === 0) {
+        failures.push(
+          `${rel(generatedData)} contains no rule ID at all, so the built pages could not be\n` +
+            `  compared against the data they were built from.\n` +
+            `  Artefact mode reads that SOURCE file for the release cross-check; with nothing\n` +
+            `  in it to compare, the cross-check is a statement about a file the artefact does\n` +
+            `  not contain. Re-run node scripts/site-export-rules.mjs.`,
+        );
+      } else if (onlyArtefact.length || onlyData.length) {
+        failures.push(
+          `the built pages and ${rel(generatedData)} do not describe the same rule set.\n` +
+            `  Only in the built HTML (${onlyArtefact.length}): ${onlyArtefact.join(', ') || '(none)'}\n` +
+            `  Only in the generated data (${onlyData.length}): ${onlyData.join(', ') || '(none)'}\n` +
+            `  The release cross-check in this mode reads that file, which is SOURCE — so this\n` +
+            `  is the link that makes it say anything about the artefact. A difference means\n` +
+            `  dist/ was built from other data than the tree now holds: either the generators\n` +
+            `  ran after the build, or the build predates the last generator run. Re-run both,\n` +
+            `  in that order: node scripts/site-export-rules.mjs, then the site build.`,
+        );
+      } else {
+        rulesNote += `, built pages render the same ${artefactIds.size} ID(s) the generated data holds`;
+      }
+    }
+
+    const declaredTag = parsed && typeof parsed.releaseTag === 'string' ? parsed.releaseTag : null;
+    if (parsed && !declaredTag) {
+      // ★ ALSO A FAILURE, FOR THE REASON THE NOTE ITSELF GAVE.
+      //
+      // The note this replaces read "declares no releaseTag (tag NOT
+      // cross-checked)" and it was accurate: the cross-check did not run. It
+      // was printed on a run that exited 0, which made it a description of a
+      // check that had silently stopped happening — the one outcome the rest of
+      // this file treats as worse than a red build.
+      //
+      // `site-export-rules.mjs` has always written the field, and there is now
+      // a producing-side test that it does (deleting it from the payload was
+      // green across the whole suite until that test existed). So data without
+      // one is not "older generated data": it is hand-written, truncated, or
+      // produced by something that is not the generator, and none of those is a
+      // file to publish a rule catalogue from.
+      failures.push(
+        `${rel(generatedData)} declares no releaseTag, so the tag cross-check did not run.\n` +
+          `  site-export-rules.mjs records the release it filtered by in every file it writes;\n` +
+          `  a file without one was not written by it. Saying "NOT cross-checked" in the\n` +
+          `  summary of a passing run describes a check that stopped happening, which is the\n` +
+          `  failure this linter exists to make loud rather than a footnote to print.\n` +
+          `  Re-run: node scripts/site-export-rules.mjs (build the packages first).`,
+      );
+    } else if (!declaredTag) {
+      // Unparseable JSON: already reported above with the parse error, and a
+      // second failure about a field inside a file that has no fields would
+      // name the same defect twice.
+      rulesNote += ', generated rules.json could not be read (tag NOT cross-checked)';
+    } else if (!gate.tag) {
+      rulesNote += `, generated rules.json says ${declaredTag} (nothing to compare it to)`;
+    } else if (declaredTag !== gate.tag) {
+      failures.push(
+        `${rel(generatedData)} was generated as of ${declaredTag}, but the newest release ` +
+          `this run resolved is ${gate.tag}.\n` +
+          `  The generated data is stale — or, if the two were deliberately pointed at\n` +
+          `  different releases, this run was. Every rule fact on the site comes out of that\n` +
+          `  file, so the pages describe ${declaredTag} while the footer, the download links\n` +
+          `  and the engine describe ${gate.tag} — a disagreement that renders without an\n` +
+          `  error and reads as a complete, current site.\n` +
+          `  Re-run the generators: node scripts/site-export-rules.mjs (rebuild the packages\n` +
+          `  first). If the tag moved on purpose, that re-run is the same command.`,
+      );
+    } else {
+      rulesNote += `, generated rules.json agrees it is ${declaredTag}`;
+    }
+  }
 }
 
 // ---- R5: /go/* targets equal README's Install table ----------------------

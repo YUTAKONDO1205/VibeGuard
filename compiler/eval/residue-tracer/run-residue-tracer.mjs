@@ -45,7 +45,7 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
@@ -58,6 +58,11 @@ import {
   OPTS, VENDORS, IDIOMS, ARMS, plannedCells, buildRow, assertIntegers, assertNoPaths, renderCrossTab,
   pluginMismatch, vendorOf,
 } from './lib/manifest.mjs';
+import {
+  emitForRows, gateSelfCheck, observationOutcome, wouldWriteInsideRepo,
+} from './lib/observation.mjs';
+import { toolchainDigestFromPin } from './lib/toolchain-digest.mjs';
+import { loadSchema } from '../../schema/validate-observation.mjs';
 
 const run = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -96,10 +101,39 @@ const USAGE = `residue-tracer -- is the secret still in the process after the fr
   --jobs N             concurrent compiles. Default 2. See the header.
   --write-data         also write the tracked rows under this lane's data/.
                        Refused unless the full matrix was run.
+  --toolchain-pin <f>  the toolchain pin (toolchain-pin-v0) the records name.
+                       Required by --emit-observation and used for nothing else:
+                       observation.schema.json requires toolchain.digest, the one
+                       derivation of that number in this tree is
+                       evidenceDigest(pinnedSet(pin, verifyPin(pin))) in
+                       compiler/driver/lib/run.mjs, and a digest this lane made up
+                       out of a version string would match nothing and be
+                       recomputable by nobody. No pin, no records.
+  --emit-observation   additionally write one observation.schema.json record per
+                       subject cell, THROUGH compiler/schema/emit-observation.mjs,
+                       carrying checkpoint \`process\`. Records go to
+                       <out>/observations/ and never inside the repository.
+                       The rows are unaffected; this is an extra output, not a
+                       replacement. Cells the schema cannot hold are REFUSED with
+                       a code and listed in observations/refusals.json -- see
+                       lib/observation.mjs for the three codes and why each one
+                       is a refusal rather than a bent field. A cell the
+                       APPARATUS failed on is not one of those: it goes to
+                       observations/failures.json and exits 5, however many
+                       records were written. The emitter's
+                       clean-verdict gate is measured in both directions before
+                       anything is written, and a gate that does not refuse is a
+                       setup failure. Runs AFTER --write-data: measuring and
+                       expressing are different concerns, and a run that measured
+                       cleanly does not discard its rows because the schema could
+                       not hold them.
   -h, --help
 
 Exit codes: 0 measured; 1 INVALID_RUN (a control did not hold, nothing written);
-5 the lane could not be set up at all.`;
+5 the lane could not be set up at all, or --emit-observation could not express
+what it measured -- no pin, a gate that did not refuse, no record at all, or a
+cell the apparatus failed on. A cell REFUSED by one of the three named schema
+holes is not that: refusals are an expected outcome and do not change the exit.`;
 
 function die(code, msg) { process.stderr.write(`residue-tracer: ${msg}\n`); process.exit(code); }
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
@@ -113,6 +147,7 @@ function parseArgs(argv) {
     ccs: [...VENDORS], opts: [...OPTS], idioms: [...IDIOMS],
     plugin: null, pluginGcc: null,
     controlsOnly: false, below: 4096, above: 64, jobs: 2, writeData: false, autoWindow: true,
+    emitObservation: false, toolchainPin: null,
   };
   for (let i = 2; i < argv.length; i++) {
     const k = argv[i];
@@ -130,7 +165,27 @@ function parseArgs(argv) {
     else if (k === '--above') a.above = Number(next());
     else if (k === '--jobs') a.jobs = Number(next());
     else if (k === '--write-data') a.writeData = true;
+    else if (k === '--emit-observation') a.emitObservation = true;
+    else if (k === '--toolchain-pin') a.toolchainPin = next();
     else die(5, `unknown option ${k}`);
+  }
+  if (a.emitObservation && !a.toolchainPin) {
+    die(5, '--emit-observation needs --toolchain-pin <file>. observation.schema.json requires toolchain.digest, and '
+      + 'the only digest this tree computes for a toolchain is evidenceDigest(pinnedSet(pin, verifyPin(pin))) over a '
+      + 'toolchain-pin-v0 file (compiler/driver/lib/run.mjs). This lane used to hash its own {cc, version, observer} '
+      + 'object instead, which produced a number that matched no other value anywhere and that a reader holding the '
+      + 'compiler could not recompute. emit-observation.mjs refuses to invent a digest in its driver adapter for the '
+      + 'same reason, and so does this. See compiler/eval/residue-tracer/lib/toolchain-digest.mjs.');
+  }
+  if (a.toolchainPin && !a.emitObservation) {
+    die(5, '--toolchain-pin without --emit-observation: the pin is only used to name the toolchain in an observation '
+      + 'record, and a run that will not write one would read a pin and do nothing with it. The rows do not carry a '
+      + 'toolchain digest.');
+  }
+  if (a.emitObservation && a.controlsOnly) {
+    die(5, '--emit-observation with --controls-only: an observation record is about a SUBJECT cell, and a '
+      + 'controls-only run has none. The controls become observation points inside such a record; they are not '
+      + 'records of their own.');
   }
   if (!Number.isInteger(a.below) || !Number.isInteger(a.above) || a.below < 0 || a.above < 0) die(5, '--below/--above must be non-negative integers');
   if (!Number.isInteger(a.jobs) || a.jobs < 1) die(5, '--jobs must be a positive integer');
@@ -476,6 +531,20 @@ async function main() {
       + 'lab are kept so the failure can be looked at, and they are not measurements of anything.\n');
     process.exit(1);
   }
+  // --- the tracked rows, before anything tries to EXPRESS them ---------------
+  //
+  // Measuring and expressing are different concerns and this is the order they
+  // go in. --emit-observation below exits 5 on any of its own prerequisites -- a
+  // record directory inside the repository, a schema that will not load, a pin
+  // that does not describe this machine, a compiler that will not say its
+  // version, a gcc-only run, a gate that did not refuse -- and on its outcome (a
+  // cell the apparatus failed on, or no record at all). Every one of those used
+  // to run BEFORE this block. A run that measured the whole matrix cleanly and then
+  // could not say it in the schema's words exited 5 with data/ untouched, and
+  // the next person re-ran two hours of ptrace to get back what had already
+  // been measured. The rows are what README.md is held to; a record is an extra
+  // output. So: write the rows, then try to express them, and let the
+  // expression failure be the exit code without letting it eat the measurement.
   if (args.writeData) {
     // Every reason at once: a person fixing the command should need one more
     // run, not three. See writeDataRefusals in lib/grade.mjs for what this
@@ -499,6 +568,141 @@ async function main() {
     writeFileSync(join(DATA, name), `${JSON.stringify(rows, null, 2)}\n`, 'utf8');
     process.stdout.write(`wrote ${rows.length} rows to data/\n`);
   }
+
+  // --- observation records -------------------------------------------------
+  //
+  // The one place in this tree that writes through compiler/schema's reference
+  // writer. It runs AFTER the validity check on purpose: a run whose controls
+  // did not hold has already exited, and a record from it would be a record of
+  // an unqualified instrument. It also runs after --write-data, for the reason
+  // written above that block: this step may exit 5, and a measured matrix is not
+  // thrown away because the schema had no words for it.
+  if (args.emitObservation) {
+    const OBSDIR = join(LAB, 'observations');
+    // The record directory may not be inside the repository. rows.json and
+    // results.txt already live under --out by convention; this one is checked,
+    // because an observation record that landed in the tree would be a
+    // measurement committed without review.
+    const REPO = resolve(HERE, '..', '..', '..');
+    if (wouldWriteInsideRepo(OBSDIR, REPO, { relative, isAbsolute, sep })) {
+      die(5, `--emit-observation would write inside the repository (${relative(REPO, OBSDIR).split(sep).join('/')} under the repo root). `
+        + 'Records are lab output and go to --out, which defaults to a directory outside this tree.');
+    }
+
+    let schema;
+    try { schema = loadSchema(); }
+    catch (e) { die(5, `--emit-observation: observation.schema.json could not be read (${e.message}); this is a missing prerequisite, not a skip`); }
+
+    // The toolchain identity, per vendor, from the vendor rather than from the
+    // flag it was invoked with. Only the first line is taken: clang prints its
+    // InstalledDir below it, and a record naming one machine is refused by the
+    // emitter anyway -- better to never build it.
+    const versions = {};
+    for (const cc of ccs) {
+      try {
+        const { stdout } = await run(cc, ['--version'], { timeout: 20000 });
+        versions[cc] = String(stdout).split('\n')[0].trim();
+      } catch (e) { die(5, `--emit-observation: ${cc} --version failed (${String(e.message).slice(0, 200)}); the record must name the toolchain it measured`); }
+      if (!versions[cc]) die(5, `--emit-observation: ${cc} --version printed nothing`);
+    }
+
+    const epoch = process.env.SOURCE_DATE_EPOCH;
+    const timeSource = epoch ? 'SOURCE_DATE_EPOCH' : 'wall-clock';
+    const when = epoch ? new Date(Number(epoch) * 1000) : new Date();
+
+    // toolchain.digest, from the one place this tree derives it. What used to be
+    // here was sha256({cc, version, observer}) -- a well-formed number that
+    // matched no other digest in the repository, could not be recomputed by a
+    // reader holding the compiler, and would have read as the driver's digest to
+    // anyone comparing two records. See lib/toolchain-digest.mjs.
+    const pinned = toolchainDigestFromPin(args.toolchainPin, { ccPath: ccs.find((c) => vendorOf(c) === 'clang') ?? null });
+    if (!pinned.ok) {
+      die(5, `--emit-observation: ${pinned.why}. A record has to name the toolchain it measured, and this lane does `
+        + 'not invent a digest for one.');
+    }
+    process.stdout.write(`\ntoolchain.digest   ${pinned.digest}\n`);
+    process.stdout.write(`  from the pin at --toolchain-pin, as evidenceDigest(pinnedSet(pin, verifyPin(pin))): `
+      + `clang ${pinned.clang ?? 'unpinned'}, ${pinned.packages.length} package(s)\n`);
+
+    // The pin names one vendor, and it is the vendor whose records can exist at
+    // all. A gcc cell is refused by draftForCell before the run facts are read;
+    // carrying null here means that if that refusal ever stopped firing, the
+    // cell is refused for a missing digest instead of filed under a digest taken
+    // from a different compiler.
+    const runFactsFor = (cc) => ({
+      generatedAt: when.toISOString(),
+      timeSource,
+      ...(epoch ? { sourceDateEpoch: Number(epoch) } : {}),
+      toolchainDigest: vendorOf(cc) === 'clang' ? pinned.digest : null,
+      toolchainDigestSource: vendorOf(cc) === 'clang' ? pinned.source : null,
+      ccVersion: versions[cc],
+      observerSha256: observerSha,
+    });
+
+    // THE GATE, BEFORE ANYTHING IS WRITTEN. emit-observation refuses a clean
+    // verdict when something was not observed; a consumer that never saw it
+    // refuse has not tested it, and one that only ever saw it refuse has not
+    // either. Both directions, on this run's own rows, and a wrong answer in
+    // either is a setup failure rather than a note in a log.
+    // Said once, plainly, rather than left to surface as "the gate misbehaved".
+    // The toolchain block of observation.schema.json can name one vendor and it
+    // is named in the field itself, so a gcc-only run has nothing it can emit.
+    // See lib/observation.mjs, the toolchain-vendor-not-expressible refusal.
+    if (!ccs.some((cc) => vendorOf(cc) === 'clang')) {
+      die(5, `--emit-observation with ${ccs.join(', ')} only: observation.schema.json's toolchain block requires the `
+        + 'key `clang` and sets additionalProperties:false, so a gcc-side record can only be written by filing a gcc '
+        + 'version string under a field named clang. Every cell of this run would be refused, and a consumer that '
+        + 'emitted nothing has not consumed anything. The vocabulary need is recorded in compiler/schema/'
+        + 'properties.json -> interfaceExtensionsRequested.checkpoints["toolchain.vendor"].');
+    }
+    const gateCc = ccs.find((cc) => vendorOf(cc) === 'clang');
+    const gate = gateSelfCheck(schema, rows.filter((r) => r.cc === gateCc), runFactsFor(gateCc));
+    process.stdout.write('\nobservation records\n');
+    process.stdout.write(`  gate  positive(every control present, claim VERIFIED_CLEAN) -> ${gate.positive?.emitted ? 'record produced' : 'REFUSED'}\n`);
+    process.stdout.write(`  gate  negative(${gate.omitted ?? 'n/a'} deleted, same claim)          -> ${gate.negative?.emitted ? 'record produced' : 'refused, no record'}\n`);
+    for (const e of (gate.negative?.errors ?? [])) process.stdout.write(`          ${e}\n`);
+    if (!gate.ok) {
+      die(5, `--emit-observation: the emitter's clean-verdict gate did not behave in both directions: ${gate.why}`);
+    }
+
+    mkdirSync(OBSDIR, { recursive: true });
+    // One pass per vendor, over that vendor's rows only. A record names ONE
+    // toolchain, and the run-level controls that qualify a cell are that cell's
+    // own vendor's -- a clang cell qualified by a gcc control would be an
+    // instrument check taken on a different instrument.
+    const all = { records: [], refusals: [], failures: [] };
+    for (const cc of ccs) {
+      const mine = rows.filter((r) => r.cc === cc);
+      const { records, refusals, failures } = emitForRows(schema, mine, runFactsFor(cc));
+      all.records.push(...records);
+      all.refusals.push(...refusals);
+      all.failures.push(...failures);
+    }
+    for (const rec of all.records) writeFileSync(join(OBSDIR, `${rec.slug}.observation.json`), rec.text, 'utf8');
+    // Two files, because they are two different things. A deliberate refusal is
+    // an outcome of the experiment; a failure is the experiment not working, and
+    // reading one as the other is what the single `refusals` bucket allowed.
+    writeFileSync(join(OBSDIR, 'refusals.json'), `${JSON.stringify(all.refusals, null, 2)}\n`, 'utf8');
+    writeFileSync(join(OBSDIR, 'failures.json'), `${JSON.stringify(all.failures, null, 2)}\n`, 'utf8');
+
+    const tally = (list) => Object.entries(list.reduce((acc, r) => {
+      acc[r.code] = (acc[r.code] ?? 0) + 1;
+      return acc;
+    }, {})).map(([k, v]) => `${v}x ${k}`).join(', ');
+    process.stdout.write(`  wrote ${all.records.length} record(s) to observations/\n`);
+    process.stdout.write(`  refused ${all.refusals.length} cell(s): ${tally(all.refusals) || 'none'}\n`);
+    process.stdout.write('  a refusal is a cell the schema has no honest shape for, not a cell that failed to measure;\n'
+      + '  observations/refusals.json carries the reason for each, and the rows carry every cell either way.\n');
+    process.stdout.write(`  FAILED  ${all.failures.length} cell(s): ${tally(all.failures) || 'none'}\n`);
+    if (all.failures.length) {
+      process.stdout.write('  a failure is not a refusal: the apparatus did not work on that cell. '
+        + 'observations/failures.json\n  carries every one, and this run exits 5 however many records were written.\n');
+    }
+
+    const outcome = observationOutcome(all);
+    if (!outcome.ok) die(outcome.exitCode, `--emit-observation: ${outcome.why}`);
+  }
+
   process.exit(0);
 }
 

@@ -40,7 +40,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import { FLAGS, CONTROL_EFFECT, compile } from '../../ai-generated/lib/ablation-cell.mjs';
-import { spellingIn, allRungs } from '../run-version-ladder.mjs';
+import { spellingIn, nativeRungs } from '../run-version-ladder.mjs';
+import { isDockerRung, dockerRungs } from '../lib/docker.mjs';
 import { ALL_OPTS } from '../lib/ladder.mjs';
 
 const run = promisify(execFile);
@@ -76,6 +77,22 @@ function parse(argv) {
   }
   const bad = o.opts.find((x) => !ALL_OPTS.includes(x));
   if (bad) { process.stderr.write(`--opts: ${bad} is not one of ${ALL_OPTS.join(', ')}\n`); process.exit(4); }
+  // THE DOCKER RUNGS ARE NOT THIS TOOL'S TO RUN, and a rung it cannot run is a
+  // refusal rather than five `--version` spawns of a binary that can never be on
+  // anybody's PATH. This tool spawns `<cc> --version` and compiles with `<cc>`;
+  // a docker rung is an image AND a digest: identifying one needs --docker-pins
+  // and reaching one needs a daemon, and this tool has neither. That is also why
+  // the default is nativeRungs() and not allRungs() -- allRungs() is the RUNNER's
+  // denominator, and taking it as a default here spawned five names as PATH
+  // binaries on every invocation and printed each as `-(not obtained)`, which
+  // reads as a rung that was tried.
+  const container = (o.ccs || []).find((cc) => isDockerRung(cc) || /^docker-/.test(cc));
+  if (container) {
+    process.stderr.write(`--ccs: ${container} is a docker rung (${dockerRungs().join(', ')}) and this probe runs `
+      + 'PATH binaries. The containerised spellings are the runner\'s job: '
+      + 'run-version-ladder.mjs --ccs docker-... --docker-pins <file>\n');
+    process.exit(4);
+  }
   return o;
 }
 
@@ -90,7 +107,7 @@ try {
   process.stdout.write(`declared effect symbols: ${CONTROL_EFFECT.symbols.join(', ')}\n`);
   process.stdout.write(`flags: ${FLAGS.join(' ')}\n\n`);
   process.stdout.write(`  ${'rung'.padEnd(9)} ${'level'.padEnd(5)} ${'const size'.padEnd(14)} runtime length\n`);
-  for (const cc of args.ccs ?? allRungs()) {
+  for (const cc of args.ccs ?? nativeRungs()) {
     try { await run(cc, ['--version'], { timeout: 30000 }); } catch { process.stdout.write(`  ${cc.padEnd(9)} -(not obtained)\n`); continue; }
     for (const opt of args.opts) {
       const seen = {};

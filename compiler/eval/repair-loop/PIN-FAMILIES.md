@@ -58,7 +58,7 @@ counted by `tableCensus()` beside it:
 |---|---|---|
 | `recomputed` | 22 | tracked evidence with a cite: `test/pin-families.test.mjs` recomputes the ratio from the rows in `data/` (or from the corpus text) on every run, and fails on drift |
 | `lab-run` | 3 | one real run, typed in by hand and recomputed by nothing. The gate is re-run over it and its quote is checked against the file it names; the numbers inside its prose are not evidence in this lane's sense |
-| `no-number` | 2 | there is no reading to check: `[SPEC]`, or an argument about where in the pipeline the repair sits |
+| `no-number` | 2 | there is no reading to check: an instrument nobody has run yet, or an argument about where in the pipeline the repair sits |
 
 That is 27 rows in total, over 7 properties and 18 (property, shape) groups.
 
@@ -72,7 +72,8 @@ measurements, so they are named here rather than only counted:
   `wipe-pin/pin-the-helper-by-name` (measured on another lane's fixture loop,
   not here).
 - `no-number` — `dead-store-builtin-memset-gimple` / `gcc/fdisable-tree-pass`
-  (**[SPEC]**) and `wipe-written-as-stores` / `none` (`by-construction`).
+  (**driven, not yet run**) and `wipe-written-as-stores` / `none`
+  (`by-construction`).
 
 6 of the 22 `recomputed` rows also carry a hand-typed `labObservation` beside
 their recomputed count: the six zero-instance shapes, whose counts are recomputed
@@ -105,7 +106,7 @@ both were wrong.
 | dead-store memset intrinsic (clang) | `wipe-pin/volatile-memset` | `measured-retained` | **401/401** cell eliminations reversed |
 | dead-store memset intrinsic (clang) | `pass-delete/attributed-position` | `not-repairable-in-compiler` (one lab run) | the property never came back; see below |
 | dead-store `__builtin_memset` on GIMPLE (gcc) | `wipe-pin-gcc/volatile-asm-barrier` | `measured-retained` | **432/432** |
-| dead-store `__builtin_memset` on GIMPLE (gcc) | `gcc/fdisable-tree-pass` | `unmeasured` | **[SPEC]** — nothing in this tree drives it |
+| dead-store `__builtin_memset` on GIMPLE (gcc) | `gcc/fdisable-tree-pass` | `unmeasured` | **driven, not yet run** — `tools/intervene.mjs --cc gcc-13` |
 | hidden span elimination (clang) | `wipe-pin/volatile-memset` | `measured-retained` | **63/63** |
 | hidden span elimination (gcc) | `wipe-pin-gcc/volatile-asm-barrier` | `measured-retained` | **92/92** |
 | dropped by the backend, after the IR pipeline | `wipe-pin/volatile-memset` | `measured-retained` | **62/62** at `-O1` |
@@ -303,12 +304,136 @@ Anything short of that is `NOT_ENOUGH_EVIDENCE`, which is a result and not an
 error. The table's validator re-runs the gate over every `intervention` block it
 holds, so a row cannot assert a verdict the gate would not give.
 
-### gcc
+### gcc — driven, not yet run
 
-`-fdisable-tree-<pass>` is the same idea on the other vendor and is **[SPEC]**:
-the candidate is in the table, nothing in this tree drives it, and no reading of
-any kind exists. The clang result does not transfer — it is a statement about
-clang's pipeline and clang's backend.
+`-fdisable-tree-<pass>` is the same idea on the other vendor, and
+`tools/intervene.mjs --cc gcc-13` now drives it. gcc prints no pass pipeline and
+has no `opt`/`llc` to replay one under, so the clang steps have no gcc form; what
+gcc does offer is its own numbered dump sequence and a flag that takes one
+GIMPLE pass out:
+
+1. compile both units with `-fdump-tree-all -fdump-rtl-all` and read every dump
+   **differentially** — the target function's region as written against the same
+   region with the wipe ablated — to find the first dump at which the wipe stops
+   making a difference. That reading is `firstIndifferentDump`;
+2. rebuild with `-fdisable-tree-<that pass>`, then at a second position — where
+   the walk says the loss moved to once the first pass was gone — and finally
+   with both disabled at once. The gate decides the verdict, as on clang.
+
+#### Three words, three oracles, and why this channel does not borrow one
+
+`firstIndifferentDump` is this channel's own word, and it is deliberately none of
+the two that already exist:
+
+| where | how the reading is taken | its word |
+|---|---|---|
+| the pass-plugin observer (clang) | an instrument we inject and drive, cross-checked against the source and object gates | `firstLossPass` |
+| `../../second-vendor/run-gcc-dump-probe.mjs` | gcc's own dumps, **one unit**, searched for a `memset`-family token in the function's region | `firstAbsentDump` — "absent" means the token was not found |
+| this channel | gcc's own dumps, **both units**, the written region compared against the ablated region | `firstIndifferentDump` — "indifferent" means the wipe made no difference by that dump |
+
+The middle and the bottom row read the same files and answer different questions,
+so they do not share a name: a dump can hold no `memset` token and still differ
+between the two units (gcc lowers the fill to stores), and it can hold one in
+both units and be identical in both. This section used to call this channel's
+reading `firstAbsentDump` "the word the neighbour established", which read as one
+result taken twice. It is not; it is two results, and only the words keep them
+apart. What they do share is their weakness, and `../metamorphic/catalogue.json`
+excludes both for it: gcc describing its own behaviour to itself, with nothing
+instrumented and no independent confirmation that the dump boundary is where the
+transformation happened. Neither may enter an agreement evidence base.
+
+#### The controls, none of them optional
+
+A flag gcc ignored and a flag gcc honoured produce the same exit code, and a walk
+that read nothing answers in the same shape as a walk that read something:
+
+| control | what must hold | if it does not |
+|---|---|---|
+| (a) the disable is announced | `cc1: note: disable pass tree-<pass> for functions in the range of …` naming the pass that was asked for, in **both** compiles of a reading | the reading is `no-note`, and the run stops with `INTERVENTION_NOT_ANNOUNCED`, exit 2. A build that succeeded is never read as an intervention that happened |
+| (b) the channel is checked | a deliberately misspelled pass name (`…xx`, extended until it collides with no pass the walk saw) must **fail** the build: `cc1: error: unknown pass tree-…xx specified in '-fdisable'` | `CHANNEL_NOT_CHECKED`, exit 2, before any reading is taken: if gcc ignores an unknown name, a missing note in (a) proves nothing |
+| (c) the controls travel | the co-resident `vgctl_control` and the fixture's own `wipe_kept` read `PRESENT` in every replay, the second through the oracle or the labelled `rep stos` fallback | `CONTROL_NOT_PRESENT`, exit 2 |
+| (d) the walk read the function | at least one dump holds the target function **in both units**, so that at least one entry of the walk is a comparison rather than a blind reading | `FUNCTION_IN_NO_DUMP`, exit 2 |
+
+Control (d) is the one this channel shipped without, and it is the reason the
+vocabulary above is four words rather than three. A dump that does not hold the
+function is `NOT_OBSERVED`; a walk made **entirely** of those compared nothing at
+all, and it used to answer `absent-from-first-dump` — documented as the finding
+*"the wipe made no difference in any dump gcc emits"* — at exit 0. An apparatus
+that found nothing to read was reporting a result about the wipe. On this machine
+`gcc-13 -O2 -fdump-tree-all` emits ~122 dumps for a small file, so zero readable
+ones is a broken walk and not a fact about any pass. The four outcomes are now:
+
+| walk outcome | what it says |
+|---|---|
+| `first-indifferent-dump-located` | some dump read `WIPE_SURVIVED` and a later one `WIPE_ELIMINATED`; that later one is named |
+| `indifferent-from-first-dump` | the function **was** read, and no dump ever showed a difference |
+| `no-indifference-observed` | the wipe still made a difference in the last dump that held the function |
+| `function-in-no-dump` | not one dump held the function in both units: nothing was compared, and this is fatal |
+
+Two more readings that used to be silent are named the same way: a pass gcc
+refuses is read in **both** units (a one-sided refusal is not a refusal — the
+refusing unit exits non-zero, so the reading is `compile-failed`), and dumps
+present in one unit but not the other are counted, printed with their share, and
+refused as `DUMP_SETS_DISAGREE` above 10% of the union. A loss located in an RTL
+or IPA dump is still reported as out of this channel's reach — `-fdisable-rtl-`
+and `-fdisable-ipa-` are real flags and this tool does not drive them — rather
+than disabled with the wrong prefix.
+
+#### Every way this channel refuses to produce a reading
+
+Each one is a key in `GCC_EXIT_REASONS` (`lib/gcc-disable-tree.mjs`), it is what
+`report.verdict.reason` holds, and `report.verdict.why` is its sentence. They are
+all exit 2, and `test/gcc-disable-tree.test.mjs` fails if one of them is missing
+from this list:
+
+| reason | when |
+|---|---|
+| `DUMP_BUILD_FAILED` | the stock compilation compiled and the same compilation with the dumps turned on did not |
+| `NO_DUMPS` | gcc produced no dump file the walk could read |
+| `FUNCTION_IN_NO_DUMP` | control (d): no dump held the function in both units |
+| `DUMP_SETS_DISAGREE` | the two units wrote dump sets that do not match, above the threshold |
+| `REPLAY_DID_NOT_REPRODUCE` | the dump build does not lose the property the stock compilation loses |
+| `CONTROL_NOT_PRESENT` | control (c): a positive control was not `PRESENT` in a compile a reading was taken from |
+| `CHANNEL_NOT_CHECKED` | control (b): gcc accepted a pass name it cannot know |
+| `NO_GIMPLE_DUMP` | the walk holds no GIMPLE dump, so there is no pass name to ask gcc about |
+| `INTERVENTION_NOT_ANNOUNCED` | control (a): gcc built the intervention at exit 0 and announced no disable |
+| `INTERVENTION_BUILD_FAILED` | the intervention build failed for a reason that is not gcc refusing the name in both units |
+
+`NO_GIMPLE_DUMP` is in that list because it existed in the code and in no
+document: a run could stop for a reason this file did not name. `report.verdict`
+used to be assembled on the fatal paths by asking the gate for a sentence about
+evidence the run never gathered — a `no-note` fatality was reported as *"the
+positive control was not PRESENT in every replay"*, which was false, and it is
+that sentence a reader would have transcribed into this file. The reason is
+looked up now, and an unnamed one throws rather than becoming prose.
+
+#### What a reader takes from a run
+
+`report.verdict` — `{verdict, reason, why}` — and `report.gateEvidence`, which is
+what the gate was given (`positionsTried`, `asmChannelRead`, `irChannelRead`,
+`cameBackAt`, `replayReproducedLoss`, `controlHeld`) plus `fatality` when the run
+stopped early. `gateEvidence` is written on **every** exit from this channel, not
+only on the path that reaches the gate, so the runs that most need explaining are
+no longer the ones with nothing to copy. `asmChannelRead` is false unless an
+intervention reading was actually taken: it used to be passed as `true` on four
+paths where zero interventions had been made, which is a control that cannot fail
+asserted as one that passed. `positionsTried` counts single-position readings;
+the both-passes-at-once reading is a third reading of two positions already
+counted, so it does not raise the count — but it is under the same fatality rules
+as the others and its controls are in the same evidence, which they were not
+until 2026-09-14.
+
+**What is still missing is the reading.** No run of this channel exists, here or
+beside this tree, so the row stays `unmeasured` and carries no ratio: writing the
+instrument is not measuring with it, and neither is unit-testing it. The guards
+above are pinned by `test/intervene-gcc-driver.test.mjs`, which drives the driver
+over scripted readings with no compiler present; that is evidence about the
+apparatus and none at all about gcc. Promoting the row means running it in WSL
+(`--out` a lab directory outside the checkout, one run at a time — this lane's
+tools share their scratch) and moving the row, this section and
+`test/pin-families.test.mjs` in the same change. The clang result does not
+transfer and never will: it is a statement about clang's pipeline and clang's
+backend.
 
 ## Running it
 
@@ -319,18 +444,26 @@ bash compiler/llvm-pass/tools/make-fixtures.sh
 # the pipeline surgery and the gate, with no compiler at all
 node compiler/eval/repair-loop/tools/intervene.mjs --selftest
 
-# the measurement (lab output only; --out must be outside the repository)
-node compiler/eval/repair-loop/tools/intervene.mjs --out ~/vg-lab/pin-families \
-     --cc clang-18 --opt -O2 --span 1
+# the measurement, clang (lab output only; --out must be outside the repository)
+node compiler/eval/repair-loop/tools/intervene.mjs --out ~/vg-lab/pin-families --cc clang-18 --opt -O2 --span 1
 
-# the table and its drift test
+# the same question on gcc, through -fdisable-tree-<pass>. Its own lab
+# directory: this lane's tools share their scratch, so two of them must not be
+# run at once, whatever the compiler.
+node compiler/eval/repair-loop/tools/intervene.mjs --out ~/vg-lab/pin-families-gcc --cc gcc-13 --opt -O2 --span 1
+
+# the table and its drift test, and the gcc channel's own unit tests (no compiler)
 node --test compiler/eval/repair-loop/test/pin-families.test.mjs
+node --test compiler/eval/repair-loop/test/gcc-disable-tree.test.mjs
 ```
 
 Exit codes: 0 the run completed and its verdict is in the report (`CAME_BACK`,
 `NEVER_CAME_BACK` and `NOT_ENOUGH_EVIDENCE` are all results); 2 the replay did
-not reproduce the loss, or a control went missing, so there is no reading; 3 a
-tool or the fixture is missing; 4 bad arguments.
+not reproduce the loss, a control went missing, or (on gcc) the channel could
+not be shown to have been exercised, so there is no reading — on gcc the reason
+is one of the ten `GCC_EXIT_REASONS` above and is in `report.verdict.reason`; 3 a
+tool or the fixture is missing; 4 bad arguments; 5 the report carried an absolute
+path and was not written.
 
 ## Limits, including the ones that bit during this work
 
@@ -359,7 +492,12 @@ tool or the fixture is missing; 4 bad arguments.
   This tool emits a lane-local report and no `observation.schema.json` document,
   so it does not need one; `../metamorphic/lib/asm-read.mjs` uses the word `asm`
   the same way. If a pin-family reading is ever emitted as an observation, the
-  checkpoint word is a question for `interfaces.md` first.
+  checkpoint word is a question for `interfaces.md` first. The gcc channel adds
+  no channel word: what it records is `firstAbsentDump` and gcc's own dump-file
+  suffixes (`042t.dse1`), which are gcc's names for gcc's own files and are not
+  checkpoint words either — and, deliberately, not clang's `firstLossPass` or
+  this tool's `attribution.pass`, which name a different kind of reading
+  altogether (`../../second-vendor/run-gcc-dump-probe.mjs`).
 - **The `unmeasured` rows are the honest majority.** Nine of the sixteen
   `survive.secure-wipe` rows are `unmeasured`, six of them because the corpus
   contains zero instances of the shape. The table is mostly a map of what has
@@ -369,14 +507,18 @@ tool or the fixture is missing; 4 bad arguments.
 
 Both are one-line additions; neither changes any measurement.
 
-**1. `compiler/eval/repair-loop/README.md`, in the *Files* table** — add these
-three rows after the `lib/corpus.mjs` row so the new files are findable from the
-lane's own index:
+**1. `compiler/eval/repair-loop/README.md`, in the *Files* table** — the rows for
+this table, its tool and their tests, so the files are findable from the lane's
+own index. They are in the README now, and the `tools/intervene.mjs` and
+`test/pin-families.test.mjs` rows were widened when the gcc channel landed:
 
 ```
 | `pin-families.json`, `lib/pin-families.mjs`, `PIN-FAMILIES.md` | the per-property pin-family table: one row per (property, disappearance shape, repair candidate), its claim definitions and its validator; pure |
-| `tools/intervene.mjs` | the second repair candidate: delete the attributed pass from the pipeline clang printed and replay under opt and llc, reading the IR and the asm channel; lab output only, never `data/` |
-| `test/pin-families.test.mjs` | recomputes every measured number in `pin-families.json` from the tracked rows, and re-runs the intervention gate over every claim that uses it |
+| `tools/intervene.mjs` | the second repair candidate, on either vendor: on clang, delete the attributed pass from the pipeline clang printed and replay under opt and llc, reading the IR and the asm channel; on gcc, take the GIMPLE pass gcc's own dump sequence names out with `-fdisable-tree-<pass>` and rebuild. Lab output only, never `data/` |
+| `lib/gcc-disable-tree.mjs` | the gcc channel's pure half: gcc's dump-file ordering, the differential reading of one dump, `firstIndifferentDump` and the whole walk beside it, the walk's own positive control (at least one dump must have held the function in both units), the dump-set comparison, the stderr controls (the disable must be announced in both units, a misspelled pass must fail the build, a refusal counts only when both units refused) and the named reasons this channel refuses to produce a reading; pure |
+| `test/pin-families.test.mjs` | recomputes every measured number in `pin-families.json` from the tracked rows, re-runs the intervention gate over every claim that uses it, and reads the gcc channel's state back out of the prose |
+| `test/gcc-disable-tree.test.mjs` | the gcc channel's decisions, without a compiler: the walk and its positive control, the two gcc messages quoted verbatim, the rule that a build which succeeded without the disable note is `no-note` and fatal, and that `PIN-FAMILIES.md` names every refusal reason the code can give |
+| `test/intervene-gcc-driver.test.mjs` | the gcc DRIVER's fail-closed guards, over scripted readings and no compiler: each guard has a case that goes red when the guard is deleted (`PIN-FAMILIES.md`, *gcc — driven, not yet run*) |
 ```
 
 **2. Nothing is requested in `compiler/schema/`.** It is worth recording why,

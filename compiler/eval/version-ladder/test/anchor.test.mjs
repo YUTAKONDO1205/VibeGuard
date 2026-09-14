@@ -20,7 +20,8 @@ import {
   vacuousAnchorProblem, anchorProblem, ANCHOR_CCS,
 } from '../lib/anchor.mjs';
 import { ANCHOR_CC, ALL_OPTS, LADDER } from '../lib/ladder.mjs';
-import { SMOKE_IDS, parseArgs, allRungs, outIsInsideRepo, ladderRow, appearancesFrom, spellingIn, sweepCoverage } from '../run-version-ladder.mjs';
+import { SMOKE_IDS, parseArgs, allRungs, nativeRungs, outIsInsideRepo, ladderRow, appearancesFrom, spellingIn, sweepCoverage } from '../run-version-ladder.mjs';
+import { dockerRungs } from '../lib/docker.mjs';
 import { CONTROL_EFFECT } from '../../ai-generated/lib/ablation-cell.mjs';
 import { absolutePathHits } from '../../repair-loop/lib/provenance.mjs';
 
@@ -204,21 +205,35 @@ test('--out inside the repository is refused: measurement outputs live on the si
   assert.equal(outIsInsideRepo(join(REPO, '..', 'vg-lab'), REPO), false);
 });
 
-test('allRungs is every declared rung of both ladders, and each is a name the guard accepts', () => {
+test('nativeRungs is every declared APT rung, and allRungs adds the declared docker ones', () => {
+  // The two are separate on purpose. nativeRungs() is the DEFAULT --ccs and is
+  // exactly the apt ladders; allRungs() is the run's DENOMINATOR and holds the
+  // docker rungs as well, so a docker rung that was not obtained is a rung the
+  // report can say was not obtained rather than one nobody can see is missing.
+  const native = nativeRungs();
+  assert.equal(native.length, LADDER.clang.length + LADDER.gcc.length);
+  assert.ok(native.includes('clang-18'));
+  assert.ok(native.includes('gcc-13'));
+  assert.equal(new Set(native).size, native.length);
+
   const rungs = allRungs();
-  assert.equal(rungs.length, LADDER.clang.length + LADDER.gcc.length);
-  assert.ok(rungs.includes('clang-18'));
-  assert.ok(rungs.includes('gcc-13'));
+  assert.equal(rungs.length, native.length + dockerRungs().length);
   assert.equal(new Set(rungs).size, rungs.length);
+  for (const cc of native) assert.ok(rungs.includes(cc), cc);
+  for (const cc of dockerRungs()) {
+    assert.ok(rungs.includes(cc), cc);
+    assert.ok(!native.includes(cc), `${cc} must not be a default rung: obtaining one needs a pulled image`);
+  }
 });
 
 test('ladderRow carries integers, no path, and keeps labelsOnly out of the verdict', () => {
   const r = ladderRow({
     id: 'a', fn: 'f', vendor: 'gcc', cc: 'gcc-13', major: 13, opt: '-O2', nSpans: 2, idiom: 'removable',
     namedSecret: true, scoped: true, cell: { control: 'PRESENT', control_via: 'oracle', verdict: 'WIPE_SURVIVED' },
-    labelsOnly: true, spellingSeen: 'memset',
+    labelsOnly: true, spellingSeen: 'memset', ladder: 'gcc',
   });
   assert.equal(r.verdict, 'WIPE_SURVIVED');
+  assert.equal(r.ladder, 'gcc');
   assert.equal(r.labelsOnly, true);
   assert.ok(Number.isInteger(r.n_spans) && Number.isInteger(r.major));
   // the runner's own provenance scan, applied to the row it is about to write
@@ -228,7 +243,7 @@ test('ladderRow carries integers, no path, and keeps labelsOnly out of the verdi
 test('a cell with no reading carries no control, and never a fabricated one', () => {
   const r = ladderRow({
     id: 'a', fn: 'f', vendor: 'clang', cc: 'clang-16', major: 16, opt: '-O2', nSpans: 1, idiom: 'removable',
-    namedSecret: false, scoped: true, cell: { verdict: 'COMPILE_ERROR' }, labelsOnly: null, spellingSeen: null,
+    namedSecret: false, scoped: true, cell: { verdict: 'COMPILE_ERROR' }, labelsOnly: null, spellingSeen: null, ladder: 'clang',
   });
   assert.equal(r.control, null);
   assert.equal(r.control_via, null);
@@ -237,10 +252,10 @@ test('a cell with no reading carries no control, and never a fabricated one', ()
 
 test('appearancesFrom keys by (file, level, vendor) and ignores a rung off the declared ladder', () => {
   const rows = [
-    ladderRow({ id: 'a', fn: 'f', vendor: 'clang', cc: 'clang-15', major: 15, opt: '-O2', nSpans: 1, idiom: 'removable', namedSecret: true, scoped: true, cell: { verdict: 'WIPE_SURVIVED' }, labelsOnly: null, spellingSeen: null }),
-    ladderRow({ id: 'a', fn: 'f', vendor: 'clang', cc: 'clang-16', major: 16, opt: '-O2', nSpans: 1, idiom: 'removable', namedSecret: true, scoped: true, cell: { verdict: 'WIPE_ELIMINATED' }, labelsOnly: null, spellingSeen: null }),
+    ladderRow({ id: 'a', fn: 'f', vendor: 'clang', cc: 'clang-15', major: 15, opt: '-O2', nSpans: 1, idiom: 'removable', namedSecret: true, scoped: true, cell: { verdict: 'WIPE_SURVIVED' }, labelsOnly: null, spellingSeen: null, ladder: 'clang' }),
+    ladderRow({ id: 'a', fn: 'f', vendor: 'clang', cc: 'clang-16', major: 16, opt: '-O2', nSpans: 1, idiom: 'removable', namedSecret: true, scoped: true, cell: { verdict: 'WIPE_ELIMINATED' }, labelsOnly: null, spellingSeen: null, ladder: 'clang' }),
     // a rung that is not on the declared ladder must not become a cell of it
-    ladderRow({ id: 'a', fn: 'f', vendor: 'clang', cc: 'clang-14', major: 14, opt: '-O2', nSpans: 1, idiom: 'removable', namedSecret: true, scoped: true, cell: { verdict: 'WIPE_ELIMINATED' }, labelsOnly: null, spellingSeen: null }),
+    ladderRow({ id: 'a', fn: 'f', vendor: 'clang', cc: 'clang-14', major: 14, opt: '-O2', nSpans: 1, idiom: 'removable', namedSecret: true, scoped: true, cell: { verdict: 'WIPE_ELIMINATED' }, labelsOnly: null, spellingSeen: null, ladder: 'clang' }),
   ];
   const app = appearancesFrom(rows, { opts: ['-O2'], ids: ['a'] });
   assert.equal(app.length, 1);

@@ -56,12 +56,41 @@
 //
 // Exit 0 when rules.json was written, 1 with the failing invariant named.
 import { readFileSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
+import { ReleaseTagError, RULE_SOURCES, releasedRuleIds } from './site-release-tag.mjs';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const OUT_FILE = join(REPO_ROOT, 'site', 'src', 'data', 'rules.json');
+
+/**
+ * Where the generated data goes, and why `--out FILE` exists.
+ *
+ * It is a test seam rather than a convenience, and it was added for a defect
+ * that had already happened: this file writes `releaseTag` into the payload and
+ * `site-copy-lint.mjs`'s R4 reads it back to catch stale data, and NOTHING
+ * tested the producing half. Deleting the field here left the entire suite
+ * green while the cross-check quietly became a note on a passing run - the
+ * exact shape of silent degradation both scripts exist to refuse, sitting
+ * inside the pair that refuses it.
+ *
+ * The only honest way to test what a generator writes is to let it write. The
+ * default path is a real (git-ignored) input to the real site that other work
+ * in this tree is entitled to rely on, so the test redirects the write instead
+ * of moving the site's copy aside and hoping to put it back.
+ */
+const OUT_FILE = (() => {
+  const i = process.argv.indexOf('--out');
+  const value = i >= 0 ? process.argv[i + 1] : undefined;
+  return value && !value.startsWith('--')
+    ? resolve(value)
+    : join(REPO_ROOT, 'site', 'src', 'data', 'rules.json');
+})();
+
+/** Repo-relative POSIX path for the summary line, absolute when outside. */
+function outLabel() {
+  const relPath = relative(REPO_ROOT, OUT_FILE).split(sep).join('/');
+  return relPath.startsWith('..') ? OUT_FILE.split(sep).join('/') : relPath;
+}
 const TAXONOMY_FILE = join(REPO_ROOT, 'site', 'src', 'shared', 'taxonomy.ts');
 
 function die(message) {
@@ -111,78 +140,37 @@ async function importBuilt(relPath, buildCommand) {
  * merged after v0.3.6 reached the public site through a push that touched
  * `site/` only, because that push rebuilt everything from main.
  *
- * The tag's sources are parsed rather than built. Building two packages at an
- * arbitrary tag inside a generator is a much larger machine than this needs,
- * and the parse only has to answer "which IDs", not "what do they do" - the
- * built registry supplies every other field. The direction that would hurt is a
- * parse that finds an ID the build does not have, so that is the assertion.
+ * ★ THE RESOLUTION ITSELF NOW LIVES IN `scripts/site-release-tag.mjs`, and this
+ * is the half of the fix that was missing. `site-copy-lint.mjs`'s R4 asks
+ * whether every rule ID printed on the site is real, and it asked that of the
+ * CHECKOUT — so the four IDs this generator withholds would have passed the
+ * linter written to catch exactly that class of claim. Two answers to one
+ * question is how they disagreed; there is now one, imported by both. This
+ * wrapper exists only to turn that module's typed failures into this file's
+ * exit-1-with-the-invariant-named convention, with the guidance each code
+ * deserves from a GENERATOR rather than from a linter.
  */
-function releasedRuleIds() {
-  const git = (args) =>
-    execFileSync('git', args, {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+const RELEASE_GATE_GUIDANCE = {
+  GIT_TAG_LIST:
+    '  This generator reads the rule set as of the newest release. In CI, make sure the\n' +
+    '  checkout is not shallow (actions/checkout with fetch-depth: 0).',
+  NO_RELEASE_TAG:
+    '  Without one there is no answer to "which rules have shipped", and this generator\n' +
+    '  will not fall back to main: that fallback is the bug it exists to prevent.',
+  RULE_SOURCE_READ: `  Looked in: ${RULE_SOURCES.join(', ')}`,
+  // EMPTY_PARSE names the shape it looked for in the message itself; a second
+  // paragraph here would repeat it.
+  EMPTY_PARSE: '',
+};
 
-  let tags;
+function releaseGate() {
   try {
-    tags = git(['tag', '--list', 'v*', '--sort=-v:refname']);
+    return releasedRuleIds();
   } catch (error) {
-    die(
-      `could not list git tags: ${error?.message ?? error}\n` +
-        '  This generator reads the rule set as of the newest release. In CI, make sure the\n' +
-        '  checkout is not shallow (actions/checkout with fetch-depth: 0).',
-    );
+    if (!(error instanceof ReleaseTagError)) throw error;
+    const guidance = RELEASE_GATE_GUIDANCE[error.code] ?? '';
+    die(guidance ? `${error.message}\n${guidance}` : error.message);
   }
-
-  // `v0` is the moving tag the GitHub Action resolves and `v0-remote-check` is a
-  // working tag; neither is a release. Requiring all three numbers drops both
-  // without maintaining a list of names to ignore.
-  const tag = tags
-    .split('\n')
-    .map((line) => line.trim())
-    .find((line) => /^v\d+\.\d+\.\d+$/.test(line));
-
-  if (!tag) {
-    die(
-      'no release tag of the form vMAJOR.MINOR.PATCH was found.\n' +
-        '  Without one there is no answer to "which rules have shipped", and this generator\n' +
-        '  will not fall back to main: that fallback is the bug it exists to prevent.',
-    );
-  }
-
-  // Both packages that contribute rules to /rules. The cross-file set is listed
-  // on the same page and is under the same promise.
-  const RULE_SOURCES = [
-    'packages/rules/src/rules',
-    'packages/analysis-graph/src/design-smells-crossfile',
-  ];
-
-  let matched = '';
-  try {
-    matched = git(['grep', '-h', '-E', "ruleId: '(VG-[A-Z]+-[0-9]+)'", tag, '--', ...RULE_SOURCES]);
-  } catch (error) {
-    // `git grep` exits 1 for "no matches", which here means the parse found
-    // nothing at all - indistinguishable from a moved directory, and either way
-    // not something to build a page from.
-    die(
-      `could not read the rule sources at ${tag}: ${error?.message ?? error}\n` +
-        `  Looked in: ${RULE_SOURCES.join(', ')}`,
-    );
-  }
-
-  const ids = new Set([...matched.matchAll(/ruleId: '(VG-[A-Z]+-[0-9]+)'/g)].map((m) => m[1]));
-
-  if (ids.size === 0) {
-    die(
-      `parsed zero rule IDs out of ${tag}. The shape this generator looks for is\n` +
-        "  `ruleId: 'VG-FAMILY-NNN'`. If that spelling changed, this parse has to change with\n" +
-        '  it - an empty set here would publish a page with no rules on it.',
-    );
-  }
-
-  return { tag, ids };
 }
 
 /**
@@ -268,7 +256,7 @@ if (!fixers || typeof fixers !== 'object') {
   die('@vibeguard/remediation-engine exported no `fixers` registry.');
 }
 
-const { tag: releaseTag, ids: releasedIds } = releasedRuleIds();
+const { tag: releaseTag, ids: releasedIds } = releaseGate();
 
 // From here down, `allRules` means "the single-file rules that have shipped".
 // Every field still comes from the build - only membership comes from the tag.
@@ -491,6 +479,18 @@ if (unknownToBuild.length > 0) {
 
 const fixerEntries = Object.values(shippedFixers);
 const payload = {
+  // Which release this file is a description of.
+  //
+  // It is recorded rather than implied because the answer is the one thing a
+  // reader of this file cannot recompute from it: every other field is a fact
+  // about rules, and this is a fact about WHEN. `site-copy-lint.mjs`'s R4
+  // resolves the newest tag independently and refuses when the two disagree,
+  // which is how "the generated data is stale" becomes a named failure instead
+  // of a page that is merely a release behind and looks completely normal. The
+  // stale direction is the likely one: this file is git-ignored and generated,
+  // so a tree that has not re-run the generators since the last release is the
+  // ordinary state of every developer's checkout.
+  releaseTag,
   totals: {
     rules: allRules.length,
     crossFileRules: exportedCrossFile.length,
@@ -518,5 +518,5 @@ process.stdout.write(
           .sort()
           .join(' ')})`
       : '') +
-    ' -> site/src/data/rules.json\n',
+    ` -> ${outLabel()}\n`,
 );

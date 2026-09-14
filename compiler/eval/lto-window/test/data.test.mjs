@@ -32,8 +32,15 @@ const LEVELS = ['O1', 'O2', 'O3', 'Os'];
 const load = (l) => JSON.parse(readFileSync(join(DATA, `intervention-pair${l}.json`), 'utf8'));
 
 test('all four levels were recorded, and nothing else is in data/', () => {
+  // `which-wipe-survived.json` joined them on 2026-09-14 and is a different
+  // kind of record: not a run of the harness, but the fill table this README
+  // prints, tracked so the prose and the numbers cannot drift apart. It is
+  // pinned by test/which-wipe-table.test.mjs, which also re-grades its integers
+  // through whichWipeSurvived(). Listed here rather than allowed by a glob, for
+  // the reason this test exists at all -- a results directory nobody enumerates
+  // grows files nobody reads.
   const files = readdirSync(DATA).filter((f) => f.endsWith('.json')).sort();
-  assert.deepEqual(files, LEVELS.map((l) => `intervention-pair${l}.json`).sort());
+  assert.deepEqual(files, [...LEVELS.map((l) => `intervention-pair${l}.json`), 'which-wipe-survived.json'].sort());
 });
 
 test('each record says which level it is, and carries no machine path', () => {

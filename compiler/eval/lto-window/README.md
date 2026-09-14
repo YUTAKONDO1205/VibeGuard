@@ -82,7 +82,7 @@ generated into the lab by a tracked script rather than committed.
 Unit tests (pure functions only, no compiler):
 
 ```sh
-node --test compiler/eval/lto-window/test/*.test.mjs     # 51 tests, 0 failures
+node --test compiler/eval/lto-window/test/*.test.mjs
 ```
 
 ## What each cell is
@@ -259,6 +259,15 @@ node compiler/eval/lto-window/tools/which-wipe-survived.mjs     --lab "$HOME/vg-
 | control's wipe deleted from the source | 0 | **0** | **0** | **0** |
 | reading | `BLIND` | `subject-store-already-gone` | same | same |
 
+Those integers are tracked, in `data/which-wipe-survived.json`, and
+`test/which-wipe-table.test.mjs` reads this table out of this file and compares
+it against them cell by cell — including the `xtu` family's three numbers,
+which this file states in prose rather than in the table.
+Until 2026-09-14 they lived only in the markdown above, which is the same shape
+as the by-hand `nineteen` further down this file that was wrong by 13. The test
+re-grades the tracked integers through `whichWipeSurvived()` as well, so a row
+whose word does not follow from its own numbers fails without a compiler.
+
 **At -O2, -O3 and -Os, deleting the subject's wipe from the source does not
 change the linked program by one byte, while deleting the control's removes the
 fill entirely.** A store that contributes nothing to the program when it is
@@ -284,6 +293,132 @@ instrument cannot see the difference it is being asked about, and
 `whichWipeSurvived` returns `BLIND` with `proves: null` rather than reading 0 = 0
 as agreement. The check runs **before** the subject comparison for exactly that
 reason, and `record.test.mjs` pins the ordering.
+
+### What checks this tool
+
+Everything above is this one tool's output, and until 2026-09-14 the tool's
+plumbing — three source variants, twelve compiles, three full-LTO links, three
+`objdump` reads — was covered by nothing. `whichWipeSurvived()` grades the three
+integers and has unit tests; the step that *makes* them had none, and it has two
+failure modes that do not raise:
+
+- **the cut removes the wrong line, or removes nothing.** A "subject cut" build
+  identical to the as-written build gives an unchanged fill, which grades as
+  `subject-store-already-gone` — the headline answer, for the wrong reason. The
+  cut was a `filter` over a regex, which cannot tell one match from three.
+- **the reader counts the fill of the wrong body.** `objdump_fill` counts the
+  function it is given. Given another one it returns a number, and nothing about
+  the number looks wrong.
+
+The cut is now `lib/variant-cut.mjs`: one line, the right line, and a **named
+refusal** on zero matches or on two — ambiguity is not resolved by taking the
+first. `test/variant-cut.test.mjs` runs it against the fixture generator's own
+heredoc rather than against a string typed to match the regex, because the
+fixture is generated into the lab and that heredoc is the only tracked copy of
+the text the cut runs on.
+
+The wiring between the cut and the word is `lib/plumbing-run.mjs`, which takes
+its **builder as an argument**: `test/plumbing-run.test.mjs` drives the whole
+pipe with a builder that returns readings instead of running a compiler, so both
+of the failure modes above — and a variant that was never rebuilt — are tested on
+a machine with no toolchain. What that cannot do is tell you what a compiler
+actually emits. That is the next part:
+
+```
+bash compiler/eval/lto-window/tools/make-lto-fixtures.sh
+node compiler/eval/lto-window/tools/check-which-wipe-plumbing.mjs     --lab "$HOME/vg-lab/lto-window" --fixture xtu-inline --opt -O2
+```
+
+It establishes, in this order, and the subject's word is a thunk that a failed
+gate never calls (`lib/plumbing-gates.mjs`, pinned by
+`test/plumbing-gates.test.mjs`):
+
+1. the three variants are three **distinct source texts**, digested as they
+   were read back off disk — the gate a cut that deleted nothing fails, and it
+   needs no compiler to fail it.
+2. they are three **distinct compilations** — three different sha256 over the
+   pre-link object of the edited unit. Not over the executable: the finding
+   under test is that two of the three executables are the same bytes. **This
+   gate could not fail until 2026-09-14**; see below.
+3. the fill was read in **the body the cell names**, and that body is in the
+   disassembly at all.
+4. the as-written **control reads `PRESENT`**, before any subject verdict is
+   read — and the record says what that reading is *not*; see below.
+5. deleting the control's wipe removes **exactly the control's wipe**: 32B out
+   of the fill, not merely fewer bytes than before.
+6. the measured triple and the word are what `data/which-wipe-survived.json`
+   records — so this table is re-measured rather than only cross-checked.
+7. **the positive control.** A family whose subject wipe *cannot* be removed —
+   same helper, same buffer, the wipe read afterwards through `io.c`, which is
+   never compiled `-flto` — must come back `subject-store-still-there`. A tool
+   that can only ever answer "already gone" is not measuring, and the table above
+   would not be distinguishable from a broken pipe. The family is written into
+   the lab by `lib/pc-fixture.mjs`, not by `tools/make-lto-fixtures.sh`: the
+   driver enumerates the families that script writes, and a check's scaffolding
+   in a results table would be worse than the hole it closes.
+
+Exit codes separate the three answers this repository refuses to conflate:
+**0** every gate passed; **3** a build or a read failed; **4** the arguments, the
+fixture or the cut are not usable (asking for `-O1`, whose tracked row reads
+`BLIND`, is one of these — there is no fill there to check plumbing with);
+**5** *the measurement ran and disagreed*; **69** *this environment has no
+toolchain*, which is a refusal rather than a pass and is deliberately not the
+same exit as a disagreement. It links, so in CI it belongs in the job that
+installs `lld-18`, not the one that installs only `clang-18`. An exception that
+is **not** a build failure comes out as an uncaught stack trace and **exit 1**,
+not as 3: "the measurement could not be made" is a statement about the
+environment, and a `TypeError` in this repository is not one.
+
+Everything decidable without a compiler is decided **first** — the arguments,
+the tracked row, the cut — and only then is the toolchain probed. A refusal
+that fires only on a machine with `clang` is a refusal nothing can test;
+`test/check-plumbing-cli.test.mjs` spawns this tool for each of them, including
+the `-O1` refusal and the lab-inside-the-checkout refusal, on machines with no
+toolchain at all.
+
+#### The gate that could not fail, and what still cannot be shown
+
+**The object-digest gate was decorative until 2026-09-14.** Each variant used
+to be written to `<tag>_use.c` and compiled to `<tag>_use.o`, and clang puts
+the source path into what it emits. Measured by hand in WSL Ubuntu-24.04: two
+**byte-identical** `.c` files under different filenames, at `clang-18 -O2 -flto
+-c`, produce objects whose `sha256` **differ** — and so they do without
+`-flto`. Three distinct digests were therefore guaranteed by three filenames
+whatever the three sources said, so the gate would have passed a cut that
+deleted nothing, which is the one thing it exists to catch. Every variant is
+now written to the same `use.c` and compiled to the same `use.o`, in build
+order, each one linked and read before the next is written
+(`lib/build-variants.mjs`, `editedPaths()`), and the source text is digested on
+its own in front of it. `test/build-variants.test.mjs` drives the builder with
+a compiler that carries the source path into its output — the measured
+behaviour — and shows three identical sources collapsing to one digest, beside
+the same three under the old per-variant filenames coming out distinct.
+
+What that does **not** establish: that `clang-18` emits the same bytes twice
+for the same path and the same text. Nothing in this repository measures the
+compiler's determinism, and the gate assumes it. If it is ever false, the gate
+fails closed — two builds that should collide would read as three distinct
+compilations — which is the direction that costs a run rather than the
+direction that publishes a wrong table.
+
+#### What the control gate is not
+
+`CONTROL_PRESENT` is **not an independent control**, and the check says so in
+its own output (`controlIndependence: same-body-same-question`). In the family
+this lane measures, both wipes are absorbed into one body, so `read-wipe.py` is
+asked for the control with the same function name and the same byte count as
+the subject — the only difference is that the control is asked without the
+helper. In a healthy build the two readings are therefore the same dict, and
+the gate cannot disagree with the reading it is supposed to be a control on. It
+is kept because it still fires when the instrument is blind in that executable
+(`NOT_OBSERVED`, `ABSENT`, `PARTIAL`), and that is all it is.
+
+It cannot be made independent by reading harder. Telling the two stack buffers
+apart in one absorbed body is precisely what this lane established it cannot do
+— it is why `which-wipe-survived.mjs` exists at all. The reading that **is**
+independent of the subject is the gate below it: deleting the control's wipe
+from the source must take exactly its 32B out of the fill, and that number
+comes from a different build, which no subject reading can produce.
 
 ### Still not measured here
 
@@ -858,9 +993,19 @@ lib/cell.mjs              the two vocabularies and the pairing rule
 lib/record.mjs            what a skip records, what a cell publishes, what a
                           family without the intervention is a reading of, what
                           the scan refuses, and what the exit code is
+lib/variant-cut.mjs       the cut: one line, the right line, or a refusal
+lib/build-variants.mjs    compile, link, read -- and the digests that say the
+                          compiler saw three different sources
+lib/plumbing-gates.mjs    which checks must hold, in which order, before the
+                          subject's word may be read at all
+lib/plumbing-run.mjs      the wiring between them, with the builder injected
+lib/pc-fixture.mjs        the positive control: a subject wipe that may NOT go
 tools/make-lto-fixtures.sh   the fixtures, generated into the lab
 tools/read-wipe.py        the artifact reading, through gcc-repair's oracle
-test/*.test.mjs           51 tests, no compiler required
+tools/which-wipe-survived.mjs   the deletion test that produces the fill table
+tools/check-which-wipe-plumbing.mjs   the check on that tool, which needs a
+                          toolchain and refuses with 69 where there is none
+test/*.test.mjs           unit tests, no compiler required
 ```
 
 Nothing under `compiler/` is written by a run: the fixtures, the work tree and

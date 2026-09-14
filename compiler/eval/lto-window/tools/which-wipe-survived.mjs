@@ -44,22 +44,24 @@
  *
  * Exit: 0 a reading was produced (of any of the four words); 3 the builds could
  * not be made; 4 the arguments or the fixture are not usable.
+ *
+ * WHAT CHECKS THIS TOOL. Its grading function (whichWipeSurvived) has unit
+ * tests; its PLUMBING -- the cut, the twelve compiles, the three links, the
+ * three disassembly reads -- is checked by tools/check-which-wipe-plumbing.mjs,
+ * which shares this file's cut (lib/variant-cut.mjs) and its build
+ * (lib/build-variants.mjs) rather than reimplementing either, and which carries
+ * a family whose subject wipe CANNOT be removed so that a pipe able only to
+ * answer "already gone" fails instead of agreeing with itself.
  */
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { WHICH_WIPE, whichWipeSurvived } from '../lib/record.mjs';
+import { buildAndRead } from '../lib/build-variants.mjs';
+import { gradeFill } from '../lib/plumbing-run.mjs';
+import { VariantCutError, cutWipeVariants } from '../lib/variant-cut.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const READ_WIPE = join(HERE, 'read-wipe.py');
-
-/** The two lines the generator writes, and which wipe each one is. */
-const CUTS = Object.freeze({
-  subject: /^\s*secure_wipe\(key, sizeof key\);\s*$/,
-  control: /^\s*memset\(keep, 0, sizeof keep\);\s*$/,
-});
 
 const die = (code, msg) => { process.stderr.write(`which-wipe-survived: ${msg}\n`); process.exit(code); };
 
@@ -81,30 +83,20 @@ function parseArgs(argv) {
   return o;
 }
 
-/** One variant: write use.c, compile four units, link, read the fill. */
-function buildAndRead(o, work, tag, useSource) {
-  const objs = [];
-  for (const unit of ['io', 'main', 'wipe']) {
-    const src = join(o.fixtures, `${unit}.c`);
-    const obj = join(work, `${tag}_${unit}.o`);
-    // io.c is deliberately NOT -flto: it is the opaque unit the link cannot see
-    // into, which is what makes the control's buffer un-removable.
-    const flto = unit === 'io' ? [] : ['-flto'];
-    execFileSync(o.cc, [o.opt, ...flto, '-c', src, '-o', obj], { stdio: 'pipe' });
-    objs.push(obj);
-  }
-  const useObj = join(work, `${tag}_use.o`);
-  const usePath = join(work, `${tag}_use.c`);
-  writeFileSync(usePath, useSource, 'utf8');
-  execFileSync(o.cc, [o.opt, '-flto', '-c', usePath, '-o', useObj], { stdio: 'pipe' });
-  objs.push(useObj);
-
-  const exe = join(work, `app_${tag}`);
-  execFileSync(o.cc, [o.opt, '-flto', `-fuse-ld=${o.ld}`, ...objs, '-o', exe], { stdio: 'pipe' });
-
-  const out = execFileSync('python3', [READ_WIPE, exe, o.caller, 'secure_wipe', String(o.bufferBytes), o.caller, String(o.bufferBytes)], { encoding: 'utf8' });
-  const j = JSON.parse(out);
-  return { bytes: j.subject?.bytes ?? null, memsetCalls: j.subject?.memsetCalls ?? 0, verdict: j.subject?.verdict ?? null };
+/**
+ * One variant: write use.c, compile four units, link, read the fill.
+ *
+ * The build itself is lib/build-variants.mjs, shared with
+ * tools/check-which-wipe-plumbing.mjs, which is the check on this plumbing. A
+ * second copy of the compile-and-read sequence could agree with this one while
+ * both were wrong, which is the whole failure this lane is trying not to have.
+ */
+function readOneVariant(o, work, tag, useSource) {
+  const r = buildAndRead({
+    cc: o.cc, ld: o.ld, opt: o.opt, fixtures: o.fixtures, work, tag, useSource,
+    caller: o.caller, helper: 'secure_wipe', bufferBytes: o.bufferBytes,
+  });
+  return { bytes: r.subject?.bytes ?? null, memsetCalls: r.subject?.memsetCalls ?? 0, verdict: r.subject?.verdict ?? null };
 }
 
 function main() {
@@ -116,14 +108,17 @@ function main() {
   const usePath = join(o.fixtures, 'use.c');
   if (!existsSync(usePath)) die(4, `${o.fixture}/use.c is not in ${join(o.lab, 'fixtures')}; run tools/make-lto-fixtures.sh first`);
 
+  // The cut is lib/variant-cut.mjs: one line, the right line, and a named
+  // refusal on zero matches or on two. It used to be a `filter` here, which
+  // removed every matching line and could not tell one match from three.
   const asWrittenSrc = readFileSync(usePath, 'utf8');
-  const lines = asWrittenSrc.split('\n');
-  const variants = { asWritten: asWrittenSrc };
-  for (const [which, re] of Object.entries(CUTS)) {
-    const kept = lines.filter((l) => !re.test(l));
-    if (kept.length === lines.length) die(4, `${o.fixture}/use.c has no line matching the ${which} wipe (${re}); the fixture shape changed`);
-    variants[`${which}Cut`] = kept.join('\n');
+  let cut;
+  try { cut = cutWipeVariants(asWrittenSrc); }
+  catch (e) {
+    if (e instanceof VariantCutError) die(4, `${o.fixture}/use.c: ${e.reason} -- ${e.message}`);
+    throw e;
   }
+  const variants = { asWritten: cut.asWritten, subjectCut: cut.subjectCut.text, controlCut: cut.controlCut.text };
 
   const work = join(o.lab, `which-wipe-${o.fixture}${o.opt}`);
   rmSync(work, { recursive: true, force: true });
@@ -131,16 +126,18 @@ function main() {
 
   const readings = {};
   for (const [tag, src] of Object.entries(variants)) {
-    try { readings[tag] = buildAndRead(o, work, tag, src); }
-    catch (e) { die(3, `${tag} did not build: ${String(e.stderr || e.message).slice(0, 300)}`); }
+    try { readings[tag] = readOneVariant(o, work, tag, src); }
+    catch (e) { die(3, `${tag} did not build: ${String(e.message).slice(0, 400)}`); }
   }
 
-  // A surviving memset CALL is a length this reading cannot see. Refuse rather
-  // than count the inline bytes and treat the call as absent.
-  const calls = Object.entries(readings).filter(([, r]) => r.memsetCalls > 0);
-  const reading = calls.length
-    ? { reading: WHICH_WIPE.INCONCLUSIVE, proves: null, why: `${calls.map(([t]) => t).join(', ')} left a memset call, whose length this reading cannot see` }
-    : whichWipeSurvived({ asWritten: readings.asWritten.bytes, subjectCut: readings.subjectCut.bytes, controlCut: readings.controlCut.bytes });
+  // The grade, including the refusal on a surviving memset call, is
+  // lib/plumbing-run.mjs's gradeFill() -- shared with the check on this tool, so
+  // that the tool and its check cannot come to grade differently.
+  const calls = Object.entries(readings).filter(([, r]) => r.memsetCalls > 0).map(([t]) => t);
+  const reading = gradeFill(
+    { asWritten: readings.asWritten.bytes, subjectCut: readings.subjectCut.bytes, controlCut: readings.controlCut.bytes },
+    calls,
+  );
 
   process.stdout.write(`${JSON.stringify({
     lane: 'lto-window',

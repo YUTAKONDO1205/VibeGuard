@@ -396,6 +396,30 @@ function checkRowRouting(r, at) {
   return problems;
 }
 
+/**
+ * A `channel` block: where a candidate's instrument stands when there is no
+ * reading to cite yet.
+ *
+ * It exists so that "nothing drives this" and "something drives it and nobody
+ * has run it" are different states of the table rather than the same blank. It
+ * is NOT evidence and can never stand in for any: a row carrying one still gets
+ * its status from the four words, and `../test/pin-families.test.mjs` reads the
+ * state back out of the prose so the two cannot drift apart.
+ */
+function checkRowChannel(r, at) {
+  if (!r.channel) return [];
+  const problems = [];
+  for (const k of ['state', 'driver', 'why']) {
+    if (typeof r.channel[k] !== 'string' || r.channel[k] === '') {
+      problems.push(`${at}: channel.${k} must be a non-empty string -- a channel block that does not say where the instrument stands says nothing`);
+    }
+  }
+  if (r.evidence?.tracked === true) {
+    problems.push(`${at}: a row with tracked evidence has a reading; a channel block beside it would be a second, weaker answer to the same question`);
+  }
+  return problems;
+}
+
 /** The recorded intervention verdict, re-derived rather than believed. */
 function checkRowIntervention(r, at) {
   if (!r.intervention) return [];
@@ -449,6 +473,7 @@ export function validateTable(table) {
       ...checkRowEvidence(r, at),
       ...checkRowNotRepairable(r, at),
       ...checkRowRouting(r, at),
+      ...checkRowChannel(r, at),
       ...checkRowIntervention(r, at),
     );
   });
@@ -519,8 +544,9 @@ export const PROVENANCES = Object.freeze(['recomputed', 'lab-run', 'no-number'])
  *                 recomputes. The gate is re-run over it and its quote is checked
  *                 against the file it names, but the numbers in its prose are not
  *                 evidence in this lane's sense.
- *   'no-number'   no reading at all -- `[SPEC]`, or an argument about where in
- *                 the pipeline the repair sits (`by-construction`).
+ *   'no-number'   no reading at all -- an instrument nobody has run yet (the row
+ *                 carries a `channel` block saying so), or an argument about
+ *                 where in the pipeline the repair sits (`by-construction`).
  *
  * A 'recomputed' row may still carry a hand-typed `labObservation` beside its
  * recomputed count; `alsoLabQuote` in the census counts those separately,
