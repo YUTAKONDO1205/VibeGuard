@@ -1,0 +1,95 @@
+{
+  "schema": "bench/result@1",
+  "benchmark": "ai-code-security-design-smells/positive-control",
+  "tool": "semgrep",
+  "toolVersion": "1.165.0",
+  "date": "2026-09-14",
+  "manifestDigest": "sha256:c2f0f4c5631748d1933fdc40aec75eeeb0f7562f1fa15ecdd4484a197e8cadf8",
+  "rubricVersion": "s010-label-v1",
+  "familyMap": {
+    "path": "bench/ai-code-security-design-smells/fixtures/positive-control/family-map.json",
+    "sha256": "2261d967116d2c79418a3430e216255f9d8eb0bb0ab47a45dff4eeddac56737d"
+  },
+  "lineWindow": 3,
+  "lineWindowMax": 25,
+  "rateWithheld": null,
+  "labelProvenance": {
+    "scope": "the labels this run covered",
+    "confirmed": 2,
+    "unconfirmed": 0,
+    "total": 2,
+    "groundTruth": [
+      "by-construction"
+    ]
+  },
+  "coverage": {
+    "declaredWithRepositoryFlag": [
+      "acme-svc"
+    ],
+    "repositories": [
+      "acme-svc"
+    ],
+    "manifestEntries": [
+      "acme-svc"
+    ]
+  },
+  "counts": {
+    "labelsTotal": 2,
+    "labelsTP": 1,
+    "labelsFP": 1,
+    "labelsCovered": 2,
+    "labelsUncovered": 0,
+    "labelsTPCovered": 1,
+    "labelsFPCovered": 1,
+    "labelsTPUncovered": 0,
+    "labelsFPUncovered": 0,
+    "recovered": 1,
+    "missed": 0,
+    "reportedKnownFalsePositive": 1,
+    "correctlyAbsentOnKnownFalsePositive": 0,
+    "findingsTotal": 3,
+    "findingsMatched": 2,
+    "findingsUnscored": 0,
+    "findingsUnmapped": 1,
+    "findingsUnattributed": 0
+  },
+  "recallPair": {
+    "num": 1,
+    "den": 1
+  },
+  "refusedSarifResults": 0,
+  "perLabel": [
+    {
+      "repository": "acme-svc",
+      "anchor": {
+        "file": "src/routes/admin.ts",
+        "line": 25
+      },
+      "verdict": "TP",
+      "covered": true,
+      "matchedBy": [
+        {
+          "ruleId": "local.rules.inline-authorization-duplicated",
+          "file": "src/routes/admin.ts",
+          "line": 45
+        }
+      ]
+    },
+    {
+      "repository": "acme-svc",
+      "anchor": {
+        "file": "src/routes/billing.ts",
+        "line": 32
+      },
+      "verdict": "FP",
+      "covered": true,
+      "matchedBy": [
+        {
+          "ruleId": "local.rules.inline-authorization-duplicated",
+          "file": "src/routes/billing.ts",
+          "line": 32
+        }
+      ]
+    }
+  ]
+}

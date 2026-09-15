@@ -32,7 +32,7 @@
 // anywhere in the repository — only that it was unanswered HERE, which is what
 // `properties.json` says and what a `compiler/`-side policy would hit.
 //
-// ── MEASURED, ON THE 23-ROW FIXTURE MATRIX (artefact-fixtures.sh) ───────────
+// ── MEASURED, ON THE 24-ROW FIXTURE MATRIX (artefact-fixtures.sh) ───────────
 //
 //  A. NO fixture has a PT_LOAD segment with PF_W|PF_X — not even `wx-on`, the
 //     row built to be writable-executable. `.vgwx` is re-flagged by objcopy
@@ -49,10 +49,16 @@
 //     DT_FLAGS_1=0x8000001 set with PT_GNU_RELRO gone; `-Wl,-z,relro,-z,lazy`
 //     (`relro-part`) keeps PT_GNU_RELRO with no DT_FLAGS at all. Either half
 //     alone calls one of those two binaries fully hardened.
-//  D. DT_BIND_NOW is absent on all 23 rows, including the hardened link.
+//  D. DT_BIND_NOW is absent on all 24 rows, including the hardened link.
 //  E. `libshared.so` and `wx-on` are built from different sources and do NOT
-//     contain the control string the other 21 rows carry. They are the natural
+//     contain the control string the other 22 rows carry. They are the natural
 //     positive control for the silence detector in `scanBytes`.
+//  F. Added 2026-09-14: `clean` is the only row that carries the control and
+//     NOT the forbidden marker, and it is therefore the only artefact for
+//     which `scanBytes` can return CLEAN with something to look for. Before it
+//     existed the matrix could reach two of this function's three verdicts —
+//     see the doc comment on `scanBytes` — and the unreachable one was the one
+//     that reports nothing is wrong.
 
 import {
   ET, PT, SHF, DT, DF, DF_1,
@@ -101,10 +107,15 @@ const SEV_RANK = { low: 0, medium: 1, high: 2, critical: 3 };
  * The eight names `policy.artifact.require` accepts, split by whether anything
  * in `compiler/` can decide them.
  *
- * The second list is the point. A consumer that silently ignores the five names
+ * The second list is the point. A consumer that silently ignores the four names
  * it cannot decide turns a policy asking for a stack protector into a clean
  * run. Every name in UNSUPPORTED that a policy requires becomes exit 3 with its
  * own sentence, never a pass.
+ *
+ * That count said `five` until 2026-09-14, against four keys in the object
+ * directly below and the `eight` two paragraphs up -- and it is the one number
+ * in this block a reader would use to check that the split is exhaustive.
+ * properties.json says `Four of the names` in two places; this was the outlier.
  */
 export const SUPPORTED_REQUIREMENTS = [
   'pie',
@@ -238,7 +249,7 @@ export function decideRelroLevel(elf) {
   const level = relro === null ? 'none' : (eager || !dynamic) ? 'full' : 'partial';
   const decidedBy = [
     { field: 'Elf64_Phdr.p_type', observed: relro ? 'PT_GNU_RELRO present' : 'PT_GNU_RELRO absent', expected: 'PT_GNU_RELRO=0x6474e552' },
-    { field: 'DT_BIND_NOW', observed: bindNowTag ? 'present' : 'absent', note: 'absent on all 23 measured fixtures; GNU ld 2.42 spells eager binding in the flag words' },
+    { field: 'DT_BIND_NOW', observed: bindNowTag ? 'present' : 'absent', note: 'absent on all 24 measured fixtures; GNU ld 2.42 spells eager binding in the flag words' },
     { field: 'DT_FLAGS', observed: fv, expectedBit: DF.BIND_NOW, note: 'DF_BIND_NOW=0x8' },
     { field: 'DT_FLAGS_1', observed: f1v, expectedBit: DF_1.NOW, note: 'DF_1_NOW=0x1' },
   ];

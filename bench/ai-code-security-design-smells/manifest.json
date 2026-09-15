@@ -1,0 +1,89 @@
+{
+  "benchmark": "ai-code-security-design-smells",
+  "manifestVersion": "v0",
+  "generatedBy": "scripts/bench-build-manifest.mjs",
+  "redistribution": "MANIFEST ONLY. No third-party source code is stored in this repository. Entries are fetched at the pinned commit by scripts/bench-fetch.mjs.",
+  "provenance": {
+    "corpus": "corpus1k_vibe",
+    "corpusRepositories": 1683,
+    "upstreamPinsRecorded": 1683,
+    "entriesPublished": 5,
+    "note": "entriesPublished is the LABELLED subset, not the whole corpus. An entry with no label contributes nothing to a score (every finding on it would be UNSCORED), so v0 ships the part the scorer can actually decide. Widening the manifest requires widening the labels."
+  },
+  "licenceResolved": {
+    "num": 0,
+    "den": 5
+  },
+  "entries": [
+    {
+      "id": "Jizhidemu52__Vincent-s-Canvas",
+      "repositoryUrl": "https://github.com/Jizhidemu52/Vincent-s-Canvas",
+      "commit": "70d25f4effb14c0546d1a7399dd3b92196b9aa8a",
+      "defaultBranch": "main",
+      "committedAt": "2026-07-20T15:42:58+08:00",
+      "primaryLanguage": "TypeScript",
+      "sizeKb": 6607,
+      "licence": {
+        "spdx": null,
+        "status": "unresolved",
+        "reason": "No licence field exists in any input available to the builder (neither the upstream pin records nor the corpus manifests carry one). Resolving it requires a network call to the forge, which this build step does not make. See bench-fetch.mjs --allow-unresolved-licence."
+      }
+    },
+    {
+      "id": "blueoceanintern-sudo__CompanyBrain",
+      "repositoryUrl": "https://github.com/blueoceanintern-sudo/CompanyBrain",
+      "commit": "4de29c71d31286508807fea0d4bf9bcd8100ffda",
+      "defaultBranch": "main",
+      "committedAt": "2026-07-20T14:41:14+07:00",
+      "primaryLanguage": "TypeScript",
+      "sizeKb": 2380,
+      "licence": {
+        "spdx": null,
+        "status": "unresolved",
+        "reason": "No licence field exists in any input available to the builder (neither the upstream pin records nor the corpus manifests carry one). Resolving it requires a network call to the forge, which this build step does not make. See bench-fetch.mjs --allow-unresolved-licence."
+      }
+    },
+    {
+      "id": "peegee1985__macaly-kuryr4-you-dispecink-qxs5v8",
+      "repositoryUrl": "https://github.com/peegee1985/macaly-kuryr4-you-dispecink-qxs5v8",
+      "commit": "39d74e7d4b0b7b283f5bcd0253881d371bb98857",
+      "defaultBranch": "main",
+      "committedAt": "2026-07-20T09:42:55+02:00",
+      "primaryLanguage": "TypeScript",
+      "sizeKb": 2892,
+      "licence": {
+        "spdx": null,
+        "status": "unresolved",
+        "reason": "No licence field exists in any input available to the builder (neither the upstream pin records nor the corpus manifests carry one). Resolving it requires a network call to the forge, which this build step does not make. See bench-fetch.mjs --allow-unresolved-licence."
+      }
+    },
+    {
+      "id": "roboburr__klonkt",
+      "repositoryUrl": "https://github.com/roboburr/klonkt",
+      "commit": "9209cfa191895292511e697d5d7d025ba0bd06f1",
+      "defaultBranch": "main",
+      "committedAt": "2026-07-20T07:35:55Z",
+      "primaryLanguage": "JavaScript",
+      "sizeKb": 5604,
+      "licence": {
+        "spdx": null,
+        "status": "unresolved",
+        "reason": "No licence field exists in any input available to the builder (neither the upstream pin records nor the corpus manifests carry one). Resolving it requires a network call to the forge, which this build step does not make. See bench-fetch.mjs --allow-unresolved-licence."
+      }
+    },
+    {
+      "id": "webaz-protocol__webaz",
+      "repositoryUrl": "https://github.com/webaz-protocol/webaz",
+      "commit": "b2fb0af3f8bd13c50f69302fc0ba473a25918866",
+      "defaultBranch": "main",
+      "committedAt": "2026-07-20T15:45:14+08:00",
+      "primaryLanguage": "TypeScript",
+      "sizeKb": 9944,
+      "licence": {
+        "spdx": null,
+        "status": "unresolved",
+        "reason": "No licence field exists in any input available to the builder (neither the upstream pin records nor the corpus manifests carry one). Resolving it requires a network call to the forge, which this build step does not make. See bench-fetch.mjs --allow-unresolved-licence."
+      }
+    }
+  ]
+}

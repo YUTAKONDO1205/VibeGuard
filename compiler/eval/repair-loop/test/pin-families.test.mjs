@@ -204,7 +204,25 @@ test('PIN-FAMILIES.md prints the ratios the table holds', () => {
       `${r.property} / ${r.shape} / ${r.candidate}: PIN-FAMILIES.md does not print ${ratio(r.evidence.value)}`);
   }
   for (const w of STATUSES) assert.ok(flat.includes(w), `PIN-FAMILIES.md does not mention the status ${w}`);
-  assert.ok(flat.includes('[SPEC]'), 'the gcc -fdisable-tree channel must stay marked [SPEC] in the prose');
+  // This used to read:
+  //   assert.ok(flat.includes('[SPEC]'), 'the gcc -fdisable-tree channel must stay marked [SPEC] in the prose');
+  // The channel is implemented now (`tools/intervene.mjs --cc gcc-13`), so that
+  // literal survives only in the sentence that quotes it as history -- and an
+  // assertion that passes on a historical quote is a silent pass, which is the
+  // one thing this lane refuses everywhere else. What is pinned instead is the
+  // row's own state, read from the table rather than typed here: the prose must
+  // print the state word and the driver the row holds, and the row must still be
+  // `unmeasured`, because writing an instrument is not measuring with it and no
+  // run of this channel exists. When a run lands, this goes red and the row, the
+  // prose and this assertion move in the same change.
+  const gccChannel = TABLE.rows.find((r) => r.candidate === 'gcc/fdisable-tree-pass');
+  assert.ok(gccChannel?.channel, 'the gcc -fdisable-tree row no longer carries a channel block saying where that channel stands');
+  assert.equal(gccChannel.status, 'unmeasured',
+    'the gcc -fdisable-tree row is no longer unmeasured: promote it with its {num, den} and replace this assertion with one that recomputes the claim');
+  assert.ok(flat.includes(norm(gccChannel.channel.state)),
+    `PIN-FAMILIES.md does not print the gcc channel's state, which the table gives as "${gccChannel.channel.state}"`);
+  assert.ok(flat.includes(norm(gccChannel.channel.driver)),
+    `PIN-FAMILIES.md does not name what drives the gcc channel, which the table gives as "${gccChannel.channel.driver}"`);
 });
 
 // ---------------------------------------------------------------------------
@@ -414,6 +432,15 @@ test('the validator refuses the shapes it exists to refuse', () => {
   const t4 = clone();
   t4.rows.find((r) => r.routesTo && r.routesTo.rule !== 'none').routesTo.appliesToThisShape = 'probably';
   assert.ok(hasProblem(t4, /appliesToThisShape/));
+
+  // a channel block is where an instrument stands, never a reading: it has to
+  // say all three things, and it may not sit beside tracked evidence
+  const t5 = clone();
+  delete t5.rows.find((r) => r.channel).channel.driver;
+  assert.ok(hasProblem(t5, /channel\.driver/));
+  const t6 = clone();
+  t6.rows.find((r) => r.evidence?.tracked === true).channel = { state: 'x', driver: 'y', why: 'z' };
+  assert.ok(hasProblem(t6, /a second, weaker answer/));
 
   assert.deepEqual(NOT_REPAIRABLE_BASES.filter((b) => !['measured-here', 'one-lab-run', 'by-construction'].includes(b)), []);
 });

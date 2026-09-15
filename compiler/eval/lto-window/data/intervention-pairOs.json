@@ -11,7 +11,7 @@
  },
  "plugin": {
   "basename": "libPropertyObserver.so",
-  "sha256": "94d6f95697c3705bbb245c02de6c130740e18fac5dc01a6164e265d9f987b64c"
+  "sha256": "d644978e2b80cf57a8b6462647314afa47733c1f5f8ef38115568a8c76628b0d"
  },
  "negativeControl": {
   "xtu": {
@@ -177,18 +177,18 @@
  ],
  "counts": {
   "cells": 15,
-  "ok": 9,
+  "ok": 11,
   "okNothingRead": 0,
-  "completed": 9,
-  "brokenMeasurement": 3,
+  "completed": 11,
+  "brokenMeasurement": 1,
   "unsupported": 3,
-  "linkTimeAttributions": 1,
+  "linkTimeAttributions": 2,
   "okShare": {
-   "num": 9,
+   "num": 11,
    "den": 15
   },
   "completedShare": {
-   "num": 9,
+   "num": 11,
    "den": 15
   }
  },

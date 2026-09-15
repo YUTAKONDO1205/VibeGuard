@@ -17,7 +17,7 @@
 //               are skipped by name and the skip is printed, never green.
 //
 // THE CASE THIS FILE EXISTS FOR is `an absent artefact directory is exit 3`.
-// The 23-row matrix is git-ignored. On a clean checkout the runner's normal
+// The 24-row matrix is git-ignored. On a clean checkout the runner's normal
 // state is "nothing to inspect", and the only wrong answer that would go
 // unnoticed is exit 0.
 
@@ -308,18 +308,18 @@ describe('run-artefact-policy: the cases a clean checkout hits', () => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// THE RUNNER over the 23 real binaries
+// THE RUNNER over the 24 real binaries
 // ════════════════════════════════════════════════════════════════════════════
 
 describe('run-artefact-policy: the fixture matrix', () => {
-  test('REAL: the whole matrix under the shipped policy is exit 2 and inspects all 23',
+  test('REAL: the whole matrix under the shipped policy is exit 2 and inspects all 24',
     { skip: skipReal }, () => {
       const p = join(HERE, '..', 'artefact-policy.matrix.json');
       const r = run(['--policy', p, '--dir', MATRIX]);
       assert.equal(r.code, 2, r.stdout);
       const c = counts(r.stdout);
-      assert.equal(c.artefacts, 23);
-      assert.equal(c.inspected, 23);
+      assert.equal(c.artefacts, 24);
+      assert.equal(c.inspected, 24);
       assert.equal(c.skipped, 0);
       assert.ok(c.findings > 0, 'a run over the unhardened rows with no findings is not a pass');
       // The two rows built from other sources carry neither string, so their
@@ -327,17 +327,29 @@ describe('run-artefact-policy: the fixture matrix', () => {
       // because a finding elsewhere outranks it.
       assert.match(r.stdout, /libshared\.so: forbidden-string scan is BROKEN/);
       assert.match(r.stdout, /wx-on: forbidden-string scan is BROKEN/);
+      // And one row is CLEAN: the control found, the forbidden string
+      // configured by this very policy, and no hit. Measured 2026-09-14, on
+      // the run that added the `clean` fixture — before it, all three of the
+      // scan's verdicts were reachable in the code and only two of them were
+      // reachable from this directory, and the unreachable one was the one
+      // that reports nothing is wrong. The counts either side of it are
+      // unchanged (findings=34 incomplete=2), which is the point: the row adds
+      // a verdict, not a finding.
+      assert.match(r.stdout, /OK\s+clean\s+exit=0 findings=0 incomplete=0 scan=CLEAN/);
     });
 
   test('REAL: the hardened row alone satisfies the four decidable requirements — exit 0',
     { skip: skipReal }, () => {
       // The runner's success path, demonstrated on a real binary. NOTE what
-      // this does NOT show: the policy configures no forbidden string, so
-      // `scan=CLEAN` here is a live control with nothing to look for. The
-      // satisfied case of the byte scan — a live control, a forbidden string
-      // configured, and no hit — is still unmeasured, because every image in
-      // the matrix that carries the control also carries the marker. See
-      // compiler/schema/properties.json, _notAnExtractor.artifactByteScan.
+      // this case alone does NOT show: the policy configures no forbidden
+      // string, so `scan=CLEAN` here is a live control with nothing to look
+      // for. Corrected 2026-09-14 — the satisfied case of the byte scan, a
+      // live control WITH a forbidden string configured and no hit, is no
+      // longer unmeasured: the `clean` row of the matrix reports it, asserted
+      // in the case above and, on the artefact directly, in
+      // ./artefact-scan-verdicts.test.mjs. This case is still worth keeping
+      // apart from that one, because what it measures is the requirement half
+      // reaching exit 0 with the scan asked nothing.
       const p = policyFile('hardened-only.json', {
         require: ['pie', 'nx', 'relro-full', 'no-writable-executable-section'],
         forbidStrings: [],
@@ -392,7 +404,7 @@ describe('run-artefact-policy: the fixture matrix', () => {
       const r = run(['--policy', p, '--dir', MATRIX]);
       assert.equal(r.code, 4, r.stdout);
       const c = counts(r.stdout);
-      assert.equal(c.artefacts, 23, 'the artefacts were selected before the policy was refused');
+      assert.equal(c.artefacts, 24, 'the artefacts were selected before the policy was refused');
       assert.equal(c.inspected, 0, 'exit 4 is a verdict about the policy, not about an image');
       assert.match(r.stdout, /must be an array/);
       assert.match(r.stdout, /nothing else runs/);
@@ -410,7 +422,7 @@ describe('run-artefact-policy: the fixture matrix', () => {
       artefacts: c.artefacts, inspected: c.inspected, skipped: c.skipped,
       findings: c.findings, incomplete: c.incomplete,
     });
-    assert.equal(rec.artefacts.length, 23);
+    assert.equal(rec.artefacts.length, 24);
     assert.equal(rec.context.host, 'redacted-by-policy');
     // Every inspected row carries the four properties the policy asked about.
     for (const a of rec.artefacts) {

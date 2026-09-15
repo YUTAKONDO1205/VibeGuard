@@ -524,12 +524,14 @@ lib/scan.mjs                    longest-run search, the grading floor, needle sa
 lib/grade.mjs                   what a reading means and when it means nothing. Pure.
 lib/frame.mjs                   the subject frame, parsed out of objdump output. Pure.
 lib/manifest.mjs                the matrix, the row, and the two record rules. Pure.
+lib/observation.mjs             rows -> an observation.schema.json record, through
+                                compiler/schema/emit-observation.mjs. Pure.
 observer/residue-observer.c     the PTRACE observer. gcc-13, -Wall -Wextra clean.
 tools/make-residue-fixtures.sh  writes the fixtures into the lab.
-test/*.test.mjs                 61 cases. No compiler required.
+test/*.test.mjs                 95 cases. No compiler required.
 ```
 
-The four `lib/` modules are pure and unit-tested without a compiler. The tests
+The five `lib/` modules are pure and unit-tested without a compiler. The tests
 were checked by mutation rather than by being observed to pass: breaking the
 stop-mismatch guard, the control grader, the co-resident control check, the
 grading floor, the frame bound and the frame parser's loop check each turns at
@@ -571,6 +573,210 @@ was written to `data/`; `5` the lane could not be set up.
 
 Do not run this concurrently with another compile-heavy lane. See the runner's
 header.
+
+## Observation records — the consumer for `compiler/schema/emit-observation.mjs`
+
+`compiler/schema/emit-observation.mjs` is the reference writer for
+`observation.schema.json`. Until this lane imported it, nothing outside
+`compiler/schema/` ever had: its only references were its own test file and a
+glob in `scripts/check-doc-drift.mjs`. Its header says a fake consumer somewhere
+else would be worse than the hole, and `compiler/schema/properties.json` says of
+`checkpointOwners.process` that **nothing in this repository has ever emitted an
+observation at this checkpoint**. This is the half of that which can be closed:
+the one lane that observes a running process writes what it observed through the
+reference writer.
+
+```sh
+# A pin is a claim about the bytes on THIS machine and is not tracked; make one.
+node compiler/driver/tools/make-pin.mjs --out "$HOME/vg-lab/toolchain.pin"
+
+node compiler/eval/residue-tracer/run-residue-tracer.mjs \
+     --out "$HOME/vg-lab/residue-tracer" --cc clang-18 --opt -O0,-O2 \
+     --toolchain-pin "$HOME/vg-lab/toolchain.pin" --emit-observation
+```
+
+The rows are unaffected, and they are written **first**: `--write-data` runs
+before this step, because expressing a measurement is not measuring it and a run
+that measured the whole matrix cleanly must not throw the rows away because the
+schema had no words for them. Every `die(5)` below used to sit before the rows
+were written.
+
+`--emit-observation` is an **extra** output: one
+`observations/<cell>.observation.json` per subject cell, plus
+`observations/refusals.json` and `observations/failures.json`, under `--out` and
+never inside the repository — the runner computes the repository root from its
+own location and exits `5` rather than write a record into the tree.
+
+A record declares four observation points, all at checkpoint `process`, stage
+`run`: the cell itself, and the three run-level controls that qualify the
+instrument for it. Its property is the catalogue's
+`unobservable.secret-buffer-residue`; the history entry's state is the residency
+reading (`NONE` → `ABSENT`, `PARTIAL`/`FULL` → `PRESENT`, anything not graded
+`OK` → `NOT_OBSERVED`); its control is the find step's own `vgctl_control`, which
+is a genuine call-site oracle on the very listing that was assembled and run.
+
+**A control qualifies a cell only at the cell's own optimisation level.**
+`findControlRow` used to end `?? list[0] ?? null`, which handed back any control
+of that name run on that vendor — so a `-O2` cell could be qualified by the
+`-O0` instrument check and the point reported `reached: true`. The fallback is
+gone: `control-o0-wiped` qualifies at `-O0` (the level it is pinned to, which is
+the whole reason it catches a stop point placed before the wipe) and the other
+two at the level the cell was compiled at. A control taken anywhere else leaves
+the point **unreached**, naming the level it wanted and the levels it found, and
+that line goes into `verdict.unobserved` like any other missed point.
+
+**The three layers are answered from the row, not asserted.** `layers.compile`
+is observed when the cell has both an assembly and an object digest,
+`layers.link` when it has the linked executable's digest, `layers.artifact` when
+`objdump` parsed the subject frame and the binary was hashed again after the run.
+A cell that stopped earlier says so with an `unobservedReason` carrying its own
+grading reason. All 82 tracked rows measured, so every tracked record observes
+all three — which is exactly why the other case had to be constructed in
+`test/observation.test.mjs` rather than found.
+
+### Where `toolchain.digest` comes from
+
+`observation.schema.json` requires one, and this lane used to compute it:
+`sha256(JSON.stringify({cc, version, observer}))`. The arithmetic was fine and
+the number was worthless — it equalled no other digest in this tree for the same
+toolchain and could not be recomputed by a reader holding the compiler, while
+looking exactly like the driver's. `emit-observation.mjs` refuses to invent one
+in its own driver adapter (*"this adapter will not invent a digest for it"*), so
+this lane does not either.
+
+There is one derivation in this tree, in `compiler/driver/lib/run.mjs`:
+
+```js
+record.toolchain.digest = evidenceDigest(pinnedSet(pin, pinVerification));
+```
+
+`lib/toolchain-digest.mjs` calls the same two functions over the pin given by
+`--toolchain-pin`, which is therefore **required** by `--emit-observation`: no
+pin, no records, exit `5`. No pin is tracked — one is a claim about the bytes
+on one machine, which is what pinning means — so
+`compiler/driver/tools/make-pin.mjs` generates it on the box that is about to
+measure. A pin that does not match this machine, or that this
+machine could only half check, is a refusal with the failing entry named rather
+than a digest with a caveat. `test/toolchain-digest.test.mjs` rebuilds the
+canonical bytes by hand from the interfaces.md §5 rules instead of calling the
+canonicaliser, because two sides sharing an implementation agree by construction.
+
+### The gate, measured in both directions before anything is written
+
+`emit-observation` refuses `VERIFIED_CLEAN` when anything at all was unobserved.
+A consumer that only ever succeeded would not have tested that — and neither
+would one that only ever failed, since an emitter that refused everything looks
+identical from one side. So `--emit-observation` asks the same question twice on
+the run's own rows, with one run-level control cell as the only variable, and
+exits `5` if either answer is wrong:
+
+| | claim | result |
+|---|---|---|
+| positive | every control cell present, `VERIFIED_CLEAN` | a record is produced |
+| negative | one control cell **deleted**, same claim | `clean-over-unobserved: VERIFIED_CLEAN is not available: observation point \`control.o0-wiped\` was not reached` — **no record** |
+
+Neither of those two drafts is written to disk: the positive one has its
+`verdict.unobserved` emptied so that the control cell is the only variable, and a
+record with an empty `unobserved` list would overstate what this lane saw. The
+production path never empties it and never claims clean.
+
+### The record verdict is never `VERIFIED_CLEAN`; the property verdict always is
+
+The schema says of `verdict.unobserved`: *"Everything this run could not observe,
+by name. A non-empty list here forbids VERIFIED_CLEAN."* This lane names seven
+such things in every row — the heap, other threads, both sides of the window,
+kernel-saved state, the `ymm`/`zmm` upper halves — plus the strings half of the
+catalogue oracle it does not touch. They all go in the list. So the honest
+verdict on the best possible cell is `VERIFICATION_INCOMPLETE`, which is "a
+`NONE` reading is residency, not secrecy" enforced by the emitter instead of
+repeated in prose.
+
+The word appears in two places, and only one of them is this lane's to move. The
+emitter derives `properties[0].verdict` `VERIFIED_CLEAN` for a cell whose history
+ends `ABSENT`, because that derivation reads the property's own evidence — its
+history, its control, findings naming it — and never the supplied
+`verdict.unobserved`. A reader who looks only at the property verdict sees clean
+under an incomplete record.
+
+Asked which of the two is wrong, the schema answers: `verdict.unobserved` exists
+at the record level and nowhere else (`propertyObservation` has no such field),
+`q.verdict = verdict` overwrites whatever a draft puts there, and the record
+verdict is then gated **on** the property verdicts — a property that is not clean
+is itself a `cleanBlocker`. So property-clean is a necessary-and-not-sufficient
+condition for record-clean, and a clean property under an incomplete record is
+that design rather than a leak. The only way this lane could move the property
+verdict would be to misstate its own history.
+
+What changed is the test, which was named *"no record from this lane is
+VERIFIED_CLEAN"* and checked one of the two levels. It now asserts both — record
+`VERIFICATION_INCOMPLETE`, property `VERIFIED_CLEAN`, and the property `note`
+naming which half of the oracle was answered — so that a change in either
+derivation is a red test rather than a quiet agreement.
+
+### Three cells the schema has no honest shape for, and what happens instead
+
+Each is a **refusal with a code**, never a record with a field bent to fit. On
+the tracked 82-row matrix that is 27 records and 33 refusals.
+
+| code | what is missing | cells |
+|---|---|---|
+| `toolchain-vendor-not-expressible` | the `toolchain` block requires the key `clang` and sets `additionalProperties: false`, so a gcc build can only be named by filing its version string under a field called `clang` | every gcc subject cell — 30 of 60 |
+| `residue-present-has-no-finding-location` | a cell that left the secret readable is a measured failure, and saying so needs a `findings[]` entry whose `where.kind` has no word for a running process | 3 |
+| `control-effect-not-a-call-site` | `effectCount.oracle` is a `const` of `"call-site"`, and a control that survived as an inline `rep stos` has zero call sites — which is how the emitter spells a control that died | 0 here, only because all 8 such rows are gcc and the vendor refusal fires first |
+
+**The second one biases which cells become records: the interesting ones do
+not.** That is why the refusals are counted, printed, and written to
+`observations/refusals.json` rather than logged and forgotten, and why the runner
+exits `5` if every cell was refused — a consumer that emitted nothing has not
+consumed anything.
+
+### A refusal is not a failure, and they no longer share a bucket or an exit
+
+The three codes above are decided before the run and expected during it. Anything
+else that stops a cell becoming a record — the emitter rejecting a draft this
+lane built, run facts that cannot identify the toolchain, a row with no span
+count because it never compiled — is the apparatus not working. Both used to land
+in `refusals` and the runner exited `0` as long as one cell emitted, so an
+emitter that rejected fifty-nine of sixty drafts printed a tidy count and passed.
+
+| | where it goes | exit |
+|---|---|---|
+| one of the three named vocabulary holes | `observations/refusals.json` | unchanged |
+| the emitter rejected a draft this lane built | `observations/failures.json` | `5`, however many records were written |
+| the run facts could not name the toolchain | `observations/failures.json` | `5` |
+| the cell has no span count — it never compiled, or the repair plugin was absent, so there is no call-site count to record | `observations/failures.json` | `5` |
+| no records at all | — | `5` |
+
+The third row is a judgement worth stating: a cell with no reading is not a
+schema hole and not an emitter bug, it is the apparatus not having measured, and
+a run carrying one is already a partial matrix that `--write-data` refuses. It
+exits `5` rather than printing a refusal count and passing.
+
+`observationOutcome` in `lib/observation.mjs` is that rule as a pure function, so
+the exit code is a unit test rather than something that only happens on a box
+with two compilers on it.
+
+### The vendor half of the toolchain block
+
+Measured, not inferred — see `test/observation.test.mjs`, *"MEASURED:
+emit-observation can name only one vendor"*, which re-runs it rather than quoting
+a result:
+
+- a draft carrying `toolchain.gcc` instead of `toolchain.clang` is **refused**:
+  `no-toolchain: toolchain.clang must be a string, got undefined`;
+- a draft carrying `toolchain.vendor` or `toolchain.cc` **beside** `clang` is
+  **accepted, and the extra keys are dropped without a word** —
+  `buildToolchainBlock` returns a three-key literal and never fails on a key it
+  does not recognise, so a draft that tried to say "this was gcc" produces a
+  record that says nothing of the sort at `rc=0`;
+- `toolchain.clang: ""` is accepted too.
+
+So the gcc half of this lane cannot be expressed. `packages[]` can name `gcc-13`
+honestly, but the required `clang` field sits beside it either empty or holding a
+gcc version string, and both readings are wrong. The lane refuses. The vocabulary
+need belongs in `compiler/schema/properties.json` →
+`interfaceExtensionsRequested`, which this directory does not edit while
+implementing against it; the request is written out below.
 
 ## Failure modes this lane has
 
@@ -614,9 +820,28 @@ Named here rather than discovered later.
 
 # Edits requested in files this lane does not own
 
-Nothing below has been applied. Each is a file another lane owns, or
-`compiler/schema/`, whose own rule is that nobody edits it while implementing
-against it.
+Nothing below had been applied when this section was written on 2026-09-12. Each
+is a file another lane owns, or `compiler/schema/`, whose own rule is that nobody
+edits it while implementing against it.
+
+**Most of it has since been granted**, and the requests are kept as written
+rather than deleted or rewritten in the past tense, because what was asked for
+and what was granted are two different facts and only the second one is readable
+from the schema. Recounted against `compiler/schema/properties.json` and
+`compiler/schema/observation.schema.json` on 2026-09-14:
+
+| § | State on 2026-09-14 |
+|---|---|
+| 1 | Applied. The entry reads `"status": "partial"`. |
+| 2 | Applied. `readMeFirst` carries the proposed distribution sentence word for word. |
+| 3 | Applied, in different words: the `must-remain-unobservable` coverage line no longer begins `none`. |
+| 4 | Applied and then corrected again on the same day — the `linked` owner line now records both corrections and withdraws the first. |
+| 5 | Applied in substance, not in the form asked for: the extractor is registered as `linked.secret-residue` with `"checkpoints": ["process"]`, not as `process.stack-residue` with an empty array. Granting §6 is what made that possible. |
+| 6 | **Granted** by user adjudication on 2026-09-12: `process` is in the checkpoint enum. |
+| 7 | Asked for nothing to be registered, and nothing was. |
+
+So every "currently reads" and "the current counts are" below is a quotation of
+2026-09-12 and not a statement about today.
 
 **`properties.json` is not read by one test only.** An earlier draft of this file
 said the coverage line in §3 was the only edit below with a test coupling. That
@@ -703,11 +928,23 @@ line 895 onwards with:
 
 Two clauses in that sentence become false: `partial` is no longer used by exactly
 one entry, and the distribution changes. Recounted from the file rather than
-remembered — the current counts are `implemented 7, unimplemented 14, candidate
-2, partial 1` over 24 entries, and `notappear.forbidden-external-call` is today
-the only `partial`. Replace the two sentences beginning `'partial' means` with:
+remembered — the counts **as this request was written, on 2026-09-12** were
+`implemented 7, unimplemented 14, candidate 2, partial 1` over 24 entries, and
+`notappear.forbidden-external-call` was then the only `partial`. Replace the two
+sentences beginning `'partial' means` with:
 
 > `'partial' means an extractor measures part of what the title claims and the entry's statusDetail says which part -- it is used by two entries (notappear.forbidden-external-call, unobservable.secret-buffer-residue), and it went unlisted in this paragraph for months because a reader checking the vocabulary against the catalogue would have to count all 24 entries to notice. Current distribution, recomputed rather than remembered: implemented 7, unimplemented 13, candidate 2, partial 2.`
+
+**Granted, and now checked rather than trusted.** `readMeFirst` carries that
+replacement today, and the distribution it states — `implemented 7,
+unimplemented 13, candidate 2, partial 2` over 24 entries — is no longer only
+asserted: `compiler/driver/test/properties.test.mjs` parses those four numbers
+back out of the prose and recounts them from `properties[]`, so a status that
+moves without the sentence moving is a red suite instead of a paragraph that
+quietly stopped being true. The check was added on 2026-09-14, after the same
+paragraph had already gone stale once inside the catalogue itself — it "said
+three until 2026-08-18 while the file below already used the fourth" — and once
+here, where these very counts sat one revision behind while reading as current.
 
 ## 3. `compiler/schema/properties.json` — `kindCoverage.must-remain-unobservable`, line 124 (coupled)
 
@@ -832,7 +1069,7 @@ or the edit manufactures a drift finding in a tree where the lane is absent.
 
 ## 6. A vocabulary request — `compiler/schema/interfaces.md` / `observation.schema.json`
 
-`observation.schema.json:184` fixes the checkpoint enum at
+`observation.schema.json`'s `definitions.checkpoint` fixed the checkpoint enum at
 `["invocation","ast","pre-opt-ir","after-pass","object","linked","artifact"]`,
 and `observation-schema.test.mjs` holds it identical to `policy.schema.json`.
 There is no word for **an observation taken from a running process**, and this
@@ -850,11 +1087,55 @@ names an instruction address rather than a pass.
 I have not edited either file. `interfaces.md` line 5 says nobody edits it while
 implementing against it.
 
+### GRANTED 2026-09-12 — and what the grant did not cover
+
+`process` and the matching stage word `run` are in `observation.schema.json` and
+`policy.schema.json`, and `emit-observation.mjs` carries the copies. The two
+paragraphs above are kept as the question, because a granted extension whose
+question has been deleted is an answer nobody can check.
+
+**The sentence "writes no observation record at all" stopped being true on
+2026-09-14.** `--emit-observation` writes one, through the reference writer, at
+checkpoint `process`; see *Observation records* above. Default behaviour is
+unchanged — without the flag the lane writes rows and nothing else.
+
+Three things the grant did not cover, all of them found by writing the consumer
+and all of them refusals rather than bent fields. Each is a request for
+`compiler/schema/properties.json` → `interfaceExtensionsRequested`, which this
+directory does not edit while implementing against it:
+
+1. **A toolchain block that can name a vendor.** `toolchain` requires `clang` and
+   sets `additionalProperties: false`. A gcc-side record is impossible to write
+   honestly, and a `vendor`/`cc` key beside `clang` is dropped in silence at
+   `rc=0`. Requested: either a `vendor` field beside `clang`, or replacing the
+   vendor-named key with a `compiler: {name, version}` pair. This is the largest
+   of the three: it removes half of this lane's matrix from the record layer.
+   (`where.kind` for a running process is already OPEN in that file and is the
+   second of the three; the third is below.)
+2. **An `effectCount.oracle` word for a reading that is not a count of calls.**
+   The `const` is deliberate and the reason it gives is sound for IR effects. It
+   has no word for "the longest contiguous run of a 32-byte needle in a memory
+   window", nor for a control that legitimately survived as an inline zero store
+   rather than as a call — and `callSites: 0` already means "the control died".
+3. **A `defaultReason` that reads a supplied `verdict.unobserved`.** Not a
+   vocabulary request but a defect in `emit-observation.mjs`: `defaultReason`
+   builds its `VERIFICATION_INCOMPLETE` sentence out of `unobservedBlockers`
+   alone. A record with every point reached, incomplete only because the caller
+   named things it never observed, came out reading *"the run did not finish
+   looking: a checkpoint was not reached"* — naming a failure that did not
+   happen. This lane supplies its own `verdict.reason` to avoid it, which is a
+   workaround and not a fix.
+
 ## 7. Evidence finding ids — reserved, not registered
 
 `VG-ART-064` and `VG-ART-065` are free. This lane **emits no evidence record
-today** — it writes plain rows, as every other `compiler/eval/` lane does — so
-nothing is registered and nothing should be. If a refusal-shaped check is ever
+today** — an `observation-v0` record is not an `evidence-v1` record, and
+`compiler/evidence/checkpoint-map.mjs` maps `process` to `record: null,
+fidelity: refused`, so the observation records `--emit-observation` writes cannot
+become evidence records or ledger entries. That gap is already OPEN in
+`compiler/schema/properties.json` →
+`interfaceExtensionsRequested.checkpoints.recordVocabulary` and is deliberately
+not taken here. So nothing is registered and nothing should be. If a refusal-shaped check is ever
 wanted for it, those are the two ids, and the rows they would be raised on are
 `stop.matched === false` (the stop was not the one asked for) and
 `controlHeld === false` (the co-resident control was not readable). Registering

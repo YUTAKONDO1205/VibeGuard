@@ -57,6 +57,43 @@
 // after every change, so that a run whose process does not unwind still leaves
 // a current attribution behind.
 //
+// 3a. `OBS_OUT` is a stem, not a filename, because a process can hold more than
+//    one tracker. Under `-flto=thin` lld builds one `PassBuilder` per backend
+//    module, on its own thread, and the plugin's registration callback runs once
+//    per `PassBuilder`. Every one of those trackers used to open `OBS_OUT`
+//    itself, with no append flag, and then write to it concurrently: the file
+//    that survived was not the last backend's history but whatever the
+//    interleaving left -- lines spliced mid-field, several modules' HANDSHAKE
+//    records in one file, and a `.summary.tsv` beside it that looked perfectly
+//    well-formed. A reader had no way to tell any of that from a healthy run.
+//
+//    So the log is opened lazily, at the first module boundary, which is the
+//    earliest point at which a tracker knows which module it is the tracker for.
+//    The first tracker in the process to get there keeps the unsuffixed name --
+//    a plain compile and a full-LTO link make exactly one tracker, so both write
+//    the same FILE NAMES they wrote before -- and every later one writes
+//    `<OBS_OUT>.<sanitised module id>.tsv` with its `.summary.tsv` alongside.
+//
+//    "Byte for byte" is true of the compile path and is NOT true of full LTO,
+//    and this comment claimed it of both until 2026-09-15. Compile: the object,
+//    the main log, the side file and stderr are all identical to the previous
+//    plugin's, measured. Full LTO: the file names are unchanged and the main
+//    log is not, because the tracker now dies with the callbacks lld destroys,
+//    so `finish()` runs where it never used to and writes `SUMMARY`, `HIST` and
+//    `STATS` into it. The `SUMMARY` rows match the side file's; the `STATS`
+//    counters do not, because the side file's were written at the last state
+//    change and the main log's at the end.
+//
+//    Which tracker gets the unsuffixed name under ThinLTO is a race, and it is
+//    deliberately not worth resolving: `<OBS_OUT>.modules` names every tracker.
+//    One tab-separated line each, `<raw module id>\t<the log path that tracker
+//    opened>`, appended under a mutex. The path is in there rather than left to
+//    be re-derived so that a reader never has to know this naming convention,
+//    and never has to guess which backend ended up with the unsuffixed file. A
+//    reader that counts N lines in the manifest and finds fewer than N logs
+//    knows a backend's history was lost -- which is the fact that used to be
+//    silent.
+//
 // 4. A name that resolves to nothing is not an absence of the property.
 //    `OBS_TARGET_FN` is a string, and a misspelt string produces a log in which
 //    the control is PRESENT and the subject simply never appears -- the same
@@ -197,7 +234,15 @@ public:
   explicit Tracker(Config Cfg);
   ~Tracker();
 
-  bool ok() const { return Out != nullptr; }
+  /// Whether this tracker can still write. Not "the file is open": the file is
+  /// not opened until the first module boundary (note 3a), and a tracker that
+  /// has not reached one yet is perfectly healthy -- it is buffering. Only a
+  /// path that could not be opened when the time came makes this false, and it
+  /// stays false from then on.
+  bool ok() const { return LogSt != LogState::Failed; }
+
+  /// The file this tracker opened, or empty before the first module boundary.
+  const std::string &logPath() const { return LogPath; }
 
   uint64_t nextSeq() { return ++Seq; }
 
@@ -243,8 +288,45 @@ private:
   void snapshot(uint64_t S, llvm::StringRef PassID, const llvm::Function &F,
                 unsigned Count);
 
+  /// Choose this tracker's file names, claim its line in the manifest and open
+  /// the log. Called once, from the first module boundary -- or, for a tracker
+  /// that never reaches one, from `finish()` with an empty id.
+  void openFor(llvm::StringRef ModuleId);
+
+  /// Where a record goes right now: the file once it is open, the pre-open
+  /// buffer before that.
+  llvm::raw_ostream &out();
+
   Config Cfg;
+
+  /// Three states, not two, because "no file yet" and "no file ever" are
+  /// different. A tracker before its first module boundary is Pending and its
+  /// records are kept; a tracker whose path would not open is Failed and its
+  /// records are dropped, loudly, once.
+  enum class LogState { Pending, Open, Failed };
+  LogState LogSt = LogState::Pending;
+
   std::unique_ptr<llvm::raw_fd_ostream> Out;
+
+  /// Records emitted before the first module boundary. A function pass can fire
+  /// before any module-level pass in a hand-written `opt` pipeline, and the old
+  /// eager open meant those records landed in the file. Dropping them instead
+  /// would have been a silent change to the compile path -- the one path this
+  /// whole change is supposed to leave alone -- so they are held here and
+  /// written out ahead of the HANDSHAKE that opens the file, in the order they
+  /// were produced.
+  ///
+  /// Declared before the stream that writes into it: the stream holds a
+  /// reference to it and must not outlive it.
+  std::string PreOpen;
+  std::unique_ptr<llvm::raw_string_ostream> PreOpenOS;
+
+  /// Empty until the log is open. `LogPath` is what the manifest records;
+  /// `SummaryPath` is set only on a successful open, so a tracker that could
+  /// not open its log does not leave a side file with no log beside it.
+  std::string LogPath;
+  std::string SummaryPath;
+
   std::string LastModuleId;
   bool Announced = false;
   bool Finished = false;

@@ -1,0 +1,87 @@
+{
+  "_fixtureProvenance": {
+    "kind": "SHAPE-DERIVED, NOT TOOL-RECORDED",
+    "readThisBeforeQuotingAnything": "No Semgrep run produced these bytes. The SARIF SHAPE below is what matters and is what is exercised: a driver named lowercase with semanticVersion rather than version, rules carried in tool.driver.rules with the check id as the rule id, NO versionControlProvenance (Semgrep does not emit it), partialFingerprints present, and dotted namespaced rule ids.",
+    "onTheRuleIds": "Every id here sits in a `local.rules.` namespace, which is the namespace Semgrep gives a user's own rule file. That is deliberate and it is the honest choice: no rule in a published Semgrep pack has been confirmed by anyone working on this benchmark to make the inline-authorization claim, and writing a plausible registry id from memory would put a rule that may not exist into a file that reads like evidence. See rulesNotMapped in bench/ai-code-security-design-smells/rule-families.json.",
+    "whatIsVerifiedByThisFixture": "That the scorer's intake reads a log with none of the fields the VibeGuard-shaped fixture leans on — no versionControlProvenance, no relatedLocations, a different version key — and that its findings are attributed via --repository and land in the right buckets.",
+    "whatIsNotVerified": "Anything about Semgrep's accuracy, or that these ids exist."
+  },
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "semgrep",
+          "semanticVersion": "1.165.0",
+          "informationUri": "https://semgrep.dev",
+          "rules": [
+            {
+              "id": "local.rules.inline-authorization-duplicated",
+              "name": "local.rules.inline-authorization-duplicated",
+              "shortDescription": { "text": "role comparison inside a request handler" },
+              "fullDescription": { "text": "A user-written rule that flags a role comparison in a handler body." },
+              "defaultConfiguration": { "level": "warning" },
+              "help": { "text": "Move the decision into a shared guard.", "markdown": "Move the decision into a shared guard." },
+              "properties": { "precision": "medium", "tags": ["authorization"] }
+            },
+            {
+              "id": "local.rules.audit.missing-csrf-middleware",
+              "name": "local.rules.audit.missing-csrf-middleware",
+              "shortDescription": { "text": "an unrelated rule, present so UNMAPPED is exercised" },
+              "fullDescription": { "text": "Maps to no family in this benchmark." },
+              "defaultConfiguration": { "level": "warning" }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "local.rules.inline-authorization-duplicated",
+          "level": "warning",
+          "message": { "text": "role comparison inside a request handler" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/routes/admin.ts", "uriBaseId": "%SRCROOT%" },
+                "region": { "startLine": 45, "startColumn": 9, "endLine": 45, "endColumn": 70 }
+              }
+            }
+          ],
+          "partialFingerprints": { "matchBasedId/v1": "6f1a9c0d2e3b4a5c6d7e8f90a1b2c3d4_0" },
+          "properties": {}
+        },
+        {
+          "ruleId": "local.rules.inline-authorization-duplicated",
+          "level": "warning",
+          "message": { "text": "role comparison — this one is on the labelled FALSE POSITIVE site" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/routes/billing.ts", "uriBaseId": "%SRCROOT%" },
+                "region": { "startLine": 32, "startColumn": 41, "endLine": 32, "endColumn": 70 }
+              }
+            }
+          ],
+          "partialFingerprints": { "matchBasedId/v1": "aa1b2c3d4e5f60718293a4b5c6d7e8f9_0" },
+          "properties": {}
+        },
+        {
+          "ruleId": "local.rules.audit.missing-csrf-middleware",
+          "level": "warning",
+          "message": { "text": "unrelated finding" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/routes/billing.ts", "uriBaseId": "%SRCROOT%" },
+                "region": { "startLine": 15, "startColumn": 3, "endLine": 15, "endColumn": 40 }
+              }
+            }
+          ],
+          "partialFingerprints": { "matchBasedId/v1": "bb1b2c3d4e5f60718293a4b5c6d7e8f9_0" },
+          "properties": {}
+        }
+      ]
+    }
+  ]
+}

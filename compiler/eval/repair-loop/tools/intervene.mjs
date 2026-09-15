@@ -58,21 +58,75 @@
  *     ../lib/pin-families.mjs's interventionVerdict(), which refuses the phrase
  *     unless at least two positions were tried AND the asm channel was read.
  *
- * gcc: the same question has a channel there too -- `-fdisable-tree-<pass>` --
- * and it is NOT implemented here. Marked [SPEC] in ../PIN-FAMILIES.md and left
- * unmeasured rather than guessed at.
+ * gcc: THE SAME QUESTION, THROUGH THE ONLY CHANNEL GCC OFFERS. gcc prints no
+ * pass pipeline and has no `opt`/`llc` to replay one under, so steps 1-5 above
+ * have no gcc form. What gcc does expose is `-fdisable-tree-<pass>`, and the
+ * walk that finds which pass to name is gcc's own `-fdump-tree-all` sequence:
  *
- *   node intervene.mjs --out <lab dir> [--cc clang-18] [--opt -O2]
+ *   1. compile both units with `-fdump-tree-all -fdump-rtl-all` and read every
+ *      numbered dump DIFFERENTIALLY -- the target function's region as written
+ *      against the same region with the wipe ablated -- to find the first dump
+ *      at which the wipe stops making a difference (`firstIndifferentDump`);
+ *   2. compile again with `-fdisable-tree-<that pass>` and see whether it comes
+ *      back; then at a second position, which is where the walk says the loss
+ *      moved to, and finally with both passes disabled together.
+ *
+ * The result is NOT written under clang's name, and it is not written under the
+ * neighbouring gcc probe's name either: clang's reading is a position in a
+ * pipeline this tool replays; `../../second-vendor/run-gcc-dump-probe.mjs` reads
+ * gcc's dumps by searching ONE unit's region for a memset token and calls the
+ * answer `firstAbsentDump`; this channel reads the same dumps DIFFERENTIALLY, a
+ * different oracle giving a different statement, and calls its answer
+ * `firstIndifferentDump`. This tool emits that word, and never `firstLossPass`,
+ * never `firstAbsentDump` and never `attribution.pass`. The three-way
+ * distinction is set out in `../lib/gcc-disable-tree.mjs`.
+ *
+ * THE GCC CHANNEL'S OWN CONTROLS, all four required, because a flag that was
+ * ignored and a flag that was honoured produce the same exit code -- and because
+ * a walk that read nothing at all answers like a walk that read something:
+ *   (a) gcc announces every disable on stderr (`note: disable pass tree-dse1 for
+ *       functions in the range of ...`). The note naming the pass that was asked
+ *       for must be present in BOTH compiles of an intervention. A build that
+ *       merely succeeded is never read as the intervention having happened.
+ *   (b) a deliberately misspelled pass name must make the build FAIL (`error:
+ *       unknown pass tree-dse1xx specified in '-fdisable'`), once per run and
+ *       before any reading is taken. Without it, "no note" could mean "gcc does
+ *       not announce disables" rather than "nothing was disabled".
+ *   (c) the co-resident positive control and the fixture's own read-after-wipe
+ *       control must be PRESENT in every replay, as on clang.
+ *   (d) the walk must have READ the function in at least one dump. A dump that
+ *       does not hold the function in both units is NOT_OBSERVED, and a walk
+ *       made entirely of those compared nothing: it is `function-in-no-dump`,
+ *       which is an apparatus failure and not a finding about the wipe. gcc-13
+ *       `-O2 -fdump-tree-all` emits ~122 dumps for a small file, so zero
+ *       readable ones means the walk, not the compiler, is what went wrong.
+ *
+ *   node intervene.mjs --out <lab dir> [--cc clang-18|gcc-13] [--opt -O2]
  *                      [--fixture <dir>] [--fn handle_request] [--sweep full|bisect]
  *   node intervene.mjs --selftest        (no compiler; the pipeline surgery only)
  *
  * --out must lie outside the repository: this is a lab tool and writes nothing
  * to data/. Exit codes: 0 the run completed and its verdict is in the report
  * (including CAME_BACK, NEVER_CAME_BACK and NOT_ENOUGH_EVIDENCE, which are
- * results); 2 the replay did not reproduce the loss, or a control went missing,
- * so there is no reading; 3 a tool or the fixture is missing; 4 bad arguments.
+ * results); 2 the replay did not reproduce the loss, a control went missing, or
+ * the gcc channel could not be shown to have been exercised, so there is no
+ * reading; 3 a tool or the fixture is missing; 4 bad arguments; 5 the report
+ * carried an absolute path and was not written.
+ *
+ * EVERY EXIT-2 REASON ON THE GCC CHANNEL IS NAMED, once, in
+ * `../lib/gcc-disable-tree.mjs`'s `GCC_EXIT_REASONS`, and every one of those
+ * names is printed in `../PIN-FAMILIES.md`. `report.verdict.reason` is that key
+ * and `report.verdict.why` is its sentence, so what a reader transcribes is what
+ * actually happened rather than the gate's sentence about some other control.
+ *
+ * WHAT A READER TAKES FROM A RUN. `report.verdict` (the verdict, its reason key
+ * and its sentence) and `report.gateEvidence` (what the gate was given, plus
+ * `fatality` when the run stopped early). `gateEvidence` is written on EVERY
+ * exit from the gcc channel, including the refusals -- it used to be written
+ * only on the path that reached the gate, so precisely the runs a reader most
+ * needs to explain had nothing to copy.
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, copyFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, copyFileSync, readdirSync, rmSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { dirname, resolve, join, basename } from 'node:path';
@@ -84,6 +138,13 @@ import {
 import {
   parsePipeline, renderPipeline, leaves, withoutLeaf, prefixLeaves, interventionVerdict,
 } from '../lib/pin-families.mjs';
+import { vendorOf } from '../lib/vendor.mjs';
+import {
+  STAGES, orderDumps, buildDumpSequence, firstIndifferentDump, transitionsOf, flipBacks,
+  disableTreeFlag, disableNoteSeen, unknownPassRefused, misspell, readingStatus, cameBack,
+  FATAL_READING_STATUSES, FATAL_WALK_STATUSES, observedDumps, unpairedReading, refusalSplit,
+  brokenBecause,
+} from '../lib/gcc-disable-tree.mjs';
 import { absolutePathHits } from '../lib/provenance.mjs';
 
 const run = promisify(execFile);
@@ -176,10 +237,10 @@ function selftest() {
 // running things
 
 let RUNLOG = null;
-async function sh(cmd, args) {
+async function sh(cmd, args, opts = {}) {
   let code = 0, stdout = '', stderr = '';
   try {
-    const r = await run(cmd, args, { timeout: 90000, maxBuffer: 64 * 1024 * 1024 });
+    const r = await run(cmd, args, { timeout: 90000, maxBuffer: 64 * 1024 * 1024, ...opts });
     stdout = r.stdout; stderr = r.stderr;
   } catch (e) {
     code = typeof e.code === 'number' ? e.code : 1;
@@ -238,10 +299,21 @@ async function main() {
     fail(`--out ${args.out} is inside the repository; this tool writes lab output only`);
   }
   if (!['full', 'bisect'].includes(args.sweep)) fail(`--sweep must be full or bisect`);
-  const level = /^-O[0123]$/.test(args.opt) ? args.opt : null;
-  if (!level) fail(`--opt ${args.opt}: this tool replays through llc, which has -O0..-O3 and no -Os/-Oz`);
-  if (!args.cc.startsWith('clang')) {
-    fail(`--cc ${args.cc}: only clang has a printed pass pipeline this tool can replay. gcc's -fdisable-tree-<pass> channel is [SPEC] and not implemented`);
+  // The vendor decides which channel this run is, and it is read from the --cc
+  // basename by the lane's own vendorOf -- the same rule ../run-repair-loop.mjs
+  // uses, so one spelling never means two things in one directory.
+  const vendor = vendorOf(args.cc);
+  if (!vendor) {
+    fail(`--cc ${args.cc}: the basename names neither clang nor gcc, and which channel to drive is not guessed at (../lib/vendor.mjs)`);
+  }
+  const level = (vendor === 'clang' ? /^-O[0123]$/ : /^-O[0123s]$/).test(args.opt) ? args.opt : null;
+  if (!level) {
+    fail(vendor === 'clang'
+      ? `--opt ${args.opt}: the clang channel replays through llc, which has -O0..-O3 and no -Os/-Oz`
+      : `--opt ${args.opt}: the gcc channel drives gcc directly, at the five levels the lane measures (-O0..-O3, -Os)`);
+  }
+  if (vendor === 'gcc' && args.sweep !== 'full') {
+    fail(`--sweep ${args.sweep}: the gcc channel has no pipeline prefix to bisect; it walks gcc's own dump sequence`);
   }
 
   const fixture = resolve(args.fixture ?? join(process.env.IRCK_LAB ?? join(homedir(), 'vg-lab', 'llvm-pass'), 'fixtures', 'erasure'));
@@ -253,7 +325,11 @@ async function main() {
   mkdirSync(work, { recursive: true });
   RUNLOG = join(out, 'run-log.txt');
   const suffix = `${args.cc}${level}`;
-  const tool = { opt: args.cc.replace(/^clang/, 'opt'), llc: args.cc.replace(/^clang/, 'llc') };
+  // opt and llc are the clang channel's replay instruments; the gcc channel has
+  // no counterpart and never invokes them, so it does not require them either.
+  const tool = vendor === 'clang'
+    ? { opt: args.cc.replace(/^clang/, 'opt'), llc: args.cc.replace(/^clang/, 'llc') }
+    : {};
   for (const [what, cmd] of Object.entries({ cc: args.cc, ...tool })) {
     const r = await sh(cmd, ['--version']);
     if (r.code !== 0) cannotRun(`${what}: ${cmd} is not usable here (${r.stderr.split('\n')[0]})`);
@@ -288,9 +364,20 @@ async function main() {
     tool: 'compiler/eval/repair-loop/tools/intervene.mjs',
     subject: { module: basename(targetC), fn: args.fn, spans: ws.spans.length, kinds: ws.kinds, deleted: chosen },
     controls: { coResident: 'vgctl_control', fixtureOwn: args.fixtureControl },
-    cc: args.cc, opt: level,
+    cc: args.cc, vendor, opt: level,
+    channel: vendor === 'clang' ? 'clang/print-pipeline-passes replayed under opt and llc' : 'gcc/-fdisable-tree-<pass>, located by gcc -fdump-tree-all',
     steps: [], sequence: [], interventions: [],
   };
+  if (vendor === 'gcc') {
+    // The neighbour probe's warning, carried here for the same reason it exists
+    // there: two different kinds of reading must not end up under one name.
+    report.vocabulary = {
+      emits: 'firstIndifferentDump',
+      doesNotEmit: ['firstLossPass', 'firstAbsentDump', 'attribution.pass'],
+      why: 'this channel reads gcc describing its own behaviour through -fdump-tree-all. Nothing is instrumented and nothing independently confirms that the dump boundary is where the transformation happened, so it is not the same kind of result as the clang channel in this same tool and is not given that field name. It is not given the NEIGHBOURING gcc probe\'s name either: ../../second-vendor/run-gcc-dump-probe.mjs reads one unit\'s dump region for a memset token and calls the answer firstAbsentDump, where "absent" means the token was not found; this channel compares the written unit\'s region against the ablated unit\'s and reports the first dump at which the wipe made no difference. Same dumps, different oracle, different statement, different word.',
+    };
+    delete report.sequence; // the gcc walk is report.dumpWalk.sequence, and is not a pipeline prefix sweep
+  }
   const say = (s) => { process.stdout.write(`${s}\n`); report.steps.push(s); };
 
   // --- step 0: the stock compilation, which is what the loss is a loss in ----
@@ -311,6 +398,13 @@ async function main() {
   if (stock.verdict !== 'WIPE_ELIMINATED') {
     say(`RESULT NO_LOSS_TO_REPLAY -- the stock compilation does not lose the property here (${stock.verdict}), so there is nothing for an intervention to bring back.`);
     finish(report, out, suffix, 0);
+  }
+
+  // Everything above is the same question on both vendors; below it, the two
+  // compilers offer different channels and are driven by different code.
+  if (vendor === 'gcc') {
+    await gccChannel({ args, level, work, out, suffix, report, say, srcW, srcWo });
+    return; // gccChannel always finishes
   }
 
   // --- step 1 and 2: the pre-opt IR and the string this compiler built -------
@@ -456,7 +550,418 @@ async function main() {
   report.gateEvidence = ev;
   report.verdict = interventionVerdict(ev);
   say(`RESULT  ${report.verdict.verdict} -- ${report.verdict.why}`);
-  finish(report, out, suffix, 0);
+  // BROKEN_MEASUREMENT is "a control went missing", which this tool's exit codes
+  // have always called 2. It used to reach here as 0, so a control that went
+  // missing in an intervention -- rather than in the unmodified replay, which
+  // exits 2 above -- left a run that looked like a result. Both vendors exit the
+  // same way on it now.
+  finish(report, out, suffix, report.verdict.verdict === 'BROKEN_MEASUREMENT' ? 2 : 0);
+}
+
+// ---------------------------------------------------------------------------
+// the gcc channel
+//
+// One instrument, used four or five times: compile both units with the same
+// flags plus whatever passes this reading disables, read the assembly through
+// the find step's verdictOf, and read gcc's own dumps differentially beside it.
+// Everything that decides anything is imported: verdictOf and the controls from
+// the find step, interventionVerdict from ../lib/pin-families.mjs, the dump
+// reading from ../lib/gcc-disable-tree.mjs. Nothing here is a second oracle.
+
+const REP_STOS = resolve(HERE, '..', '..', '..', 'gcc-repair', 'scripts', 'lib', 'asm-presence.mjs');
+
+/** How far past the located dump the walk will look for a pass gcc will disable. */
+const MAX_CANDIDATES = 6;
+
+/**
+ * Build both units once, with `disabled` passes taken out, and read everything
+ * this channel reads from that pair of compiles.
+ *
+ * The dumps land in the compile's own directory, one per (reading, unit), so no
+ * two readings of a run can see each other's files -- and a dump left over from
+ * an earlier reading can never be read as this one's, which is the same rule
+ * ../run-repair-loop.mjs applies to plugin records.
+ */
+function gccObserver(ctx, repStosZeroFill) {
+  const { args, level, work } = ctx;
+  const fn = args.fn;
+
+  const fixtureControlOf = (asm) => {
+    if (asm === null) return { verdict: 'NOT_OBSERVED', via: null };
+    const v = observeEffect(asm, args.fixtureControl, CONTROL_EFFECT);
+    if (v.verdict === 'PRESENT') return { verdict: 'PRESENT', via: 'oracle' };
+    // The oracle does not know `rep stos`, which is how gcc writes a zero fill
+    // at -Os. The reading is labelled rather than folded in (../README.md).
+    if (repStosZeroFill(asm, args.fixtureControl)) return { verdict: 'PRESENT', via: 'rep-stos-fallback' };
+    return { verdict: v.verdict, via: null };
+  };
+
+  const build = async (tag, srcPath, disabled) => {
+    const dir = join(work, tag);
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+    const flags = [...FLAGS, level, ...disabled.map(disableTreeFlag), '-fdump-tree-all', '-fdump-rtl-all'];
+    const r = await sh(args.cc, [...flags, '-o', 'out.s', srcPath], { cwd: dir });
+    const asmPath = join(dir, 'out.s');
+    return {
+      dir,
+      code: r.code,
+      stderr: r.stderr,
+      asm: r.code === 0 && existsSync(asmPath) ? readFileSync(asmPath, 'utf8') : null,
+      dumps: orderDumps(readdirSync(dir)),
+    };
+  };
+
+  return async function observe(tag, disabled) {
+    const bw = await build(`${tag}-w`, ctx.srcW, disabled);
+    const bwo = await build(`${tag}-wo`, ctx.srcWo, disabled);
+    return readingFrom(bw, bwo, {
+      fn,
+      disabled,
+      asm: verdictOf(bw.asm, bwo.asm, fn),
+      fixtureControl: fixtureControlOf(bw.asm),
+      readDump: (b, file) => readFileSync(join(b.dir, file), 'utf8'),
+    });
+  };
+}
+
+/**
+ * ONE READING, ASSEMBLED FROM TWO BUILDS. Everything this channel decides with,
+ * except the two verdicts the find step's own oracles give (`asm`,
+ * `fixtureControl`), which are passed in because they belong to those oracles
+ * and not to this file.
+ *
+ * It is separate from `gccObserver` so that it can be driven without a compiler:
+ * `../test/intervene-gcc-driver.test.mjs` hands it synthetic builds -- two
+ * stderrs, two exit codes, two dump listings -- and checks the things that are
+ * true of a reading rather than of gcc. `readDump(build, file)` is how the dump
+ * text is fetched, so the test can keep its dumps in memory.
+ *
+ * The refusal is read in BOTH units. It was read in the with-wipe build's stderr
+ * alone until 2026-09-14, in a channel whose premise is that every reading is a
+ * differential pair: a name gcc refused in one unit and accepted in the other
+ * read as a plain refusal, and the other compile went unclassified. A one-sided
+ * refusal is `asymmetric`, which is NOT a refusal -- the refusing unit exits
+ * non-zero, so `readingStatus` calls the reading `compile-failed`, which is
+ * fatal. The same applies to the disable note, which has always been required in
+ * both.
+ *
+ * Dumps one unit wrote and the other did not cannot be compared and are dropped;
+ * `unpairedReading` counts them and says whether so many were dropped that the
+ * walk is no longer either compilation's sequence.
+ */
+export function readingFrom(bw, bwo, { fn, disabled, asm, fixtureControl, readDump }) {
+  const byKey = new Map(bwo.dumps.map((d) => [d.key, d]));
+  const paired = [], onlyW = [];
+  for (const d of bw.dumps) {
+    const other = byKey.get(d.key);
+    if (!other) { onlyW.push(d.key); continue; }
+    paired.push({ ...d, w: readDump(bw, d.file), wo: readDump(bwo, other.file) });
+  }
+  const wKeys = new Set(bw.dumps.map((d) => d.key));
+  const onlyWo = bwo.dumps.filter((d) => !wKeys.has(d.key)).map((d) => d.key);
+  const sequence = buildDumpSequence(paired, fn);
+  const notes = disabled.map((p) => ({ pass: p, w: disableNoteSeen(bw.stderr, p), wo: disableNoteSeen(bwo.stderr, p) }));
+  const treeSeq = sequence.filter((e) => STAGES[e.stage]?.inScope);
+  const refusal = refusalSplit(
+    { code: bw.code, stderr: bw.stderr }, { code: bwo.code, stderr: bwo.stderr }, disabled,
+  );
+  return {
+    disabled,
+    codes: { w: bw.code, wo: bwo.code },
+    notes,
+    noteOk: notes.length > 0 && notes.every((n) => n.w && n.wo),
+    refusedBy: refusal.refusedBy,
+    refusal,
+    asm,
+    fixtureControl,
+    sequence,
+    dumpsCompared: sequence.length,
+    observedDumps: observedDumps(sequence),
+    treeDumps: treeSeq.length,
+    unpaired: unpairedReading({ paired: paired.length, onlyW, onlyWo }),
+    lastTreeState: treeSeq.filter((e) => e.state !== 'NOT_OBSERVED').pop()?.state ?? 'NOT_OBSERVED',
+    located: firstIndifferentDump(sequence),
+  };
+}
+
+/** The row this channel writes for one reading. No path, no source text. */
+const gccRow = (r, why) => ({
+  disabledPasses: r.disabled,
+  why,
+  status: readingStatus(r),
+  disableNoteSeen: r.notes.map((n) => ({ pass: n.pass, w: n.w, wo: n.wo })),
+  compileCodes: r.codes,
+  refusedBy: r.refusal?.refusedBy ?? r.refusedBy ?? [],
+  refusalAsymmetric: r.refusal?.asymmetric ?? [],
+  asm: r.asm.verdict,
+  control: r.asm.control ?? null,
+  fixtureControl: r.fixtureControl.verdict,
+  fixtureControlVia: r.fixtureControl.via,
+  gimpleLastTreeDumpState: r.lastTreeState,
+  firstIndifferentDumpAfter: r.located.entry?.key ?? null,
+  firstIndifferentDumpStatus: r.located.status,
+  dumpsCompared: r.dumpsCompared,
+  dumpsObserved: r.observedDumps,
+  unpaired: r.unpaired,
+  cameBack: cameBack(r),
+});
+
+/**
+ * POSITIVE CONTROL (b), run once and before any reading is believed: a pass name
+ * gcc cannot know must make the build FAIL. If gcc accepted it, the channel is
+ * not checked at all and the absence of a note in some later reading would say
+ * nothing, so there is no measurement to take.
+ */
+async function gccMisspellControl(ctx, report, say, base, taken) {
+  const bogus = misspell(base, taken);
+  const r = await sh(ctx.args.cc, [...FLAGS, ctx.level, disableTreeFlag(bogus), '-o', join(ctx.work, 'misspell.s'), ctx.srcW]);
+  const refused = unknownPassRefused(r, bogus);
+  const m = /unknown pass\s+tree-\S+\s+specified in \S+/.exec(String(r.stderr ?? ''));
+  report.channelControls = {
+    misspelledPass: bogus,
+    builtFrom: base,
+    exitCode: r.code,
+    refused,
+    refusalSeen: m ? m[0] : null,
+    means: 'a pass name gcc does not know must be an error, or a missing "disable pass" note would be unreadable',
+  };
+  say(`control -fdisable-tree-${bogus}  exit ${r.code}, ${refused ? 'REFUSED by gcc (the channel is checked)' : 'ACCEPTED -- the channel is NOT checked'}`);
+  return refused;
+}
+
+/**
+ * The interventions themselves.
+ *
+ * The first position is where the walk located the loss. The second is where the
+ * walk says the loss moved to once the first pass is gone -- which is the thing
+ * the gate's two-position rule exists to catch, rather than an assumption that
+ * the next pass in the file is the one entitled to make the same elimination.
+ * A position gcc refuses (a dump whose name is not a pass it can disable) is
+ * recorded and the walk moves on; a position gcc ACCEPTS WITHOUT ANNOUNCING is
+ * fatal, because then nothing says the intervention happened.
+ */
+async function gccInterventions(observe, report, say, first, treeSeq) {
+  const tried = new Set();
+  const rows = [];
+  let why = 'the dump the walk located';
+  let next = first;
+  while (next && rows.filter((r) => readingStatus(r) === 'intervened').length < 2 && tried.size < MAX_CANDIDATES) {
+    tried.add(next);
+    const r = await observe(`cut-${next}`, [next]);
+    const row = gccRow(r, why);
+    rows.push(r);
+    report.interventions.push(row);
+    say(`cut  ${next.padEnd(20)} ${row.status.padEnd(16)} asm ${row.asm}, control ${row.control}/${row.fixtureControl}, next indifferent at ${row.firstIndifferentDumpAfter ?? '(none)'}`);
+    if (FATAL_READING_STATUSES.includes(row.status)) return { rows, fatal: row };
+    if (row.cameBack) break;
+    // where the loss went once this pass was gone, then the next tree dump after it
+    const moved = r.located.entry;
+    const candidate = moved && STAGES[moved.stage]?.inScope && !tried.has(moved.pass) ? moved.pass : null;
+    const after = treeSeq.find((e) => !tried.has(e.pass) && e.num > (treeSeq.find((x) => x.pass === next)?.num ?? -1));
+    next = candidate ?? (after ? after.pass : null);
+    why = candidate ? 'where the walk says the loss moved to once the first pass was gone' : 'the next tree dump the walk holds';
+  }
+  return { rows, fatal: null };
+}
+
+/**
+ * The gcc channel, end to end. Every exit from here is a result or a refusal,
+ * each one says which, and each one writes `report.verdict` and
+ * `report.gateEvidence` before it goes.
+ *
+ * INJECTION, AND WHY IT IS HERE RATHER THAN IN A TEST'S IMAGINATION. Everything
+ * below is a fail-closed guard, and until 2026-09-14 not one of them was pinned
+ * by any test: deleting the fatality check, the misspell control, the NO_DUMPS
+ * guard, the DUMP_BUILD_FAILED guard or the control guard left the suite green,
+ * which means the suite was not defending the reason this channel is allowed to
+ * exist. A guard that no test fails without is decorative. So `ctx` may carry
+ * `observe`, `misspellControl` and `finish`, which is all it takes for
+ * `../test/intervene-gcc-driver.test.mjs` to drive these guards over scripted
+ * readings with no compiler present -- and for deleting any one of them to turn
+ * that suite red. The defaults are the real instruments and the real exit, so a
+ * lab run is unchanged.
+ *
+ * `finish` never returns (it exits the process), and the injected one must not
+ * either: the code after each guard assumes the run has stopped.
+ */
+export async function gccChannel(ctx) {
+  const { report, say, out, suffix } = ctx;
+  const done = ctx.finish ?? finish;
+  const misspellControl = ctx.misspellControl ?? gccMisspellControl;
+  let observe = ctx.observe;
+  if (!observe) {
+    let repStosZeroFill;
+    try {
+      ({ repStosZeroFill } = await import(pathToFileURL(REP_STOS).href));
+    } catch (e) {
+      cannotRun(`the rep-stos reading (compiler/gcc-repair/scripts/lib/asm-presence.mjs) could not be used: ${e.message}`);
+    }
+    observe = gccObserver(ctx, repStosZeroFill);
+  }
+
+  // What the gate has been given SO FAR. It starts as what a run that has read
+  // nothing can honestly claim -- which is nothing -- and is filled in as each
+  // reading is actually taken. `asmChannelRead` in particular stays false until
+  // an intervention reading exists: it used to be passed as `true` on four paths
+  // where zero interventions had been made, which is a control that cannot fail
+  // asserted as one that passed.
+  const ev = {
+    positionsTried: 0,
+    asmChannelRead: false,
+    irChannelRead: false,
+    cameBackAt: [],
+    replayReproducedLoss: false,
+    controlHeld: false,
+  };
+  /** Stop the run with a named refusal, its true reason, and the evidence as it stood. */
+  const stop = (key, detail) => {
+    report.verdict = brokenBecause(key, detail);
+    report.gateEvidence = { ...ev, fatality: key };
+    say(`RESULT ${key} -- ${report.verdict.why}`);
+    done(report, out, suffix, 2);
+  };
+
+  // --- the walk: gcc's own dump sequence, read differentially ---------------
+  const un = await observe(`walk-${suffix}`, []);
+  const treeSeq = un.sequence.filter((e) => STAGES[e.stage]?.inScope);
+  report.dumpWalk = {
+    dumpsCompared: un.dumpsCompared,
+    dumpsObserved: un.observedDumps,
+    treeDumps: treeSeq.length,
+    unpaired: un.unpaired,
+    compileCodes: un.codes,
+    asm: un.asm.verdict,
+    control: un.asm.control ?? null,
+    fixtureControl: un.fixtureControl.verdict,
+    fixtureControlVia: un.fixtureControl.via,
+    status: un.located.status,
+    firstIndifferentDump: un.located.entry?.key ?? null,
+    firstIndifferentDumpStage: un.located.entry ? STAGES[un.located.entry.stage].what : null,
+    transitions: transitionsOf(un.sequence),
+    flipBacks: flipBacks(un.sequence),
+    sequence: un.sequence,
+  };
+  say(`walk    ${un.dumpsCompared} dumps compared (${treeSeq.length} GIMPLE), ${un.observedDumps} held ${ctx.args.fn} in both units, asm ${un.asm.verdict}, control ${un.asm.control ?? "(not read)"}/${un.fixtureControl.verdict}`);
+  say(`walk    unpaired dumps ${un.unpaired.unpaired}/${un.unpaired.union} (${(un.unpaired.share * 100).toFixed(1)}%${un.unpaired.unpaired > 0 ? `: only-w ${un.unpaired.onlyW.join(',') || '-'}, only-wo ${un.unpaired.onlyWo.join(',') || '-'}` : ''})`);
+  say(`walk    ${un.located.status}${un.located.entry ? ` at ${un.located.entry.key}` : ''}; state changes: ${report.dumpWalk.transitions.length}, flip-backs: ${report.dumpWalk.flipBacks.length}`);
+
+  // A dump build that did not compile is not a walk with nothing in it. It is
+  // said in its own words, so it cannot be read as any of the ones below.
+  if (un.codes.w !== 0 || un.codes.wo !== 0) {
+    stop('DUMP_BUILD_FAILED', `exit ${un.codes.w}/${un.codes.wo}; see run-log.txt`);
+  }
+  // P4: no dumps is NOT_OBSERVED, and never "the wipe survived the walk".
+  if (un.dumpsCompared === 0) {
+    stop('NO_DUMPS', 'the walk compared 0 dumps');
+  }
+  // CONTROL (d), the one this channel was missing. A walk every entry of which
+  // is NOT_OBSERVED compared nothing, and the walk's own answer for that used to
+  // be the substantive finding "the wipe made no difference in any dump gcc
+  // emits" -- reported at exit 0. gcc-13 -O2 -fdump-tree-all emits ~122 dumps
+  // for a small file, so zero readable ones is the apparatus, not the wipe.
+  if (FATAL_WALK_STATUSES.includes(un.located.status)) {
+    stop('FUNCTION_IN_NO_DUMP', `${un.dumpsCompared} dumps compared, ${un.observedDumps} of them held ${ctx.args.fn} in both units`);
+  }
+  // Dumps present in one unit and not the other cannot be read differentially
+  // and are dropped. That is right, and it was silent and unbounded.
+  if (un.unpaired.overThreshold) {
+    stop('DUMP_SETS_DISAGREE', `${un.unpaired.unpaired} of ${un.unpaired.union} dumps unpaired (${(un.unpaired.share * 100).toFixed(1)}%, threshold ${(un.unpaired.maxShare * 100).toFixed(1)}%); only-w ${un.unpaired.onlyW.join(',') || '-'}, only-wo ${un.unpaired.onlyWo.join(',') || '-'}`);
+  }
+  ev.irChannelRead = un.sequence.length > 0;
+  ev.replayReproducedLoss = un.asm.verdict === 'WIPE_ELIMINATED';
+  ev.controlHeld = un.asm.control === 'PRESENT' && un.fixtureControl.verdict === 'PRESENT';
+  if (!ev.replayReproducedLoss) {
+    stop('REPLAY_DID_NOT_REPRODUCE', `the dump build reads ${un.asm.verdict}`);
+  }
+  if (!ev.controlHeld) {
+    stop('CONTROL_NOT_PRESENT', `in the dump build: co-resident ${un.asm.control ?? '(not read)'}, ${ctx.args.fixtureControl} ${un.fixtureControl.verdict}`);
+  }
+
+  // --- control (b), before any reading is taken from the channel ------------
+  const base = un.located.entry?.pass ?? treeSeq[0]?.pass;
+  if (!base) {
+    stop('NO_GIMPLE_DUMP', `${un.dumpsCompared} dumps compared, none of them GIMPLE`);
+  }
+  if (!await misspellControl(ctx, report, say, base, un.sequence.map((e) => e.pass))) {
+    stop('CHANNEL_NOT_CHECKED', `gcc exit ${report.channelControls?.exitCode} for -fdisable-tree-${report.channelControls?.misspelledPass}`);
+  }
+
+  // --- is there anything to intervene at? ----------------------------------
+  const located = un.located.entry;
+  if (!located || !STAGES[located.stage].inScope) {
+    report.attributionOutOfChannel = {
+      status: un.located.status,
+      dump: located?.key ?? null,
+      stage: located ? STAGES[located.stage].what : null,
+      note: located
+        ? `the wipe stops making a difference in a ${STAGES[located.stage].what} dump, which ${STAGES[located.stage].flag} reaches and -fdisable-tree- does not. That channel is not driven by this tool.`
+        : un.located.status === 'indifferent-from-first-dump'
+          ? 'the function was read in the walk, and the wipe made no difference in any dump gcc emitted, so no pass in the sequence can be named for its loss'
+          : 'the wipe still made a difference in the last dump that held the function, so the loss is after the walk and no pass in it can be taken out to bring it back',
+    };
+    say(`RESULT  no position in this channel -- ${report.attributionOutOfChannel.note}`);
+    report.gateEvidence = { ...ev };
+    report.verdict = interventionVerdict(ev);
+    say(`RESULT  ${report.verdict.verdict} -- ${report.verdict.why}`);
+    done(report, out, suffix, 0);
+  }
+
+  // --- the interventions ---------------------------------------------------
+  const { rows, fatal } = await gccInterventions(observe, report, say, located.pass, treeSeq);
+  if (fatal) {
+    stop(fatal.status === 'no-note' ? 'INTERVENTION_NOT_ANNOUNCED' : 'INTERVENTION_BUILD_FAILED',
+      fatal.status === 'no-note'
+        ? `gcc built ${fatal.disabledPasses.join(', ')} at exit 0 and announced no disable`
+        : `${fatal.disabledPasses.join(', ')}: exit ${fatal.compileCodes.w}/${fatal.compileCodes.wo}${fatal.refusalAsymmetric?.length ? `, and gcc refused ${fatal.refusalAsymmetric.join(', ')} in one unit only` : ''}; see run-log.txt`);
+  }
+  const intervened = rows.filter((r) => readingStatus(r) === 'intervened');
+  const cameBackAt = report.interventions.filter((r) => r.cameBack).map((r) => r.disabledPasses.join('+'));
+
+  // Both passes at once: the reading the two-position rule is actually about.
+  // One pass out of the pipeline can hand the same elimination to the next pass
+  // entitled to make it, and only disabling both says whether that is what
+  // happened.
+  //
+  // It is UNDER THE SAME RULES as every other reading, which it was not until
+  // 2026-09-14: a `no-note` or `compile-failed` cut-both was recorded and
+  // ignored -- the one reading whose whole purpose is to catch an elimination
+  // handed on to the next pass, allowed to fail silently -- and when it did
+  // read, its controls were left out of the gate's evidence.
+  const readings = [...intervened];
+  if (intervened.length >= 2 && cameBackAt.length === 0) {
+    const both = intervened.slice(0, 2).map((r) => r.disabled[0]);
+    const r = await observe(`cut-both`, both);
+    const row = gccRow(r, 'both positions at once');
+    report.interventions.push(row);
+    say(`cut  ${both.join('+').padEnd(20)} ${row.status.padEnd(16)} asm ${row.asm}, control ${row.control}/${row.fixtureControl}`);
+    if (FATAL_READING_STATUSES.includes(row.status)) {
+      stop(row.status === 'no-note' ? 'INTERVENTION_NOT_ANNOUNCED' : 'INTERVENTION_BUILD_FAILED',
+        row.status === 'no-note'
+          ? `gcc built ${both.join('+')} (both positions at once) at exit 0 and announced no disable`
+          : `${both.join('+')} (both positions at once): exit ${row.compileCodes.w}/${row.compileCodes.wo}${row.refusalAsymmetric.length ? `, and gcc refused ${row.refusalAsymmetric.join(', ')} in one unit only` : ''}; see run-log.txt`);
+    }
+    if (row.status === 'intervened') {
+      readings.push(r);
+      if (row.cameBack) cameBackAt.push(both.join('+'));
+    }
+  }
+
+  // `positionsTried` counts the single-position readings: cut-both is a third
+  // reading of two positions already counted, not a third position. Its
+  // controls are evidence like any other reading's, which is why it is in
+  // `readings` and not in the count.
+  const finalEv = {
+    ...ev,
+    positionsTried: intervened.length,
+    asmChannelRead: readings.length > 0 && readings.every((r) => r.asm.verdict !== 'COMPILE_ERROR' && r.asm.verdict !== 'NOT_OBSERVED'),
+    cameBackAt,
+    controlHeld: ev.controlHeld && readings.every((r) => r.asm.control === 'PRESENT' && r.fixtureControl.verdict === 'PRESENT'),
+  };
+  report.gateEvidence = finalEv;
+  report.verdict = interventionVerdict(finalEv);
+  say(`RESULT  ${report.verdict.verdict} -- ${report.verdict.why}`);
+  done(report, out, suffix, report.verdict.verdict === 'BROKEN_MEASUREMENT' ? 2 : 0);
 }
 
 function finish(report, out, suffix, code) {
@@ -472,4 +977,19 @@ function finish(report, out, suffix, code) {
   process.exit(code);
 }
 
-await main();
+// The CLI entry point, and only when this file IS the entry point. It used to
+// call main() unconditionally, which meant importing the module ran a
+// compilation -- so nothing could import it, so the gcc driver's fail-closed
+// guards above were pinned by no test at all. See gccChannel's header.
+//
+// The comparison is case-insensitive on win32 ON PURPOSE. This guard has a
+// silent-pass shape of its own: a mismatch means the tool does nothing, prints
+// nothing and exits 0, and `C:\...` against `c:\...` is enough of a mismatch on
+// a platform where those name the same file. `../test/intervene-gcc-driver.test.mjs`
+// runs `--selftest` through the CLI so that a guard which stopped recognising
+// its own file is a red test rather than a run that quietly did nothing.
+const ENTRY = process.argv[1] ? resolve(process.argv[1]) : null;
+const SELF = resolve(fileURLToPath(import.meta.url));
+export const INVOKED_AS_CLI = ENTRY !== null
+  && (process.platform === 'win32' ? ENTRY.toLowerCase() === SELF.toLowerCase() : ENTRY === SELF);
+if (INVOKED_AS_CLI) await main();

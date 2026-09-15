@@ -1,0 +1,108 @@
+{
+  "_fixtureProvenance": {
+    "kind": "SHAPE-DERIVED, NOT TOOL-RECORDED",
+    "readThisBeforeQuotingAnything": "No VibeGuard run produced these bytes. The control corpus beside this file has never been scanned by any build of the tool, because the benchmark's scorer is what is under test here, not the tool. The shape was written against the SarifResult / SarifRun interfaces in packages/sarif-adapter/src/index.ts, which is the emitter this repository ships.",
+    "whatIsVerifiedByThisFixture": "That the scorer's SARIF intake reads a log carrying versionControlProvenance and relatedLocations the way the specification says to read it, and that a finding whose PRIMARY location is a labelled site is recovered.",
+    "whatIsNotVerified": "That VibeGuard would in fact report this corpus. A fixture cannot establish that, and no number derived from this file is a statement about the tool's accuracy."
+  },
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "VibeGuard",
+          "version": "0.3.6",
+          "informationUri": "https://github.com/vibeguard/vibeguard",
+          "rules": [
+            {
+              "id": "VG-SMELL-010",
+              "name": "scattered-authorization",
+              "shortDescription": { "text": "Authorization decisions are re-derived in request handlers" },
+              "fullDescription": { "text": "The same authorization decision appears inline in several handler bodies across several files, with no shared guard taking it once." },
+              "defaultConfiguration": { "level": "warning" }
+            }
+          ]
+        }
+      },
+      "versionControlProvenance": [
+        {
+          "repositoryUri": "https://example.invalid/positive-control/acme-svc",
+          "revisionId": "0000000000000000000000000000000000000000"
+        }
+      ],
+      "results": [
+        {
+          "ruleId": "VG-SMELL-010",
+          "level": "warning",
+          "message": { "text": "4 authorization decisions across 2 files are taken inline in handler bodies" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/routes/admin.ts" },
+                "region": { "startLine": 25, "endLine": 25 }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "id": 1,
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/routes/admin.ts" },
+                "region": { "startLine": 35 }
+              },
+              "message": { "text": "same decision, re-derived" }
+            },
+            {
+              "id": 2,
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/routes/billing.ts" },
+                "region": { "startLine": 19 }
+              },
+              "message": { "text": "and again, in a second file" }
+            }
+          ],
+          "properties": { "scope": "project", "severity": "medium" }
+        },
+        {
+          "ruleId": "VG-SMELL-010",
+          "level": "warning",
+          "message": { "text": "an unlabelled location, so that UNSCORED is not always zero in the control" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/routes/admin.ts" },
+                "region": { "startLine": 300 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "VG-AISC-002",
+          "level": "error",
+          "message": { "text": "a finding from a rule that maps to no family in this benchmark" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/routes/billing.ts" },
+                "region": { "startLine": 5 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "VG-SMELL-010",
+          "level": "warning",
+          "message": { "text": "a result with no usable region, which must be REFUSED and counted, not dropped" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/routes/admin.ts" }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

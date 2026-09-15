@@ -119,7 +119,9 @@ test('a family that reached the cells but not the negative control cannot pass',
   // is added by editing one table, and every PER-FAMILY check has to be reached
   // from that table separately -- so the way this comes back is a new family
   // whose cells are all there and whose negative control never ran. It is
-  // detected by ABSENCE, because a check that did not run writes no field.
+  // detected by ABSENCE here -- and absence is only half of it. A check that
+  // did not run CAN write a field, and the test below this one is the one that
+  // says so.
   const cells = [linkCell({ id: 'xtu.full.link' }), linkCell({ id: 'xtu-inline.full.link' })];
   const fired = { ran: true, fired: true };
 
@@ -145,6 +147,49 @@ test('a family that reached the cells but not the negative control cannot pass',
     },
   });
   assert.equal(byFlag.code, 3);
+});
+
+test('a negative control that COULD NOT RUN is a finding, not a clean run', () => {
+  // `negativeControl()` in ../run-lto-window.mjs returns `{ran: false, why}` on
+  // two paths: a source that will not compile without `-flto`, and any of its
+  // links failing. Until 2026-09-15 that object defeated BOTH gates at once --
+  // the "did not fire" gate skipped it because `ran` was false, and the "no
+  // record at all" gate skipped it because the KEY EXISTS -- and the failure
+  // was never propagated to `toolFailure`, so code 1 was not reached either.
+  // Measured before the fix: `{code: 0, messages: []}`.
+  const cells = [linkCell({ id: 'xtu.full.link' })];
+  const d = exitDecision({
+    cells,
+    families: ['xtu'],
+    negativeControls: { xtu: { ran: false, why: 'the stock link failed' } },
+  });
+  assert.equal(d.code, 2, 'a control that could not run leaves guard 1 undemonstrated for this family');
+  assert.ok(d.messages.some((m) => m.includes('DID NOT RUN') && m.includes('the stock link failed')),
+    `the why is printed, not just the code: ${JSON.stringify(d.messages)}`);
+
+  // The other `{ran: false}` path, and one with no `why` at all: the gate is on
+  // `ran`, not on the reason being legible.
+  for (const nc of [{ ran: false, why: 'use.c did not compile without -flto' }, { ran: false }]) {
+    assert.equal(exitDecision({ cells, families: ['xtu'], negativeControls: { xtu: nc } }).code, 2,
+      JSON.stringify(nc));
+  }
+
+  // THE RULE, stated positively: the only control that may be present and not
+  // have fired is a deliberate skippedRecord. That one is still 3, and it is
+  // the ONLY non-firing shape that is.
+  const byFlag = exitDecision({
+    cells,
+    families: ['xtu'],
+    skipped: { negativeControl: true },
+    negativeControls: { xtu: skippedRecord('negativeControl', SKIP_WHY.negativeControl) },
+  });
+  assert.equal(byFlag.code, 3);
+  // And a hand-rolled `{skipped: true}` with no flag is not a skippedRecord: it
+  // is the shape someone reaching for the exemption would write, and taking it
+  // on the word `skipped` alone would reopen this hole one field wider.
+  assert.equal(exitDecision({
+    cells, families: ['xtu'], negativeControls: { xtu: { ran: false, skipped: true, why: 'trust me' } },
+  }).code, 2);
 });
 
 test('a full-LTO link cell whose bytes were never compared cannot pass either', () => {

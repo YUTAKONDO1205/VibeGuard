@@ -18,7 +18,7 @@ import {
   buildRecord, writeRecord, writeDataRefusals, nonIntegerNumbers, versionTriple,
   dataFileName, dataPathFor, REQUIRED_LEVELS, SCHEMA, DATA_DIR,
 } from '../lib/record.mjs';
-import { tabulate, laneVerdict, STRATUM } from '../lib/agreement.mjs';
+import { tabulate, laneVerdict, STRATUM, O2_VOCAB, O3_VOCAB } from '../lib/agreement.mjs';
 
 /** A full run's arguments -- the only shape `--write-data` accepts. */
 const FULL = Object.freeze({
@@ -63,6 +63,13 @@ function record(extra = {}) {
     args: FULL,
     toolchain: { version: '18.1.3', vendor: 'clang' },
     plugin: { basename: 'libPropertyObserver.so', sha256: 'a'.repeat(64) },
+    // Added when the lane grew a second second-oracle. The vocabulary is
+    // REQUIRED rather than defaulted: a record that did not say which
+    // instrument it is of would describe a gcc run as a run of the pass
+    // observer gcc does not load, and the four table keys would be the wrong
+    // four. `buildRecord refuses a record that cannot name its second oracle`
+    // below is the test for the refusal.
+    vocab: O2_VOCAB,
     rows: { file: '(tracked default)', sha256: 'b'.repeat(64) },
     generatedAt: '2026-09-12T00:00:00.000Z',
     node: process.version,
@@ -226,4 +233,79 @@ test('the call-site diagnosis is carried with its provenance, or the field is nu
   });
   assert.equal(withSplit.irCallSites.provenance, 'tool');
   assert.deepEqual(nonIntegerNumbers(withSplit), []);
+});
+
+// ------------------------------- the second oracle the record is OF ----------
+//
+// Added when the lane grew a gcc-side second oracle. Until then there was one
+// second instrument and the record could name it in a literal; with two, a
+// literal is a record that describes the run that did not happen.
+
+test('buildRecord refuses a record that cannot name its second oracle', () => {
+  assert.throws(() => record({ vocab: undefined }), /which second oracle/);
+});
+
+test('the record names the second oracle and its two column headings', () => {
+  const r = record();
+  assert.equal(r.secondOracle.name, 'O2');
+  assert.equal(r.secondOracle.gone, 'LOST');
+  assert.equal(r.secondOracle.kept, 'PRESENT');
+  assert.ok(r.oracles.O2, 'the record does not describe O2');
+  assert.equal(r.oracles.O3, undefined, 'an O2 record describes an oracle that did not run');
+});
+
+test('an O3 record carries O3’s own four table keys, not O2’s', () => {
+  // The table is copied from the stratum rather than from four spelled keys.
+  // Four literals would have dropped every graded cell of a gcc run and left a
+  // denominator that disagreed with its own table.
+  const pairs = [
+    { id: 'g1', cc: 'gcc-13', opt: '-O2', fn: 'wipe_g1', idiom: 'removable', nSpans: 1,
+      o1: { verdict: 'WIPE_ELIMINATED', control: 'PRESENT', control_via: 'asm' },
+      o2: { finalState: 'ABSENT', control: 'PRESENT' } },
+    { id: 'g2', cc: 'gcc-13', opt: '-O2', fn: 'wipe_g2', idiom: 'nonremovable', nSpans: 1,
+      o1: { verdict: 'WIPE_SURVIVED', control: 'PRESENT', control_via: 'asm' },
+      o2: { finalState: 'PRESENT', control: 'PRESENT' } },
+    { id: 'g3', cc: 'gcc-13', opt: '-O0', fn: 'wipe_g3', idiom: 'nonremovable', nSpans: 1,
+      o1: { verdict: 'WIPE_SURVIVED', control: 'PRESENT', control_via: 'asm' },
+      o2: { finalState: 'PARTIAL', control: 'PRESENT' } },
+  ];
+  const tab = tabulate(pairs, { vocab: O3_VOCAB });
+  const r = buildRecord({
+    tab,
+    verdict: laneVerdict(tab),
+    chosen: pairs.map((p) => ({ id: p.id, cc: p.cc, opt: p.opt, fn: p.fn, idiom: p.idiom, nSpans: p.nSpans, o1: p.o1 })),
+    pairs,
+    args: { ...FULL, ccs: ['gcc-13'], observer: null, diagnoseCallSites: false, secondOracle: 'O3' },
+    toolchain: { version: '13.3.0', vendor: 'gcc' },
+    plugin: null,
+    vocab: O3_VOCAB,
+    instrument: { reader: 'read-wipe.py', objdump: 'GNU objdump 2.42' },
+    rows: { file: '(tracked default)', sha256: 'b'.repeat(64) },
+    generatedAt: '2026-09-14T00:00:00.000Z',
+    node: process.version,
+  });
+  const above = r.strata.find((s) => s.name === STRATUM.ABOVE_O0);
+  assert.deepEqual(Object.keys(above.table).sort(),
+    ['ELIMINATED/ABSENT', 'ELIMINATED/PRESENT', 'SURVIVED/ABSENT', 'SURVIVED/PRESENT']);
+  assert.equal(above.table['ELIMINATED/ABSENT'], 1);
+  assert.equal(above.table['SURVIVED/PRESENT'], 1);
+  assert.equal(above.den, 2);
+  assert.equal(above.columns.oracle, 'O3');
+  assert.equal(r.secondOracle.name, 'O3');
+  assert.equal(r.plugin, null);
+  // PARTIAL is at -O0 here and is NOT_COMPARABLE, never folded into ABSENT.
+  const atO0 = r.strata.find((s) => s.name === STRATUM.AT_O0);
+  assert.equal(atO0.excludedTotal, 1);
+  assert.equal(atO0.excludedByKind.NOT_COMPARABLE, 1);
+});
+
+test('an O3 run may not be recorded while naming a plugin it never loaded', () => {
+  const why = writeDataRefusals({
+    ...FULL, ccs: ['gcc-13'], secondOracle: 'O3', diagnoseCallSites: false, observer: null,
+  });
+  assert.deepEqual(why, [], why.join('; '));
+  const withPlugin = writeDataRefusals({
+    ...FULL, ccs: ['gcc-13'], secondOracle: 'O3', diagnoseCallSites: false, observer: '/x/libPropertyObserver.so',
+  });
+  assert.ok(withPlugin.some((w) => /O3 run/.test(w)), withPlugin.join('; '));
 });

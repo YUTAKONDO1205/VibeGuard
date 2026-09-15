@@ -66,11 +66,14 @@ node compiler/elf-verifier/run-artefact-policy.mjs \
   --dir    compiler/elf-verifier/_results/artefact-matrix/bin
 ```
 
-Measured against the 23-row matrix: `artefacts=23 inspected=23 skipped=0
+Measured against the 24-row matrix: `artefacts=24 inspected=24 skipped=0
 findings=34 incomplete=2`, exit `2`. The two incomplete entries are
 `libshared.so` and `wx-on`, which are built from different sources and carry
 neither the control string nor the marker, so their scans are `BROKEN` rather
-than clean.
+than clean. One row, `clean`, prints `OK clean exit=0 findings=0 incomplete=0
+scan=CLEAN`: it was added on 2026-09-14 and the counts either side of it did
+not move, which is what a row that adds a verdict rather than a finding looks
+like.
 
 It decides nothing itself. It does not parse the policy — each artefact is
 handed to `artefact-require.mjs`, which validates it, including the
@@ -109,15 +112,31 @@ in `.github/workflows/ci.yml`, which this file cannot honestly claim exists:
 
 Until then this is a command that works and is documented, not a gate that runs.
 
-### One limit it inherits and does not fix
+### A limit it inherited, closed 2026-09-14
 
 The byte scan under it reports a hit, and refuses to report anything when its
-control string is missing. It has **never been shown to report `CLEAN` with a
-live control and a forbidden string configured**, because every image in the
-matrix that carries the control also carries the marker
+control string is missing. Until 2026-09-14 it had **never been shown to report
+`CLEAN` with a live control and a forbidden string configured**, because every
+image in the matrix that carried the control also carried the marker
 (`compiler/schema/properties.json`, `_notAnExtractor.artifactByteScan`). Running
-the scan over 23 images instead of 1 does not change that; only a fixture that
-holds the control and not the marker would.
+the scan over 23 images instead of 1 did not change that; only a fixture that
+held the control and not the marker would, and that is what the `clean` row is:
+`clean.c` is `fixture.c` with the one planted line deleted, built under the
+hardened row's flags, so the only difference the scan can see is the absent
+marker.
+
+All three verdicts are now measured against real linked artefacts in
+`test/artefact-scan-verdicts.test.mjs` — `clean` is `CLEAN`, `hardened` and
+`unhardened` are `HITS`, `wx-on` is `BROKEN` — and through the command line,
+where the clean row with `--forbid` set exits `0` with `scan=CLEAN controls=1
+hits=0 unverified=0`. That suite does not skip when the git-ignored matrix is
+absent: it builds the four rows it needs from the generator's own sources, and
+fails rather than skipping when there is no compiler to build them with, unless
+`VG_ART_ALLOW_SKIP=1` is set.
+
+What this does NOT show is that the scanner would find a secret nobody planted.
+The needle is planted by the generator and the clean row is the same
+translation unit with the planted line removed.
 
 ## What the table is for
 
@@ -129,7 +148,7 @@ the reason two properties abstain instead of answering. They are set out in
   passes a binary with no `PT_GNU_RELRO`.
 - `-Wl,-z,relro,-z,lazy` **keeps `PT_GNU_RELRO`**, so a segment check passes a
   binary with lazy binding.
-- `DT_BIND_NOW` is **absent on all 23 fixtures**, including the hardened link.
+- `DT_BIND_NOW` is **absent on all 24 fixtures**, including the hardened link.
 - `ET_DYN` alone reports a shared library as a position-independent executable.
 - In a `-static` image `__stack_chk_fail` is **defined either way**, and the
   canary-load count is 355 against 353. Whole-image granularity cannot decide

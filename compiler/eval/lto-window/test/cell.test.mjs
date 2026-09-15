@@ -15,7 +15,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { gradeCell, finish, MEASUREMENT, STATE, REASON, NOTE } from '../lib/cell.mjs';
+import { gradeCell, finish, gccChannelRefusal, MEASUREMENT, STATE, REASON, NOTE } from '../lib/cell.mjs';
 
 const summary = (over = {}) => ({
   unit: 'handle', lineage: 'handle', role: 'subject',
@@ -397,4 +397,133 @@ test('a refusal with an unknown measurement word still cannot claim a property s
   const c = gradeCell({ refusal: { measurement: 'NOT_A_WORD', reason: 'x' } });
   assert.equal(c.state, STATE.NOT_OBSERVED);
   assert.equal(c.attribution, null);
+});
+
+/* ------------------------------------------- the backstop's own coverage -- */
+
+test('finish() refuses a `state` that is not a member of STATE', () => {
+  // THE SECOND LAYER. lib/pass-log.mjs now tears a short SUMMARY row before it
+  // can become a summary, which closes the input this was measured through --
+  // but finish() is the declared backstop ("every return above goes through
+  // here, so a future edit that produces an illegal pair throws in this lane
+  // instead of writing a record"), and until 2026-09-15 it checked three
+  // COMBINATIONS and never checked that `state` was a state at all. The success
+  // path copies `summary.finalState` out of the log text with no validation, so
+  // whatever is in that field is what gets published.
+  //
+  // `undefined` is the measured one: a SUMMARY row torn before field 10 parsed
+  // into a summary whose finalState was undefined, gradeCell returned
+  // `{measurement: 'OK', state: undefined, ...}`, and JSON.stringify then
+  // dropped the key -- the published cell had no `state` at all.
+  assert.throws(() => finish({ measurement: MEASUREMENT.OK, state: undefined, controlHeld: true, reasons: [] }),
+    /is not one of the states/);
+  // And a typo, which is the shape a future edit to the observer's stateName()
+  // would take. It is not caught by any pairing rule: it is not NOT_OBSERVED,
+  // so every existing throw passes it.
+  assert.throws(() => finish({ measurement: MEASUREMENT.OK, state: 'PRESNET', controlHeld: true, reasons: [] }),
+    /PRESNET/);
+  assert.throws(() => finish({ measurement: MEASUREMENT.OK, state: null, controlHeld: true, reasons: [] }),
+    /is not one of the states/);
+  // Every legal state still goes through, including the two the pairing rules
+  // single out.
+  for (const s of Object.values(STATE)) {
+    const c = finish({ measurement: MEASUREMENT.OK, state: s, controlHeld: true, reasons: ['because'] });
+    assert.equal(c.state, s);
+  }
+});
+
+test('a torn SUMMARY row cannot reach a published cell: both layers, on the measured input', () => {
+  // The end-to-end reproduction, as one assertion. Feed gradeCell the summary
+  // that a 4-field `SUMMARY\thandle\thandle\tsubject` used to parse into --
+  // every field past the cut `undefined` -- and the cell must not come back.
+  const torn = {
+    unit: 'handle', lineage: 'handle', role: 'subject',
+    firstLossSeq: null, firstLossPass: null, finalState: undefined,
+    everPresent: false, everLost: false, everReintroduced: false, fate: undefined,
+  };
+  assert.throws(() => gradeCell({
+    guards: healthyGuards,
+    subject: torn,
+    control: summary({ unit: 'wipe_kept', role: 'control' }),
+    subjectResolved: true,
+  }), /is not one of the states/);
+});
+
+/* ------------------------------------------------------ the gcc cell's rc -- */
+
+const gccProbesAllRefused = () => ({
+  loadPassPluginOnGccLink: { rc: 1, stderr: ["/usr/bin/ld: unrecognized option '--load-pass-plugin=<so>'"] },
+  llvmPluginIntoLto1: { rc: 1, stderr: ['lto1: error: cannot load plugin <so>: undefined symbol: _ZTVN4llvm18raw_string_ostreamE'] },
+  gccObjectsThroughLld: { rc: 1, stderr: ['ld.lld: error: undefined symbol: main'] },
+});
+
+test('gccChannelRefusal earns UNSUPPORTED only when every channel was refused', () => {
+  const r = gccChannelRefusal(gccProbesAllRefused());
+  assert.equal(r.measurement, MEASUREMENT.UNSUPPORTED);
+  assert.match(r.reason, /^linker-refused-plugin-option: \/usr\/bin\/ld: unrecognized option/);
+  // The rc values that earned it are in the record, so "earned" is readable
+  // from the artifact rather than from a comment in the source.
+  assert.match(r.details[0], /all 3 gcc channels refused: loadPassPluginOnGccLink rc=1, llvmPluginIntoLto1 rc=1, gccObjectsThroughLld rc=1/);
+});
+
+test('a gcc probe that NEVER RAN does not publish UNSUPPORTED either', () => {
+  // The second half of the same defect, and the half the first fix left open:
+  // splitting rc into "0" and "not 0" files a probe that was never put to the
+  // toolchain with the refusals. `run()` in the runner returns `rc: null` when
+  // spawnSync fails -- no such binary, or the 180s timeout -- and the third
+  // probe passes `-fuse-ld=lld`, so on a host without lld the lane would have
+  // called it a refusal. UNSUPPORTED means the toolchain refused; silence is
+  // not refusal. Found reviewing the fix, not the code it replaced.
+  for (const missing of [null, undefined]) {
+    const probes = gccProbesAllRefused();
+    probes.gccObjectsThroughLld = { rc: missing, stderr: ['spawnSync ld.lld-18 ENOENT'] };
+    const r = gccChannelRefusal(probes);
+    assert.equal(r.measurement, MEASUREMENT.BROKEN_MEASUREMENT, `rc: ${String(missing)}`);
+    assert.equal(r.reason, REASON.NO_OBSERVER_FOR_VENDOR);
+    assert.match(r.details[0], /could not be put to the toolchain at all/);
+    assert.match(r.details[0], /not-run: gccObjectsThroughLld/);
+    // The rc values stay in the record: which channel was silent is the fact a
+    // reader needs, and it is the one an UNSUPPORTED row would have hidden.
+    assert.match(r.details[0], /loadPassPluginOnGccLink rc=1/);
+  }
+  // All three genuinely refused is still UNSUPPORTED -- this test must not be
+  // satisfiable by a function that never returns it.
+  assert.equal(gccChannelRefusal(gccProbesAllRefused()).measurement, MEASUREMENT.UNSUPPORTED);
+});
+
+test('a gcc probe that SUCCEEDED does not publish UNSUPPORTED', () => {
+  // The defect, synthesised: until 2026-09-15 the cell was built with no rc
+  // anywhere in the expression, so this input published `UNSUPPORTED /
+  // linker-refused-plugin-option: no diagnostic` -- the `?? 'no diagnostic'`
+  // fallback standing in for a diagnostic that was never printed because
+  // nothing was refused.
+  const accepted = { ...gccProbesAllRefused(), loadPassPluginOnGccLink: { rc: 0, stderr: [] } };
+  const r = gccChannelRefusal(accepted);
+  assert.notEqual(r.measurement, MEASUREMENT.UNSUPPORTED, 'the linker did not refuse, so the word is not earned');
+  assert.equal(r.measurement, MEASUREMENT.BROKEN_MEASUREMENT);
+  assert.equal(r.reason, REASON.NO_OBSERVER_FOR_VENDOR);
+  assert.match(r.details[0], /accepted: loadPassPluginOnGccLink/);
+  assert.ok(!JSON.stringify(r).includes('no diagnostic'),
+    'the no-diagnostic fallback must not stand in for a probe that printed nothing because it succeeded');
+
+  // The other two gate as well: three channels are probed because ONE refusal
+  // is not the vendor, so any one of them opening is enough.
+  for (const k of ['llvmPluginIntoLto1', 'gccObjectsThroughLld']) {
+    const one = { ...gccProbesAllRefused(), [k]: { rc: 0, stderr: [] } };
+    assert.equal(gccChannelRefusal(one).measurement, MEASUREMENT.BROKEN_MEASUREMENT, `${k} rc=0 must not read as UNSUPPORTED`);
+  }
+
+  // And the cell built from it is a legal cell, not a throw: the refusal is a
+  // verdict this lane can publish, it is just not the UNSUPPORTED one.
+  const c = gradeCell({ refusal: gccChannelRefusal(accepted) });
+  assert.equal(c.state, STATE.NOT_OBSERVED);
+  assert.equal(c.attribution, null);
+  assert.ok(c.reasons.includes(REASON.NO_OBSERVER_FOR_VENDOR));
+});
+
+test('gccChannelRefusal will not grade a cell from no probes at all', () => {
+  // An empty object has no accepted channel, so a plain "any accepted?" test
+  // would call that a refusal by every channel there is -- of zero channels.
+  assert.throws(() => gccChannelRefusal({}), /no probes at all/);
+  assert.throws(() => gccChannelRefusal(null), /no probes at all/);
 });

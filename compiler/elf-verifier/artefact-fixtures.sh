@@ -75,6 +75,52 @@ int main(int argc, char **argv) {
 }
 EOF
 
+# THE CLEAN ROW, added 2026-09-14. fixture.c with the secret deleted and
+# nothing else changed: the same real `main`, the same non-optimisable
+# `control_sink` effect, the same control string, the same `copy_it` so the
+# protector and FORTIFY have something to act on. The ONE difference under test
+# is the absent marker.
+#
+# WHY IT HAD TO BE A NEW TRANSLATION UNIT. Until this file existed, every image
+# in the matrix that carried the control also carried the marker (built from
+# fixture.c), and the two that lacked the marker also lacked the control (wx.c,
+# lib.c) and so could only ever be BROKEN. `scanBytes` has three verdicts and
+# the matrix could produce two of them: CLEAN under a live control with a
+# forbidden string configured had never once been observed on a real binary,
+# which is why compiler/schema/properties.json holds the string-shaped
+# must-not-appear entries at unimplemented and names the FIXTURES as the
+# obstacle.
+#
+# DO NOT add any secret-shaped literal here, not even a different one. The
+# point of the row is that there is nothing to find; a novel credential-shaped
+# string would also be a new finding for scripts/check-disclosure-shape.mjs in
+# a file that is not allowlisted for one.
+cat > clean.c <<'EOF'
+#include <stdio.h>
+#include <string.h>
+
+const char *CONTROL_STRING = "artefact-control-string-always-present";
+
+/* Protector-eligible and fortifiable: a real char array on the stack. */
+int copy_it(const char *in) {
+  char buf[64];
+  strcpy(buf, in);
+  printf("%s\n", buf);
+  return (int) strlen(buf);
+}
+
+/* CONTROL: an effect that cannot be optimised away. */
+volatile int control_sink;
+int control(int x) { control_sink = x + 1; return control_sink; }
+
+int main(int argc, char **argv) {
+  control(argc);
+  if (argc > 1) return copy_it(argv[1]);
+  puts(CONTROL_STRING);
+  return 0;
+}
+EOF
+
 cat > wx.c <<'EOF'
 #include <stdio.h>
 __attribute__((section(".vgwx"))) volatile unsigned char trampoline[16] = {0x90};
@@ -91,16 +137,28 @@ EOF
 
 built=0
 failed=0
-build() {
-  name="$1"; shift
-  if gcc -o "$BIN/$name" fixture.c "$@" 2> "$OBS/$name.err"; then
+build_src() {
+  src="$1"; name="$2"; shift 2
+  if gcc -o "$BIN/$name" "$src" "$@" 2> "$OBS/$name.err"; then
     built=$((built + 1))
-    echo "BUILD OK   $name :: $*"
+    echo "BUILD OK   $name :: $src $*"
   else
     failed=$((failed + 1))
-    echo "BUILD FAIL $name :: $*"
+    echo "BUILD FAIL $name :: $src $*"
     sed 's/^/    /' "$OBS/$name.err"
   fi
+}
+
+# Every hardening row is fixture.c under different flags — the source is held
+# fixed so that the only thing the table varies is the link. `build_src` above
+# exists because the clean row varies the SOURCE instead, and it has to be
+# built by the same code path: a row assembled by a bespoke block (as wx-on and
+# libshared.so are, further down) is a row whose failure does not reach
+# `failed` in the same way, and the matrix would be short one image while still
+# printing a table.
+build() {
+  name="$1"; shift
+  build_src fixture.c "$name" "$@"
 }
 
 OFF="-fno-stack-protector -U_FORTIFY_SOURCE"
@@ -125,6 +183,13 @@ build hardened    -O2 -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE -pie \
                   -Wl,-z,relro,-z,now -Wl,-z,noexecstack -Wl,--build-id=sha1 -g0
 build unhardened  -O0 -fno-stack-protector -U_FORTIFY_SOURCE -fno-pie -no-pie \
                   -Wl,-z,norelro -Wl,-z,execstack -Wl,--build-id=none -g
+# The clean row carries the hardened row's flags EXACTLY, so that a policy
+# naming the four decidable requirements passes on it and the only thing left
+# for the run to report is the byte scan. Give it weaker flags and a CLEAN scan
+# would arrive alongside findings, where nobody would read it.
+build_src clean.c clean -O2 -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE -pie \
+                  -Wl,-z,relro,-z,now -Wl,-z,noexecstack -Wl,--build-id=sha1 -g0
+
 build static-hardened -O2 -static -fstack-protector-strong -D_FORTIFY_SOURCE=2
 build static-plain    -O2 -static $OFF
 
@@ -246,11 +311,21 @@ PY
 
 echo
 echo "===== residue: the control string and the forbidden marker ====="
-for f in hardened unhardened; do
+# One row per byte-scan verdict, which is what makes this four-line table worth
+# printing: `clean` and `wx-on` were added on 2026-09-14 because the two rows
+# that used to be here are both control=1 secret=1, and a reader could see only
+# the HITS shape. control=1 secret=0 is CLEAN, control=0 is BROKEN whatever the
+# secret column says.
+# Corrected 2026-09-14: this used to read `grep -c … || echo 0`, and `grep -c`
+# ALREADY prints 0 when it matches nothing — it just exits 1 while doing it, so
+# the fallback fired as well and the field became two lines reading "0\n0". It
+# was invisible while the only rows printed were the two that match everything.
+count() { grep -c "$2" "$1" 2>/dev/null; }
+for f in hardened unhardened clean wx-on; do
   [ -f "$BIN/$f" ] || continue
   printf '%-12s control=%s secret=%s\n' "$f" \
-    "$(grep -c 'artefact-control-string-always-present' "$BIN/$f" 2>/dev/null || echo 0)" \
-    "$(grep -c 'AKIAIOSFODNN7EXAMPLE' "$BIN/$f" 2>/dev/null || echo 0)"
+    "$(count "$BIN/$f" 'artefact-control-string-always-present')" \
+    "$(count "$BIN/$f" 'AKIAIOSFODNN7EXAMPLE')"
 done
 
 echo

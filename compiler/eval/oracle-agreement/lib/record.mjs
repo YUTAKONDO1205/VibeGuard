@@ -8,7 +8,7 @@
  * section -- prose. Every number in it (48 cells, a denominator of 25, 24 on the
  * diagonal, 23 `NOT_COMPARABLE`, one off-diagonal id, exit 2) is a number a
  * reader has to take on faith, and a number nothing re-derives is a number that
- * drifts from the run it came from the first time either changes. `../lto-window`
+ * drifts from the run it came from the first time either changes. `../../lto-window`
  * hit the same wall on the same day and answered it the same way: a per-run JSON
  * under `data/`, pinned by a test.
  *
@@ -74,6 +74,17 @@ export const SCHEMA = 'vibeguard.oracle-agreement-record/1';
  * another's and a reader never has to ask which one a file is of.
  */
 export const dataFileName = (cc) => `oracle-agreement-${vendorLabel(cc)}.json`;
+
+/**
+ * Which second oracle a driver gets when the operator does not say.
+ *
+ * gcc does not load an LLVM pass plugin, so the pass observer is a clang-only
+ * instrument and the disassembly reader is what a gcc run has. Spelled HERE
+ * rather than in the runner because `writeDataRefusals` has to know it too, and
+ * two spellings of this rule is how a run could be refused by one of them and
+ * allowed by the other.
+ */
+export const defaultSecondOracle = (cc) => (/^clang/.test(vendorLabel(cc)) ? 'O2' : 'O3');
 export const dataPathFor = (cc, dir = DATA_DIR) => join(dir, dataFileName(cc));
 
 /** The levels a full run has to cover: the separated stratum and one above it. */
@@ -90,16 +101,45 @@ export function writeDataRefusals(args) {
   if (args.dryRun) why.push('--dry-run (nothing was measured)');
   if (args.ids && args.ids.length) why.push('--ids (a hand-named subset is not the lane\'s result)');
   if (!args.write) why.push('--no-write (a record written while the report is suppressed has no lab copy beside it)');
-  if (!args.observer) why.push('no --observer (the second oracle did not run)');
+  // WHICH second oracle ran decides what "the second oracle did not run" means.
+  // O2 is a pass plugin and cannot run without one; O3 is a disassembly reader
+  // and has no plugin to be given, so demanding `--observer` of a gcc run would
+  // refuse the only record that run can produce -- and a lane whose gcc half
+  // cannot write a record is the lane that had no gcc oracle, one step further
+  // along.
+  if (args.secondOracle === 'O3') {
+    if (args.observer) {
+      why.push('--observer on an O3 run (the disassembly reader loads no pass plugin; a plugin named here was not used and would be recorded as though it had been)');
+    }
+  } else if (!args.observer) {
+    why.push('no --observer (the second oracle did not run)');
+  }
   if (!args.ccs || args.ccs.length !== 1) {
     why.push('more than one --cc (the record file is named after one compiler)');
+  }
+  // THE ONE REAL OBSTACLE TO O3-ON-CLANG, and it is an obstacle to the RECORD
+  // rather than to the run. `dataFileName` keys on the vendor alone, so an O3
+  // run on clang and an O2 run on clang want the same file -- and the O2 one is
+  // this lane's measured result. A run that overwrote it would replace a table
+  // of `ELIMINATED/LOST` with a table of `ELIMINATED/ABSENT` under a name that
+  // says neither. The run itself is allowed and prints its table; what it may
+  // not do is claim the vendor's record slot.
+  if (args.ccs && args.ccs.length === 1 && args.secondOracle && args.secondOracle !== defaultSecondOracle(args.ccs[0])) {
+    why.push(`--second-oracle ${args.secondOracle} on ${vendorLabel(args.ccs[0])} (the record is named after the `
+      + `compiler alone, so this would be written over the ${defaultSecondOracle(args.ccs[0])} record of the same `
+      + 'vendor; run it without --write-data and quote the report)');
   }
   for (const lvl of REQUIRED_LEVELS) {
     if (!args.opts || !args.opts.includes(lvl)) {
       why.push(`--opt does not include ${lvl} (the tracked record covers both strata; ${lvl} is the one that must be tabulated separately)`);
     }
   }
-  if (!args.diagnoseCallSites) {
+  // `--diagnose-callsites` counts IR call sites, which is a diagnosis of what O2
+  // could be ASKED. O3 is not a call-site oracle and the count says nothing
+  // about its domain; what bounds O3's domain is the byte count, and
+  // `lib/bufferbytes.mjs` establishes one for every cell it grades, with the
+  // refusals listed by id. So the requirement is per-oracle rather than dropped.
+  if (args.secondOracle !== 'O3' && !args.diagnoseCallSites) {
     why.push('--diagnose-callsites was not given (the record would carry the exclusion split as prose provenance, which is what the tracked file exists to replace)');
   }
   return why;
@@ -140,12 +180,13 @@ function strataRecord(s) {
   return {
     name: s.name,
     levels: s.levels,
-    table: {
-      'ELIMINATED/LOST': s.table['ELIMINATED/LOST'],
-      'ELIMINATED/PRESENT': s.table['ELIMINATED/PRESENT'],
-      'SURVIVED/LOST': s.table['SURVIVED/LOST'],
-      'SURVIVED/PRESENT': s.table['SURVIVED/PRESENT'],
-    },
+    // Copied cell by cell from the stratum's OWN table rather than from four
+    // spelled keys. Four literals here would drop every cell of an O3 table on
+    // the floor -- its columns are `ABSENT`/`PRESENT`, not `LOST`/`PRESENT` --
+    // and the record would carry four zeroes and a denominator that disagreed
+    // with them, which is a shape a reader can only find by adding up.
+    table: { ...s.table },
+    columns: s.columns ? { ...s.columns } : null,
     den: s.den,
     agree: s.agree,
     disagree: s.disagree,
@@ -180,24 +221,60 @@ function strataRecord(s) {
  * a corpus.
  */
 export function buildRecord({
-  tab, verdict, chosen, pairs, args, toolchain, plugin, rows, callSites = null, generatedAt, node,
+  tab, verdict, chosen, pairs, args, toolchain, plugin = null, rows, callSites = null,
+  vocab, instrument = null, domain = null, bytes = null, generatedAt, node,
 }) {
   const cc = args.ccs[0];
   const above = tab.strata.find((s) => s.name === STRATUM.ABOVE_O0) || null;
+  if (!vocab) throw new Error('buildRecord: no vocabulary was given, so the record cannot say which second oracle it is of');
   return {
     schemaVersion: SCHEMA,
     lane: 'oracle-agreement',
     // What the two oracles ARE, in the record rather than only in the README: a
     // file that says 24 and 25 without saying what was compared is a file that
     // can be quoted about anything.
+    //
+    // The SECOND oracle is named from the vocabulary the run tabulated under,
+    // never from a literal, so a gcc record cannot describe itself as a run of
+    // the pass observer that gcc does not load.
     oracles: {
       O1: 'verdictOf, differential assembly text, read from the tracked rows and not re-measured',
-      O2: 'PropertyObserver, IR call-site state, measured in this run',
+      [vocab.oracle]: `${vocab.instrument}, measured in this run`,
+    },
+    secondOracle: {
+      name: vocab.oracle,
+      instrument: vocab.instrument,
+      // The two column headings, so the table below is readable without knowing
+      // which instrument wrote it: `SURVIVED/ABSENT` is a cell of O3's table and
+      // means something else in O2's.
+      gone: vocab.gone,
+      kept: vocab.kept,
+      notInTable: [...vocab.notInTable],
     },
     generatedAt,
     node,
     toolchain: { cc: vendorLabel(cc), version: toolchain.version, vendor: toolchain.vendor },
-    plugin: { basename: plugin.basename, sha256: plugin.sha256 },
+    // `null` on an O3 run, and not omitted: a record with no `plugin` key reads
+    // as a record from before the field existed.
+    plugin: plugin ? { basename: plugin.basename, sha256: plugin.sha256 } : null,
+    // What the second oracle WAS, on a run that has no plugin to digest: the
+    // reader's own identification of the disassembler it read through.
+    instrument,
+    /**
+     * What the run was allowed to select from, and why the denominator is not
+     * over the corpus.
+     *
+     * A filtered selection is a narrower claim, and a record that did not say so
+     * would let a gcc number be quoted as a statement about the gcc half of the
+     * corpus when it is a statement about the cells O3 can be asked.
+     */
+    domain,
+    /**
+     * The byte counts: how many cells got one, how many were refused, and by
+     * what provenance. Never a byte count that was defaulted -- there is no
+     * default -- and the refusals are listed among the exclusions by id.
+     */
+    bytes,
     rows: { file: rows.file, sha256: rows.sha256 },
     request: {
       levels: args.opts,

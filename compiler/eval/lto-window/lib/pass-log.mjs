@@ -92,10 +92,48 @@ export function parseLldPassLog(text) {
   return { runs, lineKinds: Object.fromEntries([...kinds].sort()) };
 }
 
+/**
+ * The record types this lane knows how to read, and how many tab-separated
+ * fields each one carries, counting the type itself.
+ *
+ * The ARITIES are new on 2026-09-15 and they are the whole of this table's
+ * point. Until then this was a bare set of type names, and intactness asked one
+ * question of a line -- is field 0 a legal record type? -- which the ThinLTO
+ * tear passes whenever it lands anywhere but the first field. A line spliced
+ * mid-field still begins `SUMMARY\t` and simply loses its tail; every index past
+ * the cut then reads `undefined`, `parseSummaryRow` hands back a row whose
+ * `finalState` is `undefined`, and `intact` stays true because `tornLines` is
+ * empty. Reproduced end to end: a 4-field `SUMMARY\thandle\thandle\tsubject`
+ * beside one full row parsed as TWO summaries, `intact` true, `tornLines` 0, and
+ * the subject's state came out `undefined` -- which is not a member of `STATE`,
+ * and which JSON.stringify then drops from the published cell entirely, so the
+ * artifact has no `state` key at all rather than a wrong one.
+ *
+ * Counted from History.h's schema block (lines 32-54) and checked against the
+ * writers in History.cpp that emit them (`HANDSHAKE` 188, `SUBJECTRES` 250,
+ * `PASS` 283, `SKIP` 292, `UNIT` 329/343, `SNAP` 417, `EV` 493, `SUMMARY` 514,
+ * `HIST` 538, `STATS` 546), then re-measured on five real logs on 2026-09-15:
+ * every record in every one of them had exactly the count below.
+ *
+ * EXACT, not a minimum. A tear does not only shorten: splicing the tail of one
+ * line onto the head of another leaves a row with a legal type and MORE fields
+ * than the schema allows, and that row is exactly as torn. No writer here emits
+ * a variable number of fields -- `EffectSymbols` is comma-joined into ONE field
+ * precisely so that it cannot -- so a count that is not the count is a tear.
+ *
+ * What this would silently break if a record ever grows a field: every row of
+ * that type becomes a torn line and every log carrying one becomes not-intact,
+ * which refuses cells rather than mis-reading them. That is the safe direction,
+ * and it is loud, but it means this table has to be updated in the same change
+ * as History.h rather than after it.
+ */
+const RECORD_ARITY = Object.freeze({
+  HANDSHAKE: 8, SUBJECTRES: 6, PASS: 6, EV: 11, UNIT: 6, SNAP: 6, SKIP: 4,
+  SUMMARY: 19, HIST: 8, STATS: 7,
+});
+
 /** The record types this lane knows how to read. Anything else is a torn line. */
-const KNOWN_RECORDS = new Set([
-  'HANDSHAKE', 'SUBJECTRES', 'PASS', 'EV', 'UNIT', 'SNAP', 'SKIP', 'SUMMARY', 'HIST', 'STATS',
-]);
+const KNOWN_RECORDS = new Set(Object.keys(RECORD_ARITY));
 
 /**
  * Parse an observer TSV log, and say how intact it is.
@@ -125,7 +163,12 @@ export function parseObserverLog(buf) {
     if (line === '') continue;
     const f = line.split('\t');
     const type = f[0];
-    if (!KNOWN_RECORDS.has(type)) { out.tornLines.push(line.slice(0, 120)); continue; }
+    // A legal type in field 0 is NOT enough. The arity is the other half of the
+    // question, and it is the half the mid-line tear survives; see RECORD_ARITY.
+    if (!KNOWN_RECORDS.has(type) || f.length !== RECORD_ARITY[type]) {
+      out.tornLines.push(line.slice(0, 120));
+      continue;
+    }
     out.counts[type] = (out.counts[type] ?? 0) + 1;
     if (type === 'HANDSHAKE') out.handshakes.push({ schema: f[1], moduleId: f[2], target: f[3], control: f[4] });
     else if (type === 'SUBJECTRES') out.subjectRes.push({ moduleId: f[2], role: f[3], name: f[4], resolution: f[5] });
@@ -152,20 +195,32 @@ function parseSummaryRow(f) {
   };
 }
 
-/**
- * `<OBS_OUT>.summary.tsv` carries SUMMARY/HIST/STATS on their own.
+/*
+ * There is no `parseObserverSummaryFile` here, and there was one until
+ * 2026-09-15.
  *
- * It has to be read separately, and this is not a convenience. Under full LTO
- * the MAIN log has no SUMMARY at all: lld exits without unwinding, so the
- * tracker's destructor -- which is what calls finish() -- never runs. Measured:
- * the main log of a healthy full-LTO link held HANDSHAKE 1, SUBJECTRES 2, PASS
- * 448, EV 388, UNIT 2 and no SUMMARY, HIST or STATS; the side file held all
- * three. A reader that only looked at the main log would find no attribution in
- * a run that produced one.
+ * It took TEXT, wrapped it in a Buffer and called parseObserverLog, and it
+ * carried this module's longest justification comment -- the one explaining why
+ * `<OBS_OUT>.summary.tsv` has to be read as its own file. It was called by
+ * nothing: one hit across all of `compiler/`, the definition. The side file is
+ * really read by `readObserver` in ../run-lto-window.mjs, which calls
+ * parseObserverLog on the file's BYTES. So the documented entry point and the
+ * running one were two different functions, and a reviewer auditing "is the
+ * side file read as its own file?" would have found, and been satisfied by, the
+ * one that never ran.
+ *
+ * Deleted rather than wired up, because wiring it up would have been worse than
+ * dead code. `Buffer.from(buf.toString('utf8'), 'utf8')` is not the identity on
+ * a shredded log: a byte sequence that is not valid UTF-8 comes back as U+FFFD,
+ * three bytes where there was one, so the byte-level evidence this parser exists
+ * to count is altered by the round trip. Routing the side file through a
+ * text-taking wrapper would have degraded exactly the integrity reading the
+ * wrapper's comment was defending. test/pass-log.test.mjs measures that round
+ * trip rather than leaving this as an argument.
+ *
+ * The reasoning that was here has moved to `readObserver`, next to the
+ * `fs.readFileSync` that does the work.
  */
-export function parseObserverSummaryFile(text) {
-  return parseObserverLog(Buffer.from(String(text ?? ''), 'utf8'));
-}
 
 /**
  * Guard 2. Compare the observer's before-pass callbacks with the linker's own

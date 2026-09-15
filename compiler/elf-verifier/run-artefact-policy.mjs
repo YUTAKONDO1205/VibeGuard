@@ -53,7 +53,7 @@
 //
 // ── AN EMPTY RUN IS NOT A PASS, AND THERE IS NO FLAG TO MAKE IT ONE ─────────
 //
-// The 23-row fixture matrix is git-ignored and absent from a clean checkout, so
+// The 24-row fixture matrix is git-ignored and absent from a clean checkout, so
 // the common way to run this file is with nothing to run it on. That case is
 // exit 3 with the reason named. `./artefact-controls.mjs` has `--allow-empty`
 // and this deliberately does not: there, the run asserts a fixed table and an
@@ -66,16 +66,24 @@
 // Prints `artefacts=N inspected=N skipped=N findings=N incomplete=N` and lists
 // every skipped path with the reason it was skipped.
 //
-// ── A LIMIT THIS RUNNER INHERITS AND DOES NOT FIX ───────────────────────────
+// ── A LIMIT THIS RUNNER INHERITED, and closed on 2026-09-14 ─────────────────
 //
 // The byte scan under it has been shown to report a hit, and to refuse to
-// report anything when its control string is missing. It has never been shown
-// to report CLEAN with a live control and a forbidden string configured, for a
-// fixture reason recorded in `compiler/schema/properties.json` under
-// `_notAnExtractor.artifactByteScan`: every image in the matrix that carries
-// the control string also carries the forbidden one. Running the scan over more
-// images does not change that; only a fixture holding the control and not the
-// secret would.
+// report anything when its control string is missing. Until 2026-09-14 it had
+// never been shown to report CLEAN with a live control and a forbidden string
+// configured, for a fixture reason recorded in
+// `compiler/schema/properties.json` under `_notAnExtractor.artifactByteScan`:
+// every image in the matrix carrying the control string also carried the
+// forbidden one. Running the scan over more images did not change that; only a
+// fixture holding the control and not the secret would.
+//
+// `artefact-fixtures.sh` now builds one. Over the 24-row matrix under
+// `artefact-policy.matrix.json` this runner prints
+// `OK clean exit=0 findings=0 incomplete=0 scan=CLEAN` beside the 34 findings
+// and the 2 BROKEN scans, so all three verdicts of the scan appear in a single
+// run. What is still true is the narrower statement: the marker is planted by
+// the generator, so this measures the scanner's three branches and not its
+// ability to find a secret nobody planted.
 
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from 'node:fs';

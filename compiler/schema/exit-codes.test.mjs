@@ -227,7 +227,45 @@ test('the set of exit sites this fence cannot resolve has not silently grown', (
   // implicit 0 -- all three are defined in section 7, and 5 is the harness code
   // section 7 reserves for exactly this directory. A reader who raises this number
   // again owes the next person the same two sentences.
-  const BASELINE = 134;
+  //
+  // 134 -> 138 on 2026-09-15, read rather than bumped, and THIS RATCHET CAUGHT
+  // SOMETHING. The four sites arrived in `873a958` and `c3469a3` -- two commits
+  // that were never CI-tested, because ci.yml fires only on `pull_request` and
+  // `push` to `main`, so the branch they sit on runs nothing. Measured at each
+  // commit with this file's own three regexes: befc269 134, 873a958 136,
+  // c3469a3 138. The four, and what each can emit:
+  //
+  //   compiler/eval/oracle-agreement/tools/check-bytes-readout.mjs  `die(code)`
+  //   compiler/eval/oracle-agreement/tools/check-o3-apparatus.mjs   `die(code)`
+  //     Every caller of both passes a literal 3 or 4, and each file's only other
+  //     exits are a literal 2 and a literal 0. All four are in section 7.
+  //
+  //   compiler/eval/version-ladder/test/wiring.test.mjs
+  //     Not an exit at all: `process.exit(${c})` inside an assertion that SEARCHES
+  //     run-version-ladder.mjs for the literal sites, which exists so that the
+  //     codes stay resolvable to this file. The regex matched the needle. The test
+  //     enumerates what `ladderExit` can return -- 0, 2 and CROSS_EXIT=3 -- and
+  //     requires a site for each.
+  //
+  //   compiler/eval/lto-window/tools/check-which-wipe-plumbing.mjs  `die(code)`
+  //     ** THIS ONE CAN EMIT A CODE SECTION 7 DOES NOT DEFINE. ** Its
+  //     `EXIT = { OK: 0, BUILD: 3, USAGE: 4, DISAGREED: 5, NO_TOOLCHAIN: 69 }`
+  //     (line 81) is reached through `die(EXIT.NO_TOOLCHAIN, ...)` at line 225.
+  //     69 is sysexits.h EX_UNAVAILABLE and the file argues for it deliberately:
+  //     "no compiler here" and "the compiler said something else" are not the same
+  //     news, so it is kept apart from 5. Section 7 defines 0-6 and nothing else,
+  //     and no other test in this file knows the number exists -- the literal
+  //     scanners above cannot see it, because it arrives through a variable. That
+  //     is precisely the blind spot this count was written to make visible, and it
+  //     is the first time it has been paid out.
+  //
+  //     NOT resolved here, and deliberately not papered over. Two ways to close
+  //     it and both are somebody's decision, not this file's: add 69 to section 7
+  //     of ../schema/interfaces.md (which is not edited while components are
+  //     implemented against it -- so it is a request, not an edit), or make the
+  //     tool answer in the table's vocabulary and lose the distinction it argues
+  //     for. Raising the baseline records the site; it does not bless the code.
+  const BASELINE = 138;
   const files = execFileSync('git', ['ls-files', 'compiler'], { cwd: REPO, encoding: 'utf8', maxBuffer: 1 << 28 })
     .split('\n')
     .filter((f) => /\.(mjs|js|cjs|ts|py|sh|c|cc|cpp)$/.test(f))

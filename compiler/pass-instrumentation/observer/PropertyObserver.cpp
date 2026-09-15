@@ -27,6 +27,18 @@
 //     use-after-free waiting for a pipeline that happens to reuse the memory.
 //     The tracker stores names and looks them up again.
 //
+//   * There is no process-global tracker. The registration callback below runs
+//     once per `PassBuilder`, and under `-flto=thin` lld builds one per backend
+//     module, each on its own thread. A file-scope `shared_ptr<Tracker>` --
+//     which is what stood here until this change -- meant every backend
+//     assigned over it, destroying the previous tracker mid-run, and every one
+//     of them opened and wrote the same log concurrently. The surviving file
+//     was whatever the interleaving left: several modules' records spliced
+//     together, lines torn mid-field, and nothing in it saying so. Each
+//     `PassBuilder` now owns its tracker, the three callbacks it installs
+//     capture a `shared_ptr` to it, and `dispatch` takes it from that capture
+//     rather than reading a variable another thread is writing.
+//
 //===----------------------------------------------------------------------===//
 
 #include "Config.h"
@@ -52,13 +64,15 @@ using namespace propobs;
 
 namespace {
 
-std::shared_ptr<Tracker> TheTracker;
-
 /// One callback. `Count` is false for the skipped-pass callback: a pass that
 /// did not run cannot have changed anything, and counting there would put an
 /// observation into the history at a boundary that does not exist.
-void dispatch(StringRef Phase, StringRef PassID, Any IR, bool Count) {
-  std::shared_ptr<Tracker> T = TheTracker;
+///
+/// The tracker arrives as an argument because it belongs to the `PassBuilder`
+/// these callbacks were installed on -- see the note at the top about why it
+/// cannot be a global.
+void dispatch(const std::shared_ptr<Tracker> &T, StringRef Phase,
+              StringRef PassID, Any IR, bool Count) {
   if (!T || !T->ok())
     return;
   const uint64_t S = T->nextSeq();
@@ -144,40 +158,66 @@ llvmGetPassPluginInfo() {
             Config Cfg = loadConfig();
             if (!Cfg.Valid) {
               // Loud, because the alternative is an empty log that a driver
-              // reads as "nothing was lost".
-              errs() << "property-observer: refusing to install: "
-                     << Cfg.Rejected << "\n";
-              return;
-            }
-            const std::string OutPath = Cfg.OutPath;
-            TheTracker = std::make_shared<Tracker>(std::move(Cfg));
-            if (!TheTracker->ok()) {
-              errs() << "property-observer: cannot open OBS_OUT (" << OutPath
-                     << ")\n";
-              TheTracker.reset();
+              // reads as "nothing was lost". One `<<` of one string, here and
+              // below: several backend threads share this stderr under ThinLTO
+              // and a message split across writes comes back spliced mid-word.
+              const std::string Msg =
+                  "property-observer: refusing to install: " + Cfg.Rejected +
+                  "\n";
+              errs() << Msg;
               return;
             }
 
             PassInstrumentationCallbacks *PIC =
                 PB.getPassInstrumentationCallbacks();
             if (!PIC) {
-              errs() << "property-observer: no pass instrumentation callbacks; "
-                        "nothing was observed\n";
-              TheTracker.reset();
+              const std::string Msg =
+                  "property-observer: no pass instrumentation callbacks; "
+                  "nothing was observed\n";
+              errs() << Msg;
               return;
             }
 
+            // Whether the log can be opened is no longer knowable here. The
+            // name it will be opened under depends on which module this
+            // `PassBuilder` turns out to be for, and that is not decided until
+            // the first module boundary, so the open -- and the diagnostic for
+            // a path that will not open -- moved into `Tracker::openFor`.
+            //
+            // The three lambdas hold the only references to the tracker, so it
+            // dies with the `PassInstrumentationCallbacks`, and that is what
+            // runs `Tracker::finish()`.
+            //
+            // THIS CHANGED WHAT A LINK LEAVES BEHIND, and the change is worth
+            // stating because a whole paragraph of the lto-window README rested
+            // on the old behaviour. The tracker used to be a file-scope global,
+            // which lld never destroys -- it exits without unwinding -- so
+            // `finish()` did not run at link time and the main log of a healthy
+            // full-LTO link carried no `SUMMARY`, `HIST` or `STATS` at all; the
+            // attribution survived only because `writeSummaryFile()` rewrites
+            // the side file on every change. lld DOES destroy the callbacks, so
+            // a tracker owned by them is finished at link as well as at compile.
+            // Measured 2026-09-14 on a full-LTO link of the lto-window `xtu`
+            // fixture: the main log now holds 2 `SUMMARY`, 4 `HIST` and 1
+            // `STATS` beside its 448 `PASS` and 388 `EV` records, and the
+            // lane's `counts.summarySource` reads `main` where it read `side`.
+            // That closes a hazard rather than opening one -- the file the lane
+            // guards and the file its verdict comes out of are now the same
+            // file under full LTO -- but any reader that treated "no SUMMARY in
+            // the main log" as the signature of a link is now wrong.
+            auto T = std::make_shared<Tracker>(std::move(Cfg));
+
             PIC->registerBeforeNonSkippedPassCallback(
-                [](StringRef PassID, Any IR) {
-                  dispatch("before", PassID, IR, /*Count=*/true);
+                [T](StringRef PassID, Any IR) {
+                  dispatch(T, "before", PassID, IR, /*Count=*/true);
                 });
             PIC->registerAfterPassCallback(
-                [](StringRef PassID, Any IR, const PreservedAnalyses &) {
-                  dispatch("after", PassID, IR, /*Count=*/true);
+                [T](StringRef PassID, Any IR, const PreservedAnalyses &) {
+                  dispatch(T, "after", PassID, IR, /*Count=*/true);
                 });
             PIC->registerBeforeSkippedPassCallback(
-                [](StringRef PassID, Any IR) {
-                  dispatch("skipped", PassID, IR, /*Count=*/false);
+                [T](StringRef PassID, Any IR) {
+                  dispatch(T, "skipped", PassID, IR, /*Count=*/false);
                 });
           }};
 }

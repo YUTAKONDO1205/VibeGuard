@@ -17,7 +17,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import {
@@ -571,4 +571,182 @@ test('the widening still cannot turn a refusal into a pass, measured over every 
     }
   }
   assert.ok(reachable > 0, 'nothing passes at all, so this check is vacuous');
+});
+
+// ---------------------------------------------------------------------------
+// The distribution sentence in the catalogue's own preamble
+// ---------------------------------------------------------------------------
+//
+// `readMeFirst` says "Current distribution, recomputed rather than remembered:
+// implemented 7, unimplemented 13, candidate 2, partial 2." The numbers are
+// right today and NOTHING recomputed them: the sentence claims a mechanism it
+// does not have, and the next status change makes it silently false. The file
+// records that this exact thing already happened once -- the same paragraph
+// "said three until 2026-08-18 while the file below already used the fourth" --
+// so this is the second occurrence of one defect, not a hypothetical.
+//
+// What is added here is the missing mechanism: parse the four numbers back OUT
+// of the prose and recount them from `properties[]`. A promotion that moves one
+// entry now has to move the sentence too, or this suite is red.
+//
+// Two failure shapes are guarded on purpose, because the parse is the part that
+// can rot quietly:
+//
+//   * FINDING NOTHING IS NOT AGREEING. A regex that matches zero times and then
+//     asserts over an empty result passes, and would pass hardest exactly when
+//     the sentence has been reworded past recognition -- which is when the check
+//     is most needed. Every lookup below therefore demands EXACTLY ONE match and
+//     throws by name when it gets none or several.
+//   * THE HISTORICAL CLAUSE IS NOT THE CURRENT ONE. The same sentence carries
+//     "It was implemented 7 / unimplemented 14 / candidate 2 / partial 1 until
+//     2026-09-12", which is a deliberate record of the past and must stay. A
+//     pattern that swept the whole paragraph for `<status> <n>` would read both
+//     and pick whichever came first -- i.e. would be correct only by accident of
+//     word order. So the parse anchors on "Current distribution" and stops at
+//     that sentence's own full stop, and the mechanism test below feeds it the
+//     two clauses in the OPPOSITE order to show the answer does not depend on
+//     which one the paragraph happens to put first.
+
+const CURRENT_DISTRIBUTION_ANCHOR = 'Current distribution';
+
+/**
+ * Read the four current counts out of the catalogue's `readMeFirst` prose.
+ *
+ * Throws -- never returns a partial or empty answer -- because every way this
+ * can fail is a way the sentence has stopped being checkable, and a checker
+ * that goes quiet when its subject disappears is the failure it exists to stop.
+ *
+ * @param {string[]} readMeFirst the paragraphs, as the catalogue carries them.
+ * @returns {{sentence: string, counts: Record<string, number>}}
+ */
+function parseCurrentDistribution(readMeFirst) {
+  if (!Array.isArray(readMeFirst) || readMeFirst.length === 0) {
+    throw new Error('readMeFirst is missing or empty; there is no distribution sentence to check');
+  }
+  // Every paragraph is searched, not just the one that happens to hold it
+  // today, so moving the sentence between paragraphs does not silently unhook
+  // this test. More than one anchor is also refused: two "current" claims is
+  // two places to forget, and this check must not pick one of them for you.
+  const anchored = [];
+  for (const para of readMeFirst) {
+    if (typeof para !== 'string') continue;
+    for (let i = para.indexOf(CURRENT_DISTRIBUTION_ANCHOR); i !== -1;
+      i = para.indexOf(CURRENT_DISTRIBUTION_ANCHOR, i + 1)) {
+      // Stop at the first full stop that ENDS a sentence (followed by space or
+      // end of text). Property ids such as `unobservable.secret-buffer-residue`
+      // and version numbers are full of dots that do not; cutting on a bare "."
+      // would end the sentence inside an id and lose the counts after it.
+      const rest = para.slice(i);
+      const end = /\.(\s|$)/.exec(rest);
+      anchored.push(end === null ? rest : rest.slice(0, end.index + 1));
+    }
+  }
+  if (anchored.length !== 1) {
+    throw new Error(`expected exactly one "${CURRENT_DISTRIBUTION_ANCHOR}" sentence in readMeFirst, found `
+      + `${anchored.length}. Either the sentence was reworded past this check or there are now two of them; `
+      + 'both mean the catalogue no longer states one checkable distribution');
+  }
+  const sentence = anchored[0];
+
+  const counts = {};
+  for (const status of DECLARED_STATUSES) {
+    // `\bimplemented` does not match inside `unimplemented`: there is no word
+    // boundary between "n" and "i". Verified by the mechanism test below rather
+    // than trusted, because getting that wrong would read 13 as the implemented
+    // count and still "find something".
+    const hits = [...sentence.matchAll(new RegExp(`\\b${status}\\s+(\\d+)\\b`, 'g'))];
+    if (hits.length !== 1) {
+      throw new Error(`the distribution sentence names "${status}" with a number ${hits.length} times, not once: `
+        + `${JSON.stringify(sentence)}`);
+    }
+    counts[status] = Number(hits[0][1]);
+  }
+  return { sentence, counts };
+}
+
+test('the distribution the preamble states is recomputed here, so "recomputed" is true of it', () => {
+  // The sentence under test, read from the file on disk rather than from the
+  // shaped catalogue, because `loadCatalogue` drops readMeFirst and the claim
+  // being checked lives only in the prose.
+  const raw = JSON.parse(readFileSync(CATALOGUE_PATH, 'utf8'));
+  const { sentence, counts } = parseCurrentDistribution(raw.readMeFirst);
+
+  const actual = {};
+  for (const status of DECLARED_STATUSES) actual[status] = 0;
+  for (const entry of raw.properties) {
+    // An entry carrying a status the preamble never declared cannot be counted
+    // into any of the four, and must not be dropped either -- the total below
+    // is what catches it.
+    if (Object.hasOwn(actual, entry.status)) actual[entry.status] += 1;
+  }
+
+  assert.deepEqual(counts, actual,
+    `the preamble says ${JSON.stringify(counts)} but the file holds ${JSON.stringify(actual)}. `
+    + `Sentence: ${JSON.stringify(sentence)}`);
+
+  // The four have to account for EVERY entry. Without this, an entry added with
+  // a brand-new status word would leave all four counts correct and the
+  // sentence would still be describing a catalogue one entry smaller than the
+  // one that shipped.
+  const summed = Object.values(counts).reduce((a, b) => a + b, 0);
+  assert.equal(summed, raw.properties.length,
+    `the four declared statuses account for ${summed} of ${raw.properties.length} entries; `
+    + `the rest carry a status outside ${DECLARED_STATUSES.join(', ')}`);
+  // And the array and the loaded map must be the same size, so two entries
+  // sharing an id -- which the Map would silently collapse -- is caught here
+  // rather than making both counts look consistent with each other.
+  assert.equal(raw.properties.length, CATALOGUE.entryCount,
+    'the catalogue array and the id map disagree on how many entries there are; ids are duplicated');
+});
+
+test('the distribution parser reads the current clause and not the historical one, in either order', () => {
+  // MECHANISM, on synthetic prose, so no edit to the real catalogue can make
+  // this stop testing anything.
+  const current = 'Current distribution, recomputed rather than remembered: '
+    + 'implemented 7, unimplemented 13, candidate 2, partial 2.';
+  const historical = 'It was implemented 7 / unimplemented 14 / candidate 2 / partial 1 until 2026-09-12, '
+    + 'when unobservable.secret-buffer-residue became the second partial.';
+  const expected = { implemented: 7, candidate: 2, unimplemented: 13, partial: 2 };
+
+  // The order the file uses today, and the reverse. The reverse is the one that
+  // matters: an unanchored sweep would return the 14/1 of the historical clause
+  // for it, and be right on the real file purely because of word order.
+  assert.deepEqual(parseCurrentDistribution([`${current} ${historical}`]).counts, expected);
+  assert.deepEqual(parseCurrentDistribution([`${historical} ${current}`]).counts, expected);
+  // Split across paragraphs, and with the current clause last in the text.
+  assert.deepEqual(parseCurrentDistribution([historical, 'noise', current]).counts, expected);
+  // `unimplemented 13` must never be read as the implemented count.
+  assert.equal(parseCurrentDistribution([current]).counts.implemented, 7);
+});
+
+test('the distribution parser fails loudly when it finds nothing, rather than passing on an empty match', () => {
+  // The whole point. Each of these is a way the sentence could be reworded or
+  // duplicated, and each must THROW; an assertion that silently held over zero
+  // matches is the shape of failure this repository keeps rediscovering.
+  const good = 'Current distribution, recomputed rather than remembered: '
+    + 'implemented 7, unimplemented 13, candidate 2, partial 2.';
+
+  // the anchor gone entirely
+  assert.throws(() => parseCurrentDistribution(['no distribution is stated here at all']), /found 0/);
+  // the anchor there, one status word dropped from it
+  assert.throws(
+    () => parseCurrentDistribution(['Current distribution: unimplemented 13, candidate 2, partial 2.']),
+    /names "implemented" with a number 0 times/);
+  // a status named without a number
+  assert.throws(
+    () => parseCurrentDistribution(['Current distribution: implemented, unimplemented 13, candidate 2, partial 2.']),
+    /names "implemented" with a number 0 times/);
+  // two current claims: this check must not choose between them
+  assert.throws(() => parseCurrentDistribution([good, good]), /found 2/);
+  // one status named twice with a number inside the same sentence
+  assert.throws(
+    () => parseCurrentDistribution([`${good.slice(0, -1)}, of which candidate 1 is new.`]),
+    /names "candidate" with a number 2 times/);
+  // nothing to read at all
+  assert.throws(() => parseCurrentDistribution([]), /readMeFirst is missing or empty/);
+  assert.throws(() => parseCurrentDistribution(undefined), /readMeFirst is missing or empty/);
+
+  // and the positive control, so the throws above are not all that is proven:
+  // the same parser does return an answer on prose it can read.
+  assert.equal(parseCurrentDistribution([good]).counts.partial, 2);
 });

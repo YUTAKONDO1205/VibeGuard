@@ -68,6 +68,26 @@ test('every appearance in data/ carries the transition word, and the counts are 
   assert.equal(data.manifest.anchor.checked, 60);
 });
 
+test('data/ is the PRE-PROBE record, and its docker field is pinned as the stale thing it is', () => {
+  // `manifest.docker` used to be a constant the report writer carried -- written
+  // into this file on every run, saying the daemon was unreachable whether or not
+  // it was, and getting half of it wrong (a docker CLI IS present on this
+  // machine; the daemon behind it is not). The runner measures it now and records
+  // which probe answered. This record predates that and was NOT hand-corrected:
+  // a record is what a run produced, and editing one to agree with new code is
+  // worse than leaving it stale.
+  //
+  // So the staleness is pinned rather than tolerated. The next --write-data run
+  // fails this test, which is the moment to replace it with the measured shape
+  // and to drop the note in README.md that says this is how it stands.
+  const d = data.manifest.docker;
+  assert.equal(d.done, false, 'the old shape had a `done` boolean');
+  assert.equal(typeof d.reason, 'string');
+  assert.ok(!Object.prototype.hasOwnProperty.call(d, 'probes'),
+    'this record now carries probe results: it was re-measured, so update this test and the README note');
+  assert.ok(!Object.prototype.hasOwnProperty.call(d, 'reachable'));
+});
+
 const gccRung = LADDER.gcc.map((m) => `gcc-${m}`).find((cc) => {
   const r = spawnSync(cc, ['--version'], { encoding: 'utf8', timeout: 30000 });
   return !r.error && r.status === 0;

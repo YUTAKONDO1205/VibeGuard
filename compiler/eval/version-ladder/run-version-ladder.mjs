@@ -27,9 +27,16 @@
  *   --out <dir>      where the rows, the report and the build scratch go. Required.
  *                    A directory inside the repository is refused: these are
  *                    measurement outputs and they live on the side that makes them.
- *   --ccs a,b,c      the rungs to try (default: every rung of both declared ladders).
+ *   --ccs a,b,c      the rungs to try (default: every rung of both declared APT
+ *                    ladders -- the docker rungs are declared too but are never a
+ *                    default, because obtaining one needs an image somebody pulled).
  *                    A rung that is not installed is recorded as not obtained and
- *                    produces no cell rows at all.
+ *                    produces no cell rows at all. A `docker-...` token the ladder
+ *                    does not declare is exit 4, never a PATH binary nobody has.
+ *   --docker-pins <f> a JSON object mapping a declared docker rung to its
+ *                    sha256 digest. A docker rung is an image AND a digest; a tag
+ *                    is a moving name and is refused. The digests are not tracked
+ *                    here because they are evidence, not a declaration.
  *   --opts -O0,..    optimisation levels (default: all five the find step used).
  *   --ids a,b,c      corpus files to use as subjects, by r2 id. The token
  *                    `removable` selects every erasure file the tracked rows call
@@ -60,6 +67,16 @@
  *      or a text about to be written carries an absolute path
  *   6  the identity guard refused a --cc: the binary is not the version its
  *      name claims
+ *   7  a DECLARED DOCKER RUNG was requested and could not be obtained. The
+ *      refusal names the probe that failed -- `docker --version`, `docker info`,
+ *      or `docker image inspect <ref>` -- rather than asserting a state, and a
+ *      missing image ends here too: this lane runs with --pull=never and does
+ *      not fetch several gigabytes because a rung was named
+ *
+ *   3 is also what a docker half that compared NOTHING takes: cells were produced
+ *   and none could be read against an apt rung at the same major, so that check
+ *   could not be completed. The apt ladder above still stands -- which is why it
+ *   is not the anchor's 2 -- and "0/0 agree" is not a pass here either
  *
  * The pure parts -- the identity guard, the first-appearance rule, the counting
  * lines, the anchor join -- are in lib/ and tested in test/ without a compiler.
@@ -79,13 +96,19 @@ import { vendorOf, fortifyFromDefines, trackedCcProblem } from '../repair-loop/l
 import { differsOnlyInLabels } from '../repair-loop/lib/surgicality.mjs';
 import { absolutePathHits, sha256Text, rowsFileLabel } from '../repair-loop/lib/provenance.mjs';
 import {
-  LADDER, ANCHOR_CC, ALL_OPTS, identityProblem, spelledMajor, versionFromBanner,
+  LADDER, ANCHOR_CC, ALL_OPTS, identityProblem, spelledMajor, versionFromBanner, parseMajor,
   firstAppearance, versionCounting, appearanceCounting, shortMark, appearanceSentence,
 } from './lib/ladder.mjs';
 import {
   anchorIndex, anchorDisagreements, disagreementLine, unanchorableIds, vacuousAnchorProblem,
   anchorProblem, ANCHOR_CCS,
 } from './lib/anchor.mjs';
+import {
+  DOCKER_LADDER_NAME, dockerRungs, isDockerRung, dockerRung, imageRef,
+  pinsProblem, digestProblem, cliProbeArgv, daemonProbeArgv, imageInspectArgv, dockerRunArgv, safeDetail,
+  dockerStatus, rungProblem, dockerCounting, crossDistro, dockerReportLines,
+  undeclaredDockerCcProblem, assertNeverFetches, CROSS_EXIT,
+} from './lib/docker.mjs';
 
 const run = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -136,7 +159,7 @@ const TARGET_MARKER = /^\/\*\s*VG-LADDER-TARGET:\s*([A-Za-z_]\w*)\s*\*\/\s*$/m;
 
 /** argv -> options, or {error}. */
 export function parseArgs(argv) {
-  const o = { out: null, ccs: null, opts: [...ALL_OPTS], ids: null, fixture: null, conc: 4, writeData: false, writeSweep: false, noSubjects: false, rows: null };
+  const o = { out: null, ccs: null, opts: [...ALL_OPTS], ids: null, fixture: null, conc: 4, writeData: false, writeSweep: false, noSubjects: false, rows: null, dockerPins: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => { const v = argv[++i]; if (v === undefined) throw new Error(`${a} needs a value`); return v; };
@@ -148,6 +171,7 @@ export function parseArgs(argv) {
       else if (a === '--fixture') o.fixture = next();
       else if (a === '--conc') o.conc = Number(next());
       else if (a === '--rows') o.rows = next();
+      else if (a === '--docker-pins') o.dockerPins = next();
       else if (a === '--no-subjects') o.noSubjects = true;
       else if (a === '--write-data') o.writeData = true;
       else if (a === '--write-sweep') o.writeSweep = true;
@@ -156,16 +180,35 @@ export function parseArgs(argv) {
   }
   if (!o.out) return { error: '--out <dir> is required' };
   if (!Number.isInteger(o.conc) || o.conc < 1) return { error: '--conc must be a positive integer' };
+  // A token spelled like a docker rung that the ladder does not declare is
+  // refused here and not tried as a PATH binary. The pins file was already
+  // refused for the same mistake; this is the other spelling of it.
+  const badCc = undeclaredDockerCcProblem(o.ccs);
+  if (badCc) return { error: badCc };
   const badOpt = o.opts.find((x) => !ALL_OPTS.includes(x));
   if (badOpt) return { error: `--opts: ${badOpt} is not one of ${ALL_OPTS.join(', ')}` };
   return o;
 }
 
-/** Every rung of both declared ladders, as compiler basenames, in ladder order. */
-export function allRungs() {
+/** Every rung of both declared APT ladders, as compiler basenames, in ladder order. */
+export function nativeRungs() {
   const out = [];
   for (const [vendor, majors] of Object.entries(LADDER)) for (const m of majors) out.push(`${vendor}-${m}`);
   return out;
+}
+
+/**
+ * Every DECLARED rung, apt and docker, in ladder order.
+ *
+ * The docker rungs sit here rather than in a list of their own, because this is
+ * the function that decides what the run's denominator is: a rung absent from
+ * it is a rung nobody can see was not obtained. They are NOT in the default
+ * `--ccs` (nativeRungs() is), because obtaining one needs an image somebody
+ * pulled and this lane will not pull -- so a default run that included them
+ * would refuse on every machine rather than measure the apt ladder it can.
+ */
+export function allRungs() {
+  return [...nativeRungs(), ...dockerRungs()];
 }
 
 /** A path inside the repository is refused for --out: outputs live on the measuring side. */
@@ -241,10 +284,26 @@ export function sweepRecord({ manifest, rows, appearances }) {
  * One cell row. Every number is an integer; no path of any kind appears.
  * `labelsOnly` is reported, never folded into the verdict -- see the README.
  */
-export function ladderRow({ id, fn, vendor, cc, major, opt, nSpans, idiom, namedSecret, scoped, cell, labelsOnly, spellingSeen }) {
+export function ladderRow({ id, fn, vendor, cc, major, opt, nSpans, idiom, namedSecret, scoped, cell, labelsOnly, spellingSeen, ladder }) {
+  // WHICH LADDER, EXPLICITLY. For an apt rung it is the vendor; for a docker
+  // rung it is the docker ladder, and the two are kept apart on purpose --
+  // `gcc-13` and a digest-pinned image at 13 are different builds, and folding
+  // them into one ladder would let a cross-DISTRIBUTION difference print as a
+  // cross-VERSION one.
+  //
+  // It is REQUIRED rather than defaulted to the vendor. A default made the field
+  // dead at the only call site that matters: nothing passed it, nothing failed
+  // when it was not passed, and deleting it left `crossDistro()` looking for a
+  // field no row carried -- zero docker rows, nothing compared, no problem
+  // reported, exit 0. A field the join depends on may not be optional.
+  if (typeof ladder !== 'string' || !ladder) {
+    throw new TypeError(`ladderRow: ${cc} carries no ladder. Pass the declared ladder this rung is a rung of `
+      + '(the vendor for an apt rung, DOCKER_LADDER_NAME for a docker one); crossDistro() joins on it');
+  }
   return {
     id,
     fn,
+    ladder,
     vendor,
     cc,
     major,
@@ -311,6 +370,83 @@ export function appearancesFrom(rows, { opts, ids }) {
 }
 
 /**
+ * Is a docker probe worth two subprocesses on this run?
+ *
+ * Only when a docker rung was requested. `probeDocker()` runs `docker --version`
+ * and `docker info` with 20s and 30s timeouts, and the second one OPENS THE
+ * DAEMON SOCKET -- so before this, every invocation of this lane, including the
+ * default apt-only run and every spawn in the test suite, paid for two execs and
+ * touched docker. A probe is a measurement and a measurement is spent on a
+ * question somebody asked: a run that named no docker rung is not asking
+ * anything about docker, and the report says NOT PROBED rather than inventing a
+ * reading (`dockerReportLines`, the `probed: false` branch).
+ */
+export function dockerProbeWanted(ccs) {
+  return (ccs || []).some((cc) => isDockerRung(cc));
+}
+
+/**
+ * THE DOCKER HALF OF THE REPORT, IN ONE PLACE THE TESTS CAN REACH.
+ *
+ * Everything the docker rung adds to a run's output is composed here: the
+ * counting line, the off-ladder cell lines, the cross-distribution join, and the
+ * paragraph at the end. It is a function rather than four stretches of `main()`
+ * for one reason -- none of it was under test while it lived in main(). Deleting
+ * the counting line, the off-ladder lines or the `crossDistro()` call left the
+ * whole suite green, which means none of them was pinned by anything at all.
+ *
+ * Pure: rows and version records in, lines and numbers out. `main()` keeps only
+ * the call.
+ */
+export function dockerSections({ rows = [], versions = [], wanted = [], obtainedCcs = [], status = null }) {
+  const counting = dockerCounting(versions);
+  const cross = crossDistro(rows);
+  // Rows on a ladder that has no first-appearance rule are ACCOUNTED rather than
+  // dropped. `appearancesFrom` iterates the declared LADDER vendors, so a docker
+  // row contributes to no ladder question -- which is correct (the docker ladder
+  // is one rung deep on most machines) and would otherwise be invisible between
+  // the cell count and the ladder questions.
+  const laddered = new Set(Object.keys(LADDER));
+  const offLadder = rows.filter((r) => !laddered.has(r.ladder));
+  const countingLine = `docker rungs: ${counting.declared} declared = ${counting.obtained} obtained + ${counting.skipped} skipped`
+    + `${counting.accountedFor ? '' : '   ACCOUNTING BROKEN: these do not add up, or a skipped rung carries no reason'}`;
+  const offLadderLines = [];
+  if (offLadder.length) {
+    const names = [...new Set(offLadder.map((r) => r.ladder))].sort().join(', ');
+    offLadderLines.push(`  ${offLadder.length} of those cells are on a ladder with no first-appearance rule (${names}).`);
+    offLadderLines.push('  They are NOT part of the ladder questions below; they are read against the apt rung of the');
+    offLadderLines.push('  same major under "docker" at the end of this report.');
+  }
+  const reportLines = dockerReportLines({
+    status,
+    requested: wanted.filter(isDockerRung),
+    obtained: obtainedCcs.filter(isDockerRung),
+    cross,
+  });
+  return { counting, cross, offLadder, countingLine, offLadderLines, reportLines };
+}
+
+/**
+ * THE EXIT CODE, AS ONE FUNCTION OF EVERYTHING THAT CAN REFUSE A RUN.
+ *
+ * Both inputs are a `problem` that is null when there is nothing wrong, and the
+ * point of putting them together is that neither can be forgotten: `main()` had
+ * the anchor's wired to `process.exit(2)` and the cross-distribution one written
+ * into the record and printed, and nothing else. A run that obtained docker
+ * rungs, produced docker cells and compared NONE of them printed `NOT COMPARED`
+ * and exited 0 -- the headline claim of the whole docker item failing silently,
+ * which is the shape this lane already had to fix in its own anchor.
+ *
+ * The anchor wins when both are set: "nothing here is anchored" is the larger
+ * statement, and it is the one a reader has to act on first.
+ */
+export function ladderExit({ notAnchored = null, cross = null }) {
+  if (notAnchored) return 2;
+  if (cross && cross.problem) return CROSS_EXIT;
+  return 0;
+}
+
+/**
  * Which memset spelling the file-as-written listing calls, from the effect
  * symbol list the repository already declares (CONTROL_EFFECT.symbols -- never a
  * literal of its own; compiler/schema/effect-symbol-lists.test.mjs exists to stop
@@ -355,6 +491,111 @@ async function probeCompiler(cc) {
     }
   } catch { /* a machine without readlink -f still gets a banner and a dumpversion */ }
   return { obtained: true, banner: banner.split('\n')[0].replace(/\r$/, ''), dumpversion: dump.trim(), resolvedBase, resolvedSha256 };
+}
+
+/**
+ * The text of a failed `docker` invocation, in one line and with no path.
+ *
+ * A daemon's error prose is written by the daemon and may quote a socket path
+ * or a mount point. `safeDetail` drops the text around any absolute-path marker
+ * rather than letting it reach a record the runner would then refuse to write.
+ */
+function dockerErrText(e) {
+  const parts = [];
+  if (e && typeof e.stderr === 'string' && e.stderr.trim()) parts.push(e.stderr.trim().split('\n')[0]);
+  else if (e && e.code) parts.push(String(e.code));
+  else if (e && e.message) parts.push(String(e.message));
+  return safeDetail(parts.join(' '));
+}
+
+/**
+ * THE ONE PLACE THIS LANE SPAWNS DOCKER, and therefore the one place the
+ * never-fetch gate has to hold.
+ *
+ * `assertNeverFetches` throws on any argv that could fetch, so a second composer
+ * added later -- `docker run` with no `--pull=never`, which is the default that
+ * PULLS -- cannot get a gigabyte off a network past it, whatever it composed.
+ * Putting the gate in the composers alone was not enough: a caller that built an
+ * argv by hand and passed it here would have gone round them. There is exactly
+ * one `run('docker', ...)` in this file and `test/docker.test.mjs` fails if a
+ * second appears or if this one stops calling the gate.
+ */
+async function dockerRun(argv, options) {
+  assertNeverFetches(argv);
+  return run('docker', argv, options);
+}
+
+/** One `docker <argv>`: `{ok, detail}`, never a throw. */
+async function dockerTry(argv, timeout) {
+  try {
+    const { stdout } = await dockerRun(argv, { timeout });
+    return { ok: true, detail: safeDetail((stdout || '').split('\n')[0]) };
+  } catch (e) {
+    return { ok: false, detail: dockerErrText(e) };
+  }
+}
+
+/**
+ * Is there a docker on this machine, and is a daemon behind it?
+ *
+ * Run only when a docker rung was REQUESTED (`dockerProbeWanted`). The report's
+ * docker paragraph is derived from what this returns rather than asserted -- the
+ * sentence it replaced was a literal that said the daemon was unreachable
+ * whether or not it was, and was copied from there into a tracked record -- but
+ * a reading is still a subprocess: two execs with 20s and 30s timeouts, the
+ * second of which opens the daemon socket. A run that asked for no container
+ * asked no question about docker, and its report says NOT PROBED. Two short
+ * execs, fail-fast when there is no CLI at all.
+ *
+ * The two probes are separate because they answer different questions and the
+ * difference matters here: a CLI that answers `--version` with no daemon behind
+ * it is exactly the state this machine is in, and reporting it as "no docker"
+ * would name the wrong thing for the user to fix.
+ */
+async function probeDocker() {
+  const cli = await dockerTry(cliProbeArgv(), 20000);
+  const daemon = cli.ok ? await dockerTry(daemonProbeArgv(), 30000) : null;
+  return { cli, daemon };
+}
+
+/**
+ * A compile at a docker rung. The same two-listing differential as every other
+ * rung; only the invocation differs.
+ *
+ * Never fetches: `dockerRunArgv` carries `--pull=never` (a missing image is a
+ * refusal, not a download) and `--network=none` (the compile cannot reach a
+ * network either). Every file is a basename inside the one mounted directory,
+ * so no compiler argument carries a host path.
+ */
+async function dockerCompile({ ref, program, user }, args, src, out, hostDir) {
+  const argv = dockerRunArgv({
+    ref, program, hostDir, user,
+    args: [...FLAGS, ...args, '-o', basename(out), basename(src)],
+  });
+  try { await dockerRun(argv, { timeout: 90000 }); return readFileSync(out, 'utf8'); }
+  catch { return null; }
+}
+
+/** `<program> <argv>` inside the image, for the identity probe. */
+async function dockerRunCapture({ ref, program, user }, args, hostDir) {
+  const argv = dockerRunArgv({ ref, program, hostDir, user, args });
+  const { stdout } = await dockerRun(argv, { timeout: 60000, maxBuffer: 32 << 20 });
+  return stdout;
+}
+
+/** What `_FORTIFY_SOURCE` is inside the image, per level. Read, not assumed. */
+async function dockerFortifyPerLevel(spec, opts, probeName, hostDir) {
+  const out = {};
+  for (const opt of opts) {
+    try {
+      const stdout = await dockerRunCapture(spec, [...FLAGS, opt, '-dM', '-E', probeName], hostDir);
+      const v = fortifyFromDefines(stdout);
+      out[opt] = v === null ? 'not-defined' : (v === '' ? 'defined-no-value' : v);
+    } catch {
+      out[opt] = 'reading-failed';
+    }
+  }
+  return out;
 }
 
 /** What `<cc> FLAGS <opt> -dM -E` predefines about _FORTIFY_SOURCE, per level. */
@@ -436,8 +677,20 @@ async function main() {
       + `so the anchor would check nothing for them: ${unanchorable.join(', ')}`);
   }
 
+  // ---- the docker pins ----
+  //
+  // Read before anything is compiled, because a pins file that names a rung the
+  // ladder does not declare is a bad argument and not a measurement problem.
+  let pins = null;
+  if (args.dockerPins) {
+    try { pins = JSON.parse(readFileSync(resolve(args.dockerPins), 'utf8')); }
+    catch (e) { die(5, `could not read --docker-pins: ${e.message}`); }
+    const bad = pinsProblem(pins);
+    if (bad) die(4, `--docker-pins: ${bad}`);
+  }
+
   // ---- rungs ----
-  const wanted = args.ccs ?? allRungs();
+  const wanted = args.ccs ?? nativeRungs();
   const outDir = resolve(args.out);
   const buildDir = join(outDir, 'build');
   mkdirSync(buildDir, { recursive: true });
@@ -450,9 +703,80 @@ async function main() {
   const versions = [];
   for (const cc of allRungs()) {
     if (wanted.includes(cc)) continue;
-    versions.push({ cc, vendor: vendorOf(cc), major: spelledMajor(cc), obtained: false, reason: 'not-requested' });
+    // A docker rung is resolved through its own declaration. `vendorOf` reads a
+    // basename and would answer `gcc` for `docker-gcc-13` -- true of the compiler
+    // inside the image and false of the ladder the rung is on, which is the one
+    // conflation this lane keeps the two ladders apart to avoid.
+    const d = dockerRung(cc);
+    versions.push(d
+      ? { cc, vendor: DOCKER_LADDER_NAME, major: d.major, obtained: false, reason: 'not-requested' }
+      : { cc, vendor: vendorOf(cc), major: spelledMajor(cc), obtained: false, reason: 'not-requested' });
   }
+  // Probed only when a docker rung was REQUESTED. The paragraph this replaced
+  // was a literal that said the daemon was unreachable whether or not it was, so
+  // the fix was to derive it from a probe -- but deriving it on every invocation
+  // bought that with two subprocesses (20s and 30s timeouts) and a socket open
+  // on every run of a lane whose default asks for no container at all. A run
+  // that named no docker rung reports NOT PROBED, which is what happened.
+  const dockerProbes = dockerProbeWanted(wanted) ? await probeDocker() : { cli: null, daemon: null };
+  const docker = dockerStatus(dockerProbes);
+  const dockerUser = typeof process.getuid === 'function' ? `${process.getuid()}:${process.getgid()}` : null;
+  const dockerImages = {};
+  const dockerSpecs = {};
+
   for (const cc of wanted) {
+    if (isDockerRung(cc)) {
+      const rung = dockerRung(cc);
+      const digest = pins ? pins[cc] ?? null : null;
+      // Everything that can be decided without touching the daemon is decided
+      // first, so an unpinned rung is refused by name rather than by whatever
+      // the daemon happens to say about an empty reference.
+      let why = rungProblem({ cc, digest, status: docker, image: null });
+      let ref = null;
+      // `image: null` means "not probed yet", so the only outstanding complaint
+      // for a rung whose digest is good and whose daemon answered is the image
+      // itself -- and that is the one probe worth spending a subprocess on.
+      if (why && docker.reachable && !digestProblem(cc, digest)) {
+        ref = imageRef(rung, digest);
+        const image = await dockerTry(imageInspectArgv(ref), 60000);
+        dockerImages[cc] = image;
+        why = rungProblem({ cc, digest, status: docker, image });
+      }
+      // 5, not 7. A rung that was requested and cannot be obtained is the harness
+      // failing to set itself up before any cell, which is what interfaces.md
+      // section 7 spends 5 on. 7 is a code that section does not define at all --
+      // exit-codes.test.mjs caught it, which is the whole reason that test exists.
+      if (why) die(5, `docker rung not obtained: ${why}`);
+      const spec = { ref, program: rung.program, user: dockerUser };
+      // The identity guard, in its containerised form. An image whose `gcc` is a
+      // wrapper for another release files every one of its verdicts under the
+      // wrong rung, exactly as a symlinked clang-17 would.
+      let banner = ''; let dump = '';
+      try {
+        banner = (await dockerRunCapture(spec, ['--version'], buildDir)).split('\n')[0].replace(/\r$/, '');
+        dump = (await dockerRunCapture(spec, ['-dumpversion'], buildDir)).trim();
+      } catch (e) {
+        die(5, `docker rung not obtained: ${cc}: the image is present but \`${rung.program} --version\` `
+          + `inside it did not answer: ${dockerErrText(e) || 'the run failed'}`);
+      }
+      const b = versionFromBanner(rung.nativeVendor, banner);
+      const d = parseMajor(dump);
+      if (!b || b.major !== rung.major || d !== rung.major) {
+        die(6, `identity guard: ${cc}: the image reports ${JSON.stringify(banner)} / -dumpversion `
+          + `${JSON.stringify(dump)}, whose major is not ${rung.major}. An image whose compiler is not the `
+          + 'release the rung names would file every one of its verdicts under the wrong rung');
+      }
+      versions.push({
+        cc, vendor: DOCKER_LADDER_NAME, ladder: DOCKER_LADDER_NAME, major: rung.major, obtained: true,
+        version: b.full, banner, dumpversion: dump,
+        image: { repository: rung.repository, tag: rung.tag, digest, ref },
+        fortify: await dockerFortifyPerLevel(spec, args.opts, basename(probePath), buildDir),
+      });
+      // The invocation spec is held beside the record, not in it: the record is
+      // written to the tree and a mount point is not a fact about a compiler.
+      dockerSpecs[cc] = spec;
+      continue;
+    }
     const vendor = vendorOf(cc);
     const p = await probeCompiler(cc);
     if (!p.obtained) {
@@ -465,7 +789,7 @@ async function main() {
     if (problem) die(6, `identity guard: ${problem}`);
     const full = versionFromBanner(vendor, p.banner);
     versions.push({
-      cc, vendor, major: spelledMajor(cc), obtained: true,
+      cc, vendor, ladder: vendor, major: spelledMajor(cc), obtained: true,
       version: full.full, banner: p.banner, dumpversion: p.dumpversion,
       resolvedBase: p.resolvedBase, resolvedSha256: p.resolvedSha256,
       fortify: await fortifyPerLevel(cc, args.opts, probePath),
@@ -522,8 +846,15 @@ async function main() {
   const rows = [];
   await pool(jobs, async ({ s, v, opt }) => {
     const tag = `${s.id}.${v.cc}${opt}`;
-    const aW = await compile(v.cc, [opt], s.pW, join(buildDir, `${tag}.w.s`));
-    const aWo = await compile(v.cc, [opt], s.pWo, join(buildDir, `${tag}.wo.s`));
+    const oW = join(buildDir, `${tag}.w.s`);
+    const oWo = join(buildDir, `${tag}.wo.s`);
+    // A docker rung differs only in how the compiler is INVOKED. The two
+    // listings, the ablation, the co-resident control and the verdict are the
+    // find step's, unchanged -- which is what lets a docker cell be compared
+    // with an apt cell at all.
+    const spec = dockerSpecs[v.cc] || null;
+    const aW = spec ? await dockerCompile(spec, [opt], s.pW, oW, buildDir) : await compile(v.cc, [opt], s.pW, oW);
+    const aWo = spec ? await dockerCompile(spec, [opt], s.pWo, oWo, buildDir) : await compile(v.cc, [opt], s.pWo, oWo);
     const cell = verdictOf(aW, aWo, s.fn);
     // labelsOnly: a WIPE_SURVIVED that is only gcc renumbering its unit-wide
     // .L<n> labels. Reported beside the verdict and never folded into it, the
@@ -533,7 +864,7 @@ async function main() {
       labelsOnly = differsOnlyInLabels(bodyOf(aW, s.fn), bodyOf(aWo, s.fn));
     }
     rows.push(ladderRow({
-      id: s.id, fn: s.fn, vendor: v.vendor, cc: v.cc, major: v.major, opt,
+      id: s.id, fn: s.fn, vendor: v.vendor, ladder: v.ladder, cc: v.cc, major: v.major, opt,
       nSpans: s.nSpans, idiom: s.idiom, namedSecret: s.namedSecret, scoped: s.scoped,
       cell, labelsOnly, spellingSeen: spellingIn(aW),
     }));
@@ -552,8 +883,22 @@ async function main() {
 
   // ---- first appearance ----
   const appearances = appearancesFrom(rows, { opts: args.opts, ids: prepared.map((s) => s.id) });
-  const vCount = versionCounting(versions);
+  // The native counting line stays the NATIVE ladder's. Pooling the docker
+  // denominator into it would let five rungs that have never produced a cell
+  // dilute the eleven that have, and would silently restate every earlier run's
+  // "11 declared" as something else.
+  const vCount = versionCounting(versions.filter((v) => !isDockerRung(v.cc)));
   const aCount = appearanceCounting(appearances);
+
+  // The docker half of the report, and the cross-distribution join that decides
+  // half of the exit code. One call, so that there is one place the tests can
+  // reach: while these four things lived here as loose statements, deleting any
+  // of them left the suite green.
+  const dock = dockerSections({
+    rows, versions, wanted, obtainedCcs: obtained.map((v) => v.cc), status: docker,
+  });
+  const dCount = dock.counting;
+  const cross = dock.cross;
 
   // ---- report ----
   const L = [];
@@ -562,7 +907,9 @@ async function main() {
   L.push(`versions: ${vCount.declared} declared = ${vCount.obtained} obtained + ${vCount.skipped} skipped `
     + `(${vCount.notInstalled} not-installed, ${vCount.notRequested} not-requested)`
     + `${vCount.accountedFor ? '' : '   ACCOUNTING BROKEN: these do not add up'}`);
+  L.push(dock.countingLine);
   L.push(`cells:    ${rows.length} = ${prepared.length} subject(s) x ${obtained.length} obtained rung(s) x ${args.opts.length} level(s); ${rows.length * 2} compiles`);
+  for (const line of dock.offLadderLines) L.push(line);
   L.push(`ladder questions: ${aCount.asked} asked = ${aCount.firstAt} first-appearance + ${aCount.never} never-eliminated + ${aCount.undetermined} undetermined`);
   L.push(`  of the ${aCount.firstAt} first-appearance: ${aCount.firstAtObserved} with a transition observed between two `
     + `obtained rungs, ${aCount.firstAtNoneBelow} already eliminated at the lowest rung of the declared ladder, where `
@@ -575,11 +922,20 @@ async function main() {
   L.push('');
   L.push('rungs');
   for (const v of versions) {
-    if (!v.obtained) { L.push(`  ${v.cc.padEnd(9)} -(not obtained)  reason: ${v.reason}`); continue; }
+    const pad = 14;
+    if (!v.obtained) { L.push(`  ${v.cc.padEnd(pad)} -(not obtained)  reason: ${v.reason}`); continue; }
     const fort = args.opts.map((o) => `${o}=${v.fortify[o]}`).join(' ');
-    L.push(`  ${v.cc.padEnd(9)} ${String(v.version).padEnd(8)} sha256 ${String(v.resolvedSha256).slice(0, 16)} (${v.resolvedBase})`);
-    L.push(`  ${' '.repeat(9)} banner: ${v.banner}`);
-    L.push(`  ${' '.repeat(9)} _FORTIFY_SOURCE with the lane FLAGS (-dM -E): ${fort}`);
+    if (v.image) {
+      // A docker rung's identity IS its digest: there is no binary on this
+      // machine to hash, and the image the digest names cannot come to be
+      // another one. The tag is printed beside it as provenance and is never
+      // what the rung is resolved by.
+      L.push(`  ${v.cc.padEnd(pad)} ${String(v.version).padEnd(8)} image ${v.image.repository}:${v.image.tag} @ ${v.image.digest.slice(0, 23)}`);
+    } else {
+      L.push(`  ${v.cc.padEnd(pad)} ${String(v.version).padEnd(8)} sha256 ${String(v.resolvedSha256).slice(0, 16)} (${v.resolvedBase})`);
+    }
+    L.push(`  ${' '.repeat(pad)} banner: ${v.banner}`);
+    L.push(`  ${' '.repeat(pad)} _FORTIFY_SOURCE with the lane FLAGS (-dM -E): ${fort}`);
   }
   L.push('');
   L.push(`anchor against the find-step rows in ${rowsFileLabel(rowsPath, { defaultPath: TRACKED, repoRoot: REPO })} (${ANCHOR_CCS.join(', ')})`);
@@ -645,10 +1001,13 @@ async function main() {
   for (const r of labelRows) L.push(`  ${r.id} ${r.cc} ${r.opt}`);
   L.push('');
   L.push('NOT measured by this run');
-  L.push('  - docker: NOT DONE. The daemon is not reachable from this machine and the WSL distro has no');
-  L.push('    docker CLI, so a container per upstream release was not available. The ladder above is the');
-  L.push('    distribution apt ladder instead. This is a limit on which versions were REACHED; it is not');
-  L.push('    a statement that no disappearance was found, and the table above says what was found.');
+  // Derived from the probe, never asserted. What stood here was a literal about
+  // this machine's docker, printed on every run on every machine and copied from
+  // here into a tracked record -- and wrong about half of what it said, since a
+  // CLI is present and it is the daemon that is absent. Prose stating a state
+  // where a measurement belongs is a defect shape this lane has already had to
+  // fix once, in its own anchor.
+  for (const line of dock.reportLines) L.push(line);
   const sweep = sweepCoverage(tracked, prepared);
   if (sweep.complete) {
     L.push(`  - (not in this list) the corpus-scale sweep WAS run: all ${sweep.removableTotal} removable erasure`);
@@ -672,7 +1031,30 @@ async function main() {
     anchor: { checked: anchor.checked, agreed: anchor.agreed, disagreements: anchor.disagreements, problem: notAnchored },
     rowsFile: rowsFileLabel(rowsPath, { defaultPath: TRACKED, repoRoot: REPO }),
     trackedRowsSha256: sha256Text(trackedText),
-    docker: { done: false, reason: 'the docker daemon is not reachable and the WSL distro has no docker CLI' },
+    // The MEASURED docker state of this machine on this run. `probes` names each
+    // command that was run and whether it answered, so a consumer can see which
+    // one failed rather than being handed a sentence. What stood here was a
+    // `{done: false, reason: <a fixed sentence>}` constant, written into a
+    // tracked record on every run and true of no particular machine.
+    docker: {
+      reachable: docker.reachable,
+      failedProbe: docker.failedProbe,
+      reason: docker.reason,
+      cliVersion: docker.cliVersion,
+      serverVersion: docker.serverVersion,
+      probes: {
+        'docker --version': dockerProbes.cli ? { ok: dockerProbes.cli.ok, detail: dockerProbes.cli.detail } : null,
+        'docker info': dockerProbes.daemon ? { ok: dockerProbes.daemon.ok, detail: dockerProbes.daemon.detail } : null,
+        'docker image inspect': Object.keys(dockerImages).length
+          ? Object.fromEntries(Object.entries(dockerImages).map(([cc, r]) => [cc, { ok: r.ok, detail: r.detail }]))
+          : null,
+      },
+      declaredRungs: dockerRungs(),
+      requested: wanted.filter(isDockerRung),
+      counting: dCount,
+      crossDistribution: { compared: cross.compared, agreed: cross.agreed, differences: cross.differences, problem: cross.problem },
+      neverFetches: 'every docker invocation this lane composes carries --pull=never and --network=none',
+    },
   };
   const out = { manifest, rows, appearances };
   const json = JSON.stringify(out, null, 1);
@@ -708,7 +1090,21 @@ async function main() {
     process.stderr.write('version-ladder: wrote data/version-ladder.{json,txt}\n');
   }
 
-  if (notAnchored) process.exit(2);
+  // THE ONE PLACE THE EXIT CODE IS DECIDED, and it is decided from every
+  // `problem` this run produced rather than from the one somebody remembered to
+  // wire. `cross.problem` used to be written into the record and printed as
+  // NOT COMPARED while the process exited 0.
+  //
+  // The two codes are written as LITERALS at the site even though `ladderExit`
+  // returned them: compiler/schema/exit-codes.test.mjs reads every literal exit
+  // in the tree and checks it against interfaces.md section 7, and it says in
+  // its own header that `process.exit(code)` is a site it cannot resolve. A
+  // decision made in one function and spent through a variable would be invisible
+  // to the fence that keeps that table honest.
+  const code = ladderExit({ notAnchored, cross });
+  if (code !== 0) process.stderr.write(`version-ladder: ${notAnchored || cross.problem}\n`);
+  if (code === 2) process.exit(2);
+  if (code === CROSS_EXIT) process.exit(3);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

@@ -1,0 +1,64 @@
+{
+  "lane": "lto-window",
+  "tool": "which-wipe-survived",
+  "what": "fill bytes read in one absorbed body for three builds of one family: the source as written, the subject's wipe cut out of the source, the control's wipe cut out of the source",
+  "provenance": {
+    "kind": "transcribed-from-this-lane-README",
+    "note": "these integers were published as a table in README.md before this file existed; they are transcribed from it, NOT re-measured by the test that reads them. The test's job is that the prose and the tracked numbers cannot drift apart. Re-measuring is tools/check-which-wipe-plumbing.mjs, which rebuilds the row it is asked for and exits non-zero when it disagrees with these numbers.",
+    "measured": "2026-09-12",
+    "toolchain": { "cc": "clang-18", "ld": "lld-18" }
+  },
+  "readingIsAKeyOf": "WHICH_WIPE in lib/record.mjs",
+  "rows": [
+    {
+      "fixture": "xtu-inline",
+      "caller": "main",
+      "optLevel": "-O1",
+      "bufferBytes": 32,
+      "fillBytes": { "asWritten": 0, "subjectWipeDeleted": 0, "controlWipeDeleted": 0 },
+      "reading": "BLIND",
+      "instrumentReads": false,
+      "why": "no fill at any of the three builds, so the deletion the control makes cannot be seen and nothing beneath it is a result"
+    },
+    {
+      "fixture": "xtu-inline",
+      "caller": "main",
+      "optLevel": "-O2",
+      "bufferBytes": 32,
+      "fillBytes": { "asWritten": 32, "subjectWipeDeleted": 32, "controlWipeDeleted": 0 },
+      "reading": "SUBJECT_GONE",
+      "instrumentReads": true,
+      "why": "deleting the subject's wipe does not change the linked program; deleting the control's removes the fill"
+    },
+    {
+      "fixture": "xtu-inline",
+      "caller": "main",
+      "optLevel": "-O3",
+      "bufferBytes": 32,
+      "fillBytes": { "asWritten": 32, "subjectWipeDeleted": 32, "controlWipeDeleted": 0 },
+      "reading": "SUBJECT_GONE",
+      "instrumentReads": true,
+      "why": "deleting the subject's wipe does not change the linked program; deleting the control's removes the fill"
+    },
+    {
+      "fixture": "xtu-inline",
+      "caller": "main",
+      "optLevel": "-Os",
+      "bufferBytes": 32,
+      "fillBytes": { "asWritten": 32, "subjectWipeDeleted": 32, "controlWipeDeleted": 0 },
+      "reading": "SUBJECT_GONE",
+      "instrumentReads": true,
+      "why": "deleting the subject's wipe does not change the linked program; deleting the control's removes the fill"
+    },
+    {
+      "fixture": "xtu",
+      "caller": "wipe_kept",
+      "optLevel": "-O2",
+      "bufferBytes": 32,
+      "fillBytes": { "asWritten": 32, "subjectWipeDeleted": 32, "controlWipeDeleted": 0 },
+      "reading": "SUBJECT_GONE",
+      "instrumentReads": true,
+      "why": "the intervened family answered from the other side: the reading is taken in the control's own body, which the subject's deletion does not touch and the control's deletion empties"
+    }
+  ]
+}

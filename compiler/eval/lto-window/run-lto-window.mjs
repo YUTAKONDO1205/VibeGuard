@@ -24,8 +24,19 @@
  *                      `__attribute__((noinline))` -- and measuring only one of
  *                      them leaves the lane unable to say what the intervention
  *                      buys. See the README's section on the pair.
- *   --forms full,thin  default full,thin. `thin` is measured for its refusal,
- *                      never for an attribution -- see the README.
+ *   --forms full,thin  default full,thin. `thin` was measured only for its
+ *                      refusal until 2026-09-14, when the observer learned to
+ *                      write one log per backend module. It is now graded from
+ *                      that run's own evidence like any other cell and CAN
+ *                      return an attribution -- see lib/thin-logs.mjs and the
+ *                      README. The reading is taken from a `--thinlto-jobs=1`
+ *                      link whose executable is byte-identical to the stock
+ *                      default-pool one, and the default-pool link is run too
+ *                      and gates the cell. What this lane still has no reading
+ *                      of is the non-invasiveness of the COMPILE-time path
+ *                      under ThinLTO (`scripts/noninvasive.mjs`, the
+ *                      `native-plugins` job); it compares the stock and
+ *                      observed ThinLTO LINK and nothing beyond it.
  *   --cc <clang>       default clang-18. The plugin is built against one LLVM's
  *                      headers and will not load into another's lld.
  *   --gcc <gcc>        default gcc-13. Probed for refusals only.
@@ -35,9 +46,11 @@
  *                      ONE level, recorded as `optLevel` in its result. Four
  *                      levels are four runs with four --out directories; the
  *                      result file name is fixed, so a shared --out overwrites.
- *   --skip-thinlto-evidence   do not run the ThinLTO link that earns the
- *                      BROKEN_MEASUREMENT word. The cell then says the word was
- *                      not earned in this run, which is not the same claim.
+ *   --skip-thinlto-evidence   do not run the ThinLTO link the thin cell is
+ *                      graded from. The cell is then refused with
+ *                      `thinlto-evidence-not-taken-in-this-run`, which is its
+ *                      own word: naming the multi-PassBuilder defect in a run
+ *                      that did not look for it would be asserting it.
  *   --skip-gcc         do not probe gcc at all
  *   --skip-negative-control   do not run the non-LTO link that shows guard 1
  *                      firing. A guard never shown to fire is not a guard, so
@@ -52,10 +65,26 @@
  * Exit codes follow ../../schema/interfaces.md section 7:
  *   0  every requested cell was checked and nothing was found
  *   1  a compile or link this lane needed failed
- *   2  a finding at threshold -- currently only: the observer changed the bytes
- *   3  a requested cell could not be completed (ThinLTO, gcc, a fallen control),
- *      or a cell measured OK with nothing to read, or a check was skipped.
- *      Never 0. A run that asks for --forms thin returns 3 by construction.
+ *   2  a finding at threshold, or a check that was never taken on a cell that
+ *      measured: the observer changed the linked bytes (either LTO form), the
+ *      negative control did not fire, a family has no negative-control record
+ *      at all, or an OK full-LTO cell has no stock-vs-observed comparison.
+ *      lib/record.mjs's exitDecision is the list, and it is the tested one.
+ *   3  a requested cell could not be completed (gcc, a fallen control, a
+ *      ThinLTO link whose evidence came back broken), or a cell measured OK
+ *      with nothing to read, or a check was skipped. Never 0.
+ *
+ *      A run that asks for --forms thin used to return 3 BY CONSTRUCTION,
+ *      because the thin cell was refused whatever it measured. That is no
+ *      longer where the 3 comes from: a healthy ThinLTO cell now completes.
+ *      Measured 2026-09-14 on xtu/xtu-inline/erasure at -O2, exit 3, 10 of 15
+ *      cells OK -- `xtu.thin.link` OK/LOST with `DSEPass on handle`,
+ *      `erasure.thin.link` OK/ABSENT, `xtu-inline.thin.link` refused because
+ *      the subject has a SUMMARY row in two backends. The 3 came from the
+ *      three gcc UNSUPPORTED rows and that last cell. A run that reached
+ *      neither gcc nor a skip -- gcc not installed, say -- could now return 0
+ *      with thin cells in it, which the old sentence ruled out and this one
+ *      does not.
  *   4  usage, or a refusal: --out inside the checkout, a missing plugin, a
  *      record that still carries an absolute path
  *
@@ -74,7 +103,11 @@ import { fileURLToPath } from 'node:url';
 
 import { objectKind, ltoFormFromBcanalyzerDump, gradeInputs } from './lib/lto-inputs.mjs';
 import { parseLldPassLog, parseObserverLog, comparePassReadings } from './lib/pass-log.mjs';
-import { gradeCell, MEASUREMENT, STATE, REASON, STAGE_COMPILE, STAGE_LTO_BACKEND, CHECKPOINT_AFTER_PASS } from './lib/cell.mjs';
+import {
+  gradeCell, gccChannelRefusal, MEASUREMENT, STATE, REASON,
+  STAGE_COMPILE, STAGE_LTO_BACKEND, CHECKPOINT_AFTER_PASS,
+} from './lib/cell.mjs';
+import { parseModuleManifest, gradeThinLtoCell, foldPassAgreements } from './lib/thin-logs.mjs';
 import {
   skippedRecord, skipSummaryLines, SKIP_WHY, linkGuardRecord, scrubbed, exitDecision,
   interventionAbsentReading, absorbedFillReading, interventionPairVerdict,
@@ -273,12 +306,41 @@ function observerEnv({ subject, control, symbols, outPath }) {
   };
 }
 
+/**
+ * The observer's two files for one link, read as two files.
+ *
+ * `<OBS_OUT>.summary.tsv` has to be read separately, and this is not a
+ * convenience. Under full LTO the MAIN log has no SUMMARY at all: lld exits
+ * without unwinding, so the tracker's destructor -- which is what calls
+ * finish() -- never runs. Measured: the main log of a healthy full-LTO link
+ * held HANDSHAKE 1, SUBJECTRES 2, PASS 448, EV 388, UNIT 2 and no SUMMARY, HIST
+ * or STATS; the side file held all three. A reader that only looked at the main
+ * log would find no attribution in a run that produced one.
+ *
+ * That paragraph lived in lib/pass-log.mjs until 2026-09-15, attached to an
+ * exported `parseObserverSummaryFile` that nothing called -- the documented
+ * mechanism and the running one were two different functions. It is here now,
+ * beside the two `readFileSync` calls that are the mechanism.
+ *
+ * Both files are read as BYTES on purpose. parseObserverLog counts NUL bytes
+ * and torn lines, and `Buffer.from(buf.toString('utf8'), 'utf8')` is not the
+ * identity on a shredded log, so handing it a decoded string would alter the
+ * evidence it is being asked to weigh.
+ */
 function readObserver(outPath) {
   const main = fs.existsSync(outPath) ? parseObserverLog(fs.readFileSync(outPath)) : null;
   const sidePath = `${outPath}.summary.tsv`;
   const side = fs.existsSync(sidePath) ? parseObserverLog(fs.readFileSync(sidePath)) : null;
-  // finish() runs from the tracker's destructor, and lld exits without
-  // unwinding, so under full LTO the SUMMARY rows exist only in the side file.
+  // Which file the SUMMARY rows are in is a property of the plugin, not of the
+  // link form, and it MOVED. ★ 2026-09-15: this said "finish() runs from the
+  // tracker's destructor, and lld exits without unwinding, so under full LTO
+  // the SUMMARY rows exist only in the side file." That held while the tracker
+  // was a process-global nothing destroyed. It now belongs to the
+  // PassInstrumentationCallbacks, which lld DOES destroy per backend, so
+  // `finish()` runs at link and the main log has them -- measured, every
+  // full-LTO cell moved from `summarySource: side` to `main`. The branch below
+  // was already written to ask the file rather than assume the form, which is
+  // why the change cost nothing here; the comment was the part that was wrong.
   const fromMain = Boolean(main?.summaries?.length);
   const summaries = (fromMain ? main.summaries : side?.summaries) ?? [];
   // WHICH file the verdict is being read out of, and whether THAT file is
@@ -294,6 +356,101 @@ function readObserver(outPath) {
 }
 
 const summaryFor = (summaries, unit) => summaries.find((s) => s.unit === unit) ?? null;
+
+/**
+ * Every backend's log from ONE ThinLTO link, found through the manifest.
+ *
+ * `readObserver` above reads `<OBS_OUT>` and its side file and nothing else,
+ * which under ThinLTO is one backend out of N -- and WHICH one is a race, since
+ * the unsuffixed name goes to whichever tracker reached a module boundary first
+ * (`History.cpp:117-127`). Measured twice on the same fixture with two
+ * different winners. The run that exposed this had `wipe.o` holding the
+ * unsuffixed name; `wipe.o` does not contain the subject, so the lane reported
+ * a perfectly intact log, `distinctHandshakeModuleIds: 1`, and a reading of the
+ * wrong module while two other logs sat unread beside it.
+ *
+ * So: the manifest, and column 2 of it. The observer sanitises the module id to
+ * build the suffix and falls back to `module-<index>` past 128 characters
+ * (`History.cpp:83-95`), so re-deriving the filename from the module id agrees
+ * on the easy cases and misses the hard ones. Column 2 is the path the tracker
+ * opened; it is used verbatim and it never reaches a record, because it is an
+ * absolute path and the scan at the end of main() would refuse the run.
+ *
+ * `readObserver` is reused per backend on purpose: the observer names the side
+ * file `<that backend's log>.summary.tsv` (`History.cpp:160`), so the
+ * main-or-side question this lane already answers once is the same question N
+ * times, and answering it differently here is how the two would drift.
+ */
+/**
+ * A guard-2 reading with the LINKER-side halves removed.
+ *
+ * `lldOnly` and `firstMismatches` are dropped for ThinLTO and only for
+ * ThinLTO. Under `-flto=thin` the observer's diagnostics and N backends' pass
+ * logs share one stderr, so lld "pass ids" parsed out of a spliced line can be
+ * fragments of the observer's own messages -- which name the module id, and
+ * under ThinLTO the module id IS the object's absolute path. Those fragments
+ * would reach the record and the scan at the end of main() would refuse the
+ * run with exit 4, correctly, for a string this lane put there itself.
+ *
+ * Nothing a reader needs is lost. The refusal is driven by `subset`, and what
+ * `subset: false` means is listed in `observerOnly` -- the OBSERVER's side,
+ * whose ids are LLVM pass names and are kept whole.
+ */
+function reducedAgreement(a) {
+  if (!a) return null;
+  return {
+    comparable: a.comparable,
+    subset: a.subset,
+    sequenceEqual: a.sequenceEqual,
+    counts: a.counts,
+    observerOnly: a.observerOnly,
+    excludedPassIds: a.excludedPassIds,
+  };
+}
+
+function readThinLtoBackends({ obsPath, fx, lldRuns }) {
+  const manifestPath = `${obsPath}.modules`;
+  if (!fs.existsSync(manifestPath)) {
+    return { manifest: { present: false, lines: 0, malformedLines: 0 }, modules: [] };
+  }
+  const { entries, malformed } = parseModuleManifest(fs.readFileSync(manifestPath, 'utf8'));
+  const modules = entries.map((e) => {
+    const moduleId = redact(e.moduleId);
+    if (!fs.existsSync(e.logPath)) {
+      // The manifest line is written BEFORE the open is attempted
+      // (`History.cpp:130-136`), so this is the case the manifest exists for: a
+      // backend ran, said so, and its history is not here.
+      return { moduleId, logPresent: false, logBytes: 0, logIntact: null };
+    }
+    const read = readObserver(e.logPath);
+    const res = (role) => read.main?.subjectRes.find((s) => s.role === role)?.resolution ?? null;
+    return {
+      moduleId,
+      logPresent: true,
+      logBytes: fs.statSync(e.logPath).size,
+      logIntact: read.main?.intact ?? false,
+      handshakeRecords: read.main?.handshakes.length ?? 0,
+      handshakeModuleIds: [...new Set((read.main?.handshakes ?? []).map((h) => redact(h.moduleId)))],
+      nulBytes: read.main?.nulBytes ?? 0,
+      tornLines: read.main?.tornLines.length ?? 0,
+      tornLineSamples: (read.main?.tornLines ?? []).slice(0, 3).map(redact),
+      passRecords: read.main?.counts.PASS ?? 0,
+      evRecords: read.main?.ev.length ?? 0,
+      summarySource: read.summarySource,
+      summaryIntact: read.summaryIntact,
+      summaryUnits: read.summaries.map((s) => s.unit),
+      subjectResolution: res('subject'),
+      controlResolution: res('control'),
+      subjectRow: summaryFor(read.summaries, fx.subject),
+      controlRow: summaryFor(read.summaries, fx.control),
+      passAgreement: reducedAgreement(read.main ? comparePassReadings(read.main.passes, lldRuns) : null),
+    };
+  });
+  return {
+    manifest: { present: true, lines: entries.length + malformed.length, malformedLines: malformed.length },
+    modules,
+  };
+}
 
 /**
  * The compile-time window, for contrast. One translation unit, one process,
@@ -469,72 +626,160 @@ function negativeControl({ o, fx, name, work, plugin, symbols }) {
 }
 
 /**
- * ThinLTO: the refusal, and the measurement that earns it.
+ * ThinLTO: the measurement, and whatever the measurement earns.
  *
- * Under `-flto=thin` lld builds one PassBuilder per backend module.
- * `llvmGetPassPluginInfo` is called once per PassBuilder
- * (PropertyObserver.cpp:141), its registration callback replaces a
- * process-global tracker (PropertyObserver.cpp:55, :153), and that tracker's
- * constructor opens OBS_OUT with no append flag, truncating it
- * (History.cpp:56). With lld's default thread pool the backends also run
- * concurrently, so the surviving file is not the last backend's history -- it is
- * whatever the interleaving left.
+ * Under `-flto=thin` lld builds one PassBuilder per backend module and calls
+ * `llvmGetPassPluginInfo` once per PassBuilder (PropertyObserver.cpp:141).
+ * Until 2026-09-14 the observer kept ONE process-global tracker whose
+ * constructor opened OBS_OUT truncating, so every backend overwrote the one
+ * before it while other backend threads were still writing -- and the
+ * surviving file was not the last backend's history but whatever the
+ * interleaving left. The observer now builds a tracker per PassBuilder, gives
+ * each one `<OBS_OUT>.<sanitised module id>.tsv`, and names every tracker in
+ * `<OBS_OUT>.modules`.
  *
- * This function runs that link ONCE and records how intact the log came back.
- * It never reads an attribution out of it. Without this run the lane would be
- * asserting a defect rather than measuring one, which is the thing the README of
- * every other lane here refuses to do.
+ * WHAT THIS FUNCTION NO LONGER DOES. It used to run one link, record how
+ * shredded the log came back, and hand that record to a caller that ignored
+ * it: the cell was refused unconditionally with `plugin-multi-passbuilder`
+ * whatever the evidence said. The refusal the README called "earned by this
+ * run's own evidence" was earned by nothing -- it was only ever accidentally
+ * right, because the evidence had always come back broken. It measures now,
+ * and lib/thin-logs.mjs grades from what it measured.
+ *
+ * FOUR LINKS, and each one answers something the others cannot:
+ *
+ *   stock       no plugin, default thread pool -- the bytes the build produces
+ *   passlog     already run by linkWindowCell for this form (`lw`): guard 1's
+ *               plugin-free reading that an LTO pipeline ran at all
+ *   concurrent  plugin, DEFAULT thread pool, no debug flag -- the integrity
+ *               question, asked where the defect lived. This is the link that
+ *               used to come back as `data`: 4 to 7 module ids in one file,
+ *               NUL bytes, torn lines. It is kept precisely so the lane can
+ *               still SEE that defect return, and a shredded log here refuses
+ *               the cell whatever the serialised link says.
+ *   serialised  plugin, `--thinlto-jobs=1`, `--lto-debug-pass-manager` -- the
+ *               link the READING is taken from.
+ *
+ * WHY THE READING COMES FROM A SERIALISED LINK, and what licenses it. Guard 2
+ * needs the linker's own account of the pipeline, and lld writes that to one
+ * stderr shared by N concurrent backends AND by the plugin's own diagnostics.
+ * Measured 2026-09-14 on the default pool, in this harness: 237 parsed
+ * `Running pass:` lines and a `lineKinds` map full of shapes like
+ * `" (22 instruction instructionss))Running pass"` -- the two readings then
+ * "disagree" because lld's half came apart, and the first version of this
+ * change refused all three families for `pass-readings-disagree`, blaming the
+ * observer for the linker's stream. `--thinlto-jobs=1` makes that reading
+ * whole: 431 `Running pass:` lines, five line kinds all legitimate, zero lines
+ * carrying an embedded second marker, `subset` true for every backend.
+ *
+ * Serialising is not free of the obvious objection -- it is not the link the
+ * build runs -- so the objection is answered by measurement rather than by
+ * argument: `byteIdentical` compares the serialised observed executable with
+ * the stock DEFAULT-POOL one. Measured on `xtu`, one sha256 across six links
+ * (three stock, observed parallel with and without the debug flag, observed
+ * serialised). Scheduling backends one at a time does not change the program,
+ * and on a run where it does, this cell says so instead of reading it.
  */
 function thinLtoEvidence({ o, fx, name, work, plugin, symbols, objects }) {
   const dir = path.join(work, `thin-evidence-${name}`);
   fs.mkdirSync(dir, { recursive: true });
+  const base = [o.opt, '-flto=thin', '-fuse-ld=lld', ...objects.all];
+  const env = (outPath) => ({ env: observerEnv({ subject: fx.subject, control: fx.control, symbols, outPath }) });
+  // `withPlugin` is carried rather than inferred from `where`. ★ 2026-09-15:
+  // the grader named every failure here `thinlto-link-did-not-survive-the-plugin`,
+  // and one of the three links below is the STOCK one, which is built without
+  // the plugin. A toolchain that cannot link these objects at all would have
+  // been reported as the plugin breaking the link. The three `where` strings
+  // are for a human reading the record; a verdict must not be decided by
+  // matching prose, so the fact the verdict needs is its own field.
+  const failed = (where, r, withPlugin) => ({
+    attempted: true, linkFailed: true, where, withPlugin, linkRc: r.rc, signal: r.signal,
+    stderr: redact(r.stderr).slice(0, 1200),
+  });
+
+  const appStock = path.join(dir, 'app.thin.stock');
+  const s = run(o.cc, [...base, '-o', appStock]);
+  if (s.rc !== 0) return failed('stock ThinLTO', s, false);
+
+  // The concurrency question, asked where the answer used to be "shredded". No
+  // debug flag: this link is read for the integrity of the observer's own
+  // files and for nothing else, and the linker's stderr is not usable here
+  // anyway.
+  const obsC = path.join(dir, 'concurrent.tsv');
+  const c = run(o.cc, [...base, '-o', path.join(dir, 'app.thin.concurrent'),
+    `-Wl,--load-pass-plugin=${plugin}`], env(obsC));
+  if (c.rc !== 0) return failed('concurrent ThinLTO', c, true);
+  const concurrent = { linkRc: c.rc, ...rollUp(readThinLtoBackends({ obsPath: obsC, fx, lldRuns: [] })) };
+
   const obs = path.join(dir, 'observer.tsv');
-  const app = path.join(dir, 'app.thin');
-  const r = run(o.cc, [o.opt, '-flto=thin', '-fuse-ld=lld', ...objects.all, '-o', app,
-    `-Wl,--load-pass-plugin=${plugin}`],
-  { env: observerEnv({ subject: fx.subject, control: fx.control, symbols, outPath: obs }) });
-  if (r.rc !== 0) {
-    // Recorded rather than retried. A ThinLTO link that does not survive the
-    // plugin at all is the same defect showing a different face, and the
-    // interleaved stderr below -- two backends' diagnostics spliced mid-word --
-    // is itself the concurrency evidence.
-    return {
-      attempted: true, linkFailed: true, linkRc: r.rc, signal: r.signal,
-      stderr: redact(r.stderr).slice(0, 1200),
-    };
-  }
-  const log = fs.existsSync(obs) ? parseObserverLog(fs.readFileSync(obs)) : null;
-  const moduleIds = {};
-  for (const h of log?.handshakes ?? []) {
-    // Under ThinLTO the module identifier is the object's path, so it is
-    // basenamed here rather than at the scan.
-    const id = redact(h.moduleId);
-    moduleIds[id] = (moduleIds[id] ?? 0) + 1;
-  }
+  const appObs = path.join(dir, 'app.thin');
+  const r = run(o.cc, [...base, '-o', appObs, `-Wl,--load-pass-plugin=${plugin}`,
+    '-Wl,--thinlto-jobs=1', '-Wl,--lto-debug-pass-manager'], env(obs));
+  if (r.rc !== 0) return failed('serialised ThinLTO', r, true);
+  const lld = parseLldPassLog(r.stderr);
+  const backends = readThinLtoBackends({ obsPath: obs, fx, lldRuns: lld.runs });
+
   return {
     attempted: true,
     linkRc: r.rc,
-    logBytes: fs.existsSync(obs) ? fs.statSync(obs).size : 0,
-    nulBytes: log?.nulBytes ?? 0,
-    handshakeRecords: log?.handshakes.length ?? 0,
-    distinctHandshakeModuleIds: Object.keys(moduleIds).length,
-    handshakeModuleIds: moduleIds,
-    tornLines: log?.tornLines.length ?? 0,
-    tornLineSamples: (log?.tornLines ?? []).slice(0, 5).map(redact),
-    intact: log?.intact ?? false,
+    // Stock, default pool, no plugin -- against the observed SERIALISED link.
+    // This equality is what licenses reading a serialised link at all.
+    byteIdentical: sha256File(appStock) === sha256File(appObs),
+    serialisedThinltoJobs: 1,
+    linkerPipeline: { runs: lld.runs.length, lineKinds: lld.lineKinds },
+    // Integrity under the default thread pool, kept beside the reading rather
+    // than replaced by it. `concurrent.intact === false` refuses the cell.
+    concurrent,
+    ...backends,
+    ...rollUp(backends),
   };
 }
 
 /**
- * gcc. Three probes, all of them refusals, and one differential that needs no
- * observer at all.
+ * The per-link roll-up, over the WHOLE link rather than over one file.
  *
- * The word for the first three is UNSUPPORTED and it is the correct one:
- * interfaces.md 3.1 reserves it for "the toolchain refused the invocation", and
- * that is literally what happens -- `/usr/bin/ld: unrecognized option
- * '--load-pass-plugin='`. It is NOT the ThinLTO situation, where the toolchain
- * accepts the invocation and the instrument comes apart; that one is
- * BROKEN_MEASUREMENT with state NOT_OBSERVED.
+ * These field names survived the 2026-09-14 change on purpose -- a reader
+ * comparing a new record with the pre-fix table in README.md is comparing the
+ * same quantities -- but their SCOPE moved from `<OBS_OUT>` alone to every log
+ * in the manifest, which is why the README dates the old table rather than
+ * editing its numbers.
+ */
+function rollUp(backends) {
+  const present = backends.modules.filter((m) => m.logPresent);
+  const allIds = new Set(present.flatMap((m) => m.handshakeModuleIds ?? []));
+  return {
+    manifest: backends.manifest,
+    logsRead: present.length,
+    logsMissing: backends.modules.filter((m) => !m.logPresent).map((m) => m.moduleId),
+    logBytes: present.reduce((n, m) => n + m.logBytes, 0),
+    nulBytes: present.reduce((n, m) => n + m.nulBytes, 0),
+    handshakeRecords: present.reduce((n, m) => n + m.handshakeRecords, 0),
+    distinctHandshakeModuleIds: allIds.size,
+    handshakeModuleIds: [...allIds].sort(),
+    tornLines: present.reduce((n, m) => n + m.tornLines, 0),
+    tornLineSamples: present.flatMap((m) => m.tornLineSamples ?? []).slice(0, 5),
+    intact: backends.manifest.present === true
+      && backends.manifest.malformedLines === 0
+      && backends.modules.length > 0
+      && backends.modules.every((m) => m.logPresent === true && m.logIntact === true),
+  };
+}
+
+/**
+ * gcc. Three probes -- refusals every time this lane has run them -- and one
+ * differential that needs no observer at all.
+ *
+ * The word the three have always earned is UNSUPPORTED and it is the correct
+ * one: interfaces.md 3.1 reserves it for "the toolchain refused the
+ * invocation", and that is literally what happens -- `/usr/bin/ld:
+ * unrecognized option '--load-pass-plugin='`. It is NOT the ThinLTO situation,
+ * where the toolchain accepts the invocation and the instrument comes apart;
+ * that one is BROKEN_MEASUREMENT with state NOT_OBSERVED.
+ *
+ * "Every time this lane has run them" is the part that was missing. The word is
+ * read off the rc values now, by `gccChannelRefusal` in lib/cell.mjs, rather
+ * than written down here as a fact about gcc; a run where any channel is
+ * accepted gets a different word and says which probe took it.
  */
 function gccProbes({ o, name, fx, work, plugin }) {
   const dir = path.join(work, `gcc-${name}`);
@@ -592,13 +837,10 @@ function gccProbes({ o, name, fx, work, plugin }) {
   return {
     available: true,
     probes,
-    // UNSUPPORTED, earned: the linker refused the option.
-    attributionCell: gradeCell({
-      refusal: {
-        measurement: MEASUREMENT.UNSUPPORTED,
-        reason: `${REASON.LINKER_REFUSED_PLUGIN_OPTION}: ${probes.loadPassPluginOnGccLink.stderr[0] ?? 'no diagnostic'}`,
-      },
-    }),
+    // The word comes from the rc values, in lib/cell.mjs where it is tested.
+    // It was built here, unconditionally, with no rc anywhere in the
+    // expression, until 2026-09-15; gccChannelRefusal's comment has the detail.
+    attributionCell: gradeCell({ refusal: gccChannelRefusal(probes) }),
     artifact,
     note: 'there is no gcc pass observer in this tree either (compiler/pass-instrumentation holds three LLVM plugins), '
       + 'so even a channel would have nothing to load. That second fact is about this tree, not about gcc, and is kept separate.',
@@ -822,29 +1064,58 @@ function main() {
           unreachedReason: completed(lw.cell) ? null : lw.cell.reasons.join('; '),
         });
       } else {
-        // ThinLTO. Refused, with the refusal earned by its own measurement.
+        // ThinLTO. Graded from this run's own evidence -- which until
+        // 2026-09-14 it was not: the cell carried an unconditional
+        // BROKEN_MEASUREMENT / plugin-multi-passbuilder that consulted nothing
+        // the measurement returned. `evidence.intact` reached no branch; only
+        // `evidence.attempted` did, as `evidenceThisRun`. With the per-module
+        // observer the evidence came back `intact: true` and the cell still
+        // said the instrument had come apart, which is an assertion wearing a
+        // measurement's clothes. Every word the cell can now carry is reached
+        // from a value this run produced; lib/thin-logs.mjs is where that is
+        // decided and tested.
         const evidence = o.skipThinEvidence
           ? skippedRecord('thinltoEvidence', SKIP_WHY.thinltoEvidence)
           : thinLtoEvidence({ o, fx, name, work, plugin: o.plugin, symbols: symbols.symbols, objects });
         results.thinLto[name] = { evidence, linkerPipelineRuns: lw.linkerPipeline.runs, inputsOk: lw.inputs.ok };
+        // Guard 1 from the link WITHOUT the plugin, the way the full-LTO cell
+        // takes it. Guard 2 from the observed link's own stderr, folded over
+        // the backends.
+        const thinCell = gradeThinLtoCell({
+          evidence, inputs: lw.inputs, linkerPipeline: lw.linkerPipeline,
+        });
+        // A plugin that changed the linked program is the same finding on this
+        // form as on the other one, and it is not downgraded because the form
+        // used to be refused before anything could be compared.
+        if (evidence.byteIdentical === false) byteFinding = true;
         results.cells.push({
           id: `${name}.thin.link`, fixture: name, form: 'thin', vendor: 'clang', window: 'link',
           stage: STAGE_LTO_BACKEND, checkpoint: CHECKPOINT_AFTER_PASS,
-          ...gradeCell({
-            refusal: {
-              measurement: MEASUREMENT.BROKEN_MEASUREMENT,
-              reason: REASON.MULTI_PASSBUILDER,
-            },
+          ...thinCell,
+          guards: linkGuardRecord({
+            inputs: lw.inputs,
+            linkerPipeline: lw.linkerPipeline,
+            agreement: foldPassAgreements(evidence.modules ?? []),
+            byteIdentical: evidence.byteIdentical ?? null,
+            debugFlagChangedBytes: lw.debugFlagChangedBytes,
           }),
-          guards: linkGuardRecord(lw),
+          // Which backends this link produced, and what each one said. The
+          // per-backend array is the record of the thing the old reader could
+          // not see: it read `<OBS_OUT>` alone, which is one backend chosen by
+          // a race, and called it the link.
+          backends: (evidence.modules ?? []).map((m) => ({
+            moduleId: m.moduleId, logPresent: m.logPresent, logIntact: m.logIntact,
+            subjectResolution: m.subjectResolution, controlResolution: m.controlResolution,
+            summaryUnits: m.summaryUnits ?? [], evRecords: m.evRecords ?? 0,
+          })),
           evidenceThisRun: evidence.attempted === true,
         });
-        results.unobserved.push(`${name}.thin.link-time-attribution`);
+        const reached = completed(thinCell);
+        if (!reached) results.unobserved.push(`${name}.thin.link-time-attribution`);
         results.observationPoints.push({
           id: `${name}-thin-lto-backend`, checkpoint: CHECKPOINT_AFTER_PASS, stage: STAGE_LTO_BACKEND,
-          reached: false, optLevel: o.opt, tool: results.toolchain.lld,
-          unreachedReason: `${REASON.MULTI_PASSBUILDER}: lld builds one PassBuilder per backend module and the `
-            + 'observer keeps a single process-global tracker whose constructor truncates OBS_OUT',
+          reached, optLevel: o.opt, tool: results.toolchain.lld,
+          unreachedReason: reached ? null : thinCell.reasons.join('; '),
         });
       }
     }
