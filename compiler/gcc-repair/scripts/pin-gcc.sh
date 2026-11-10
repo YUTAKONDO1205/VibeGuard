@@ -8,6 +8,9 @@
 #   pin-gcc.sh <libWipePinGcc.so> <out.json> <gcc args...>
 #
 #   WPIN_TARGET_FNS / WPIN_SCOPE / WPIN_DRY_RUN   passed through to the plugin
+#   WPIN_BARRIER_CALLS / WPIN_ZERO_COPY /         passed through too; the record's
+#   WPIN_BUFFER_BARRIER                           <block>.enabled must say what was
+#                                                 set ("1" on, unset/""/"0" off)
 #   WPIN_CC                                       compiler (default gcc-13)
 #
 # WPIN_OUT is set to <out.json> by this script. Give gcc ONE source file: the
@@ -22,21 +25,23 @@
 #
 # Exit codes follow compiler/schema/interfaces.md section 7, plus 4 -- the
 # same meanings as pin.sh:
-#   0  the compiler succeeded, a wipe-pin-v2 record from WipePinGcc was written,
-#      it pinned at least one site, and every requested name resolved. NOT "the
+#   0  the compiler succeeded, a wipe-pin-v3 record from WipePinGcc was written,
+#      it repaired at least one site, and every requested name resolved. NOT "the
 #      wipe survived" -- only the stock observation, re-run with the plugin, can
 #      say that -- and not even "the wipe was pinned": a pinned clear-before-fill
 #      memset counts too. followedByUseCount and the plugin's "partial" line are
-#      where that shows.
+#      where that shows. "Repaired" is compiler/schema/wipe-pin.md section
+#      14.8's sum: pinnedCount + barrierCalls.barrierCount +
+#      zeroCopy.repairedCount + bufferBarriers.count > 0.
 #   1  the compiler failed (its diagnostics pass through)
 #   3  the compiler succeeded and no usable record was written -- the plugin
 #      refused to install, or the unit never reached the end of compilation
 #      (-fsyntax-only, -E), or the record could not be written, or what was
-#      written is not a wipe-pin-v2 WipePinGcc record (read strictly by
-#      wpin_gcc_record.py, digests re-derived).
+#      written is not a wipe-pin-v3 WipePinGcc record for the switches this
+#      compile set (read strictly by wpin_gcc_record.py, digests re-derived).
 #   4  the compiler succeeded and a record was written, but nothing was
-#      repaired: pinnedCount is 0 (a dry run, a misspelt name, nothing eligible
-#      in scope) or a requested name did not resolve.
+#      repaired: that sum is 0 (a dry run, a misspelt name, nothing eligible in
+#      scope) or a requested name did not resolve.
 #
 # Requires python3 to read the record (no jq, no node).
 set -u
@@ -103,13 +108,18 @@ else
   elif [ ! -f "$READER" ]; then
     REC_ERR="the record reader is missing"
   else
-    REC_KV=$(python3 "$READER" "$OUT")
+    # The switches this compile set, for the reader to hold the record's
+    # <block>.enabled to (wipe-pin.md section 14.9, W1). A value other than
+    # 0 or 1 makes the plugin refuse, so there is no record to compare then.
+    sw() { [ "${1-}" = 1 ] && echo 1 || echo 0; }
+    EXPECT="barrierCalls=$(sw "${WPIN_BARRIER_CALLS-}"),zeroCopy=$(sw "${WPIN_ZERO_COPY-}"),bufferBarriers=$(sw "${WPIN_BUFFER_BARRIER-}")"
+    REC_KV=$(python3 "$READER" --expect "$EXPECT" "$OUT")
     prc=$?
     REC_ERR=$(printf '%s\n' "$REC_KV" | sed -n 's/^error=//p')
     if [ -z "$REC_ERR" ]; then
       if [ $prc -ne 0 ]; then
         REC_ERR="the record reader failed (rc $prc)"
-      elif ! printf '%s\n' "$REC_KV" | grep -q '^exactAll='; then
+      elif ! printf '%s\n' "$REC_KV" | grep -q '^repairCount='; then
         REC_ERR="the record reader did not finish"
       fi
     fi
@@ -126,8 +136,14 @@ WOULD=$(field wouldPinCount)
 FOLLOWED=$(field followedByUseCount)
 UNRESOLVED=$(field unresolved)
 EXACT_ALL=$(field exactAll)
+BARRIERS=$(field barrierCount)
+WOULD_BARRIERS=$(field wouldBarrierCount)
+ZERO_REPAIRED=$(field zeroCopyRepairedCount)
+WOULD_ZERO=$(field wouldZeroCopyCount)
+BUFFER_BARRIERS=$(field bufferBarrierCount)
+REPAIRED=$(field repairCount)
 
-if [ $status -eq 0 ] && { [ "$PINNED" = 0 ] || [ -n "$UNRESOLVED" ]; }; then
+if [ $status -eq 0 ] && { [ "$REPAIRED" = 0 ] || [ -n "$UNRESOLVED" ]; }; then
   status=4
 fi
 
@@ -146,9 +162,18 @@ fi
   echo "followedByUseCount=$FOLLOWED"
   echo "unresolved=$UNRESOLVED"
   echo "exactAll=$EXACT_ALL"
+  echo "barrierCount=$BARRIERS"
+  echo "wouldBarrierCount=$WOULD_BARRIERS"
+  echo "zeroCopyRepairedCount=$ZERO_REPAIRED"
+  echo "wouldZeroCopyCount=$WOULD_ZERO"
+  echo "bufferBarrierCount=$BUFFER_BARRIERS"
+  echo "repairCount=$REPAIRED"
   echo "wpinTargetFns=${WPIN_TARGET_FNS-}"
   echo "wpinScope=${WPIN_SCOPE-}"
   echo "wpinDryRun=${WPIN_DRY_RUN-}"
+  echo "wpinBarrierCalls=${WPIN_BARRIER_CALLS-}"
+  echo "wpinZeroCopy=${WPIN_ZERO_COPY-}"
+  echo "wpinBufferBarrier=${WPIN_BUFFER_BARRIER-}"
   printf 'argvB64=%s\n' "$(printf '%s\n' "$@" | sanitise | base64 -w0)"
   printf 'stderrB64=%s\n' "$( [ -s "$ERRFILE" ] && head -c 4000 "$ERRFILE" | sanitise | base64 -w0 )"
 } > "$MANIFEST"
@@ -163,7 +188,7 @@ case $status in
     fi ;;
   4)
     why=
-    [ "$PINNED" = 0 ] && why="pinnedCount 0 (wouldPinCount $WOULD)"
+    [ "$REPAIRED" = 0 ] && why="repair count 0 (pinnedCount $PINNED of wouldPinCount $WOULD, barrierCount $BARRIERS of $WOULD_BARRIERS, zeroCopy.repairedCount $ZERO_REPAIRED of $WOULD_ZERO, bufferBarriers.count $BUFFER_BARRIERS)"
     if [ -n "$UNRESOLVED" ]; then
       [ -n "$why" ] && why="$why; "
       why="${why}not resolved: $UNRESOLVED"

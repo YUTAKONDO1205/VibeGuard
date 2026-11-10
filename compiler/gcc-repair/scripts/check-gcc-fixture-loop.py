@@ -17,7 +17,17 @@ here, so objdump is required too.
 
 Object files are compared byte for byte. That is the claim for the cells where
 the plugin is loaded and changes nothing (dry, wrongname, nothing): an object
-identical to the one built without the plugin.
+identical to the one built without the plugin. The switch group's stock, off
+and dry listings are compared the same way; its zero-copy cells are read twice,
+by the oracle and by zcopy_reading below, because the repair keeps the copy and
+a copy from a zero constant is a load and a store, not a zero store (the
+oracle can read 0 there while the copy is in the listing). The previous group,
+when the runner was given a previous plugin, compares the -S listings of this
+plugin and of the previous one byte for byte.
+
+Every record is read with wpin_gcc_record.py (wipe-pin-v3) and with what the
+cell set of the three switches of compiler/schema/wipe-pin.md section 14.2 as
+`expect`, so a record whose `<block>.enabled` says otherwise is refused.
 
 The expectations below were written from what each cell is for. A cell that
 disagrees is printed as a disagreement and the run fails; the tables are never
@@ -37,6 +47,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -56,7 +67,20 @@ OPT_LEVELS = {"-O0": (0, 0), "-O1": (1, 0), "-O2": (2, 0), "-O3": (3, 0), "-Os":
 # only; at -O1 and above tree DSE deletes it (README.md, the base rows).
 STOCK_PRESENT = {"-O0"}
 
-NO_UNHANDLED = "libcallMemset=0 memsetChk=0 nonZeroFill=0 atomicMemset=0 inlineWrapperMemset=0"
+# The plugin's stderr lists the nine counters of compiler/schema/wipe-pin.md
+# section 14.3, in that order (the v2 plugin listed the first five).
+UNHANDLED_ORDER = ("libcallMemset", "memsetChk", "nonZeroFill", "atomicMemset", "inlineWrapperMemset",
+                   "bzeroCall", "inlineWrapperBzero", "zeroGlobalCopy", "zeroGlobalCopyCall")
+
+
+def unhandled_text(**counts):
+    return " ".join(f"{k}={counts.get(k, 0)}" for k in UNHANDLED_ORDER)
+
+
+NO_UNHANDLED = unhandled_text()
+
+# What every cell outside the switch group set of the three switches: none.
+SWITCHES_OFF = {"barrierCalls": False, "zeroCopy": False, "bufferBarriers": False}
 
 
 def partial_line(pinned, followed, module, unhandled=NO_UNHANDLED):
@@ -77,6 +101,31 @@ def nonexact_line(name, linkage):
 
 def dry_line(n):
     return f"WipePinGcc: dry run: {n} zero-fill memset site(s) would be pinned; none was changed"
+
+
+def dry_barrier_line(n):
+    return f"WipePinGcc: dry run: {n} zero-fill call(s) would get a barrier; none was changed"
+
+
+def dry_zero_copy_line(n):
+    return (f"WipePinGcc: dry run: {n} copy(ies) from an all-zero constant would get a barrier; "
+            f"none was changed")
+
+
+def dry_buffer_line(n):
+    return f"WipePinGcc: dry run: {n} buffer barrier(s) would be placed; none was changed"
+
+
+def not_barriered_line(n):
+    """A buffer whose every zero fill is followed by a later use gets no
+    barrier (compiler/schema/wipe-pin.md section 14.6), and is counted here."""
+    return (f"WipePinGcc: buffer barrier: {n} buffer(s) not barriered: every zero fill is followed by a "
+            f"later use (read as an initialiser; a wipe that later code still touches, even code the "
+            f"optimiser removes, is counted here too)")
+
+
+def refusal_line(reason):
+    return f"WipePinGcc: refusing to install: {reason}"
 
 
 # --------------------------------------------------------------- expectations
@@ -144,13 +193,22 @@ ALONE = {
     "syntaxonly-O2": {"pinShRc": 3, "record": False, "lines": []},
     "baddry-O2": {"pinShRc": 3, "record": False,
                   "lines": ["WipePinGcc: refusing to install: WPIN_DRY_RUN='yes' is neither 0 nor 1"]},
+    # compiler/schema/wipe-pin.md section 14.2: a switch that is neither 0 nor
+    # 1. (WPIN_BUFFER_BARRIER=1 is implemented now: the buffer group.)
+    "badbarrier-O2": {"pinShRc": 3, "record": False,
+                      "lines": [refusal_line("WPIN_BARRIER_CALLS='2' is neither 0 nor 1")]},
+    "badzerocopy-O2": {"pinShRc": 3, "record": False,
+                       "lines": [refusal_line("WPIN_ZERO_COPY='2' is neither 0 nor 1")]},
+    "badbuffer-O2": {"pinShRc": 3, "record": False,
+                     "lines": [refusal_line("WPIN_BUFFER_BARRIER='2' is neither 0 nor 1")]},
     # Two cc1 processes, target.c then opaque.c: the record left is opaque.c's,
     # where handle_request does not exist, although target.c was pinned.
     "twosources-O2": {"pinShRc": 4, "record": True, "module": "opaque.c", "sourceOperands": "2",
                       "lines": ["WipePinGcc: target handle_request not-in-module",
                                 nothing_line("opaque.c")]},
 }
-ALONE_ORDER = ["notarget-O2", "syntaxonly-O2", "baddry-O2", "twosources-O2"]
+ALONE_ORDER = ["notarget-O2", "syntaxonly-O2", "baddry-O2", "badbarrier-O2", "badzerocopy-O2",
+               "badbuffer-O2", "twosources-O2"]
 
 # The shapes. `sites` is followedByUse per recorded site, in order; `lines` is
 # every WipePinGcc line stderr must hold, and nothing else may appear.
@@ -319,6 +377,181 @@ XTU = {
 }
 XTU_ORDER = ["xtu-nolto", "xtu-lto-stock", "xtu-lto-pin", "xtu-lto-dry"]
 
+# The switch group (compiler/schema/wipe-pin.md sections 14.3-14.5): -O2, no
+# -g, target handle, each shape four ways. Written before the first run of
+# these cells, from what each is for:
+#
+# <id>-stock  no plugin. `stock` is the reading of the wipe in handle: ABSENT
+#             means gcc-13 -O2 deleted it, which is what makes the cell able to
+#             show a repair. (For chkvar this is the least certain prediction:
+#             whether DSE deletes a __memset_chk whose length is not a constant
+#             was not read anywhere before this run.)
+# <id>-off    the plugin, no switch: the shape is counted in `counter`, the
+#             block says enabled false and lists nothing, the plugin prints the
+#             "nothing to pin" line with that count, pin-gcc.sh exits 4, and the
+#             listing is the stock listing byte for byte.
+# <id>-on     its switch =1: one site, `site`, done-count and would-count 1,
+#             `counter` 0, no WipePinGcc line, pin-gcc.sh exits 0 (the repair is
+#             the barrier; pinnedCount stays 0), the listing differs from stock
+#             and the wipe reads PRESENT.
+# <id>-dry    the switch and WPIN_DRY_RUN=1: the same site, done-count 0 and
+#             would-count 1, the dry-run line, pin-gcc.sh exits 4, and the
+#             listing is the stock listing byte for byte.
+#
+# zcopyhdr's form: `builtin` is predicted, by the analogy with memset, whose
+# fortifying wrapper GCC keeps as BUILT_IN_MEMSET (README.md); not measured
+# before this run. The zero-copy cells are read by the oracle and by
+# zcopy_reading on `zeroSymbol` (D25: the repair keeps the copy, so the
+# listing holds a load of vg_zeros and its store, which the oracle does not
+# count as a zero store); either reading PRESENT makes the cell PRESENT, and
+# the table shows both.
+SWITCH_LINE = {"barrierCalls": dry_barrier_line, "zeroCopy": dry_zero_copy_line}
+SWITCH_VAR = {"barrierCalls": "WPIN_BARRIER_CALLS", "zeroCopy": "WPIN_ZERO_COPY"}
+SWITCH = {
+    "bzero": {"module": "bzero.c", "switch": "barrierCalls", "counter": "bzeroCall", "stock": "ABSENT",
+              "site": {"function": "handle", "callee": "bzero", "lengthBytes": 32, "line": 8}},
+    "chkvar": {"module": "chkvar.c", "switch": "barrierCalls", "counter": "memsetChk", "stock": "ABSENT",
+               "site": {"function": "handle", "callee": "__builtin___memset_chk", "lengthBytes": None, "line": 7}},
+    "zcopyagg": {"module": "zcopy.c", "switch": "zeroCopy", "counter": "zeroGlobalCopy", "stock": "ABSENT",
+                 "zeroSymbol": "vg_zeros",
+                 "site": {"function": "handle", "form": "aggregate", "callee": None, "source": "vg_zeros",
+                          "destKind": "alloca", "lengthBytes": 32, "line": 9}},
+    "zcopyhdr": {"module": "zcopy.c", "switch": "zeroCopy", "counter": "zeroGlobalCopy", "stock": "ABSENT",
+                 "zeroSymbol": "vg_zeros",
+                 "site": {"function": "handle", "form": "builtin", "callee": "memcpy", "source": "vg_zeros",
+                          "destKind": "alloca", "lengthBytes": 32, "line": 9}},
+}
+SWITCH_ORDER = ["bzero", "chkvar", "zcopyagg", "zcopyhdr"]
+SWITCH_MODES = ("off", "on", "dry")
+
+
+def switch_cell_expectation(shape, mode):
+    """What the record, stderr, pin-gcc.sh and the listing of <shape>-<mode>
+    must say (the table above)."""
+    exp = SWITCH[shape]
+    blk = exp["switch"]
+    on = mode != "off"
+    dry = mode == "dry"
+    done, would = wpr.BLOCK_COUNTS[blk]
+    block = {"enabled": on, "sites": [exp["site"]] if on else [], done: 0 if (dry or not on) else 1,
+             would: 1 if on else 0}
+    counts = {} if on else {exp["counter"]: 1}
+    expect = dict(SWITCHES_OFF, **{blk: on})
+    return {
+        "expect": expect, "dryRun": dry, "block": blk, "blockValue": block,
+        "unhandled": dict({k: 0 for k in UNHANDLED_ORDER}, **counts),
+        "lines": ([nothing_line(exp["module"], unhandled_text(**counts))] if not on
+                  else [SWITCH_LINE[blk](1)] if dry else []),
+        "pinShRc": 0 if mode == "on" else 4, "repairCount": 1 if mode == "on" else 0,
+        "sameAsStock": mode != "on", "wipe": "PRESENT" if mode == "on" else exp["stock"],
+    }
+
+
+# The buffer group (compiler/schema/wipe-pin.md section 14.6): -O2, no -g,
+# target handle. Written before the first run of these cells, from what the
+# landed switch is for and from the prototype's measured records (lab notes
+# kept outside this repository):
+#
+# loopbar-stock  no plugin: gcc-13 -O2 deletes the loop of zero stores in
+#                handle (ABSENT); the control wipe_kept, whose zeroed buffer
+#                use() reads, is PRESENT.
+# loopbar-off    no switch: nothing in scope to pin or count (the loop is not a
+#                call), so "nothing to pin" with every counter 0, the block
+#                says enabled false, pin-gcc.sh exits 4, the listing is stock's.
+# loopbar-on     WPIN_BUFFER_BARRIER=1: one barrier before key's clobber, the
+#                site BUFFER_SITE, count 1, no WipePinGcc line, pin-gcc.sh 0
+#                (repairCount 1 with pinnedCount 0), the listing differs from
+#                stock's, the wipe in handle PRESENT, and wipe_kept's body the
+#                same as in the stock listing (labels renumbered in order of
+#                appearance first: GCC numbers .L labels across the file).
+# loopbar-dry    the switch and WPIN_DRY_RUN=1: the same site, count 0, the
+#                dry-run line, pin-gcc.sh 4, the listing is stock's.
+# initbar-on     `= {0}` and uses, no wipe, WPIN_BUFFER_BARRIER=1: GCC's
+#                `key = {}` is not a zero fill the barrier counts, so the block
+#                is enabled with count 0 and no site, "nothing to pin",
+#                pin-gcc.sh 4, the listing is stock's. (On clang `= {0}` is an
+#                llvm.memset, a zero fill the barrier does read.)
+#
+# Added with the rule that a buffer whose every zero fill is followed by a
+# later use gets no barrier (an initialiser, not a wipe), and that the walk for
+# that use stops at the buffer's own clobber:
+#
+# inloop-stock   no plugin: a buffer declared in a loop body and wiped by a loop
+#                of zero stores in every iteration; gcc-13 -O2 deletes the wipe
+#                (ABSENT), the control wipe_kept is PRESENT.
+# inloop-on      WPIN_BUFFER_BARRIER=1: one barrier before key's clobber (the
+#                end of the loop body), the site BUFFER_SITE, count 1, and no
+#                WipePinGcc line at all -- in particular not the initialiser-like
+#                one: the next iteration's uses are after the clobber, in
+#                another lifetime. pin-gcc.sh 0, the wipe PRESENT, wipe_kept's
+#                body the stock listing's.
+# initzero-on    a loop of zero stores as an initialiser, then uses, no wipe:
+#                the fill is read, every fill has a later use, so no barrier:
+#                count 0 and no site, the not-barriered line for 1 buffer and
+#                "nothing to pin", pin-gcc.sh 4, the listing is stock's.
+BUFFER_SITE = {"function": "handle", "buffer": "key", "bytes": 32, "reason": "loop-store", "anchor": "clobber"}
+BUFFER = {
+    "loopbar": {"module": "loop.c", "modes": ("off", "on", "dry"), "stock": "ABSENT", "control": "wipe_kept",
+                "site": BUFFER_SITE, "notBarriered": 0},
+    "initbar": {"module": "init.c", "modes": ("on",), "stock": None, "control": None, "site": None,
+                "notBarriered": 0},
+    "inloop": {"module": "inloop.c", "modes": ("on",), "stock": "ABSENT", "control": "wipe_kept",
+               "site": BUFFER_SITE, "notBarriered": 0},
+    "initzero": {"module": "initzero.c", "modes": ("on",), "stock": None, "control": None, "site": None,
+                 "notBarriered": 1},
+}
+BUFFER_ORDER = ["loopbar", "initbar", "inloop", "initzero"]
+
+
+def buffer_cell_expectation(shape, mode):
+    """What the record, stderr, pin-gcc.sh and the listing of <shape>-<mode>
+    must say (the table above)."""
+    exp = BUFFER[shape]
+    on = mode != "off"
+    dry = mode == "dry"
+    sites = [exp["site"]] if (on and exp["site"]) else []
+    placed = 1 if (mode == "on" and sites) else 0
+    if not on:
+        lines = [nothing_line(exp["module"])]
+    elif not sites:
+        lines = [nothing_line(exp["module"])]
+    elif dry:
+        lines = [dry_buffer_line(len(sites))]
+    else:
+        lines = []
+    if on and exp["notBarriered"]:
+        lines = [not_barriered_line(exp["notBarriered"])] + lines
+    return {
+        "expect": dict(SWITCHES_OFF, bufferBarriers=on), "dryRun": dry,
+        "blockValue": {"enabled": on, "count": placed, "sites": sites},
+        "lines": lines, "pinShRc": 0 if placed else 4, "repairCount": placed,
+        "sameAsStock": not placed, "wipe": ("PRESENT" if placed else exp["stock"]) if exp["stock"] else None,
+        "controlSame": bool(placed and exp["control"]),
+    }
+
+
+def canonical_labels(lines):
+    """`.L<n>` labels renumbered in order of appearance (GCC numbers them
+    across the whole file, so a body after a changed one can differ only in
+    its label numbers)."""
+    seen = {}
+    out = []
+    for line in lines:
+        out.append(re.sub(r"\.L(\d+)\b", lambda m: ".Lc%d" % seen.setdefault(m.group(0), len(seen)), line))
+    return out
+
+
+# The previous group: every plugin compile of the loop (pin, dry, wrongname,
+# nothing at each level), of the shapes, of the switch-off cells and of the
+# buffer group's off cell, -S with this plugin and with the previous one at the
+# same staged path, all switches off. Each pair must be the same bytes: with
+# the switches off the v3 plugin changes GIMPLE exactly as the plugin it
+# replaces (wipe-pin.md section 14.1).
+def previous_ids():
+    return ([f"{k}{o}" for o in LEVELS for k in ("pin", "dry", "wrongname", "nothing")] +
+            [f"shape-{s}" for s in SHAPE_ORDER] + [f"switch-{s}-off" for s in SWITCH_ORDER] +
+            ["buffer-loopbar-off"])
+
 
 class Incomplete(Exception):
     pass
@@ -370,11 +603,21 @@ def lines_problems(got, want):
     return bad
 
 
+def host_problems(rec):
+    """Predicted: the version check makes the running compiler's basever the
+    plugin's own, so host.ident repeats toolchain.gcc."""
+    if rec["host"]["ident"] != rec["toolchain"]["gcc"]:
+        return [f"record host.ident {rec['host']['ident']!r} is not toolchain.gcc {rec['toolchain']['gcc']!r}"]
+    return []
+
+
 def record_problems(rec, exp, module):
-    """What a loop cell's record must say, beyond the v2 shape."""
-    bad = [f"record: {p}" for p in wpr.validate(rec)]
+    """What a loop cell's record must say, beyond the v3 shape. Every loop cell
+    runs with the three switches off."""
+    bad = [f"record: {p}" for p in wpr.validate(rec, SWITCHES_OFF)]
     if bad:
         return bad
+    bad += host_problems(rec)
     res = rec["resolution"]
     r0 = res[0] if len(res) == 1 else {}
     checks = [
@@ -478,6 +721,11 @@ def grade_loop(lab, listings):
                 bad.append(f"pin-gcc.sh manifest status={man.get('status')} rc={man.get('rc')}")
             if man.get("pinnedCount") != str(exp["pinnedCount"]):
                 bad.append(f"pin-gcc.sh manifest pinnedCount={man.get('pinnedCount')}")
+            # With the switches off the repair count of section 14.8 is
+            # pinnedCount: the other three counts are 0.
+            if man.get("repairCount") != str(exp["pinnedCount"]):
+                bad.append(f"pin-gcc.sh manifest repairCount={man.get('repairCount')}, "
+                           f"expected {exp['pinnedCount']}")
             if man.get("followedByUseCount") != "0":
                 bad.append(f"pin-gcc.sh manifest followedByUseCount={man.get('followedByUseCount')}")
             want_unres = exp["requested"][0] if exp["resolution"] == "not-in-module" else ""
@@ -527,7 +775,7 @@ def grade_alone(lab):
             if not any("no WipePinGcc record was written" in l for l in console):
                 bad.append("pin-gcc.sh did not say that no record was written")
         else:
-            bad += [f"record: {p}" for p in wpr.validate(rec)]
+            bad += [f"record: {p}" for p in wpr.validate(rec, SWITCHES_OFF)]
             if rec.get("module") != exp["module"]:
                 bad.append(f"record module {rec.get('module')!r}, expected {exp['module']!r}")
             if man.get("sourceOperands") != exp["sourceOperands"]:
@@ -560,7 +808,9 @@ def grade_shapes(lab, listings):
         except Incomplete as e:
             incomplete.append(f"{cell}: {e}")
             continue
-        bad = [f"record: {p}" for p in wpr.validate(rec)]
+        bad = [f"record: {p}" for p in wpr.validate(rec, SWITCHES_OFF)]
+        if not bad:
+            bad += host_problems(rec)
         sites = rec.get("pinned") or []
         got_fbu = [s.get("followedByUse") for s in sites]
         res = rec.get("resolution") or []
@@ -642,7 +892,7 @@ def grade_stale(lab):
                 rec = None
                 bad.append(f"the compile's record is not JSON: {e}")
             if rec is not None:
-                bad += [f"record: {p}" for p in wpr.validate(rec)]
+                bad += [f"record: {p}" for p in wpr.validate(rec, SWITCHES_OFF)]
                 if rec.get("module") != "trailing.c" or rec.get("pinnedCount") != 1:
                     bad.append(f"record module={rec.get('module')} pinnedCount={rec.get('pinnedCount')}")
         if cell == "stale-dir" and not os.path.isfile(os.path.join(out, "keep.txt")):
@@ -685,7 +935,7 @@ def grade_lto(lab):
         except Incomplete as e:
             bad.append(f"the compile's record: {e}")
     if rec is not None:
-        bad += [f"record: {p}" for p in wpr.validate(rec)]
+        bad += [f"record: {p}" for p in wpr.validate(rec, SWITCHES_OFF)]
         want = {"module": "trailing.c", "pinnedCount": 1, "scope": "functions", "requested": ["handle"]}
         for k, v in want.items():
             if rec.get(k) != v:
@@ -748,7 +998,7 @@ def grade_lto(lab):
 
 def xtu_record_problems(rec, exp):
     """What the record of an xtu cell's wipe.c compile must say."""
-    bad = [f"record: {p}" for p in wpr.validate(rec)]
+    bad = [f"record: {p}" for p in wpr.validate(rec, SWITCHES_OFF)]
     if bad:
         return bad
     checks = [
@@ -864,8 +1114,350 @@ def checks_can_fail(lab):
     toolchain["evidenceDigest"] = wpr.evidence_digest(toolchain)
     moved_context = copy.deepcopy(rec)
     moved_context["context"]["generatedAt"] = 0
+    # v3: a switch the record says was on although the cell set none (sealed
+    # again, so only the caller's expectation can refuse it), and a host whose
+    # major is not the plugin's.
+    switched = copy.deepcopy(rec)
+    switched["barrierCalls"]["enabled"] = True
+    switched["evidenceDigest"] = wpr.evidence_digest(switched)
+    host = copy.deepcopy(rec)
+    host["host"]["ident"], host["host"]["identMajor"] = "14.2.0", 14
+    host["evidenceDigest"] = wpr.evidence_digest(host)
     return bool(wpr.validate(tampered)) and bool(wpr.validate(flipped)) and \
-        bool(wpr.validate(toolchain)) and not wpr.validate(moved_context)
+        bool(wpr.validate(toolchain)) and not wpr.validate(moved_context) and \
+        not wpr.validate(switched) and bool(wpr.validate(switched, SWITCHES_OFF)) and \
+        bool(wpr.validate(host))
+
+
+# ------------------------------------------------------------------ zcopy --
+# The repair of a copy from an all-zero constant keeps the copy (a barrier
+# after it), so what reaches the listing is a load from the constant and a
+# store of that register, or a call of memcpy with the constant's address:
+# not a zero store, which is all the oracle counts (the copy reading of the lab
+# notes kept outside this repository reads the same three forms). Read from
+# the -S listing of
+# one function, between its label and its `.size`.
+_ZFAMILY = {"eax": "a", "rax": "a", "ax": "a", "al": "a", "ebx": "b", "rbx": "b", "bx": "b", "bl": "b",
+            "ecx": "c", "rcx": "c", "cx": "c", "cl": "c", "edx": "d", "rdx": "d", "dx": "d", "dl": "d",
+            "esi": "si", "rsi": "si", "sil": "si", "edi": "di", "rdi": "di", "dil": "di"}
+
+
+def _zfamily(reg):
+    if re.fullmatch(r"[xyz]mm\d+", reg):
+        return "x" + reg[1:]
+    return _ZFAMILY.get(reg, re.sub(r"^(r\d+)[dwb]?$", r"\1", reg))
+
+
+def asm_body(text, fn):
+    """The lines of `fn` in a gcc -S listing, from its label to its `.size`;
+    None when the listing has no such function."""
+    lines = text.split("\n")
+    label = re.compile(rf"^{re.escape(fn)}:\s*$")
+    size = re.compile(rf"^\s*\.size\s+{re.escape(fn)}\s*,")
+    for i, l in enumerate(lines):
+        if label.match(l):
+            body = []
+            for m in lines[i + 1:]:
+                if size.match(m):
+                    return body
+                body.append(m)
+            return body
+    return None
+
+
+def zcopy_reading(text, fn, sym):
+    """{loads, stores, calls} of a copy from `sym` in `fn`, or None when `fn`
+    is not in the listing. stores: a mov of a register that was loaded from
+    `sym` to memory; calls: a call or tail call of memcpy / __memcpy_chk in a
+    body that takes `sym`'s address."""
+    body = asm_body(text, fn)
+    if body is None:
+        return None
+    s = re.escape(sym)
+    load = re.compile(rf"^\s*v?mov[a-z0-9]*\s+(?:\d+\+)?{s}(?:\+\d+)?\(%rip\),\s*%([a-z0-9]+)\s*$")
+    lea = re.compile(rf"^\s*leaq?\s+(?:\d+\+)?{s}(?:\+\d+)?\(%rip\),\s*%[a-z0-9]+\s*$")
+    store = re.compile(r"^\s*v?mov[a-z0-9]*\s+%([a-z0-9]+),\s*[^,]*\(%[a-z0-9]+[^)]*\)\s*$")
+    call = re.compile(r"^\s*(?:call|jmp)q?\s+(?:memcpy|__memcpy_chk)(?:@PLT)?\s*$")
+    loaded, n, addressed = set(), {"loads": 0, "stores": 0, "calls": 0}, False
+    for l in body:
+        m = load.match(l)
+        if m:
+            loaded.add(_zfamily(m.group(1)))
+            n["loads"] += 1
+            continue
+        if lea.match(l):
+            addressed = True
+            continue
+        m = store.match(l)
+        if m and _zfamily(m.group(1)) in loaded:
+            n["stores"] += 1
+            continue
+        if addressed and call.match(l):
+            n["calls"] += 1
+    return n
+
+
+def wipe_reading(listing, text, sym):
+    """PRESENT / ABSENT / NOT_OBSERVED for `handle` in one switch-group
+    listing: the oracle's reading, or, for a zero-copy cell (`sym` given),
+    PRESENT also when zcopy_reading finds a store or a call."""
+    oracle = listing["subject"]["verdict"]
+    if sym is None:
+        return oracle, listing["subject"]["via"] or "-", None
+    z = zcopy_reading(text, "handle", sym)
+    if z is None:
+        return "NOT_OBSERVED", "-", None
+    if oracle == "PRESENT":
+        return "PRESENT", listing["subject"]["via"] or "oracle", z
+    if z["stores"] + z["calls"] > 0:
+        return "PRESENT", "zcopy", z
+    return oracle, listing["subject"]["via"] or "-", z
+
+
+def grade_switch(lab, listings):
+    """The switch group: `listings` is the oracle's reading of
+    <lab>/switch/*.s for `handle`."""
+    rows, problems, incomplete = [], [], []
+    d = os.path.join(lab, "switch")
+    for shape in SWITCH_ORDER:
+        exp = SWITCH[shape]
+        sym = exp.get("zeroSymbol")
+        try:
+            texts = {}
+            for mode in ("stock",) + SWITCH_MODES:
+                cid = f"{shape}-{mode}"
+                if cid not in listings:
+                    raise Incomplete(f"no listing switch/{cid}.s")
+                with open(os.path.join(d, cid + ".s"), encoding="utf-8", errors="replace") as f:
+                    texts[mode] = f.read()
+            skv = load_kv(os.path.join(d, f"{shape}-stock.kv"))
+            cells = {}
+            for mode in SWITCH_MODES:
+                cid = f"{shape}-{mode}"
+                cells[mode] = (load_kv(os.path.join(d, cid + ".kv")), load_kv(os.path.join(d, cid + ".manifest.kv")),
+                               plugin_lines(load_lines(os.path.join(d, cid + ".stderr.txt"))),
+                               load_json(os.path.join(d, cid + ".json")))
+        except (Incomplete, OSError) as e:
+            incomplete.append(f"switch {shape}: {e}")
+            continue
+
+        stock_wipe, stock_via, stock_z = wipe_reading(listings[f"{shape}-stock"], texts["stock"], sym)
+        bad = []
+        if skv.get("rc") != "0":
+            bad.append(f"stock compile rc {skv.get('rc')}")
+        if stock_wipe != exp["stock"]:
+            bad.append(f"stock: the wipe reads {stock_wipe} (via {stock_via}), expected {exp['stock']}")
+        problems += [f"{shape}-stock: {b}" for b in bad]
+        zfmt = (lambda z: "" if z is None else f" [zcopy {z['loads']}L/{z['stores']}S/{z['calls']}C]")
+        rows.append((f"{shape}-stock", "-", "-", "-", "-", "-", f"{stock_wipe} ({stock_via}){zfmt(stock_z)}", "-",
+                     "ok" if not bad else "DISAGREES"))
+
+        for mode in SWITCH_MODES:
+            cid = f"{shape}-{mode}"
+            kv, man, lines, rec = cells[mode]
+            want = switch_cell_expectation(shape, mode)
+            bad = [f"record: {p}" for p in wpr.validate(rec, want["expect"])]
+            if not bad:
+                bad += host_problems(rec)
+                blk = want["block"]
+                other = "zeroCopy" if blk == "barrierCalls" else "barrierCalls"
+                checks = [
+                    ("module", rec["module"], exp["module"]),
+                    ("requested", rec["requested"], ["handle"]),
+                    ("resolution", rec["resolution"],
+                     [{"name": "handle", "resolution": "resolved", "exact": True, "linkage": "external"}]),
+                    ("dryRun", rec["dryRun"], want["dryRun"]),
+                    ("optLevel", (rec["optLevel"]["speedup"], rec["optLevel"]["size"]), OPT_LEVELS["-O2"]),
+                    ("pinned", rec["pinned"], []),
+                    ("pinnedCount/wouldPinCount", (rec["pinnedCount"], rec["wouldPinCount"]), (0, 0)),
+                    ("unhandled", rec["unhandled"], want["unhandled"]),
+                    (blk, rec[blk], want["blockValue"]),
+                    (f"{other}.enabled", rec[other]["enabled"], False),
+                    ("bufferBarriers", rec["bufferBarriers"], {"enabled": False, "count": 0, "sites": []}),
+                ]
+                for name, got, w in checks:
+                    if got != w:
+                        bad.append(f"record {name} = {got!r}, expected {w!r}")
+            bad += lines_problems(lines, want["lines"])
+            for name, got, w in (("pin-gcc.sh rc", kv.get("pinShRc"), str(want["pinShRc"])),
+                                 ("manifest status", man.get("status"), str(want["pinShRc"])),
+                                 ("manifest rc", man.get("rc"), "0"),
+                                 ("manifest repairCount", man.get("repairCount"), str(want["repairCount"]))):
+                if got != w:
+                    bad.append(f"{name} = {got!r}, expected {w!r}")
+            same = listings[cid]["sha256"] == listings[f"{shape}-stock"]["sha256"]
+            if want["sameAsStock"] and not same:
+                bad.append("the listing differs from the stock listing, where nothing may have changed")
+            if not want["sameAsStock"] and same:
+                bad.append("the listing is the stock listing byte for byte, where a barrier was to be placed")
+            wipe, via, z = wipe_reading(listings[cid], texts[mode], sym)
+            if wipe != want["wipe"]:
+                bad.append(f"the wipe reads {wipe} (via {via}), expected {want['wipe']}")
+            blkv = rec.get(want["block"]) or {}
+            done, would = wpr.BLOCK_COUNTS[want["block"]]
+            site = (blkv.get("sites") or [{}])[0] if blkv.get("sites") else {}
+            rows.append((cid, kv.get("pinShRc"), f"{'on' if blkv.get('enabled') else 'off'}"
+                         f"{'/dry' if rec.get('dryRun') else ''}",
+                         f"{blkv.get(done)}/{blkv.get(would)}",
+                         ",".join(f"{k}={v}" for k, v in (rec.get("unhandled") or {}).items() if v) or "-",
+                         site.get("form") or site.get("callee") or "-",
+                         f"{wipe} ({via}){zfmt(z)}", "yes" if same else "no",
+                         "ok" if not bad else "DISAGREES"))
+            problems += [f"{cid}: {b}" for b in bad]
+    return rows, problems, incomplete
+
+
+def grade_buffer(lab, listings):
+    """The buffer group: `listings` is the oracle's reading of
+    <lab>/buffer/*.s for `handle` (subject) and `wipe_kept` (control)."""
+    rows, problems, incomplete = [], [], []
+    d = os.path.join(lab, "buffer")
+    for shape in BUFFER_ORDER:
+        exp = BUFFER[shape]
+        try:
+            texts = {}
+            for mode in ("stock",) + exp["modes"]:
+                cid = f"{shape}-{mode}"
+                if cid not in listings:
+                    raise Incomplete(f"no listing buffer/{cid}.s")
+                with open(os.path.join(d, cid + ".s"), encoding="utf-8", errors="replace") as f:
+                    texts[mode] = f.read()
+            skv = load_kv(os.path.join(d, f"{shape}-stock.kv"))
+            cells = {}
+            for mode in exp["modes"]:
+                cid = f"{shape}-{mode}"
+                cells[mode] = (load_kv(os.path.join(d, cid + ".kv")), load_kv(os.path.join(d, cid + ".manifest.kv")),
+                               plugin_lines(load_lines(os.path.join(d, cid + ".stderr.txt"))),
+                               load_json(os.path.join(d, cid + ".json")))
+        except (Incomplete, OSError) as e:
+            incomplete.append(f"buffer {shape}: {e}")
+            continue
+
+        stock = listings[f"{shape}-stock"]
+        bad = []
+        if skv.get("rc") != "0":
+            bad.append(f"stock compile rc {skv.get('rc')}")
+        if exp["stock"] and stock["subject"]["verdict"] != exp["stock"]:
+            bad.append(f"stock: the wipe reads {stock['subject']['verdict']}, expected {exp['stock']}")
+        if exp["control"] and (stock["control"] or {}).get("verdict") != "PRESENT":
+            bad.append(f"stock: the control {exp['control']} reads {(stock['control'] or {}).get('verdict')}: "
+                       "the reading is blind")
+        problems += [f"{shape}-stock: {b}" for b in bad]
+        rows.append((f"{shape}-stock", "-", "-", "-", "-", stock["subject"]["verdict"] if exp["stock"] else "-",
+                     (stock["control"] or {}).get("verdict", "-") if exp["control"] else "-", "-",
+                     "ok" if not bad else "DISAGREES"))
+
+        for mode in exp["modes"]:
+            cid = f"{shape}-{mode}"
+            kv, man, lines, rec = cells[mode]
+            want = buffer_cell_expectation(shape, mode)
+            bad = [f"record: {p}" for p in wpr.validate(rec, want["expect"])]
+            if not bad:
+                bad += host_problems(rec)
+                checks = [
+                    ("module", rec["module"], exp["module"]),
+                    ("requested", rec["requested"], ["handle"]),
+                    ("resolution", rec["resolution"],
+                     [{"name": "handle", "resolution": "resolved", "exact": True, "linkage": "external"}]),
+                    ("dryRun", rec["dryRun"], want["dryRun"]),
+                    ("optLevel", (rec["optLevel"]["speedup"], rec["optLevel"]["size"]), OPT_LEVELS["-O2"]),
+                    ("pinned", rec["pinned"], []),
+                    ("pinnedCount/wouldPinCount", (rec["pinnedCount"], rec["wouldPinCount"]), (0, 0)),
+                    ("unhandled", rec["unhandled"], {k: 0 for k in UNHANDLED_ORDER}),
+                    ("bufferBarriers", rec["bufferBarriers"], want["blockValue"]),
+                    ("barrierCalls.enabled", rec["barrierCalls"]["enabled"], False),
+                    ("zeroCopy.enabled", rec["zeroCopy"]["enabled"], False),
+                ]
+                for name, got, w in checks:
+                    if got != w:
+                        bad.append(f"record {name} = {got!r}, expected {w!r}")
+            bad += lines_problems(lines, want["lines"])
+            for name, got, w in (("pin-gcc.sh rc", kv.get("pinShRc"), str(want["pinShRc"])),
+                                 ("manifest status", man.get("status"), str(want["pinShRc"])),
+                                 ("manifest rc", man.get("rc"), "0"),
+                                 ("manifest repairCount", man.get("repairCount"), str(want["repairCount"]))):
+                if got != w:
+                    bad.append(f"{name} = {got!r}, expected {w!r}")
+            same = listings[cid]["sha256"] == stock["sha256"]
+            if want["sameAsStock"] and not same:
+                bad.append("the listing differs from the stock listing, where nothing may have changed")
+            if not want["sameAsStock"] and same:
+                bad.append("the listing is the stock listing byte for byte, where a barrier was to be placed")
+            wipe = listings[cid]["subject"]["verdict"]
+            if want["wipe"] and wipe != want["wipe"]:
+                bad.append(f"the wipe in handle reads {wipe}, expected {want['wipe']}")
+            ctl = (listings[cid]["control"] or {}).get("verdict") if exp["control"] else None
+            if exp["control"] and ctl != "PRESENT":
+                bad.append(f"the control {exp['control']} reads {ctl}: the reading is blind")
+            ctl_same = "-"
+            if want["controlSame"]:
+                a = asm_body(texts["stock"], exp["control"])
+                b = asm_body(texts[mode], exp["control"])
+                if a is None or b is None:
+                    bad.append(f"{exp['control']} is missing from the stock or this listing")
+                    ctl_same = "?"
+                else:
+                    ctl_same = "yes" if canonical_labels(a) == canonical_labels(b) else "NO"
+                    if ctl_same != "yes":
+                        bad.append(f"the control {exp['control']}'s body differs from the stock listing's (labels "
+                                   "renumbered): the barrier changed a function outside the scope")
+            blk = rec.get("bufferBarriers") or {}
+            site = (blk.get("sites") or [{}])[0] if blk.get("sites") else {}
+            rows.append((cid, kv.get("pinShRc"), f"{'on' if blk.get('enabled') else 'off'}"
+                         f"{'/dry' if rec.get('dryRun') else ''}",
+                         f"{blk.get('count')}/{len(blk.get('sites') or [])}",
+                         f"{site.get('reason', '-')}/{site.get('anchor', '-')}/{site.get('buffer', '-')}",
+                         wipe if want["wipe"] else "-", f"{ctl or '-'} same={ctl_same}",
+                         "yes" if same else "no", "ok" if not bad else "DISAGREES"))
+            problems += [f"{cid}: {b}" for b in bad]
+    return rows, problems, incomplete
+
+
+def grade_previous(lab):
+    """The previous group. Returns (rows, problems, incomplete, given): when
+    the runner was not given a previous plugin, given is False and nothing
+    is graded."""
+    d = os.path.join(lab, "previous")
+    if not os.path.isfile(os.path.join(d, "given.kv")):
+        return [], [], [], False
+    rows, problems, incomplete = [], [], []
+    try:
+        given = load_kv(os.path.join(d, "given.kv"))
+        ran = [l for l in load_lines(os.path.join(d, "cells.txt")) if l]
+    except Incomplete as e:
+        return [], [], [f"previous: {e}"], True
+    want = previous_ids()
+    # The same plugin given as the previous one: every pair would be the same
+    # bytes, and the group would show nothing about the plugin it replaces.
+    if given.get("pluginSha256") and given.get("pluginSha256") == given.get("previousSha256"):
+        problems.append(f"previous: the previous plugin is this plugin (both sha256 "
+                        f"{given.get('pluginSha256')}); the group compares the plugin with itself")
+    if ran != want:
+        problems.append(f"previous: the runner compiled {len(ran)} cell(s), expected the {len(want)} "
+                        f"of the loop, shapes, switch-off and buffer-off cells in order "
+                        f"(missing {sorted(set(want) - set(ran))}, extra {sorted(set(ran) - set(want))})")
+    for cid in ran:
+        try:
+            kv = load_kv(os.path.join(d, cid + ".kv"))
+        except Incomplete as e:
+            incomplete.append(f"previous {cid}: {e}")
+            continue
+        a = sha_file(os.path.join(d, "this", cid + ".s"))
+        b = sha_file(os.path.join(d, "prev", cid + ".s"))
+        bad = []
+        if kv.get("thisRc") != "0" or kv.get("prevRc") != "0":
+            bad.append(f"compile rc this={kv.get('thisRc')} prev={kv.get('prevRc')}")
+        if kv.get("thisStagedSha256") != given.get("pluginSha256") or \
+                kv.get("prevStagedSha256") != given.get("previousSha256"):
+            bad.append("the staged plugin was not the one named")
+        if a is None or b is None:
+            bad.append("a listing is missing")
+        elif a != b:
+            bad.append("this plugin's listing differs from the previous plugin's, with every switch off")
+        rows.append((cid, kv.get("thisRc"), kv.get("prevRc"), "yes" if a is not None and a == b else "no",
+                     "ok" if not bad else "DISAGREES"))
+        problems += [f"previous {cid}: {b_}" for b_ in bad]
+    return rows, problems, incomplete, True
 
 
 def table(head, rows):
@@ -884,6 +1476,8 @@ def main():
     try:
         listings = read_listings(lab)
         shape_listings = read_listings(lab, subject="handle", control=None, subdir="shapes")
+        switch_listings = read_listings(lab, subject="handle", control=None, subdir="switch")
+        buffer_listings = read_listings(lab, subject="handle", control="wipe_kept", subdir="buffer")
     except Incomplete as e:
         print(f"INCOMPLETE -- {e}")
         return 3
@@ -894,8 +1488,11 @@ def main():
     trow, tprob, tinc = grade_stale(lab)
     lrow, lprob, linc = grade_lto(lab)
     xrow, xprob, xinc = grade_xtu(lab)
-    problems += aprob + sprob + tprob + lprob + xprob
-    incomplete += ainc + sinc + tinc + linc + xinc
+    wrow, wprob, winc = grade_switch(lab, switch_listings)
+    brow, bprob, binc = grade_buffer(lab, buffer_listings)
+    prow, pprob, pinc, prev_given = grade_previous(lab)
+    problems += aprob + sprob + tprob + lprob + xprob + wprob + bprob + pprob
+    incomplete += ainc + sinc + tinc + linc + xinc + winc + binc + pinc
 
     table(("cell", "opt", "kind", "subject", "via", "control", "obj=base", "asm=base",
            "pinned/would/mode/res", "followedByUse", "pin-gcc.sh", ""), rows)
@@ -917,6 +1514,21 @@ def main():
            "subject: handle", "control: wipe_kept", "==stock", ""), xrow)
     print(f"xtu: read with {objdump_fill.objdump_version()}, `objdump -d --no-show-raw-insn` of each "
           "executable; inlined = no call to secure_wipe (or a renamed copy) left in handle")
+    print()
+    table(("switch (-O2)", "pin-gcc.sh", "switch", "done/would", "unhandled", "site", "wipe in handle",
+           "asm=stock", ""), wrow)
+    print("wipe: the oracle on switch/<cell>.s, subject handle; for the zero-copy cells also zcopy_reading "
+          "(loads of vg_zeros / their stores / memcpy calls), and PRESENT if either reads it")
+    print()
+    table(("buffer (-O2)", "pin-gcc.sh", "switch", "count/sites", "reason/anchor/buffer", "wipe in handle",
+           "control", "asm=stock", ""), brow)
+    print("buffer: the oracle on buffer/<cell>.s, subject handle, control wipe_kept; same = wipe_kept's body "
+          "equals the stock listing's after .L labels are renumbered in order")
+    print()
+    if prev_given:
+        table(("previous plugin (-S)", "rc this", "rc prev", "same bytes", ""), prow)
+    else:
+        print("previous plugin: not run (the runner was given no --previous-plugin); 0 cells")
 
     if incomplete:
         print("\nINCOMPLETE -- these cells could not be graded:")
@@ -938,8 +1550,12 @@ def main():
         for p in problems:
             print("  " + p)
         return 2
-    n = len(rows) + len(arow) + len(srow) + len(trow) + len(lrow) + len(xrow)
+    groups = [("loop", rows), ("alone", arow), ("shapes", srow), ("stale", trow), ("lto", lrow), ("xtu", xrow),
+              ("switch", wrow), ("buffer", brow), ("previous", prow)]
+    n = sum(len(r) for _, r in groups)
     print(f"\nall {n} cells as expected")
+    print("by group: " + ", ".join(f"{g} {len(r)}" for g, r in groups) +
+          ("" if prev_given else " (previous not run)"))
     return 0
 
 
