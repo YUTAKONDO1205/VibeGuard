@@ -1,12 +1,30 @@
 // What WipePinGcc was asked to do. The GCC twin of
-// compiler/llvm-repair/src/PinSelector.h: the same four variables, the same
+// compiler/llvm-repair/src/PinSelector.h: the same variables, the same
 // refusals, the same wording, with the prefix `WipePinGcc:` on every line.
+// compiler/schema/wipe-pin.md sections 12 and 14.2.
 //
-//   WPIN_OUT          record path (required)
-//   WPIN_TARGET_FNS   comma separated function names    } one of the two is
-//   WPIN_SCOPE        "module": every defined function  } required; the first
-//                                                          wins if both are set
-//   WPIN_DRY_RUN      "1": write the record as if pinning, change nothing
+//   WPIN_OUT            record path (required)
+//   WPIN_TARGET_FNS     comma separated function names    } one of the two is
+//   WPIN_SCOPE          "module": every defined function  } required; the first
+//                                                            wins if both are set
+//   WPIN_DRY_RUN        "1": write the record as if pinning, change nothing
+//   WPIN_BARRIER_CALLS  "1": also put the barrier after a zero-fill
+//                       __builtin___memset_chk and after bzero (section 14.4)
+//   WPIN_ZERO_COPY      "1": also put the barrier after a copy from an all-zero
+//                       read-only static -- memcpy(p, zeros, n) with
+//                       `static const unsigned char zeros[N];` -- as a call
+//                       (memcpy, __memcpy_chk) or as the aggregate copy the
+//                       gimplifier makes of a constant-length memcpy (14.5)
+//   WPIN_BUFFER_BARRIER "1": for every local buffer of a function in scope
+//                       that a zero fill writes (a zero-fill memset,
+//                       __builtin___memset_chk or bzero, a store of zero
+//                       inside a loop into an aggregate, or a zero copy), put
+//                       the same barrier directly before each of its
+//                       `buf ={v} {CLOBBER}` statements, or before every
+//                       `return` when it has none (14.6)
+//
+// The last three are read after WPIN_DRY_RUN, in that order, and each is off
+// when unset, empty or "0". Any other value than "0" or "1" is a refusal.
 //
 // Every way of getting this wrong is loud, for the reason PinSelector.h gives:
 // a plugin that quietly declines to install leaves a build that succeeded and
@@ -31,6 +49,16 @@ struct Config {
   /// The names asked for, in the order given, duplicates dropped.
   std::vector<std::string> Requested;
   bool DryRun = false;
+  /// WPIN_BARRIER_CALLS=1: a barrier also goes directly after a zero-fill
+  /// __builtin___memset_chk and after bzero. The record's barrierCalls.enabled.
+  bool BarrierCalls = false;
+  /// WPIN_ZERO_COPY=1: a barrier also goes after a copy from an all-zero
+  /// read-only static. The record's zeroCopy.enabled.
+  bool ZeroCopy = false;
+  /// WPIN_BUFFER_BARRIER=1: a barrier also goes at the end of the lifetime of
+  /// a local buffer that a zero fill writes. The record's
+  /// bufferBarriers.enabled.
+  bool BufferBarrier = false;
 
   bool Valid = false;
   /// The tail of the refusal line when !Valid. The line printed is exactly

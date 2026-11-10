@@ -102,6 +102,41 @@ Config loadConfig() {
     return C;
   }
 
+  // compiler/schema/wipe-pin.md section 14.2: three switches, read after
+  // WPIN_DRY_RUN in this order, each refused on anything but 0 and 1 for the
+  // reason the dry run is: a value read as "off" by mistake changes what the
+  // compile does without saying so. The first one that fails is the refusal.
+  const std::string Bar = envOrEmpty("WPIN_BARRIER_CALLS");
+  if (Bar.empty() || Bar == "0") {
+    C.BarrierCalls = false;
+  } else if (Bar == "1") {
+    C.BarrierCalls = true;
+  } else {
+    C.Rejected = "WPIN_BARRIER_CALLS='" + Bar + "' is neither 0 nor 1";
+    return C;
+  }
+
+  const std::string ZeroCopy = envOrEmpty("WPIN_ZERO_COPY");
+  if (ZeroCopy.empty() || ZeroCopy == "0") {
+    C.ZeroCopy = false;
+  } else if (ZeroCopy == "1") {
+    C.ZeroCopy = true;
+  } else {
+    C.Rejected = "WPIN_ZERO_COPY='" + ZeroCopy + "' is neither 0 nor 1";
+    return C;
+  }
+
+  // The barrier at the end of a buffer's lifetime (section 14.6).
+  const std::string Buffer = envOrEmpty("WPIN_BUFFER_BARRIER");
+  if (Buffer.empty() || Buffer == "0") {
+    C.BufferBarrier = false;
+  } else if (Buffer == "1") {
+    C.BufferBarrier = true;
+  } else {
+    C.Rejected = "WPIN_BUFFER_BARRIER='" + Buffer + "' is neither 0 nor 1";
+    return C;
+  }
+
   C.Valid = true;
   return C;
 }

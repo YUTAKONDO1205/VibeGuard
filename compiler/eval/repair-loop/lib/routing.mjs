@@ -39,9 +39,16 @@
  *     the routing would say nothing at all. The same for a configguard `scen`.
  *  2. A cell whose signal fired zero times in this run is NOT routed, and the
  *     count of such cells is printed. `../test/pin-families.test.mjs` pins that
- *     all five `unhandled` counters are 0 in both tracked runs, so over the r2
+ *     the five v2 `unhandled` counters are 0 in both tracked runs, so over the r2
  *     corpus this is the normal state of every erasure-side signal and the
  *     honest report is "no shape signal", never "routed".
+ *
+ * A COUNTER NO RECORD CARRIES IS NOT MEASURED, NOT ZERO. wipe-pin-v3 has nine
+ * `unhandled` counters and the tracked rows, summarised from v2 records, carry
+ * five (compiler/schema/wipe-pin.md §14.10). counterOccurrences() counts, per
+ * counter, the records that carry it, and a counter carried by none is reported
+ * `not-measured` -- the same state as a configguard scenario in a plan-driven
+ * run -- rather than `zero-occurrences`.
  *
  * Pure: no file is read, no compiler is driven, nothing is written. The runner
  * passes the parsed table and its own rows in.
@@ -136,10 +143,13 @@ export function signalIndex(table) {
 /**
  * Sum each `unhandled` counter over every plugin record this run's rows carry.
  * `unknown` holds counter names the table knows nothing about; the caller turns
- * those into an exception rather than dropping them.
+ * those into an exception rather than dropping them. `carrying` is, per counter,
+ * how many of those records carry it at all: a record written before the counter
+ * existed says nothing about it, and its silence is not a 0.
  */
 export function counterOccurrences(rows, counters) {
   const totals = new Map(counters.map((c) => [c, 0]));
+  const carrying = new Map(counters.map((c) => [c, 0]));
   const unknown = new Set();
   let records = 0;
   for (const r of rows ?? []) {
@@ -149,11 +159,12 @@ export function counterOccurrences(rows, counters) {
       records++;
       for (const [k, n] of Object.entries(rec.unhandled)) {
         if (!totals.has(k)) { unknown.add(k); continue; }
+        carrying.set(k, carrying.get(k) + 1);
         totals.set(k, totals.get(k) + (Number.isFinite(Number(n)) ? Number(n) : 0));
       }
     }
   }
-  return { totals, records, unknown: [...unknown].sort(cmp) };
+  return { totals, carrying, records, unknown: [...unknown].sort(cmp) };
 }
 
 /**
@@ -240,8 +251,18 @@ export function routeRun({ table, rows = [], cc = null, cfgNote = null }) {
   };
   for (const [name, hits] of index.byCounter) {
     const n = co.totals.get(name) ?? 0;
+    const carried = co.carrying.get(name) ?? 0;
+    // Measured when at least one record of this run carries the counter. None
+    // does when every record predates it (rows of the v2 reader carry five of
+    // v3's nine counters), and then 0 occurrences is an absent measurement.
+    const measured = carried > 0;
+    const note = measured ? null
+      : `no plugin record of this run carries unhandled.${name} (${co.records} record(s) read; a record written before the counter existed says nothing about it)`;
     for (const h of hits) {
-      add(h.cell, { kind: 'counter', name, occurrences: n, records: co.records, measured: true, observed: n > 0 });
+      add(h.cell, {
+        kind: 'counter', name, occurrences: n, records: carried, recordsRead: co.records,
+        measured, observed: measured && n > 0, note,
+      });
     }
   }
   for (const [name, hits] of index.byScen) {
@@ -315,6 +336,9 @@ export function routeRun({ table, rows = [], cc = null, cfgNote = null }) {
     signalVocabulary: { counters: index.counters, scens: index.scens },
     recordsRead: co.records,
     counterTotals: Object.fromEntries([...co.totals].sort((a, b) => cmp(a[0], b[0]))),
+    // per counter, how many records carried it; a counter with 0 here was not
+    // measured in this run, whatever its total says
+    counterRecords: Object.fromEntries([...co.carrying].sort((a, b) => cmp(a[0], b[0]))),
     scenTotals: Object.fromEntries([...so.seen].sort((a, b) => cmp(a[0], b[0]))),
     cells,
     counts,

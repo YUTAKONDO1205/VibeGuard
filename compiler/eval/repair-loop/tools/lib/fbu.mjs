@@ -12,7 +12,10 @@
  * `followedByUse` can and cannot say"). wipe-pin-v1 read that block's
  * infeasible edge as a later use, so four error-path sites read `true` at
  * -O1..-Os and `false` at -O0; wipe-pin-v2 follows only the edge a path can
- * take, and the per-level COUNTS of `true` sites have agreed since. Equal
+ * take, and the per-level COUNTS of `true` sites have agreed since (measured
+ * with v2 builds; wipe-pin-v3 leaves `pinned[]` and `followedByUse` as v2
+ * defines them, compiler/schema/wipe-pin.md §14.1, and no v3 build has been
+ * run through this tool yet). Equal
  * counts are not equal sites: one site may go false -> true while another goes
  * true -> false. So the sites are joined across levels, one by one, on
  * (file, function, index), with the line as a second key, and every site that

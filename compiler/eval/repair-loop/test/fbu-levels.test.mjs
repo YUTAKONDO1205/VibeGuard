@@ -34,13 +34,19 @@ const ok = (...sites) => ({ ok: true, sites });
 const refused = () => ({ ok: false, sites: [] });
 const recs = (entries) => new Map(Object.entries(entries));
 
-// A record in the shape pin-record.mjs accepts, trimmed to what these functions read.
+// A record in the shape pin-record.mjs accepts (wipe-pin-v3), trimmed to what these functions read.
+const U0 = { libcallMemset: 0, memsetChk: 0, nonZeroFill: 0, atomicMemset: 0, inlineWrapperMemset: 0,
+  bzeroCall: 0, inlineWrapperBzero: 0, zeroGlobalCopy: 0, zeroGlobalCopyCall: 0 };
 const record = (pinned, extra = {}) => ({
-  schemaVersion: 'wipe-pin-v2', component: 'WipePin', module: 't.c', optLevel: { speedup: 0, size: 0 }, scope: 'module',
+  schemaVersion: 'wipe-pin-v3', component: 'WipePin', module: 't.c', optLevel: { speedup: 0, size: 0 }, scope: 'module',
   requested: [], resolution: [], dryRun: true, pinned, pinnedCount: 0, wouldPinCount: pinned.length,
   seen: { zeroFillMemsetInScope: pinned.length, zeroFillMemsetInModule: pinned.length },
-  unhandled: { libcallMemset: 0, memsetChk: 0, nonZeroFill: 0, atomicMemset: 0, inlineWrapperMemset: 0 },
+  unhandled: U0,
   toolchain: { clang: '18.1.3', packages: [{ name: 'llvm', version: '18.1.3' }], digest: 'd'.repeat(64) },
+  barrierCalls: { enabled: false, sites: [], barrierCount: 0, wouldBarrierCount: 0 },
+  zeroCopy: { enabled: false, sites: [], repairedCount: 0, wouldRepairCount: 0 },
+  bufferBarriers: { enabled: false, count: 0, sites: [] },
+  host: { ident: 'Ubuntu clang version 18.1.3', identMajor: 18, builtMajor: 18, checked: true, intrinsicsCompared: null },
   evidenceDigest: 'e'.repeat(64), context: { generatedAt: 1, timeSource: 'wall-clock', sourceDateEpoch: null }, ...extra,
 });
 const pin = (fn, index, line, followedByUse, extra = {}) => ({
@@ -265,7 +271,7 @@ test('lineControl: equal on every field but the line holds; any other field, or 
 
 test('lineControl: a record-level difference (seen, unhandled) is a difference too', () => {
   const a = record([pin('fn', 0, 17, false)]);
-  const b = record([pin('fn', 0, null, false)], { unhandled: { libcallMemset: 1, memsetChk: 0, nonZeroFill: 0, atomicMemset: 0, inlineWrapperMemset: 0 } });
+  const b = record([pin('fn', 0, null, false)], { unhandled: { ...U0, libcallMemset: 1 } });
   const c = lineControl(new Map([['f', { ok: true, record: a }]]), new Map([['f', { ok: true, record: b }]]));
   assert.deepEqual(c.unequal, ['f']);
 });

@@ -948,7 +948,7 @@ gcc-13 -O2 -flto -fuse-ld=lld ... -Wl,--lto-debug-pass-manager
 The link-time channel this lane uses does not exist in gcc's toolchain: GNU ld
 does not know the option, `lto1` will load a plugin but not an LLVM one, and
 gcc's `-flto` objects (ELF with `.gnu.lto_*` sections, magic `7f454c46`, not
-bitcode) are not something lld will optimise. `compiler/gcc-repair/README.md:302`
+bitcode) are not something lld will optimise. `compiler/gcc-repair/README.md:569`
 records the matching fact from the other side: WipePinGcc, loaded into an `-flto`
 link, prints `refusing to install: loaded into the LTO back end, where this pass
 does not run` — exactly twice, because `lto1` runs twice (`-fwpa`, `-fltrans`).

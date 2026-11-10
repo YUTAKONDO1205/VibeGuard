@@ -1,15 +1,22 @@
 /**
  * pin-record.mjs is the only thing between the plugin's own account of itself and
  * the outcome table. These tests show it refuses each way a record can be wrong,
- * and accepts the one shape compiler/schema/wipe-pin.md describes. No compiler, no lab: every
- * record is built here.
+ * and accepts the one shape compiler/schema/wipe-pin.md describes -- v3, §14 on
+ * top of §1-§13. No compiler, no lab: every record is built here, apart from
+ * the two constructed examples of wipe-pin.md §14.11, which are read out of
+ * that document so that the reader and the contract cannot drift apart.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { validatePinRecord, readPinRecord, unresolvedNames, followedByUseCounts, OPT_LEVELS, COMPONENTS, LINKAGES } from '../lib/pin-record.mjs';
+import {
+  validatePinRecord, readPinRecord, unresolvedNames, followedByUseCounts, OPT_LEVELS, COMPONENTS, LINKAGES,
+  SCHEMA_VERSION, TOP_KEYS, UNHANDLED_KEYS, UNHANDLED_KEYS_V2, GCC_ALWAYS_ZERO, SWITCHES, CONTEXT_KEYS,
+  stripIdent, identMajorOf, repairCount,
+} from '../lib/pin-record.mjs';
 import { evidenceDigest, canonicalJsonRaw, sha256Hex } from '../../../evidence/canon.mjs';
 
 /**
@@ -36,17 +43,27 @@ function toolchainOf(key, version, pkgName = key === 'clang' ? 'llvm' : key) {
 }
 const CLANG_TC = toolchainOf('clang', '18.1.3');
 const GCC_TC = toolchainOf('gcc', '13.3.0');
-/** One v2 resolution entry. */
+/** The four v3 blocks with every switch off, as both writers write them by default. */
+const OFF = () => ({
+  barrierCalls: { enabled: false, sites: [], barrierCount: 0, wouldBarrierCount: 0 },
+  zeroCopy: { enabled: false, sites: [], repairedCount: 0, wouldRepairCount: 0 },
+  bufferBarriers: { enabled: false, count: 0, sites: [] },
+});
+/** host as each writer fills it on its own compiler (wipe-pin.md §14.7). */
+const CLANG_HOST = { ident: 'Ubuntu clang version 18.1.3', identMajor: 18, builtMajor: 18, checked: true, intrinsicsCompared: null };
+const GCC_HOST = { ident: '13.3.0', identMajor: 13, builtMajor: 13, checked: true, intrinsicsCompared: null };
+const U0 = () => Object.fromEntries(UNHANDLED_KEYS.map((k) => [k, 0]));
+/** One resolution entry (unchanged since v2). */
 function res(name, resolution = 'resolved', { exact = resolution === 'resolved' ? true : null, linkage = resolution === 'resolved' ? 'external' : null } = {}) {
   return { name, resolution, exact, linkage };
 }
-/** One v2 pinned entry for encrypt_blob. */
+/** One pinned entry for encrypt_blob (unchanged since v2). */
 function site(over = {}) {
   return { function: 'encrypt_blob', index: 0, lengthBytes: 32, destKind: 'alloca', alreadyVolatile: false, line: 41, followedByUse: false, ...over };
 }
 function unsealed(over = {}) {
-  return {
-    schemaVersion: 'wipe-pin-v2',
+  const rec = {
+    schemaVersion: 'wipe-pin-v3',
     component: 'WipePin',
     module: 'fable_N_aeskey_r3.w.c',
     optLevel: { speedup: 2, size: 0 },
@@ -58,12 +75,16 @@ function unsealed(over = {}) {
     pinnedCount: 1,
     wouldPinCount: 1,
     seen: { zeroFillMemsetInScope: 1, zeroFillMemsetInModule: 2 },
-    unhandled: { libcallMemset: 0, memsetChk: 0, nonZeroFill: 0, atomicMemset: 0, inlineWrapperMemset: 0 },
+    unhandled: U0(),
     toolchain: CLANG_TC,
+    ...OFF(),
     evidenceDigest: '0'.repeat(64),
     context: { generatedAt: 1, sourceDateEpoch: null, timeSource: 'wall-clock' },
     ...over,
   };
+  // host follows the component unless the test sets it: each writer reads its own compiler
+  if (!('host' in over)) rec.host = rec.component === 'WipePinGcc' ? { ...GCC_HOST } : { ...CLANG_HOST };
+  return rec;
 }
 
 test('a record edited after sealing is refused on the digest', () => {
@@ -131,10 +152,12 @@ test('null is admitted for lengthBytes, line, followedByUse, exact and linkage, 
   refused(good({ pinned: [{ ...pinned[0], alreadyVolatile: null }] }), EXPECT, /pinned\[0\]\.alreadyVolatile/);
 });
 
-test('an unknown schemaVersion is refused, and v0 and v1 are no longer known', () => {
+test('an unknown schemaVersion is refused, and v0, v1 and v2 are no longer known', () => {
+  assert.equal(SCHEMA_VERSION, 'wipe-pin-v3');
   refused(good({ schemaVersion: 'wipe-pin-v0' }), EXPECT, /unknown-schemaVersion/);
   refused(good({ schemaVersion: 'wipe-pin-v1' }), EXPECT, /unknown-schemaVersion/);
-  refused(good({ schemaVersion: 'wipe-pin-v3' }), EXPECT, /unknown-schemaVersion/);
+  refused(good({ schemaVersion: 'wipe-pin-v2' }), EXPECT, /unknown-schemaVersion: "wipe-pin-v2" \(this reader knows wipe-pin-v3\)/);
+  refused(good({ schemaVersion: 'wipe-pin-v4' }), EXPECT, /unknown-schemaVersion/);
   refused(good({ schemaVersion: undefined }), EXPECT, /unknown-schemaVersion/);
 });
 
@@ -147,7 +170,7 @@ test('a v1 record exactly as the v1 plugin wrote it is refused', () => {
   });
   const r = refused(v1, EXPECT, /unknown-schemaVersion: "wipe-pin-v1"/);
   assert.equal(r.problems.some((p) => /toolchain-digest-mismatch/.test(p)), true, JSON.stringify(r.problems));
-  // and with v1's name on an otherwise valid v2 record, the version alone refuses it
+  // and with v1's name on an otherwise valid v3 record, the version alone refuses it
   refused(good({ schemaVersion: 'wipe-pin-v1' }), EXPECT, /unknown-schemaVersion/);
 });
 
@@ -162,15 +185,15 @@ test('the fields v1 added are still required', () => {
   assert.ok(r.problems.some((p) => /missing-field: resolution\[0\]\.linkage/.test(p)), JSON.stringify(r.problems));
 });
 
-// ---- v2: two components, one reader ----
+// ---- since v2: two components, one reader ----
 
-test('a v2 WipePin record with the clang toolchain is accepted', () => {
+test('a WipePin record with the clang toolchain is accepted', () => {
   const r = validatePinRecord(good(), EXPECT);
   assert.deepEqual(r.problems, []);
   assert.equal(validatePinRecord(good(), { ...EXPECT, component: undefined }).ok, true, 'expect.component left out is not compared');
 });
 
-test('a v2 WipePinGcc record with the gcc toolchain is accepted', () => {
+test('a WipePinGcc record with the gcc toolchain is accepted', () => {
   const rec = good({ component: 'WipePinGcc', toolchain: GCC_TC });
   const r = validatePinRecord(rec, EXPECT_GCC);
   assert.deepEqual(r.problems, []);
@@ -463,9 +486,10 @@ test('a resolved name carries an LLVM linkage word, and exact says whether it is
   assert.deepEqual([...LINKAGES].slice(0, 2), ['external', 'internal']);
 });
 
-test('a WipePinGcc record has no atomic or inline-wrapper memsets to count', () => {
-  const U = { libcallMemset: 0, memsetChk: 0, nonZeroFill: 0, atomicMemset: 0, inlineWrapperMemset: 0 };
-  for (const k of ['atomicMemset', 'inlineWrapperMemset']) {
+test('a WipePinGcc record has no atomic or inline-wrapper memsets, and no inline-wrapper bzero, to count', () => {
+  const U = U0();
+  assert.deepEqual([...GCC_ALWAYS_ZERO], ['atomicMemset', 'inlineWrapperMemset', 'inlineWrapperBzero']);
+  for (const k of GCC_ALWAYS_ZERO) {
     refused(good({ component: 'WipePinGcc', toolchain: GCC_TC, unhandled: { ...U, [k]: 1 } }), EXPECT_GCC,
       new RegExp(`unhandled\\.${k} is 1 on a WipePinGcc record`));
     assert.equal(validatePinRecord(good({ unhandled: { ...U, [k]: 1 } }), EXPECT).ok, true, `WipePin may count ${k}`);
@@ -531,4 +555,246 @@ test('followedByUseCounts: a listed site already volatile, or listed in a dry ru
   assert.deepEqual(followedByUseCounts(dry), { listed: 1, pinned: 0 });
   assert.deepEqual(followedByUseCounts(good()), { listed: 0, pinned: 0 });
   assert.deepEqual(followedByUseCounts(null), { listed: 0, pinned: 0 });
+});
+
+// ---- v3 (wipe-pin.md §14): the four blocks, nine counters, the handshake ----
+
+/** The two constructed examples of wipe-pin.md §14.11, read out of the contract itself. */
+function schemaExamples() {
+  const md = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'schema', 'wipe-pin.md'), 'utf8');
+  const sec = md.slice(md.indexOf('### 14.11'));
+  return [...sec.matchAll(/```json\n(\{.*\})\n```/g)].map((m) => JSON.parse(m[1]));
+}
+const V3_EXPECT_CLANG = { component: 'WipePin', scope: 'functions', dryRun: false, opt: '-O2', module: 'session.c',
+  requested: ['close_session'], barrierCalls: true, zeroCopy: true, bufferBarriers: false };
+const V3_EXPECT_GCC = { component: 'WipePinGcc', scope: 'module', dryRun: true, opt: '-O2', module: 'session.c',
+  barrierCalls: true, zeroCopy: true, bufferBarriers: false };
+/** One barrier site, one zero-copy site and one buffer site, in encrypt_blob. */
+const bsite = (over = {}) => ({ function: 'encrypt_blob', callee: 'memset.inline', lengthBytes: 32, line: 57, ...over });
+const zsite = (over = {}) => ({ function: 'encrypt_blob', form: 'call', callee: 'memcpy.inline', source: 'zero_block', destKind: 'alloca', lengthBytes: 64, line: 58, ...over });
+const fsite = (over = {}) => ({ function: 'encrypt_blob', buffer: 'key', bytes: 32, reason: 'memset', anchor: 'lifetime-end', ...over });
+const barrierOn = (sites = [bsite()], dry = false) => ({ enabled: true, sites, barrierCount: dry ? 0 : sites.length, wouldBarrierCount: sites.length });
+const zeroOn = (sites = [zsite()], dry = false) => ({ enabled: true, sites, repairedCount: dry ? 0 : sites.length, wouldRepairCount: sites.length });
+
+test('the two examples of wipe-pin.md §14.11 are accepted as the compiles they describe', () => {
+  const ex = schemaExamples();
+  assert.equal(ex.length, 2, 'wipe-pin.md §14.11 no longer holds two ```json examples');
+  const [clang, gcc] = ex;
+  assert.deepEqual(validatePinRecord(clang, V3_EXPECT_CLANG).problems, []);
+  assert.deepEqual(validatePinRecord(gcc, V3_EXPECT_GCC).problems, []);
+  // and the keys this reader holds are the keys the contract writes, in both
+  for (const r of ex) {
+    assert.deepEqual(Object.keys(r).sort(), [...TOP_KEYS].sort());
+    assert.deepEqual(Object.keys(r.unhandled).sort(), [...UNHANDLED_KEYS].sort());
+    assert.deepEqual(Object.keys(r.context).sort(), [...CONTEXT_KEYS].sort());
+  }
+  assert.equal(TOP_KEYS.length, 20);
+  assert.equal(UNHANDLED_KEYS.length, 9);
+  assert.deepEqual([...UNHANDLED_KEYS].slice(0, 5), [...UNHANDLED_KEYS_V2], 'v3 keeps the five v2 counters, in order, and adds four');
+  assert.deepEqual(Object.values(SWITCHES), ['WPIN_BARRIER_CALLS', 'WPIN_ZERO_COPY', 'WPIN_BUFFER_BARRIER']);
+});
+
+test('a v2 record, exactly as a v2 writer wrote it, is refused by its version and by the shape v3 adds', () => {
+  const v2 = good({ schemaVersion: 'wipe-pin-v2', unhandled: Object.fromEntries(UNHANDLED_KEYS_V2.map((k) => [k, 0])) });
+  for (const k of ['barrierCalls', 'zeroCopy', 'bufferBarriers', 'host']) delete v2[k];
+  const r = refused(v2, EXPECT, /unknown-schemaVersion: "wipe-pin-v2"/);
+  for (const want of ['missing-field: barrierCalls', 'missing-field: zeroCopy', 'missing-field: bufferBarriers', 'missing-field: host',
+    'missing-field: unhandled.bzeroCall', 'missing-field: unhandled.inlineWrapperBzero', 'missing-field: unhandled.zeroGlobalCopy',
+    'missing-field: unhandled.zeroGlobalCopyCall']) {
+    assert.ok(r.problems.includes(want), `${want} not in ${JSON.stringify(r.problems)}`);
+  }
+});
+
+test('S2: unhandled has exactly the nine keys, each a count', () => {
+  refused(good({ unhandled: Object.fromEntries(UNHANDLED_KEYS_V2.map((k) => [k, 0])) }), EXPECT, /missing-field: unhandled\.bzeroCall/);
+  refused(good({ unhandled: { ...U0(), zeroGlobalCopyMemmove: 0 } }), EXPECT, /unknown-field: unhandled\.zeroGlobalCopyMemmove/);
+  refused(good({ unhandled: { ...U0(), bzeroCall: -1 } }), EXPECT, /not-a-count: unhandled\.bzeroCall/);
+  refused(good({ unhandled: { ...U0(), zeroGlobalCopyCall: 0.5 } }), EXPECT, /not-a-count: unhandled\.zeroGlobalCopyCall/);
+  // WipePin may count every one of the four new shapes
+  for (const k of ['bzeroCall', 'inlineWrapperBzero', 'zeroGlobalCopy', 'zeroGlobalCopyCall']) {
+    assert.equal(validatePinRecord(good({ unhandled: { ...U0(), [k]: 2 } }), EXPECT).ok, true, k);
+  }
+  // WipePinGcc may count bzero and the two copy keys, and never inlineWrapperBzero
+  for (const k of ['bzeroCall', 'zeroGlobalCopy', 'zeroGlobalCopyCall']) {
+    assert.equal(validatePinRecord(good({ component: 'WipePinGcc', toolchain: GCC_TC, unhandled: { ...U0(), [k]: 1 } }), EXPECT_GCC).ok, true, k);
+  }
+});
+
+test('S3-S5: the blocks the gcc patches wrote (bare counts) are refused, and so is every mistyped field', () => {
+  // the shapes of patch 03 and patch 06, which wipe-pin.md §14.1 replaces
+  refused(good({ barrierCalls: { barrierCount: 0 } }), EXPECT, /missing-field: barrierCalls\.enabled/);
+  refused(good({ zeroCopy: { repairedCount: 0, wouldRepairCount: 1 } }), EXPECT, /missing-field: zeroCopy\.sites/);
+  refused(good({ barrierCalls: { ...OFF().barrierCalls, enabled: 1 } }), EXPECT, /barrierCalls\.enabled must be a boolean/);
+  refused(good({ barrierCalls: { ...OFF().barrierCalls, sites: {} } }), EXPECT, /barrierCalls\.sites must be an array/);
+  refused(good({ barrierCalls: { ...OFF().barrierCalls, barrierCount: '0' } }), EXPECT, /not-a-count: barrierCalls\.barrierCount/);
+  refused(good({ barrierCalls: { ...OFF().barrierCalls, extra: 0 } }), EXPECT, /unknown-field: barrierCalls\.extra/);
+  refused(good({ barrierCalls: barrierOn([bsite({ callee: '' })]) }), {}, /barrierCalls\.sites\[0\]\.callee must be a non-empty string/);
+  refused(good({ barrierCalls: barrierOn([{ ...bsite(), lengthBytes: 1.5 }]) }), {}, /not-a-count: barrierCalls\.sites\[0\]\.lengthBytes/);
+  refused(good({ barrierCalls: barrierOn([{ function: 'encrypt_blob', callee: 'memset', lengthBytes: 32 }]) }), {}, /missing-field: barrierCalls\.sites\[0\]\.line/);
+  refused(good({ zeroCopy: zeroOn([zsite({ destKind: 'stack' })]) }), {}, /bad-destKind: zeroCopy\.sites\[0\]\.destKind "stack"/);
+  refused(good({ zeroCopy: zeroOn([zsite({ callee: '' })]) }), {}, /zeroCopy\.sites\[0\]\.callee must be a non-empty string or null/);
+  refused(good({ zeroCopy: zeroOn([zsite({ source: null })]) }), {}, /zeroCopy\.sites\[0\]\.source must be a string/);
+  refused(good({ zeroCopy: zeroOn([zsite({ form: 7 })]) }), {}, /zeroCopy\.sites\[0\]\.form must be a string/);
+  refused(good({ bufferBarriers: { enabled: true, count: 1, sites: [fsite({ reason: 'wipe' })] } }), {}, /bad-reason: bufferBarriers\.sites\[0\]\.reason "wipe"/);
+  refused(good({ bufferBarriers: { enabled: true, count: 1, sites: [fsite({ anchor: 'end' })] } }), {}, /bad-anchor: bufferBarriers\.sites\[0\]\.anchor "end"/);
+  refused(good({ bufferBarriers: { enabled: true, count: 1, sites: [fsite({ buffer: '' })] } }), {}, /bufferBarriers\.sites\[0\]\.buffer must be a non-empty string or null/);
+  refused(good({ bufferBarriers: { enabled: false, count: 0 } }), {}, /missing-field: bufferBarriers\.sites/);
+  // null is admitted where §14 admits it, and only there
+  assert.equal(validatePinRecord(good({ barrierCalls: barrierOn([bsite({ lengthBytes: null, line: null })]) }), {}).ok, true);
+  assert.equal(validatePinRecord(good({ bufferBarriers: { enabled: true, count: 1, sites: [fsite({ buffer: null, bytes: null })] } }), {}).ok, true);
+});
+
+test('S6: host is typed exactly, and the patch-era `mismatch` key is not one of its keys', () => {
+  refused(good({ host: { ...CLANG_HOST, mismatch: false } }), EXPECT, /unknown-field: host\.mismatch/);
+  refused(good({ host: { ...CLANG_HOST, identMajor: 0 } }), EXPECT, /host\.identMajor must be an integer >= 1 or null/);
+  refused(good({ host: { ...CLANG_HOST, builtMajor: null } }), EXPECT, /host\.builtMajor must be an integer >= 1/);
+  refused(good({ host: { ...CLANG_HOST, checked: 'yes' } }), EXPECT, /host\.checked must be a boolean/);
+  refused(good({ host: { ...CLANG_HOST, intrinsicsCompared: -1 } }), EXPECT, /host\.intrinsicsCompared must be an integer >= 0 or null/);
+  refused(good({ host: { ...CLANG_HOST, ident: 18 } }), EXPECT, /host\.ident must be a string or null/);
+  refused(good({ host: null }), EXPECT, /host must be an object/);
+  // a build that implements the M6 self-check reports how many llvm.* declarations it compared
+  assert.equal(validatePinRecord(good({ host: { ...CLANG_HOST, intrinsicsCompared: 12 } }), EXPECT).ok, true);
+});
+
+test('context holds exactly its three keys (§14.8)', () => {
+  refused(good({ context: { generatedAt: 1, sourceDateEpoch: null, timeSource: 'wall-clock', host: 'x' } }), EXPECT, /unknown-field: context\.host/);
+  refused(good({ context: { generatedAt: 1, timeSource: 'wall-clock' } }), EXPECT, /missing-field: context\.sourceDateEpoch/);
+});
+
+test('C1: a block that is not enabled lists nothing and counts nothing', () => {
+  refused(good({ barrierCalls: { enabled: false, sites: [bsite()], barrierCount: 0, wouldBarrierCount: 0 } }), {},
+    /inconsistent: barrierCalls\.enabled is false but barrierCalls\.sites lists 1 site/);
+  refused(good({ zeroCopy: { enabled: false, sites: [], repairedCount: 0, wouldRepairCount: 1 } }), {},
+    /inconsistent: zeroCopy\.enabled is false but zeroCopy\.wouldRepairCount is 1/);
+  refused(good({ bufferBarriers: { enabled: false, count: 1, sites: [] } }), {}, /bufferBarriers\.enabled is false but bufferBarriers\.count is 1/);
+});
+
+test('C2/C3: the would-count is the list, a dry run repairs nothing, and outside one every listed site is repaired', () => {
+  // accepted: enabled, both modes
+  assert.equal(validatePinRecord(good({ barrierCalls: barrierOn(), zeroCopy: zeroOn() }), {}).ok, true);
+  assert.equal(validatePinRecord(good({ dryRun: true, pinnedCount: 0, barrierCalls: barrierOn([bsite()], true), zeroCopy: zeroOn([zsite()], true) }),
+    {}).ok, true);
+  // enabled with nothing to repair is not a contradiction
+  assert.equal(validatePinRecord(good({ barrierCalls: barrierOn([]) }), {}).ok, true);
+  // a dry run that says it placed a barrier, or repaired a copy
+  refused(good({ dryRun: true, pinnedCount: 0, barrierCalls: { ...barrierOn(), barrierCount: 1 } }), {},
+    /inconsistent: dry run with barrierCalls\.barrierCount 1/);
+  refused(good({ dryRun: true, pinnedCount: 0, zeroCopy: { ...zeroOn(), repairedCount: 1 } }), {}, /dry run with zeroCopy\.repairedCount 1/);
+  // a GCC barrier that could not be placed (barrierCount below the list)
+  refused(good({ component: 'WipePinGcc', toolchain: GCC_TC, barrierCalls: { ...barrierOn([bsite({ callee: 'bzero' })]), barrierCount: 0 } }), {},
+    /outside a dry run barrierCalls\.barrierCount 0 differs from barrierCalls\.wouldBarrierCount 1/);
+  // a would-count that is not the list
+  refused(good({ barrierCalls: { ...barrierOn(), wouldBarrierCount: 2, barrierCount: 2 } }), {}, /barrierCalls\.wouldBarrierCount 2, but barrierCalls\.sites lists 1/);
+  refused(good({ zeroCopy: { ...zeroOn(), wouldRepairCount: 0, repairedCount: 0 } }), {}, /zeroCopy\.wouldRepairCount 0, but zeroCopy\.sites lists 1/);
+});
+
+test('C4: bufferBarriers counts its sites outside a dry run and nothing in one', () => {
+  assert.equal(validatePinRecord(good({ bufferBarriers: { enabled: true, count: 2, sites: [fsite(), fsite({ anchor: 'ret' })] } }), {}).ok, true);
+  assert.equal(validatePinRecord(good({ dryRun: true, pinnedCount: 0, bufferBarriers: { enabled: true, count: 0, sites: [fsite()] } }), {}).ok, true);
+  refused(good({ bufferBarriers: { enabled: true, count: 1, sites: [fsite(), fsite()] } }), {}, /bufferBarriers\.count 1, but bufferBarriers\.sites lists 2/);
+  refused(good({ dryRun: true, pinnedCount: 0, bufferBarriers: { enabled: true, count: 1, sites: [fsite()] } }), {}, /dry run with bufferBarriers\.count 1/);
+});
+
+test('C5: in functions scope every site of the three blocks is in a requested function', () => {
+  refused(good({ barrierCalls: barrierOn([bsite({ function: 'helper' })]) }), {}, /barrierCalls site in helper, which was not requested/);
+  refused(good({ zeroCopy: zeroOn([zsite({ function: 'vgctl_control' })]) }), {}, /zeroCopy site in vgctl_control/);
+  refused(good({ bufferBarriers: { enabled: true, count: 1, sites: [fsite({ function: 'helper' })] } }), {}, /bufferBarriers site in helper/);
+  // module scope names no function, so any function may carry a site
+  assert.equal(validatePinRecord(good({ scope: 'module', requested: [], resolution: [], barrierCalls: barrierOn([bsite({ function: 'helper' })]) }), {}).ok, true);
+});
+
+test('C6: the handshake -- checked iff a major was read, the major is the build\'s, and it re-derives from ident', () => {
+  // no ident, or an ident with no clang version: a record, unchecked (D26)
+  const unchecked = { ident: null, identMajor: null, builtMajor: 18, checked: false, intrinsicsCompared: null };
+  assert.equal(validatePinRecord(good({ host: unchecked }), EXPECT).ok, true);
+  assert.equal(validatePinRecord(good({ host: { ...unchecked, ident: 'Apple LLVM' } }), EXPECT).ok, true);
+  refused(good({ host: { ...CLANG_HOST, identMajor: null } }), EXPECT, /host\.checked true with host\.identMajor null/);
+  refused(good({ host: { ...unchecked, checked: true } }), EXPECT, /host\.checked true with host\.identMajor null/);
+  // a mismatch writes no record, so a record showing one is refused
+  refused(good({ host: { ...CLANG_HOST, ident: 'Ubuntu clang version 19.1.1', identMajor: 19 } }), EXPECT,
+    /host\.identMajor 19 differs from host\.builtMajor 18 \(a version mismatch writes no record\)/);
+  refused(good({ host: { ...CLANG_HOST, ident: 'Ubuntu clang version 17.0.6' } }), EXPECT, /host\.identMajor 18 does not re-derive from host\.ident/);
+  refused(good({ host: { ...CLANG_HOST, ident: 'Ubuntu clang version 18.1.3 (1ubuntu1)' } }), EXPECT, /host\.ident keeps a parenthesised group/);
+  refused(good({ host: { ...CLANG_HOST, builtMajor: 19, identMajor: 19, ident: 'clang version 19.1.1' } }), EXPECT,
+    /host\.builtMajor 19 is not the major version of toolchain\.clang "18\.1\.3"/);
+  refused(good({ component: 'WipePinGcc', toolchain: GCC_TC, host: { ...GCC_HOST, ident: '14.2.0', identMajor: 14, builtMajor: 14 } }), EXPECT_GCC,
+    /host\.builtMajor 14 is not the major version of toolchain\.gcc "13\.3\.0"/);
+});
+
+test('C7: per-vendor value sets -- zeroCopy forms and callees, barrier callees, anchors, and the GCC host', () => {
+  // WipePin: intrinsic <-> llvm.memcpy; call <-> the memcpy family
+  assert.equal(validatePinRecord(good({ zeroCopy: zeroOn([zsite({ form: 'intrinsic', callee: 'llvm.memcpy' })]) }), {}).ok, true);
+  for (const c of ['memcpy', '__memcpy_chk', 'memcpy.inline']) assert.equal(validatePinRecord(good({ zeroCopy: zeroOn([zsite({ callee: c })]) }), {}).ok, true, c);
+  refused(good({ zeroCopy: zeroOn([zsite({ form: 'intrinsic' })]) }), {}, /zeroCopy\.sites\[0\] has form intrinsic and callee "memcpy\.inline"/);
+  refused(good({ zeroCopy: zeroOn([zsite({ callee: 'llvm.memcpy' })]) }), {}, /has form call and callee "llvm\.memcpy"/);
+  refused(good({ zeroCopy: zeroOn([zsite({ callee: 'memmove' })]) }), {}, /bad-callee: zeroCopy\.sites\[0\]\.callee "memmove"/);
+  refused(good({ zeroCopy: zeroOn([zsite({ form: 'aggregate', callee: null })]) }), {}, /bad-form: zeroCopy\.sites\[0\]\.form "aggregate" on a WipePin record/);
+  // WipePinGcc: callee null exactly for aggregate
+  const G = (z, over = {}) => good({ component: 'WipePinGcc', toolchain: GCC_TC, zeroCopy: zeroOn(z), ...over });
+  assert.equal(validatePinRecord(G([zsite({ form: 'aggregate', callee: null })]), {}).ok, true);
+  assert.equal(validatePinRecord(G([zsite({ form: 'builtin', callee: 'memcpy' })]), {}).ok, true);
+  assert.equal(validatePinRecord(G([zsite({ form: 'call', callee: '__builtin___memcpy_chk' })]), {}).ok, true, 'GCC callee spellings are not enumerated');
+  refused(G([zsite({ form: 'aggregate', callee: 'memcpy' })]), {}, /has form aggregate and callee "memcpy" \(callee null exactly for form aggregate\)/);
+  refused(G([zsite({ form: 'builtin', callee: null })]), {}, /has form builtin and callee null/);
+  refused(G([zsite({ form: 'intrinsic', callee: 'llvm.memcpy' })]), {}, /bad-form: .* on a WipePinGcc record/);
+  // WipePin barrier callees: the memset and bzero families only
+  for (const c of ['memset', '__memset_chk', 'bzero', 'memset.inline', 'bzero.inline']) {
+    assert.equal(validatePinRecord(good({ barrierCalls: barrierOn([bsite({ callee: c })]) }), {}).ok, true, c);
+  }
+  refused(good({ barrierCalls: barrierOn([bsite({ callee: 'explicit_bzero' })]) }), {}, /bad-callee: barrierCalls\.sites\[0\]\.callee "explicit_bzero"/);
+  assert.equal(validatePinRecord(good({ component: 'WipePinGcc', toolchain: GCC_TC, barrierCalls: barrierOn([bsite({ callee: '__builtin___memset_chk' })]) }), {}).ok,
+    true, 'GCC barrier callees are its DECL_NAMEs, not enumerated');
+  // anchors per vendor
+  refused(good({ bufferBarriers: { enabled: true, count: 1, sites: [fsite({ anchor: 'clobber' })] } }), {}, /bad-anchor: bufferBarriers\.sites\[0\]\.anchor clobber on a WipePin record/);
+  refused(good({ component: 'WipePinGcc', toolchain: GCC_TC, bufferBarriers: { enabled: true, count: 1, sites: [fsite({ anchor: 'lifetime-end' })] } }), {},
+    /anchor lifetime-end on a WipePinGcc record/);
+  // the GCC host is always checked, with an ident, and never compares intrinsics
+  refused(good({ component: 'WipePinGcc', toolchain: GCC_TC, host: { ident: null, identMajor: null, builtMajor: 13, checked: false, intrinsicsCompared: null } }), {},
+    /a WipePinGcc record's host must be checked, with an ident/);
+  refused(good({ component: 'WipePinGcc', toolchain: GCC_TC, host: { ...GCC_HOST, intrinsicsCompared: 3 } }), {}, /host\.intrinsicsCompared must be null on a WipePinGcc record/);
+});
+
+test('W1: each switch the caller states must be what the record says; the repair loop states false for all three', () => {
+  const OFF_EXPECT = { ...EXPECT, barrierCalls: false, zeroCopy: false, bufferBarriers: false };
+  assert.equal(validatePinRecord(good(), OFF_EXPECT).ok, true);
+  refused(good({ barrierCalls: barrierOn() }), OFF_EXPECT, /wrong-compile: barrierCalls\.enabled true, this compile did not set WPIN_BARRIER_CALLS=1/);
+  refused(good({ zeroCopy: zeroOn() }), OFF_EXPECT, /wrong-compile: zeroCopy\.enabled true, this compile did not set WPIN_ZERO_COPY=1/);
+  refused(good({ bufferBarriers: { enabled: true, count: 0, sites: [] } }), OFF_EXPECT, /wrong-compile: bufferBarriers\.enabled true, this compile did not set WPIN_BUFFER_BARRIER=1/);
+  refused(good(), { ...EXPECT, zeroCopy: true }, /wrong-compile: zeroCopy\.enabled false, this compile set WPIN_ZERO_COPY=1/);
+  // a switch left out of expect is not compared
+  assert.equal(validatePinRecord(good({ barrierCalls: barrierOn() }), EXPECT).ok, true);
+  refused(good(), { ...EXPECT, barrierCalls: '1' }, /bad-expect: barrierCalls must be true or false/);
+});
+
+test('stripIdent and identMajorOf give the §14.7 table for every installed compiler', () => {
+  const clang = [
+    ['Ubuntu clang version 15.0.7', 'Ubuntu clang version 15.0.7', 15],
+    ['Ubuntu clang version 16.0.6 (23ubuntu4)', 'Ubuntu clang version 16.0.6', 16],
+    ['Ubuntu clang version 17.0.6 (9ubuntu1)', 'Ubuntu clang version 17.0.6', 17],
+    ['Ubuntu clang version 18.1.3 (1ubuntu1)', 'Ubuntu clang version 18.1.3', 18],
+    ['Ubuntu clang version 19.1.1 (1ubuntu1~24.04.2)', 'Ubuntu clang version 19.1.1', 19],
+    ['Ubuntu clang version 20.1.2 (0ubuntu1~24.04.3)', 'Ubuntu clang version 20.1.2', 20],
+    // a local checkout's path is inside the group and goes with it; nested groups and a stray ')' too
+    ['clang version 19.1.0 (/home/user/llvm-project 0123abc)', 'clang version 19.1.0', 19],
+    ['Android (8490178, based on r450784d) clang version 14.0.6 (https://x/llvm-project 4c603efb)', 'Android clang version 14.0.6', 14],
+    ['clang version 18.1.3 (a (nested) b)) trailing', 'clang version 18.1.3 trailing', 18],
+  ];
+  for (const [raw, ident, major] of clang) {
+    assert.equal(stripIdent(raw), ident, raw);
+    assert.equal(identMajorOf('WipePin', stripIdent(raw)), major, raw);
+  }
+  for (const [v, major] of [['10.5.0', 10], ['11.5.0', 11], ['12.4.0', 12], ['13.3.0', 13], ['14.2.0', 14]]) assert.equal(identMajorOf('WipePinGcc', v), major);
+  assert.equal(identMajorOf('WipePin', null), null);
+  assert.equal(identMajorOf('WipePin', 'GCC: 13.3.0'), null);
+  assert.equal(identMajorOf('WipePinGcc', '13'), null, 'the GCC major is the digits before a dot');
+});
+
+test('repairCount is the §14.8 sum, so a barrier-only repair is a repair', () => {
+  assert.equal(repairCount(good()), 1);
+  assert.equal(repairCount(good({ pinned: [], pinnedCount: 0, wouldPinCount: 0, seen: { zeroFillMemsetInScope: 0, zeroFillMemsetInModule: 0 },
+    barrierCalls: barrierOn() })), 1);
+  assert.equal(repairCount(good({ barrierCalls: barrierOn([bsite(), bsite({ line: 60 })]), zeroCopy: zeroOn(),
+    bufferBarriers: { enabled: true, count: 1, sites: [fsite()] } })), 5);
+  assert.equal(repairCount(good({ dryRun: true, pinnedCount: 0, barrierCalls: barrierOn([bsite()], true) })), 0, 'a dry run repairs nothing');
+  assert.equal(repairCount(null), 0);
 });

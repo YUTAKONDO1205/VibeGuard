@@ -3,9 +3,11 @@
 # the plugin, at every level, and leave everything a grader needs in the lab.
 #
 #   run-gcc-fixture-loop.sh --lab DIR --plugin libWipePinGcc.so
+#                           [--previous-plugin libWipePinGcc.so]
 #
-# (or WPIN_LAB / WPIN_PLUGIN in the environment). There are no default paths:
-# where the lab and the build live is the caller's business.
+# (or WPIN_LAB / WPIN_PLUGIN / WPIN_PREVIOUS_PLUGIN in the environment). There
+# are no default paths: where the lab and the builds live is the caller's
+# business.
 #
 # Reads:   the erasure fixture written by compiler/llvm-pass/tools/make-fixtures.sh,
 #          generated into <lab>/fixtures on every run -- never into the repo --
@@ -17,11 +19,18 @@
 #          <lab>/cells/<cell>.kv       what ran, with the plugin's sha256
 #          <lab>/stderr/<cell>.*.txt   the compiler's stderr
 #          <lab>/alone/  <lab>/shapes/  <lab>/stale/  <lab>/lto/  <lab>/xtu/
+#          <lab>/switch/  <lab>/buffer/  <lab>/previous/
 # Decides: nothing. check-gcc-fixture-loop.py grades, and it compiles nothing,
 #          so the code that produces a listing is not the code that says what
 #          the listing shows.
 #
-# Six groups of cells:
+# Every cell of the first six groups runs with the three switches of
+# compiler/schema/wipe-pin.md section 14.2 (WPIN_BARRIER_CALLS, WPIN_ZERO_COPY,
+# WPIN_BUFFER_BARRIER) unset, except the alone cells that set one to a value
+# the plugin must refuse. The switch and buffer groups are the only ones that
+# turn any on.
+#
+# Nine groups of cells:
 #
 #   loop    the erasure fixture's target.c at -O0 -O1 -O2 -O3 -Os, five ways:
 #             base       no plugin
@@ -35,8 +44,9 @@
 #           directly (the listing), and -c through pin-gcc.sh (the object, the
 #           exit code, the manifest). The two records must be the same record.
 #   alone   pin-gcc.sh where it must exit 3 (no target, -fsyntax-only, a
-#           WPIN_DRY_RUN that is neither 0 nor 1), and two source files on one
-#           line, where the last one's record is the one left.
+#           WPIN_DRY_RUN that is neither 0 nor 1, and each switch set to 2),
+#           and two source files on one line, where the last one's record is
+#           the one left.
 #   shapes  small sources, -O2 -g (loopreturn at every level), each with a
 #           known reading of the record: see the comments above each one. The
 #           barrier shapes (srcbarrier, clobonly, otherbar) are also compiled
@@ -57,6 +67,39 @@
 #           wipe.c only, and the same as a dry run. The loss here is one only
 #           the LTO link can create, by inlining the helper; the checker reads
 #           the executable itself. The same four sources as the WipePin loop's.
+#   switch  the shapes the two switches exist for, -O2 without -g, each
+#           compiled four ways into <lab>/switch: stock (no plugin), off (the
+#           plugin, no switch), on (its switch =1) and dry (the switch and
+#           WPIN_DRY_RUN=1), the plugin cells through pin-gcc.sh:
+#             bzero     a trailing bzero(key, 32) under the default
+#                       _FORTIFY_SOURCE, which makes it a call of the header's
+#                       bzero wrapper (WPIN_BARRIER_CALLS)
+#             chkvar    __builtin___memset_chk on a local array with a length
+#                       that is not a constant (WPIN_BARRIER_CALLS)
+#             zcopyagg  memcpy(key, vg_zeros, 32) from an all-zero read-only
+#                       static, -U_FORTIFY_SOURCE: the aggregate copy the
+#                       gimplifier makes of it (WPIN_ZERO_COPY)
+#             zcopyhdr  the same source under the default _FORTIFY_SOURCE: the
+#                       header's memcpy wrapper (WPIN_ZERO_COPY)
+#   buffer  the buffer barrier (WPIN_BUFFER_BARRIER), -O2 without -g, into
+#           <lab>/buffer:
+#             loopbar   a wipe written as a loop of zero stores, the buffer's
+#                       last use, beside a control wipe_kept that zeroes its
+#                       buffer the same way and then reads it: stock, off, on
+#                       and dry, as the switch cells
+#             initbar   `= {0}` followed by uses and no wipe: stock, and on
+#             inloop    a buffer declared in a loop body, filled, read and
+#                       wiped by a loop of zero stores in every iteration,
+#                       beside the same control: stock, and on
+#             initzero  a loop of zero stores as an initialiser, followed by
+#                       uses and no wipe: stock, and on
+#   previous  only with --previous-plugin: every plugin compile of the loop,
+#           shapes, switch-off and buffer-off cells again, -S, once with this
+#           plugin and
+#           once with the previous one, each copied in turn to the same path so
+#           that the plugin's path cannot be what differs. With every switch
+#           off the two listings must be the same bytes. Without the option the
+#           group is not run, and the checker says so.
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -64,11 +107,12 @@ COMPILER=$(cd "$HERE/../.." && pwd)
 
 LAB=${WPIN_LAB:-}
 PLUGIN=${WPIN_PLUGIN:-}
+PREV=${WPIN_PREVIOUS_PLUGIN:-}
 CC=${WPIN_CC:-gcc-13}
 PINSH="$HERE/pin-gcc.sh"
 
 usage() {
-  echo "usage: run-gcc-fixture-loop.sh --lab DIR --plugin libWipePinGcc.so" >&2
+  echo "usage: run-gcc-fixture-loop.sh --lab DIR --plugin libWipePinGcc.so [--previous-plugin libWipePinGcc.so]" >&2
   exit 3
 }
 
@@ -76,11 +120,16 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --lab) LAB=${2:-}; shift 2 || usage ;;
     --plugin) PLUGIN=${2:-}; shift 2 || usage ;;
+    --previous-plugin) PREV=${2:-}; shift 2 || usage ;;
     *) usage ;;
   esac
 done
 [ -n "$LAB" ] && [ -n "$PLUGIN" ] || usage
 [ -f "$PLUGIN" ] || { echo "run-gcc-fixture-loop.sh: no plugin at $PLUGIN" >&2; exit 3; }
+if [ -n "$PREV" ]; then
+  [ -f "$PREV" ] || { echo "run-gcc-fixture-loop.sh: no previous plugin at $PREV" >&2; exit 3; }
+  PREV=$(cd "$(dirname "$PREV")" && pwd)/$(basename "$PREV")
+fi
 mkdir -p "$LAB"
 LAB=$(cd "$LAB" && pwd)
 PLUGIN=$(cd "$(dirname "$PLUGIN")" && pwd)/$(basename "$PLUGIN")
@@ -91,9 +140,9 @@ FX="$LAB/fixtures/erasure"
   echo "run-gcc-fixture-loop.sh: fixture generation failed" >&2; exit 3; }
 
 rm -rf "$LAB/asm" "$LAB/obj" "$LAB/records" "$LAB/pinsh" "$LAB/cells" "$LAB/stderr" \
-       "$LAB/alone" "$LAB/shapes" "$LAB/stale" "$LAB/lto" "$LAB/xtu"
+       "$LAB/alone" "$LAB/shapes" "$LAB/stale" "$LAB/lto" "$LAB/xtu" "$LAB/switch" "$LAB/buffer" "$LAB/previous"
 mkdir -p "$LAB/asm" "$LAB/obj" "$LAB/records" "$LAB/pinsh" "$LAB/cells" "$LAB/stderr" \
-         "$LAB/alone" "$LAB/shapes/src" "$LAB/stale" "$LAB/lto" "$LAB/xtu/src"
+         "$LAB/alone" "$LAB/shapes/src" "$LAB/stale" "$LAB/lto" "$LAB/xtu/src" "$LAB/switch" "$LAB/buffer"
 PIN_SHA=$(sha256sum "$PLUGIN" | cut -d' ' -f1)
 CC_VERSION=$("$CC" --version | head -n1)
 LEVELS="-O0 -O1 -O2 -O3 -Os"
@@ -105,7 +154,44 @@ kv() { local f=$1; shift; printf '%s\n' "$@" > "$f"; }
 
 # Nothing from the caller's environment may configure the plugin in a cell
 # that did not ask for it, and nothing may leak from one cell into the next.
-CLEAN=(env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN)
+CLEAN=(env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN
+       -u WPIN_BARRIER_CALLS -u WPIN_ZERO_COPY -u WPIN_BUFFER_BARRIER)
+
+# ------------------------------------------------------------ previous plugin
+# prevpair <id> <source> <opt> [VAR=VAL ...] -- [gcc flags...]
+#   With --previous-plugin: the same -S compile twice, with this plugin and
+#   with the previous one, each first copied to <lab>/previous/stage/, so that
+#   the -fplugin= path on the two command lines is the same string. Listings
+#   at <lab>/previous/{this,prev}/<id>.s; the ids, in order, in
+#   <lab>/previous/cells.txt. Without the option, nothing.
+STAGE="$LAB/previous/stage/libWipePinGcc.so"
+if [ -n "$PREV" ]; then
+  mkdir -p "$LAB/previous/stage" "$LAB/previous/this" "$LAB/previous/prev"
+  : > "$LAB/previous/cells.txt"
+  kv "$LAB/previous/given.kv" "pluginSha256=$PIN_SHA" "previousSha256=$(sha256sum "$PREV" | cut -d' ' -f1)" \
+     "ccVersion=$CC_VERSION"
+fi
+prevpair() {
+  [ -n "$PREV" ] || return 0
+  local id=$1 src=$2 opt=$3
+  shift 3
+  local envs=()
+  while [ $# -gt 0 ] && [ "$1" != -- ]; do envs+=("$1"); shift; done
+  [ $# -gt 0 ] && shift
+  local which so rcs=()
+  for which in this prev; do
+    so=$PLUGIN
+    [ "$which" = prev ] && so=$PREV
+    cp "$so" "$STAGE"
+    "${CLEAN[@]}" WPIN_OUT="$LAB/previous/$which/$id.json" "${envs[@]+"${envs[@]}"}" \
+        "$CC" -fplugin="$STAGE" "$opt" "$@" -S "$src" -o "$LAB/previous/$which/$id.s" \
+        2> "$LAB/previous/$which/$id.stderr.txt"
+    rcs+=("${which}Rc=$?" "${which}StagedSha256=$(sha256sum "$STAGE" | cut -d' ' -f1)")
+  done
+  kv "$LAB/previous/$id.kv" "cellId=$id" "source=$(basename "$src")" "opt=$opt" "flags=$*" \
+     "env=${envs[*]+"${envs[*]}"}" "${rcs[@]}"
+  echo "$id" >> "$LAB/previous/cells.txt"
+}
 
 # pinsh <dir> <id> [VAR=VAL ...] -- <gcc args...>
 #   pin-gcc.sh with only the settings given here. Prints its exit code; its
@@ -149,6 +235,7 @@ withplugin() {
   kv "$LAB/cells/$id.kv" "cellId=$id" "opt=$opt" "source=$(basename "$src")" "mode=plugin" \
      "asmRc=$rs" "objRc=see-pinsh" "pinShRc=$prc" "pluginSha256=$PIN_SHA" "ccVersion=$CC_VERSION" "env=$*"
   [ $rs -eq 0 ] || { echo "run-gcc-fixture-loop.sh: $id: -S rc $rs" >&2; failed=1; }
+  prevpair "$id" "$src" "$opt" "$@" --
   echo "$id"
 }
 
@@ -173,6 +260,16 @@ rc=$(pinsh "$LAB/alone" baddry-O2 WPIN_TARGET_FNS=handle_request WPIN_DRY_RUN=ye
        -O2 -c "$FX/target.c" -o "$LAB/alone/baddry-O2.o")
 kv "$LAB/alone/baddry-O2.kv" "cellId=baddry-O2" "pinShRc=$rc" "pluginSha256=$PIN_SHA"
 echo baddry-O2
+# The three switches of compiler/schema/wipe-pin.md section 14.2, each set to a
+# value that is neither 0 nor 1.
+for spec in badbarrier-O2:WPIN_BARRIER_CALLS=2 badzerocopy-O2:WPIN_ZERO_COPY=2 \
+            badbuffer-O2:WPIN_BUFFER_BARRIER=2; do
+  id=${spec%%:*}
+  rc=$(pinsh "$LAB/alone" "$id" WPIN_TARGET_FNS=handle_request "${spec#*:}" -- \
+         -O2 -c "$FX/target.c" -o "$LAB/alone/$id.o")
+  kv "$LAB/alone/$id.kv" "cellId=$id" "pinShRc=$rc" "pluginSha256=$PIN_SHA" "env=${spec#*:}"
+  echo "$id"
+done
 # Two source files: the driver runs one cc1 per file, in order. The objects go
 # next to the working directory, so the compile runs inside alone/two.
 mkdir -p "$LAB/alone/two"
@@ -440,6 +537,7 @@ shape() {
          "$opt" -g "$@" -S "$SRC/$src" -o "$LAB/shapes/$id.s")
   kv "$LAB/shapes/$id.kv" "cellId=$id" "source=$src" "target=$target" "opt=$opt" \
      "flags=$*" "pinShRc=$rc" "pluginSha256=$PIN_SHA"
+  prevpair "shape-$id" "$SRC/$src" "$opt" WPIN_TARGET_FNS="$target" -- -g "$@"
   echo "$id"
 }
 # stock <id> <source> <opt>: the same -g -S compile without the plugin, into
@@ -470,6 +568,198 @@ shape nobuiltin  nobuiltin.c   handle      -O2 -fno-builtin
 shape nonzero    nonzero.c     handle      -O2
 shape chk        chk.c         handle      -O2
 shape chkconst   chkconst.c    handle      -O2
+
+# ------------------------------------------------------------ switch
+# The shapes WPIN_BARRIER_CALLS and WPIN_ZERO_COPY exist for
+# (compiler/schema/wipe-pin.md sections 14.4 and 14.5). Each source is one
+# function `handle` with a 32-byte stack buffer that derive() fills and use()
+# reads, and whose last statement is the wipe in the form named. -O2, no -g:
+# the listings of the stock, off and dry cells are compared byte for byte.
+
+# bzero, the buffer's last use. Under the default _FORTIFY_SOURCE the target
+# calls the header's gnu_inline bzero wrapper, which is not a memset when the
+# pass runs (README.md, "Not counted"): bzeroCall with the switch off.
+cat > "$SRC/bzero.c" <<'SHAPE_EOF'
+#include <strings.h>
+void derive(unsigned char *k);
+void use(const unsigned char *k, unsigned n);
+int handle(void) {
+  unsigned char key[32];
+  derive(key);
+  use(key, 32);
+  bzero(key, sizeof key);
+  return 0;
+}
+SHAPE_EOF
+
+# The checked memset on a local array, with a length nothing knows before the
+# call: the object size is a constant, the length is not, so it cannot be
+# folded into __builtin_memset before the pass (compare chkconst, which is).
+cat > "$SRC/chkvar.c" <<'SHAPE_EOF'
+void derive(unsigned char *k);
+void use(const unsigned char *k, unsigned long n);
+int handle(unsigned long n) {
+  unsigned char key[32];
+  derive(key);
+  use(key, 32);
+  __builtin___memset_chk(key, 0, n, __builtin_object_size(key, 0));
+  return 0;
+}
+SHAPE_EOF
+
+# A copy from an all-zero read-only static (no initialiser, so zero), the
+# buffer's last use. Compiled -U_FORTIFY_SOURCE (zcopyagg) and with the
+# default _FORTIFY_SOURCE (zcopyhdr).
+cat > "$SRC/zcopy.c" <<'SHAPE_EOF'
+#include <string.h>
+static const unsigned char vg_zeros[64];
+void derive(unsigned char *k);
+void use(const unsigned char *k, unsigned n);
+int handle(void) {
+  unsigned char key[32];
+  derive(key);
+  use(key, 32);
+  memcpy(key, vg_zeros, sizeof key);
+  return 0;
+}
+SHAPE_EOF
+
+# switchcell <id> <source> <switch-variable> [gcc flags...]
+#   <id>-stock: no plugin. <id>-off, <id>-on, <id>-dry: the plugin through
+#   pin-gcc.sh, target handle, with no switch, <switch-variable>=1, and that
+#   and WPIN_DRY_RUN=1. Every listing is <lab>/switch/<cell>.s.
+switchcell() {
+  local id=$1 src=$2 var=$3
+  shift 3
+  "${CLEAN[@]}" "$CC" -O2 "$@" -S "$SRC/$src" -o "$LAB/switch/$id-stock.s" \
+      2> "$LAB/switch/$id-stock.stderr.txt"
+  local rs=$?
+  kv "$LAB/switch/$id-stock.kv" "cellId=$id-stock" "source=$src" "flags=$*" "mode=stock" "rc=$rs" \
+     "pluginSha256=not-loaded" "ccVersion=$CC_VERSION"
+  [ $rs -eq 0 ] || { echo "run-gcc-fixture-loop.sh: $id-stock: rc $rs" >&2; failed=1; }
+  echo "$id-stock"
+  local mode rc envs
+  for mode in off on dry; do
+    envs=(WPIN_TARGET_FNS=handle)
+    case "$mode" in
+      on) envs+=("$var=1") ;;
+      dry) envs+=("$var=1" WPIN_DRY_RUN=1) ;;
+    esac
+    rc=$(pinsh "$LAB/switch" "$id-$mode" "${envs[@]}" -- -O2 "$@" -S "$SRC/$src" -o "$LAB/switch/$id-$mode.s")
+    kv "$LAB/switch/$id-$mode.kv" "cellId=$id-$mode" "source=$src" "flags=$*" "mode=$mode" \
+       "env=${envs[*]}" "pinShRc=$rc" "pluginSha256=$PIN_SHA" "ccVersion=$CC_VERSION"
+    echo "$id-$mode"
+  done
+  prevpair "switch-$id-off" "$SRC/$src" -O2 WPIN_TARGET_FNS=handle -- "$@"
+}
+switchcell bzero    bzero.c  WPIN_BARRIER_CALLS
+switchcell chkvar   chkvar.c WPIN_BARRIER_CALLS
+switchcell zcopyagg zcopy.c  WPIN_ZERO_COPY -U_FORTIFY_SOURCE
+switchcell zcopyhdr zcopy.c  WPIN_ZERO_COPY
+
+# ------------------------------------------------------------ buffer
+# The buffer barrier (compiler/schema/wipe-pin.md section 14.6). -O2, no -g,
+# target handle; every listing is <lab>/buffer/<cell>.s, the plugin cells
+# through pin-gcc.sh.
+
+# The wipe written as a loop of zero stores, the buffer's last use: not a call,
+# so nothing but WPIN_BUFFER_BARRIER reaches it. The control, wipe_kept, zeroes
+# its buffer the same way and then reads it; it is not in scope.
+cat > "$SRC/loop.c" <<'SHAPE_EOF'
+void derive(unsigned char *k);
+void use(const unsigned char *k, unsigned long n);
+void handle(void) {
+  unsigned char key[32];
+  derive(key);
+  use(key, sizeof key);
+  for (unsigned i = 0; i < sizeof key; i++) key[i] = 0;
+}
+void wipe_kept(void) {
+  unsigned char buf[32];
+  derive(buf);
+  for (unsigned i = 0; i < sizeof buf; i++) buf[i] = 0;
+  use(buf, sizeof buf);
+}
+SHAPE_EOF
+
+# An initialiser followed by uses, and no wipe. GCC lowers `= {0}` to the
+# aggregate assignment `key = {}`, which is not a zero fill the barrier counts.
+cat > "$SRC/init.c" <<'SHAPE_EOF'
+void derive(unsigned char *k);
+void use(const unsigned char *k, unsigned long n);
+void handle(void) {
+  unsigned char key[32] = {0};
+  derive(key);
+  use(key, sizeof key);
+}
+SHAPE_EOF
+
+# A buffer declared in the body of a loop and wiped by a loop of zero stores at
+# the end of every iteration. The next iteration's derive() and use() name the
+# same declaration, but after its clobber: another lifetime. The control is
+# loop.c's.
+cat > "$SRC/inloop.c" <<'SHAPE_EOF'
+void derive(unsigned char *k);
+void use(const unsigned char *k, unsigned long n);
+void handle(int n) {
+  for (int j = 0; j < n; j++) {
+    unsigned char key[32];
+    derive(key);
+    use(key, sizeof key);
+    for (unsigned i = 0; i < sizeof key; i++) key[i] = 0;
+  }
+}
+void wipe_kept(void) {
+  unsigned char buf[32];
+  derive(buf);
+  for (unsigned i = 0; i < sizeof buf; i++) buf[i] = 0;
+  use(buf, sizeof buf);
+}
+SHAPE_EOF
+
+# A loop of zero stores as an initialiser, followed by uses, and no wipe: a
+# zero fill the barrier reads, every one of which a later use follows.
+cat > "$SRC/initzero.c" <<'SHAPE_EOF'
+void derive(unsigned char *k);
+void use(const unsigned char *k, unsigned long n);
+void handle(void) {
+  unsigned char key[32];
+  for (unsigned i = 0; i < sizeof key; i++) key[i] = 0;
+  derive(key);
+  use(key, sizeof key);
+}
+SHAPE_EOF
+
+# buffercell <id> <source> <modes...>: <id>-stock without the plugin, then each
+# mode through pin-gcc.sh: off (no switch), on (WPIN_BUFFER_BARRIER=1), dry
+# (that and WPIN_DRY_RUN=1).
+buffercell() {
+  local id=$1 src=$2
+  shift 2
+  "${CLEAN[@]}" "$CC" -O2 -S "$SRC/$src" -o "$LAB/buffer/$id-stock.s" 2> "$LAB/buffer/$id-stock.stderr.txt"
+  local rs=$?
+  kv "$LAB/buffer/$id-stock.kv" "cellId=$id-stock" "source=$src" "mode=stock" "rc=$rs" \
+     "pluginSha256=not-loaded" "ccVersion=$CC_VERSION"
+  [ $rs -eq 0 ] || { echo "run-gcc-fixture-loop.sh: $id-stock: rc $rs" >&2; failed=1; }
+  echo "$id-stock"
+  local mode rc envs
+  for mode in "$@"; do
+    envs=(WPIN_TARGET_FNS=handle)
+    case "$mode" in
+      on) envs+=(WPIN_BUFFER_BARRIER=1) ;;
+      dry) envs+=(WPIN_BUFFER_BARRIER=1 WPIN_DRY_RUN=1) ;;
+    esac
+    rc=$(pinsh "$LAB/buffer" "$id-$mode" "${envs[@]}" -- -O2 -S "$SRC/$src" -o "$LAB/buffer/$id-$mode.s")
+    kv "$LAB/buffer/$id-$mode.kv" "cellId=$id-$mode" "source=$src" "mode=$mode" \
+       "env=${envs[*]}" "pinShRc=$rc" "pluginSha256=$PIN_SHA" "ccVersion=$CC_VERSION"
+    echo "$id-$mode"
+  done
+}
+buffercell loopbar loop.c off on dry
+prevpair "buffer-loopbar-off" "$SRC/loop.c" -O2 WPIN_TARGET_FNS=handle --
+buffercell initbar init.c on
+buffercell inloop inloop.c on
+buffercell initzero initzero.c on
 
 # ------------------------------------------------------------ stale records
 # stale <id> <what-is-at-WPIN_OUT: file|dir> [VAR=VAL ...] -- <gcc args...>

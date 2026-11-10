@@ -1,14 +1,24 @@
 #!/usr/bin/env python3
 """Read a WipePinGcc record strictly, as compiler/schema/wipe-pin.md describes
-the `wipe-pin-v2` record.
+the `wipe-pin-v3` record (section 14; sections 1-13 for everything v3 keeps
+from v2).
 
-    python3 wpin_gcc_record.py <record.json>
+    python3 wpin_gcc_record.py [--expect barrierCalls=0,zeroCopy=1,bufferBarriers=0] <record.json>
 
 prints key=value lines for pin-gcc.sh (pinnedCount, wouldPinCount,
-followedByUseCount, unresolved, exactAll), or one `error=<why>` line when the
-file is not a usable wipe-pin-v2 record from WipePinGcc. It always exits 0 when
-it could run at all: the verdict is the `error=` line, which pin-gcc.sh turns
+followedByUseCount, unresolved, exactAll, the done and would counts of the
+three v3 blocks, and repairCount), or one `error=<why>` line when the file is
+not a usable wipe-pin-v3 record from WipePinGcc. It always exits 0 when it
+could run at all: the verdict is the `error=` line, which pin-gcc.sh turns
 into exit 3.
+
+`--expect` states which switches the caller set (1) or did not set (0); a
+record whose `<block>.enabled` says otherwise is refused as `wrong-compile`
+(section 14.9, W1). A switch the caller does not state is not compared.
+
+Only `wipe-pin-v3` is accepted. A `wipe-pin-v2` record is read with the reader
+of the commit that wrote it (section 14.10), and is refused here like any other
+record of the wrong shape.
 
 Also imported, as a library, by check-gcc-fixture-loop.py and by the tests in
 ../test/. Nothing here compiles anything or reads anything but the one file it
@@ -19,7 +29,7 @@ tolerant reader that skipped a field it did not recognise would let a plugin
 that silently changed what it reports keep being believed. The authoritative
 reader for the repair loop is that JS file; this one exists so that pin-gcc.sh
 does not need node. It checks the same rules and a few more
-(compiler/schema/wipe-pin.md sections 11 and 13).
+(compiler/schema/wipe-pin.md sections 11, 13 and 14.9).
 
 The digests are re-derived here with a canonical serialiser written from the
 rules in compiler/schema/interfaces.md section 5 -- sharing no code with the
@@ -32,18 +42,23 @@ import json
 import re
 import sys
 
-SCHEMA = "wipe-pin-v2"
+SCHEMA = "wipe-pin-v3"
 COMPONENT = "WipePinGcc"
 
+# compiler/schema/wipe-pin.md section 14.1: the 16 keys of v2 and the four
+# blocks v3 adds, which are written on every record.
 TOP_KEYS = {
     "schemaVersion", "component", "module", "optLevel", "scope", "requested", "resolution",
     "dryRun", "pinned", "pinnedCount", "wouldPinCount", "seen", "unhandled", "toolchain",
+    "barrierCalls", "zeroCopy", "bufferBarriers", "host",
     "evidenceDigest", "context",
 }
 PINNED_KEYS = {"function", "index", "lengthBytes", "destKind", "alreadyVolatile", "line", "followedByUse"}
 RESOLUTION_KEYS = {"name", "resolution", "exact", "linkage"}
 SEEN_KEYS = {"zeroFillMemsetInScope", "zeroFillMemsetInModule"}
-UNHANDLED_KEYS = {"libcallMemset", "memsetChk", "nonZeroFill", "atomicMemset", "inlineWrapperMemset"}
+# Section 14.3: nine keys, the same set for both vendors.
+UNHANDLED_KEYS = {"libcallMemset", "memsetChk", "nonZeroFill", "atomicMemset", "inlineWrapperMemset",
+                  "bzeroCall", "inlineWrapperBzero", "zeroGlobalCopy", "zeroGlobalCopyCall"}
 CONTEXT_KEYS = {"generatedAt", "timeSource", "sourceDateEpoch"}
 RESOLUTIONS = ("resolved", "declaration-only", "not-in-module")
 DEST_KINDS = ("alloca", "argument", "global", "other")
@@ -51,9 +66,30 @@ DEST_KINDS = ("alloca", "argument", "global", "other")
 # five words the GCC mapping can produce.
 GCC_LINKAGES = ("internal", "weak", "linkonce_odr", "available_externally", "external")
 EXACT_LINKAGES = ("external", "internal")
-# Shapes GCC does not have (compiler/schema/wipe-pin.md section 10): always 0
-# on a WipePinGcc record.
-ALWAYS_ZERO = ("atomicMemset", "inlineWrapperMemset")
+# Shapes GCC does not have (compiler/schema/wipe-pin.md sections 10 and
+# 14.3): always 0 on a WipePinGcc record.
+ALWAYS_ZERO = ("atomicMemset", "inlineWrapperMemset", "inlineWrapperBzero")
+
+# Sections 14.4-14.7 (S3-S6 of section 14.9).
+BARRIER_KEYS = {"enabled", "sites", "barrierCount", "wouldBarrierCount"}
+BARRIER_SITE_KEYS = {"function", "callee", "lengthBytes", "line"}
+ZERO_KEYS = {"enabled", "sites", "repairedCount", "wouldRepairCount"}
+ZERO_SITE_KEYS = {"function", "form", "callee", "source", "destKind", "lengthBytes", "line"}
+BUFFER_KEYS = {"enabled", "count", "sites"}
+BUFFER_SITE_KEYS = {"function", "buffer", "bytes", "reason", "anchor"}
+HOST_KEYS = {"ident", "identMajor", "builtMajor", "checked", "intrinsicsCompared"}
+BUFFER_REASONS = ("memset", "loop-store", "zero-copy")
+BUFFER_ANCHORS = ("lifetime-end", "ret", "clobber")
+# C7, the WipePinGcc column.
+GCC_ZERO_FORMS = ("aggregate", "builtin", "call")
+GCC_BUFFER_ANCHORS = ("clobber", "ret")
+# W1: the blocks whose `enabled` echoes a switch, with the variable each echoes.
+SWITCH_BLOCKS = {"barrierCalls": "WPIN_BARRIER_CALLS", "zeroCopy": "WPIN_ZERO_COPY",
+                 "bufferBarriers": "WPIN_BUFFER_BARRIER"}
+# Each block's done-count and would-count (bufferBarriers has only the first).
+BLOCK_COUNTS = {"barrierCalls": ("barrierCount", "wouldBarrierCount"),
+                "zeroCopy": ("repairedCount", "wouldRepairCount"),
+                "bufferBarriers": ("count", None)}
 
 SAFE_MAX = 2 ** 53 - 1
 
@@ -127,6 +163,10 @@ def _is_count(v):
     return isinstance(v, int) and not isinstance(v, bool) and v >= 0
 
 
+def _count_or_null(v):
+    return v is None or _is_count(v)
+
+
 def _is_name(v):
     return isinstance(v, str) and len(v) > 0
 
@@ -145,8 +185,48 @@ def _exact_keys(obj, keys, where, problems):
             problems.append(f"unknown-field: {where}{k}")
 
 
-def validate(rec):
-    """Every problem with `rec` as a wipe-pin-v2 WipePinGcc record; [] if none.
+def ident_major(ident):
+    """compiler/schema/wipe-pin.md section 14.7, the WipePinGcc column: the
+    decimal integer before the first '.' of `ident`, or None."""
+    if not isinstance(ident, str):
+        return None
+    m = re.match(r"([0-9]+)\.", ident)
+    return int(m.group(1)) if m else None
+
+
+def _block_structure(rec, name, keys, site_keys, problems):
+    """S3-S5: the block's own keys and types, and each site's keys. The site
+    fields' types are checked by the caller. Returns the site list, or None."""
+    blk = rec.get(name)
+    if not isinstance(blk, dict):
+        problems.append(f"bad-type: {name}")
+        return None
+    _exact_keys(blk, keys, f"{name}.", problems)
+    if not isinstance(blk.get("enabled"), bool):
+        problems.append(f"bad-type: {name}.enabled")
+    done, would = BLOCK_COUNTS[name]
+    for k in (done, would):
+        if k is not None and not _is_count(blk.get(k)):
+            problems.append(f"not-a-count: {name}.{k}")
+    sites = blk.get("sites")
+    if not isinstance(sites, list):
+        problems.append(f"bad-type: {name}.sites")
+        return None
+    ok = []
+    for i, s in enumerate(sites):
+        if not isinstance(s, dict):
+            problems.append(f"bad-type: {name}.sites[{i}]")
+            continue
+        _exact_keys(s, site_keys, f"{name}.sites[{i}].", problems)
+        ok.append((i, s))
+    return ok
+
+
+def validate(rec, expect=None):
+    """Every problem with `rec` as a wipe-pin-v3 WipePinGcc record; [] if none.
+
+    `expect` optionally maps a block name of SWITCH_BLOCKS to the boolean the
+    caller set its switch to (section 14.9, W1).
 
     Problems are plain strings with no filesystem paths in them."""
     problems = []
@@ -218,14 +298,15 @@ def validate(rec):
             if not _is_count(p.get("index")):
                 problems.append(f"not-a-count: pinned[{i}].index")
             for k in ("lengthBytes", "line"):
-                if not (p.get(k) is None or _is_count(p.get(k))):
+                if not _count_or_null(p.get(k)):
                     problems.append(f"not-a-count: pinned[{i}].{k}")
             if p.get("destKind") not in DEST_KINDS:
                 problems.append(f"bad-destKind: pinned[{i}].destKind = {p.get('destKind')!r}")
             if not isinstance(p.get("alreadyVolatile"), bool):
                 problems.append(f"bad-type: pinned[{i}].alreadyVolatile")
             fbu = p.get("followedByUse", "absent")
-            if fbu not in (True, False, None):
+            # `is`, not `in`: 1, 0 and 1.0 compare equal to True and False
+            if not (fbu is None or isinstance(fbu, bool)):
                 problems.append(f"bad-type: pinned[{i}].followedByUse")
             elif (p.get("destKind") == "alloca") == (fbu is None):
                 problems.append(f"inconsistent: pinned[{i}] destKind {p.get('destKind')!r} with "
@@ -263,6 +344,66 @@ def validate(rec):
         for k in ALWAYS_ZERO:
             if unh.get(k) not in (0, None):
                 problems.append(f"inconsistent: unhandled.{k} is {unh.get(k)!r}; GCC has no such shape")
+
+    # ---- S3-S5: the three blocks ---------------------------------------------
+    bsites = _block_structure(rec, "barrierCalls", BARRIER_KEYS, BARRIER_SITE_KEYS, problems)
+    for i, s in bsites or []:
+        w = f"barrierCalls.sites[{i}]."
+        if not _is_name(s.get("function")):
+            problems.append(f"bad-type: {w}function")
+        if not _is_name(s.get("callee")):
+            problems.append(f"bad-type: {w}callee")
+        for k in ("lengthBytes", "line"):
+            if not _count_or_null(s.get(k)):
+                problems.append(f"not-a-count: {w}{k}")
+    zsites = _block_structure(rec, "zeroCopy", ZERO_KEYS, ZERO_SITE_KEYS, problems)
+    for i, s in zsites or []:
+        w = f"zeroCopy.sites[{i}]."
+        if not _is_name(s.get("function")):
+            problems.append(f"bad-type: {w}function")
+        if not isinstance(s.get("form"), str):
+            problems.append(f"bad-type: {w}form")
+        if not (s.get("callee") is None or _is_name(s.get("callee"))):
+            problems.append(f"bad-type: {w}callee")
+        if not isinstance(s.get("source"), str):
+            problems.append(f"bad-type: {w}source")
+        if s.get("destKind") not in DEST_KINDS:
+            problems.append(f"bad-destKind: {w}destKind = {s.get('destKind')!r}")
+        for k in ("lengthBytes", "line"):
+            if not _count_or_null(s.get(k)):
+                problems.append(f"not-a-count: {w}{k}")
+    fsites = _block_structure(rec, "bufferBarriers", BUFFER_KEYS, BUFFER_SITE_KEYS, problems)
+    for i, s in fsites or []:
+        w = f"bufferBarriers.sites[{i}]."
+        if not _is_name(s.get("function")):
+            problems.append(f"bad-type: {w}function")
+        if not (s.get("buffer") is None or _is_name(s.get("buffer"))):
+            problems.append(f"bad-type: {w}buffer")
+        if not _count_or_null(s.get("bytes")):
+            problems.append(f"not-a-count: {w}bytes")
+        if s.get("reason") not in BUFFER_REASONS:
+            problems.append(f"bad-reason: {w}reason = {s.get('reason')!r}")
+        if s.get("anchor") not in BUFFER_ANCHORS:
+            problems.append(f"bad-anchor: {w}anchor = {s.get('anchor')!r}")
+
+    # ---- S6: host ---------------------------------------------------------------
+    host = rec.get("host")
+    if not isinstance(host, dict):
+        problems.append("bad-type: host")
+    else:
+        _exact_keys(host, HOST_KEYS, "host.", problems)
+        if not (host.get("ident") is None or isinstance(host.get("ident"), str)):
+            problems.append("bad-type: host.ident")
+        im = host.get("identMajor")
+        if not (im is None or (_is_count(im) and im >= 1)):
+            problems.append("bad-type: host.identMajor")
+        bm = host.get("builtMajor")
+        if not (_is_count(bm) and bm >= 1):
+            problems.append("bad-type: host.builtMajor")
+        if not isinstance(host.get("checked"), bool):
+            problems.append("bad-type: host.checked")
+        if not _count_or_null(host.get("intrinsicsCompared")):
+            problems.append("bad-type: host.intrinsicsCompared")
 
     ctx = rec.get("context")
     if not isinstance(ctx, dict):
@@ -314,11 +455,76 @@ def validate(rec):
                 problems.append(f"inconsistent: pinned site in {p['function']}, which was not requested")
     elif requested or resolution:
         problems.append("inconsistent: module scope with requested or resolution entries")
+
+    # ---- section 14.9: C1-C7 -------------------------------------------------
+    for name, (done, would) in BLOCK_COUNTS.items():
+        blk = rec[name]
+        if not blk["enabled"]:                                               # C1
+            if blk["sites"]:
+                problems.append(f"inconsistent: {name}.enabled is false but sites lists {len(blk['sites'])}")
+            for c in (done, would):
+                if c is not None and blk[c] != 0:
+                    problems.append(f"inconsistent: {name}.enabled is false but {name}.{c} is {blk[c]}")
+            continue
+        n = len(blk["sites"])
+        if would is not None and blk[would] != n:                            # C2, C3
+            problems.append(f"inconsistent: {name}.{would} {blk[would]}, sites lists {n}")
+        if rec["dryRun"]:                                                    # C2-C4
+            if blk[done] != 0:
+                problems.append(f"inconsistent: dry run with {name}.{done} {blk[done]}")
+        elif blk[done] != (blk[would] if would is not None else n):
+            what = f"{name}.{would} {blk[would]}" if would is not None else f"sites listing {n}"
+            problems.append(f"inconsistent: outside a dry run {name}.{done} {blk[done]} differs from {what}"
+                            + (" (a barrier that could not be placed)" if name != "bufferBarriers" else ""))
+    if rec["scope"] == "functions":                                          # C5
+        for name in BLOCK_COUNTS:
+            for s in rec[name]["sites"]:
+                if s["function"] not in requested:
+                    problems.append(f"inconsistent: {name} site in {s['function']}, which was not requested")
+    h = rec["host"]                                                          # C6
+    if h["checked"] is not (h["identMajor"] is not None):
+        problems.append(f"inconsistent: host.checked {h['checked']} with identMajor {h['identMajor']}")
+    if h["identMajor"] is not None and h["identMajor"] != h["builtMajor"]:
+        problems.append(f"inconsistent: host.identMajor {h['identMajor']} differs from builtMajor "
+                        f"{h['builtMajor']} (a mismatch writes no record)")
+    if h["identMajor"] != ident_major(h["ident"]):
+        problems.append(f"inconsistent: host.identMajor {h['identMajor']} does not re-derive from host.ident")
+    if isinstance(h["ident"], str) and re.search(r"[()]", h["ident"]):
+        problems.append("inconsistent: host.ident keeps a parenthesised group")
+    if ident_major(rec["toolchain"]["gcc"]) != h["builtMajor"]:
+        problems.append(f"inconsistent: host.builtMajor {h['builtMajor']} is not the major of toolchain.gcc")
+    for i, s in enumerate(rec["zeroCopy"]["sites"]):                         # C7, WipePinGcc
+        if s["form"] not in GCC_ZERO_FORMS:
+            problems.append(f"bad-form: zeroCopy.sites[{i}].form {s['form']!r} on WipePinGcc")
+        elif (s["form"] == "aggregate") != (s["callee"] is None):
+            problems.append(f"inconsistent: zeroCopy.sites[{i}] form {s['form']} with callee {s['callee']!r}")
+    for i, s in enumerate(rec["bufferBarriers"]["sites"]):
+        if s["anchor"] not in GCC_BUFFER_ANCHORS:
+            problems.append(f"bad-anchor: bufferBarriers.sites[{i}].anchor {s['anchor']} on WipePinGcc")
+    if h["checked"] is not True or h["ident"] is None:
+        problems.append("inconsistent: WipePinGcc host must be checked, with an ident")
+    if h["intrinsicsCompared"] is not None:
+        problems.append("inconsistent: WipePinGcc host.intrinsicsCompared must be null")
+
+    # ---- W1: what the caller set ---------------------------------------------
+    for name, want in (expect or {}).items():
+        if name not in SWITCH_BLOCKS:
+            raise ValueError(f"unknown switch block {name!r}")
+        if rec[name]["enabled"] is not bool(want):
+            problems.append(f"wrong-compile: {name}.enabled {rec[name]['enabled']}, and the caller "
+                            f"{'set' if want else 'did not set'} {SWITCH_BLOCKS[name]}=1")
     return problems
 
 
+def repair_count(rec):
+    """Section 14.8: what this compile repaired, summed over the four counts."""
+    return (rec["pinnedCount"] + rec["barrierCalls"]["barrierCount"] + rec["zeroCopy"]["repairedCount"]
+            + rec["bufferBarriers"]["count"])
+
+
 def summary(rec):
-    """The key=value lines pin-gcc.sh writes to its manifest."""
+    """The key=value lines pin-gcc.sh writes to its manifest. repairCount is
+    last; pin-gcc.sh takes its presence as "the reader finished"."""
     followed = sum(1 for p in rec["pinned"] if p["followedByUse"] is True)
     unresolved = [r["name"] for r in rec["resolution"] if r["resolution"] != "resolved"]
     exact_all = all(r["exact"] is True for r in rec["resolution"] if r["resolution"] == "resolved")
@@ -328,10 +534,16 @@ def summary(rec):
         f"followedByUseCount={followed}",
         "unresolved=" + ",".join(unresolved),
         "exactAll=" + ("true" if exact_all else "false"),
+        f"barrierCount={rec['barrierCalls']['barrierCount']}",
+        f"wouldBarrierCount={rec['barrierCalls']['wouldBarrierCount']}",
+        f"zeroCopyRepairedCount={rec['zeroCopy']['repairedCount']}",
+        f"wouldZeroCopyCount={rec['zeroCopy']['wouldRepairCount']}",
+        f"bufferBarrierCount={rec['bufferBarriers']['count']}",
+        f"repairCount={repair_count(rec)}",
     ]
 
 
-def read(path):
+def read(path, expect=None):
     """(record, problems). A missing or non-JSON file is a problem, not an exception."""
     try:
         with open(path, encoding="utf-8") as f:
@@ -340,14 +552,36 @@ def read(path):
         return None, [f"unreadable: {type(e).__name__}"]
     except ValueError:
         return None, ["not-json"]
-    return rec, validate(rec)
+    return rec, validate(rec, expect)
+
+
+def parse_expect(text):
+    """`barrierCalls=0,zeroCopy=1` -> {"barrierCalls": False, "zeroCopy": True}.
+    Raises ValueError on anything else."""
+    out = {}
+    for item in filter(None, (x.strip() for x in text.split(","))):
+        k, sep, v = item.partition("=")
+        if not sep or k not in SWITCH_BLOCKS or v not in ("0", "1"):
+            raise ValueError(item)
+        out[k] = v == "1"
+    return out
 
 
 def main(argv):
-    if len(argv) != 2:
-        print("error=usage: wpin_gcc_record.py <record.json>")
+    args = argv[1:]
+    expect = None
+    if len(args) == 3 and args[0] == "--expect":
+        try:
+            expect = parse_expect(args[1])
+        except ValueError as e:
+            print(f"error=usage: --expect takes <block>=0|1[,...] with a block of "
+                  f"{','.join(SWITCH_BLOCKS)}, not {str(e)!r}")
+            return 0
+        args = args[2:]
+    if len(args) != 1:
+        print("error=usage: wpin_gcc_record.py [--expect barrierCalls=0|1,...] <record.json>")
         return 0
-    rec, problems = read(argv[1])
+    rec, problems = read(args[0], expect)
     if problems:
         print("error=" + "; ".join(problems[:5]))
         return 0

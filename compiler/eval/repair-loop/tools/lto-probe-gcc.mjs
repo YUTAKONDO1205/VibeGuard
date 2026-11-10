@@ -276,8 +276,12 @@ async function main() {
     return { ...base, asm: readFileSync(join(dir, pick.name), 'utf8'), soSha: sha256File(join(dir, want.so)), problem: null, layoutProblem: null };
   }
 
+  // The probe sets none of the three wipe-pin-v3 switches (every WPIN_* is
+  // removed from BASE_ENV, and only WPIN_OUT, WPIN_TARGET_FNS and WPIN_DRY_RUN
+  // are added), and says so to the reader (compiler/schema/wipe-pin.md §14.9 W1).
   const readRec = (file, { dryRun, opt, module, requested }) =>
-    readPinRecord(file, { component: GCC_COMPONENT, scope: 'functions', dryRun, opt, module, requested });
+    readPinRecord(file, { component: GCC_COMPONENT, scope: 'functions', dryRun, opt, module, requested,
+      barrierCalls: false, zeroCopy: false, bufferBarriers: false });
 
   // The GIMPLE reader is optional, as llvm-dis is for the clang probe: a tool that
   // cannot be started leaves the column unread. One that starts must read the

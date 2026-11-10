@@ -180,8 +180,35 @@ shared digest vectors. The reader re-derives that digest with
 record edited after its compile is refused (`digest-mismatch`) rather than
 believed.
 
-`lib/pin-record.mjs` reads it strictly, and reads **`wipe-pin-v2` only** (a `v1`
-or `v0` record is refused like any other wrong shape). One reader serves both
+`lib/pin-record.mjs` reads it strictly, and reads **`wipe-pin-v3` only**
+(`compiler/schema/wipe-pin.md` §14; a `v2`, `v1` or `v0` record is refused like
+any other wrong shape, and is read with the reader of the commit that wrote it,
+`22e7222` for the last v2 writers). v3 is v2 with four more top-level blocks
+written on every record — `barrierCalls` and `zeroCopy` (the switched repairs
+`WPIN_BARRIER_CALLS=1` and `WPIN_ZERO_COPY=1`), `bufferBarriers` (the buffer
+barrier `WPIN_BUFFER_BARRIER=1`, wipe-pin.md §14.6, written by both plugins) and
+`host` (the version handshake) — and nine `unhandled` counters instead of five
+(`bzeroCall`, `inlineWrapperBzero`, `zeroGlobalCopy`, `zeroGlobalCopyCall` are
+new). The reader applies §14.9: the block and site key sets and types; a block
+not enabled lists nothing and counts 0; an enabled one's would-count is its
+list's length and its done-count is 0 in a dry run and the would-count
+otherwise; every site is in a requested function; `host.checked` exactly when
+`identMajor` is not null, a non-null `identMajor` equal to `builtMajor` and
+re-derived from `ident`, which keeps no parenthesis; the per-vendor value sets
+(WipePinGcc writes 0 for `atomicMemset`, `inlineWrapperMemset` and
+`inlineWrapperBzero`); `context` exactly its three keys. The runner sets none of
+the three switches and says so (`expect.barrierCalls/zeroCopy/bufferBarriers:
+false`), so a record that reports one on is `wrong-compile` (§14.9 W1), and on
+its records the sum of §14.8 is `pinnedCount`. **No v3 writer had run when the
+reader was written**: it had read the two constructed examples of §14.11 and the
+records `test/pin-record.test.mjs` builds. It has since read the records of the
+2026-11-09 re-recording runs (*Re-measured with the `wipe-pin-v3` plugins*),
+3,395 per vendor accepted into the rows, and the tracked rows in `data/` carry
+the nine v3 counters since then. A row summarised from a v2 record carries five,
+and for it the other four are **not measured**, never 0 (§14.10): the results
+print such a counter as `not measured (no record carries it)`, routing reports
+its cell `not-measured`, and `pin-families.json` would cite it with
+`tracked: false` (below). One reader serves both
 repair plugins: `component` is `WipePin` (the LLVM plugin) or `WipePinGcc` (the
 GCC plugin), and the caller says which one it loaded (`expect.component`; this
 runner passes the component of the vendor its `--cc` names) — a record from the
@@ -437,30 +464,210 @@ Two refusals, both deliberate:
 The decisions, loudest first: `unrouted` / `open` / `no-source-rule-covers-it`
 are the shapes **neither side holds**, and they are printed above everything
 else. `no-source-rule-covers-it` is separated from `route-to-source` on purpose:
-four rows in the table name a rule and record `appliesToThisShape: "no"`, and
+eight rows in the table name a rule and record `appliesToThisShape: "no"`, and
 calling those "routed to source" would be the quiet overclaim
 `PIN-FAMILIES.md` exists to prevent. `route-to-source-unverified` is a rule that
 names *where to look*, not coverage.
 
-**What this is backed by, and what it is not.** Over the r2 corpus all five
+**What this is backed by, and what it is not.** Over the r2 corpus the nine
 `unhandled` counters read 0 in both tracked runs (`test/pin-families.test.mjs`
-pins that, and `test/routing.test.mjs` re-reads it). So the **erasure side of
-the routing has never fired on real data**: in a tracked clang-18 run its five
-cells come out as `zero-occurrences`, and the only evidence that they route
-correctly when a counter *does* fire is the synthetic rows in
-`test/routing.test.mjs`. What is measured is the **configguard side**: over
+pins that, and `test/routing.test.mjs` re-reads it; the four `wipe-pin-v3` added
+are carried since the rows were re-recorded on 2026-11-09). So the **erasure side
+of the routing has never fired on real data**: in a tracked clang-18 run all nine
+of its counter cells come out as `zero-occurrences` (`counterOccurrences`
+counts, per counter, the records that carry it; a counter no record carries
+would be `not-measured`, never a count of 0), and the only evidence
+that they route correctly when a counter *does* fire is the synthetic rows in
+`test/routing.test.mjs`, where each of the nine fires once without an exception.
+What is measured is the **configguard side**: over
 `data/r2-repair-rows.json` the five build-macro cells all carry configguard rows,
 the plugin brought none of them back, four are `unrouted` and one is
 `route-to-source-unverified` (`VG-AUTH-001`). The section's counts over the
-tracked clang-18 rows are 4 `unrouted`, 1 `route-to-source-unverified`, 13
-`not-routed-no-signal` (5 `zero-occurrences`, 8 `no-signal-defined`) — four of
-those thirteen are shapes the table calls `repairable-in-compiler`, and the
-section says so rather than letting them read as unhandled.
+tracked clang-18 rows are 4 `unrouted`, 1 `route-to-source-unverified`, 17
+`not-routed-no-signal` (9 `zero-occurrences`, 0 `not-measured`, 8
+`no-signal-defined`; the same over the tracked gcc-13 rows, 3,395 records read
+in each; before the v3 re-recording it was 5 `zero-occurrences` and 4
+`not-measured`) — four of those seventeen are shapes the table calls
+`repairable-in-compiler`, and the section says so rather than letting them read
+as unhandled.
 
 The routing is never added to the tracked rows or the results text: `--write-data`
 copies those into `data/`, whose bytes `test/tracked-data.test.mjs` pins by
 sha256. `routing.json` and the printed section are a reading *of* a run, beside
 it.
+
+### The v3 rows of the pin-family table
+
+`pin-families.json` went from 27 rows to 38 with `wipe-pin-v3`: eleven rows,
+every one `unmeasured` (`PIN-FAMILIES.md`, *The v3 candidates*). Six are the
+shapes the four new counters name — `bzero-call` (two rows, one per vendor's
+barrier candidate), `inline-wrapper-bzero`, `zero-global-copy` (two rows) and
+`zero-global-copy-call` — and the four that cite a counter were `tracked: false`
+with the reason (the tracked rows did not carry the counter, so the claim
+recomputed to `0/0`) until the rows were re-recorded with the v3 plugins on
+2026-11-09; since then they cite it `tracked: true` with `0/3200`, and stay
+`unmeasured`. Four more give an existing shape the switched candidate:
+`libcall-memset` and `memset-chk` / `inline-wrapper-memset` with
+`wipe-pin/asm-barrier-after-call`, `memset-chk` with
+`wipe-pin-gcc/asm-barrier-after-call`. The eleventh is
+`backend-drop-after-ir-pipeline` / `pass-delete/every-dse-leaf`: in a lab replay
+with every dead-store pass removed, the wipe was still eliminated at instruction
+selection in 35 of 51 files of another corpus and 70 of this corpus's 113
+clang-18 `-O2` eliminations, and removing `llvm.lifetime.end` kept all of them;
+naming `DAGCombiner::visitLIFETIME_END` for it is **an inference**, and these
+are counts of a replay without dse, not of a repair. Nine of the eleven carry a
+`labObservation` from lab runs outside this repository (one run over
+machine-made rewrites of 52 files of another corpus, read by verdictOf and two
+zero-store readings); the other two (`libcall-memset`, and `bzero-call` on
+clang) carry no corpus number, because both shapes need `-fno-builtin`, which
+no corpus run used. The clang plugin's fixture loop has one `-fno-builtin`
+cell, `v3-libcall` (`compiler/llvm-repair/README.md`): with
+`WPIN_BARRIER_CALLS=1` the library `memset` gets its barrier
+(`unhandled.libcallMemset` 1 with the switch off, 0 and one barrier with it
+on), but stock `-O2` keeps that opaque call too, so the cell shows the barrier
+placed, not a wipe kept that would otherwise be lost. No measured case reaches
+a plain `bzero` call on clang (without `_FORTIFY_SOURCE` clang 18 lowers it to
+`llvm.memset`). The lab numbers are typed in and recomputed by nothing here;
+they are why a row exists, not evidence in this lane's sense.
+
+On 2026-11-09 the table lost one row and gained two: the
+`wipe-written-as-stores` row with candidate `none` (`not-repairable-in-compiler`,
+by construction) became two rows for the buffer barrier
+(`WPIN_BUFFER_BARRIER=1`), `wipe-pin/buffer-barrier-at-lifetime-end` and
+`wipe-pin-gcc/buffer-barrier-at-clobber`, both `unmeasured` with a lab run over
+machine-made rewrites quoted from the plugin READMEs (`PIN-FAMILIES.md`, *The v3
+candidates*). The table has 39 rows (`tableCensus` in `lib/pin-families.mjs`),
+not the 38 of the eleven-row step above.
+
+### Choosing the next method (`tools/select-method.mjs`)
+
+The r6b auto-loop (a lab tool outside this repository) chose, for each
+eliminated cell, which of four repair methods to apply — WipePin with or without
+`WPIN_BARRIER_CALLS=1`, WipePinGcc with or without it — and, when the method did
+not retain the wipe, read the record's `unhandled` counters and chose again.
+`tools/lib/select-method.mjs` is that choice as pure functions, in the loop's
+order: a table row for the (compiler, stage, shape) cell (`fromTable`), else the
+first method by `order` whose declared shapes cover every shape seen
+(`byClaims`), else the untried method covering the most of them
+(`byPartialClaims`), else a route (`SOURCE` for a shape the compiler cannot hold,
+`HUMAN` otherwise). After a failed attempt the record's counters, through
+`counterToShape`, are the next shapes; a counter the set names no shape for is
+kept as `counter:<name>` and routes to a person rather than disappearing (the v3
+copy counters do exactly that with the r6b set, which has no method for a copy).
+The record chooses the next method; it never decides survival.
+
+**Methods are written by people; the table grows only by cited rows.** The four
+methods and their declared shapes, and the two tables (`cold`, two rows; and
+`learned`, six), are copied into `tools/select-method.r6b.json` with the sha256
+of each file they were copied from and the digest the loop's records name each
+table by; the claims come from the plugins' descriptions, not from measurement.
+That loop digest is over the original, untranslated file, so the English copy
+cannot re-derive it; the copy also records, per table, `selectionSha16`, the
+digest of the four fields a row decides with (`cc`, `stage`, `shape`, `method`)
+taken from the original file, and `--check` recomputes it from the copied rows
+and refuses (exit 5) a set whose table no longer chooses what the original did
+— a row dropped, added, reordered or changed — instead of replaying it into
+differences. The copy is r6b's as of 2026-10-04, `sourceSideShapes` included:
+it routes `wipe-written-as-stores` to `SOURCE` because the pin-family table then
+had no compiler-side row for that shape, and since 2026-11-09 it has two (the
+buffer barrier, above). So the r6b set replays r6b; a loop over v3 records has
+to build its set from `pin-families.json` as it stands
+(`tools/lib/select-method.mjs`, `selectMethod`).
+The only thing that grows from a run is the table, through `learnRows` (the
+loop's `learn.py`): a (compiler, stage, shapes) group the table does not know is
+adopted only when it has one shape and every cell of it was repaired on the
+first attempt by the same method, and the adopted row cites that run. Nothing
+here invents a method or a claim.
+
+`node tools/select-method.mjs --check <loop.json>` replays every row of an r6b
+loop file without a compiler — each choice, its `why` string, whether it came
+from the table, the record's shapes after a failed attempt, and the outcome —
+and lists every row that differs (exit 2). Measured in the lab on 2026-11-09
+over the loop files of `poster/v44/exp_loop2/data/` (outside this repository):
+**318/318** rows of E1 with the learned table agree, and so do 954/954 of E1
+with the cold table, 1872/1872 of E3 and 1872/1872 of E5 (exit 0, 0 rows not
+compared); `--learn` over E1's cold run re-derives the four rows the learned
+table added, in the same order. Every branch of the choice is exercised by those
+rows (table, declarations, partial declarations, default, a second attempt
+chosen from the record, `SOURCE` and `HUMAN` routes), and 158 of 158 mutated
+rows (a changed method or outcome) were reported as differing. The loop files
+are not in this tree, so `test/select-method.test.mjs` does not recompute these
+numbers; it pins the rules on synthetic rows in the loop's format.
+`--select` prints one choice as JSON.
+
+### A third reading: zero writes, w minus wo (`tools/zero-delta.mjs`)
+
+verdictOf calls any difference between the two target bodies `WIPE_SURVIVED`.
+Two ways that rule misreads were found by hand outside this tree: bodies that
+differ only in register allocation with no zero write in either (72 cells of
+one file family at clang-15..20 without a plugin, lab notes `s2_plugins/`), and
+bodies whose frame moved by one byte, so that a string terminator's
+`movb $0, N(%rsp)` reads as present in w only (nine pinpad files of a replay
+without dse, lab notes `s3_backend/`). `tools/zero-delta.mjs` puts a count
+beside the verdict and lists the cells where either may be happening; it never
+changes a verdict and has no `--write-data`. The count is asm-oracle's
+`observeEffect` over the target body (a call to a symbol of the `wipe-6` list of
+`compiler/schema/effect-symbol-lists.json`, read at run time, or an inline zero
+store), w minus wo. Two lists: `survivedNoExtraZero` (`WIPE_SURVIVED`, both
+counts read, delta ≤ 0) and `frameShift` (the bodies are the same once their
+`%rsp` offsets are re-based on the buffer's `leaq N(%rsp), %rbx` — the lab's
+`hand_rebase.py` rule, with negative offsets read as numbers — or once every
+`%rsp` offset moves by one constant). A difference only in `.L<n>` numbering is
+`labelsOnly`, apart from both. What the count cannot see it does not count:
+`rep stos` (kept beside it), an indirect call, a store of a zeroed register
+(`movl %eax, (%rbx)`), a volatile store through a register. **A cell in
+`survivedNoExtraZero` is a candidate for hand reading, not a misread.**
+
+Measured in the lab on 2026-11-09 (WSL, clang-15..20 and gcc-13, x86-64; the
+predictions and rules were written before the runs, in lab notes kept outside
+this repository):
+
+- the 13 pinpad pairs of the replay without dse, `llc-18 -O2` listings read as
+  they are: 13/13 `WIPE_SURVIVED`, 13/13 in both lists (rule `rebase`), the nine
+  among them;
+- the 72 cells of the s2 family, rebuilt as that lab built them (`-O2`, no
+  `_FORTIFY_SOURCE`, `=2`, `=3`, no plugin): 72/72 in `survivedNoExtraZero`,
+  none in `frameShift`;
+- this corpus, `--corpus`, clang-18, every level, no plugin (321 wipe files,
+  1605 cells): the verdict agrees with `../ai-generated/data/r2-build-rows.json`
+  in **1605/1605** cells. `survivedNoExtraZero` holds 135 / 55 / 50 / 50 / 56
+  cells at `-O0` / `-O1` / `-O2` / `-O3` / `-Os`; every one at `-O0`, and all
+  but 7 / 1 / 1 / 7 above it, is a file whose wipe the find step labels
+  `nonremovable` (a volatile store), which the count cannot see. `frameShift`
+  holds 7 cells, all at `-O1`: the seven pinpad files of the s3 replay, with the
+  same bases (8 and 9) and the same one w-only line, `movb $0, 14(%rsp)`. All
+  seven were read by hand (w and wo of `check_pin`, compiled again as the find
+  step compiles them): the wipe is gone, and the verdict reads a moved frame —
+  see *What this does not claim*. Among the `removable`
+  wipes in `survivedNoExtraZero` above `-O1`, `fable_N_token_r3` at `-O2`,
+  `-O3` and `-Os` has no zero write on either side (register allocation and loop
+  layout differ, read by hand at `-O2`), and six pinpad files at `-Os` are there
+  because w's extra zero stores are `movl %eax, N(%rbx)` before the call that
+  reads the PIN: a register store the count does not see, and by its position an
+  initialiser, which is the find step's labelling limit below, not a frame
+  shift;
+- this corpus, `--corpus --cc gcc-13`, every level, no plugin (the same 321
+  wipe files, 1605 cells): the verdict agrees with
+  `../ai-generated/data/r2-build-rows.json` in **1605/1605** cells, and
+  `frameShift` is empty at every level. `survivedNoExtraZero` holds 135 / 59 /
+  57 / 57 / 88 cells at `-O0` / `-O1` / `-O2` / `-O3` / `-Os`; all but 0 / 5 /
+  4 / 4 / 32 are files whose wipe the find step labels `nonremovable`, and of
+  those 0 / 5 / 4 / 4 / 32 all but 6 have more `rep stos` in w than in wo,
+  which the count does not see. The 6 are pinpad files at `-Os`
+  (`opus_N_pinpad_r2`, `sonnet_N_pinpad_r1`, `sonnet_N_pinpad_r2`,
+  `sonnet_S_pinpad_r1`, `sonnet_S_pinpad_r2`, `sonnet_S_pinpad_r3`), and all six
+  were read by hand: w's only extra zero stores are `movl %edi, 1(%rsp)` and
+  `movl %edi, 4(%rsp)` of a zeroed register, before the call to `read_keypad`,
+  where the source's initialising `memset` is. `opus_N_pinpad_r2` writes no
+  wipe at all (the labelling limit below). The five `sonnet_` files write a
+  second `memset` after `stored_pin_equals`, and their w has no zero store after
+  that call at `-O1`, `-O2`, `-O3` or `-Os`: the cell verdict `WIPE_SURVIVED` is
+  about the initialiser, while the per-span view reads the wipe's span as
+  eliminated, and retained with the pin, in all 20 of those cells
+  (`hiddenElimination` and `hiddenRetained` true in
+  `data/r2-repair-rows-gcc-13.json`). At `-O1`..`-O3` the initialiser is two
+  immediate stores (`movl $0, …`), which the count sees, so only `-Os` is
+  listed.
 
 ## Limits of the find step's labelling
 
@@ -568,9 +775,22 @@ Within the erasure family, what WipePin (clang) does not pin, by construction:
   `memset.inline` wrapper, whose body holds the `__memset_chk`, so nothing in the
   target is an intrinsic and the wipe can still be removed. clang-18 does not
   predefine `_FORTIFY_SOURCE` and `FLAGS` does not set it, so the clang cells
-  are built without it and all five totals are 0 there;
+  are built without it and all five totals are 0 there. `wipe-pin-v3` adds four
+  counters (`bzeroCall`, `inlineWrapperBzero`, `zeroGlobalCopy`,
+  `zeroGlobalCopyCall`) and two switches that repair some of these shapes with a
+  barrier (`WPIN_BARRIER_CALLS`, `WPIN_ZERO_COPY`). The runner sets neither; the
+  tracked rows carry the four counters since they were re-recorded with the v3
+  plugins on 2026-11-09, and each reads 0 in every accepted record (*Re-measured
+  with the `wipe-pin-v3` plugins*), so the shapes did not occur in this corpus;
+  what the switches do on them is measured only on the plugins' fixture loops
+  and in lab runs over machine-made rewrites (`PIN-FAMILIES.md`);
 - a zeroing loop that a later pass would turn into a memset: at the pipeline
-  start it is still a loop;
+  start it is still a loop, and nothing pins it. The third switch,
+  `WPIN_BUFFER_BARRIER=1` (wipe-pin.md §14.6), does not pin the loop either: it
+  puts an empty `asm` that takes the buffer's address and clobbers memory before
+  the buffer's lifetime ends, which gives the zero stores a later reader. The
+  runner does not set it, so no tracked row measures it; its numbers are one lab
+  run over machine-made rewrites (E3 v2, `-O2`), quoted in `pin-families.json`;
 - anything after the translation unit. The observation is the `-S` listing of one
   unit; linking is not in the loop. Link-time optimisation is measured beside it,
   by `tools/lto-probe.mjs` (`tools/LTO.md`): the pin made at compile time holds
@@ -592,7 +812,9 @@ does not handle*, measured on its fixture loop; what matters here:
   and above is built with, a source `memset` is the header's `gnu_inline`
   wrapper, which GCC keeps a `BUILT_IN_MEMSET` and which is pinned;
 - **`bzero`**: under those headers, at `-O1` and above, the target calls the
-  header's `bzero` wrapper, which is not a memset and has no counter. The record
+  header's `bzero` wrapper, which is not a memset; v2 had no counter for it, and
+  v3 counts it as `unhandled.bzeroCall` (0 in every accepted record of the
+  tracked gcc-13 run since the rows were re-recorded with v3). The record
   says nothing to pin and the wipe is gone. In the r2 corpus no file wipes with a
   plain `bzero(` call (0 calls; the 18 files that mention `bzero` spell
   `explicit_bzero`, which `wipeSpans` labels nonremovable and which needs no pin,
@@ -671,7 +893,9 @@ a second clang (say `clang-19`) does not write over clang-18's.
 
 ### Re-measured under the spike gate — 2026-09-12
 
-`run-repair-loop.mjs:318` has called `../spike`'s gate since 2026-09-12, and the
+`run-repair-loop.mjs` has called `../spike`'s gate since 2026-09-12 (the block
+under the comment `spike/recovery gate: is the instrument reading anything, in
+this run?`), and the
 tracked rows beside it were measured before the gate existed: the code was
 gated and the data was not. Both vendors were therefore run again with the gate
 in front of them and **nothing written to `data/`**:
@@ -690,7 +914,103 @@ already had. This lane writes its rows in a fixed order, so unlike
 `../ai-generated` it can make that claim rather than settling for the multiset.
 
 `data/r2-regate.json` is the record and `test/regate.test.mjs` recomputes both
-digests and row counts from the tracked files.
+digests and row counts from the tracked files. Since the re-record below, the
+tracked files are not the ones this record compared; the test holds it to them
+through the re-record's own record, which must start from exactly these two
+digests.
+
+### Re-measured with the `wipe-pin-v3` plugins — 2026-11-09, recorded again 2026-11-10
+
+The rows above were written by the `wipe-pin-v2` plugins. Both plugins now
+write `wipe-pin-v3` (`../../schema/wipe-pin.md` §14), whose `unhandled` block has
+nine counters where v2 had five, so until the rows were re-recorded the four
+new ones — `bzeroCall`, `inlineWrapperBzero`, `zeroGlobalCopy`,
+`zeroGlobalCopyCall` — were not measured by them. Both vendors were run again
+with `--write-data`, with plugins built from this tree and every v3 switch off
+(the runner sets none of `WPIN_BARRIER_CALLS`, `WPIN_ZERO_COPY` and
+`WPIN_BUFFER_BARRIER`, and tells the reader so, §14.9 W1):
+
+- clang-18 18.1.3: `libWipePin.so` sha256 `7c9d11f2…c9609b99`, 0 warnings
+  (`-Wall -Wextra`);
+- gcc-13 13.3.0: `libWipePinGcc.so` sha256 `ea3e8c7e…eaedf9`, built with
+  `g++-13` by `../../gcc-repair/scripts/build-matrix.sh`, 0 warnings,
+  `canon-vectors` 66 checks held.
+
+```
+node run-repair-loop.mjs --plugin <libWipePin.so>    --cc clang-18 --out <lab> --conc 10 --write-data   # 2 m 9 s
+node run-repair-loop.mjs --plugin <libWipePinGcc.so> --cc gcc-13   --out <lab> --conc 10 --write-data   # 1 m 56 s
+node run-repair-loop.mjs --plugin <libWipePin.so>    --cc clang-18 --out <lab> --conc 10 --write-data   # again, so that its text names the new gcc-13 rows
+node run-repair-loop.mjs --plugin <libWipePinGcc.so> --cc gcc-13   --out <lab> --conc 10                # lab only
+node ../ai-generated/lib/compare-rows.mjs <the replaced rows> <lab>/r2-repair-rows.json
+```
+
+These are the builds of the plugin sources as they stand in this tree. The
+rows were recorded four times, each in the same four runs: on 2026-11-09 with
+builds of an earlier state of the same sources (`b509c308…` for clang-18,
+`ce1f515a…` for gcc-13), before the buffer barrier's placement rules and the
+third handshake check (`../../schema/wipe-pin.md` §14.6, §14.7) were changed;
+on the morning of 2026-11-10 with builds of the sources after that change
+(`8f2bd520…`, `10fc7a00…`); that afternoon (`239e8230…`, `ea3e8c7e…`), after
+the barrier's places, its reading of an address comparison and the wording of
+its stderr lines were changed again; and that evening with the builds above,
+after the clang plugin's places were narrowed once more (the gcc-13 build is
+the afternoon's). All four wrote the same rows bytes on both vendors, and the
+results texts differ only in their `plugin sha256` line. Every switch is off
+in these runs, so none of those changes is exercised here; the comparison
+below is the one between the v2 rows and the 2026-11-10 rows. The run times
+above are the evening's, on a machine shared with another measurement; the
+morning's runs took 1 m 32 s and 1 m 11 s.
+
+All four exited 0 and the gate held in each (`configurations 5/5`,
+`discriminating 4/5`, injection RED). Before the rewrite was kept, the
+replaced rows were compared with the new ones in the lab, row by row and key
+by key:
+
+- **The same rows, in the same order**: 1,881 for clang-18 and 1,883 for gcc-13.
+- **Every row is equal to the row it replaced once the four new counters are
+  removed** from its record summaries (`recordW`, `recordWo`, and a no-wipe
+  row's `record`), key order included: 1,881/1,881 and 1,883/1,883. The only
+  paths that differ are those four keys, added to each of the 3,395 valid
+  summaries of each vendor (1,605 `recordW`, 1,595 `recordWo`, 195 `record`;
+  the 10 missing records are the 10 they were). `outcome`, `baseline`,
+  `repaired`, the listing digests, the spans, `hiddenElimination` and every
+  other field are unchanged in every row. The 81 (gcc-13: 83) configguard rows
+  carry no record summary and are byte-identical.
+- **The four new counters read 0** in all 3,395 valid summaries of each vendor.
+  The corpus holds no plain `bzero(` call, so the first two are what was
+  expected; the two copy counters were expected to be 0 and are.
+- `compare-rows.mjs`, which compares the two files as multisets, reports 81
+  (83) rows identical, the other 1,800 paired by cell, and `recordW`,
+  `recordWo` and `record` the only fields that differ.
+
+The results texts differ in three kinds of line and no other: the `plugin
+sha256` line, four new `unhandled.*` lines (each `0`), and the cross-vendor
+coverage line, whose sha256 of the other vendor's rows is the new one — the
+gcc-13 results text reads the clang-18 counts
+from the tracked clang-18 rows, sha256 `f71652ac…569b68fe`. Every count is the
+same, so the *Results* sections
+below hold as written; the plugin digests and the rows digest quoted there are
+those of the `wipe-pin-v2` run that wrote the rows first.
+
+The rows are still deterministic: the second clang-18 `--write-data` wrote the
+same rows bytes as the first, and the lab-only gcc-13 run wrote the same rows
+and results text as the tracked ones. The tracked rows are now clang-18
+`f71652ac…` and gcc-13 `ce053004…`.
+
+`data/r2-v3-rerecord.json` is the record: the replaced and the new digests,
+the comparison's counts, every added path and the results-text lines by kind.
+`test/regate.test.mjs` holds it to the files here — both rows files' and both
+results texts' digests and row counts, the record summaries' key sets and the
+four counters re-counted from the rows, the plugin digest each results text
+prints — and requires it to start from the two digests `data/r2-regate.json`
+pins. The comparison itself cannot be recomputed from the working tree, which
+no longer holds the replaced rows, and the record labels it a lab run.
+
+**Not measured here:** any v3 switch turned on — these rows say what the v3
+plugins do with every switch off and nothing else; the plan-driven run, the
+two red controls and the LTO probes, which write no tracked rows and whose
+numbers in this README are still the `wipe-pin-v2` plugins'; any other
+compiler or version.
 
 ### The two LTO probes, closed differently — 2026-09-13
 
@@ -788,7 +1108,11 @@ and re-recorded with v2. Against the v1 rows (the file as it was at `main`
 the listings are the same (the rows hold 6810 listing slots: 6790 digests, all
 equal between v1 and v2 because v2 emits the same code, and 20 `null` slots, the
 `wo/off` and `wo/on` compiles of the 2 files whose ablation does not compile, at
-each of the five levels), and the span verdicts are the same. What moved is `recordW.followedByUseCount` in 12 rows —
+each of the five levels), and the span verdicts are the same. On 2026-11-09 they were re-recorded
+with a `wipe-pin-v3` build, and on 2026-11-10 with the build `7c9d11f2…` of the sources in this tree, every switch off: every row is
+the one it replaced apart from the four counters v3 adds to each record
+summary, all 0, so every number in this section stands (*Re-measured with the
+`wipe-pin-v3` plugins*). What moved between v1 and v2 is `recordW.followedByUseCount` in 12 rows —
 `fable_N_token_r3`, `sonnet_N_token_r1` and `sonnet_S_pwverify_r1` at `-O1`
 to `-Os` — where v1 read the cleanup dispatch's infeasible edge as a later use
 (`compiler/llvm-repair/README.md`): per level 58/62/62/62/62 in v1, 58 at every
@@ -902,7 +1226,10 @@ not defined at `-O0`, `3` at `-O1`..`-Os`. The plan-driven run and the red
 controls are not tracked; their numbers below are from runs made with the same
 plugin bytes on the same tree, and were run again on 2026-09-12 with those
 bytes, giving the same numbers. The subset numbers quoted in the sections above
-come from a 16-file development run and are not this section.
+come from a 16-file development run and are not this section. On 2026-11-09 the
+rows were re-recorded with a `wipe-pin-v3` build, and on 2026-11-10 with the build `ea3e8c7e…` of the sources in this tree, every switch off,
+with the same result as on clang-18: the four counters v3 adds, all 0, and
+nothing else changed (*Re-measured with the `wipe-pin-v3` plugins*).
 
 **The find step reproduces.** Plugin off, every wipe cell agrees with the tracked
 gcc-13 find-step row: 1605/1605, and the 195 no-wipe cells are
@@ -989,6 +1316,33 @@ compile (`NOT_SCORED`).
   body differ once the plugin is loaded; it inherits every limit of `verdictOf`
   and of `wipeSpans` (see *Limits of the find step's labelling*).
 - **The record is not evidence of survival**, and is never used as such.
+- **Not a corrected find step.** Seven tracked clang-18 `-O1` cells read
+  `WIPE_SURVIVED` where the wipe is gone: `fable_N_pinpad_r3`,
+  `haiku_E_pinpad_r3`, `haiku_N_pinpad_r3`, `haiku_S_pinpad_r1`,
+  `haiku_S_pinpad_r2`, `haiku_S_pinpad_r3` and `opus_N_pinpad_r3`. All seven
+  were read by hand on 2026-11-09 — the target body `check_pin` of w and wo at
+  `-O1` and of w at `-O0`, compiled again as the find step compiles them. At
+  `-O0` w calls `memset`. At `-O1` w's body has no `memset` call and no zero
+  store after `stored_pin_equals`; its one zero store is the terminator
+  `pin[6] = '\0'` (`movb $0, 14(%rsp)`), and w and wo differ in two lines, the
+  buffer's address (`leaq 8(%rsp)` against `leaq 9(%rsp)`) and that terminator
+  (`14(%rsp)` against `15(%rsp)`): a frame one byte apart, which `verdictOf`
+  calls survival. These cells have one span, so the per-span view cannot
+  separate them either. The tracked verdicts are **not changed**: the rows keep
+  `WIPE_SURVIVED` (`ALREADY_SURVIVED` here), and the counts in this README are
+  computed with them. Read as eliminated, clang-18's `-O1` count in the opening
+  table would be 69 rather than 62, and 408 rather than 401 cells over
+  `-O1`..`-Os`; the seven are among the 25 `-O1` cells without a hidden
+  elimination in which the pin changed a listing (*Results*). Their w/on
+  listings were read on 2026-11-10 (lab notes; the build of the current
+  source, `pin.sh` with the target named, switches off): in all seven the pin
+  puts the 7-byte wipe back after `stored_pin_equals` (`movl $0, 8(%rsp)`,
+  `movw $0, 12(%rsp)`, `movb $0, 14(%rsp)`), `pin.sh` exits 0 for w and 4 for
+  wo — so each is a cell stock deleted and the repair kept, misread as one
+  that survived without it. Only these seven cells were read for this;
+  the other cells were searched for the same misreading only by
+  `tools/zero-delta.mjs` (*A third reading*: its `frameShift` list holds these
+  seven on clang-18 and no cell on gcc-13).
 - **Not a statement about any other compiler.** Two compilers, one version
   each (`clang-18` 18.1.3, `gcc-13` 13.3.0, both from the Ubuntu 24.04
   archive), one target (x86-64), the flags in `FLAGS` — which do not equalise
@@ -1016,7 +1370,7 @@ compile (`NOT_SCORED`).
 | `run-repair-loop.mjs` | the runner: preflight, the four-compile cell, the per-span compiles, no-wipe files, configguard, results, manifest, pin plan, routing; one compiler per run, clang or gcc |
 | `lib/vendor.mjs` | the vendor from the `--cc` basename, its plugin flag and record component, the per-compiler data file names, the `_FORTIFY_SOURCE` reading, the full-run check of a tracked rows file, the refusal of a `--cc` the tracked rows do not name; pure |
 | `lib/outcome.mjs` | the outcome table and its precedence, and the red-control grading; pure |
-| `lib/pin-record.mjs` | strict reader for the `wipe-pin-v2` record, from either repair plugin (`WipePin` or `WipePinGcc`); `followedByUseCounts` (listed vs actually pinned) |
+| `lib/pin-record.mjs` | strict reader for the `wipe-pin-v3` record (`compiler/schema/wipe-pin.md` §14.9), from either repair plugin (`WipePin` or `WipePinGcc`); `followedByUseCounts` (listed vs actually pinned), `repairCount` (§14.8), `UNHANDLED_KEYS` (nine) and `UNHANDLED_KEYS_V2` (the five the tracked rows carry) |
 | `lib/spans.mjs` | span entries, `hiddenElimination` / `hiddenRetained`; pure, verdicts injected. The per-span plan (`spanPlan`) is the find step's, re-exported from `../ai-generated/lib/ablation-cell.mjs` |
 | `lib/summaries.mjs` | per-span counts, corroboration (oracle and rep-stos readings), listing-changed-without-loss, label renumbering, cross-vendor coverage, the pin plan; pure |
 | `lib/provenance.mjs` | listing digests, the rows-file label, the absolute-path scan |
@@ -1036,6 +1390,9 @@ compile (`NOT_SCORED`).
 | `tools/lto-probe.mjs`, `tools/lib/lto.mjs`, `tools/LTO.md` | the LTO probe: the same cell judged on the assembly a full or thin LTO link writes; lab output only, never `data/` |
 | `tools/lto-probe-gcc.mjs`, `tools/lib/lto-gcc.mjs` | its gcc-13 twin: the same cell judged on the assembly lto1 writes for an `-flto -shared` link, WipePinGcc records read through `lib/pin-record.mjs`, the compile-stage GIMPLE read back with `lto-dump-13`; lab output only (`tools/LTO.md`, *gcc-13*) |
 | `tools/fbu-levels.mjs`, `tools/lib/fbu.mjs` | `followedByUse` at `-O1`..`-Os` against `-O0`, site by site, both vendors; lab output only, never `data/` |
+| `tools/select-method.mjs`, `tools/lib/select-method.mjs`, `tools/select-method.r6b.json` | the r6b auto-loop's choice of repair method as pure functions, the copied method set and tables, and the replay of a loop file against them (*Choosing the next method*); compiles nothing, writes nothing in the tree |
+| `tools/zero-delta.mjs`, `tools/lib/zero-delta.mjs` | the zero-write count w minus wo beside verdictOf, and the cells where the verdict may be a misread (*A third reading*); lab output only, never `data/` |
+| `test/select-method.test.mjs`, `test/zero-delta.test.mjs` | those two over synthetic rows and hand-written listings; the CLIs spawned on files under the system temporary directory |
 | `test/*.test.mjs` | unit tests, no compiler |
 | `data/` | written only by `--write-data` after a full run: `r2-repair-rows.json` / `r2-repair-results.txt` for clang-18, `r2-repair-rows-gcc-13.json` / `r2-repair-results-gcc-13.txt` for gcc-13 |
 

@@ -265,7 +265,30 @@ test('the set of exit sites this fence cannot resolve has not silently grown', (
   //     implemented against it -- so it is a request, not an edit), or make the
   //     tool answer in the table's vocabulary and lose the distinction it argues
   //     for. Raising the baseline records the site; it does not bless the code.
-  const BASELINE = 138;
+  //
+  // 138 -> 143 on 2026-11-10, read rather than bumped. The five arrived in files
+  // that were not yet tracked, so this count did not see them until they were
+  // added; a refuter counted them with this file's three regexes over the tree
+  // as it would be committed. What each can
+  // emit:
+  //
+  //   compiler/eval/repair-loop/tools/select-method.mjs  `process.exit(code)`
+  //     inside `die()`, whose callers pass a literal 4 or 5; and
+  //     `process.exit(res.exit)`, where `exit` is 0 or 2. It was 1 for "a replayed
+  //     row differs" until this review, a code section 7 defines as a tool that
+  //     failed; it is 2, findings, as zero-delta.mjs already answered the same
+  //     news. Its test and the repair-loop README say 2.
+  //
+  //   compiler/eval/repair-loop/tools/zero-delta.mjs  `process.exit(code)` inside
+  //     `die()`, whose callers pass a literal 4 or 5; and `process.exit(exit)`,
+  //     where `exit` starts at 0 and is set to 2 and nothing else.
+  //
+  //   compiler/pin-wrapper/test/vgpin_fakes.py  `sys.exit(int(os.environ.get(
+  //     'FAKECC_RC', '0')))`: a stand-in compiler for the wrapper's tests, not a
+  //     component. No test sets FAKECC_RC, so it exits 0.
+  //
+  // Every code the five can produce is in section 7.
+  const BASELINE = 143;
   const files = execFileSync('git', ['ls-files', 'compiler'], { cwd: REPO, encoding: 'utf8', maxBuffer: 1 << 28 })
     .split('\n')
     .filter((f) => /\.(mjs|js|cjs|ts|py|sh|c|cc|cpp)$/.test(f))

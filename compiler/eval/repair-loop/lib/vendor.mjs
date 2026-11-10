@@ -5,8 +5,9 @@
  * interchangeable: WipePin is an LLVM pass plugin (compiler/llvm-repair/) that
  * clang loads with `-fpass-plugin=<so>`; WipePinGcc is a GCC plugin
  * (compiler/gcc-repair/) that gcc loads with `-fplugin=<so>`. Both write the
- * same `wipe-pin-v2` record, and the record says which one wrote it
- * (`component`), so the reader is told which one this run loaded.
+ * same `wipe-pin-v3` record (compiler/schema/wipe-pin.md §14), and the record
+ * says which one wrote it (`component`), so the reader is told which one this
+ * run loaded.
  *
  * The vendor is decided from the basename of `--cc` and from nothing else: the
  * spelling is what the user typed, and what it names is what gets run. A

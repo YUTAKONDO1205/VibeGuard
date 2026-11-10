@@ -1,0 +1,81 @@
+{
+  "schemaVersion": "select-method-set-v1",
+  "readMeFirst": "The methods, their declared shapes and the two tables of the r6b auto-loop, copied so that tools/lib/select-method.mjs can replay its choice of method without a compiler. A method is a repair a person wrote; a table row says which method a (compiler, stage, shape) cell goes to and cites the run it was taken from. Nothing here was measured in this tree: the claims were copied from the plugins' own descriptions, and the table rows cite lab runs outside it. See README.md, *Choosing the next method*.",
+  "copiedFrom": {
+    "where": "lab notes outside this repository (no file of this tree holds them): poster/v44/exp_loop2/",
+    "files": [
+      { "file": "methods.json", "sha256": "35427b8f3ab0cbc047a73756b9b2ac9eec69a8778950cd7c199b9ae8a36b29eb" },
+      { "file": "table-cold.json", "sha256": "66097a0b6dc796ef18df2fe118101c3d222ad7ce32fcd173b5a9d249f314a7af", "loopSha16": "e9bd64ba35ee7c95", "selectionSha16": "1e3ad9b41e094464" },
+      { "file": "table-learned.json", "sha256": "752eda96438f0bec5d3208916c240dce416876c0d3a7e17a9af8ba15967c0650", "loopSha16": "61f3d53127a35fa6", "selectionSha16": "a96bc4c48d12d0bb" }
+    ],
+    "loopSha16Means": "the first 16 hex digits of SHA-256 over JSON.stringify of the parsed table, which is how the r6b loop records name the table they used",
+    "selectionSha16Means": "the first 16 hex digits of SHA-256 over JSON.stringify of [cc, stage, shape, method] for each row of the table, in order, computed from the file copied from (2026-11-09); tools/select-method.mjs recomputes it from the copied rows and refuses a loop file whose table copy differs (exit 5)",
+    "changed": "translated to English; the plugin paths (machine-specific) left out; nothing else. The sha256 of the two plugin builds the loop used is kept per method as pluginSha16."
+  },
+  "methods": {
+    "wipepin-volatile": {
+      "cc": "clang-18", "order": 1, "arg": "-fpass-plugin", "env": {},
+      "pluginSha16": "98ce76a79770317e",
+      "claims": ["dead-store-memset-intrinsic"],
+      "source": "compiler/llvm-repair/README.md: make the zero-fill llvm.memset intrinsics of the named functions volatile"
+    },
+    "wipepin-barrier": {
+      "cc": "clang-18", "order": 2, "arg": "-fpass-plugin", "env": { "WPIN_BARRIER_CALLS": "1" },
+      "pluginSha16": "98ce76a79770317e",
+      "claims": ["dead-store-memset-intrinsic", "inline-wrapper-memset", "memset-chk", "libcall-memset", "bzero-call", "inline-wrapper-bzero"],
+      "source": "the r5 barrier patch plus the r6b bzero patch, both outside this tree when the loop ran: an asm barrier directly after a zero-fill memset.inline, __memset_chk, memset, bzero or bzero.<suffix> call (compiler/schema/wipe-pin.md §14.4 is that switch's contract)"
+    },
+    "wipepingcc": {
+      "cc": "gcc-13", "order": 1, "arg": "-fplugin", "env": {},
+      "pluginSha16": "c9f3c6e70a6466f1",
+      "claims": ["dead-store-builtin-memset-gimple"],
+      "source": "compiler/gcc-repair/README.md: an asm barrier directly after the zero-fill __builtin_memset of the named functions"
+    },
+    "wipepingcc-barrier": {
+      "cc": "gcc-13", "order": 2, "arg": "-fplugin", "env": { "WPIN_BARRIER_CALLS": "1" },
+      "pluginSha16": "c9f3c6e70a6466f1",
+      "claims": ["dead-store-builtin-memset-gimple", "memset-chk", "bzero-call"],
+      "source": "the r6b gcc patch, outside this tree when the loop ran: the same barrier after a zero-fill __builtin___memset_chk and after a bzero call"
+    }
+  },
+  "default": { "clang-18": "wipepin-volatile", "gcc-13": "wipepingcc" },
+  "counterToShape": {
+    "inlineWrapperMemset": "inline-wrapper-memset",
+    "memsetChk": "memset-chk",
+    "libcallMemset": "libcall-memset",
+    "nonZeroFill": "non-zero-fill",
+    "atomicMemset": "atomic-memset",
+    "bzeroCall": "bzero-call",
+    "inlineWrapperBzero": "inline-wrapper-bzero"
+  },
+  "sourceSideShapes": ["wipe-written-as-stores"],
+  "sourceSideShapesFrom": "a copy of r6b's, made when the loop ran (2026-10-04): in pin-families.json as it stood then, the shape whose only row was not-repairable-in-compiler. Since 2026-11-09 that shape has two buffer-barrier rows instead (WPIN_BUFFER_BARRIER=1) and no such row, so this list replays r6b and does not describe the current table; a loop over wipe-pin-v3 records reads pin-families.json again (tools/lib/select-method.mjs, selectMethod)",
+  "tables": {
+    "cold": {
+      "note": "the table before the first run: one row per vendor for the shape its plugin was written for",
+      "rows": [
+        { "cc": "clang-18", "stage": "ir", "shape": "dead-store-memset-intrinsic", "method": "wipepin-volatile",
+          "evidence": "r4 (2026-09-29): every one of the 49 files eliminated at -O2 survived with it (poster/v36/exp_r4/cut)" },
+        { "cc": "gcc-13", "stage": "gimple", "shape": "dead-store-builtin-memset-gimple", "method": "wipepingcc",
+          "evidence": "r4 (2026-09-29): every one of the 49 files eliminated at -O2 survived with it (poster/v36/exp_r4/cut)" }
+      ]
+    },
+    "learned": {
+      "note": "the cold rows plus the rows learn.py adopted from E1's L2 cells (data/e1/loop-cold.json); fixed for E2, E3 and E4. A (compiler, stage, shapes) group the table did not know is adopted when it has one shape and every cell of it was repaired on the first attempt by the same method, chosen from the declarations; a group with two shapes is recorded and not adopted (learnRows in tools/lib/select-method.mjs)",
+      "rows": [
+        { "cc": "clang-18", "stage": "ir", "shape": "dead-store-memset-intrinsic", "method": "wipepin-volatile",
+          "evidence": "r4 (2026-09-29): every one of the 49 files eliminated at -O2 survived with it (poster/v36/exp_r4/cut)" },
+        { "cc": "gcc-13", "stage": "gimple", "shape": "dead-store-builtin-memset-gimple", "method": "wipepingcc",
+          "evidence": "r4 (2026-09-29): every one of the 49 files eliminated at -O2 survived with it (poster/v36/exp_r4/cut)" },
+        { "cc": "clang-18", "stage": "ir", "shape": "inline-wrapper-memset", "method": "wipepin-barrier",
+          "evidence": "r6 E1 (2026-10-03): chosen at L2 from the declarations; all 102 cells survived on the first attempt (data/e1/loop-cold.json)" },
+        { "cc": "clang-18", "stage": "unknown", "shape": "dead-store-memset-intrinsic", "method": "wipepin-volatile",
+          "evidence": "r6 E1 (2026-10-03): chosen at L2 from the declarations; the 1 cell survived on the first attempt (data/e1/loop-cold.json)" },
+        { "cc": "clang-18", "stage": "unknown", "shape": "inline-wrapper-memset", "method": "wipepin-barrier",
+          "evidence": "r6 E1 (2026-10-03): chosen at L2 from the declarations; both cells survived on the first attempt (data/e1/loop-cold.json)" },
+        { "cc": "gcc-13", "stage": "unknown", "shape": "dead-store-builtin-memset-gimple", "method": "wipepingcc",
+          "evidence": "r6 E1 (2026-10-03): chosen at L2 from the declarations; all 3 cells survived on the first attempt (data/e1/loop-cold.json)" }
+      ]
+    }
+  }
+}

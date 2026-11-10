@@ -64,11 +64,21 @@ None of this is legal advice.
 
 Not built by `npm run build`, by design. It needs a local LLVM development
 install (`llvm-<N>-dev`, `libclang-<N>-dev`, `cmake`, `ninja`) and is built out
-of band. `gcc-repair/` needs `gcc-13`, `g++-13` and `gcc-13-plugin-dev`
-instead (plus `cmake` and `ninja`): a GCC plugin must be built by the GCC it
-loads into, against that GCC's plugin headers. Pin the toolchain rather than assuming the distribution's current
+of band. `gcc-repair/` needs `gcc-<N>`, `g++-<N>` and `gcc-<N>-plugin-dev`
+instead (plus `cmake` and `ninja`), for the GCC it will load into: a GCC
+plugin must be built by the GCC it loads into, against that GCC's plugin
+headers (`gcc-repair/scripts/build-matrix.sh` builds one per version; GCC 10
+to 14 were built and measured, `gcc-repair/README.md`). Pin the toolchain rather than assuming the distribution's current
 version: two builds of "the same version" are not necessarily the same bytes,
 which is why the pin records package versions *and* per-package digests.
+
+`pin-wrapper/` is not built at all: `vgpin-cc` is one Python 3 file meant to
+stand in for `CC` in a build. It loads a WipePin or WipePinGcc plugin whose
+path, sha256 and compiler major version come from a pins file, refuses to run a
+compiler whose `--version` does not match the pin, and withholds the output
+(exit 3) when the plugin's record does not show the repair installed. Unlike
+`driver/`, it changes the compile on purpose; its README says what it refuses
+and what was measured.
 
 ## This directory is inside the scanner's own severity gate
 

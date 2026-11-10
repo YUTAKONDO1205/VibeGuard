@@ -9,7 +9,11 @@
 # Nothing is built under compiler/.
 
 cmake_minimum_required(VERSION 3.20)
-project(WipePin CXX)
+# C as well as CXX: LLVM 15, 16 and 17's LLVMConfig.cmake run
+# check_c_source_compiles (FindFFI, FindTerminfo), which stops the configure
+# with "C: needs to be enabled before use" in a CXX-only project. Nothing here
+# is compiled as C; 18 to 20 configure either way.
+project(WipePin C CXX)
 
 # No version argument on purpose: LLVM 18's config-version file rejects a bare
 # "18" as incompatible with 18.1.3. Point at the tree with -DLLVM_DIR instead.

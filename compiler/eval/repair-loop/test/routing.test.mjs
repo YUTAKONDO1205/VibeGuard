@@ -14,11 +14,12 @@
  *      whose signal read 0 must be COUNTED as not routed rather than omitted.
  *
  * The rows here are synthetic. That is deliberate and it is also the limit of
- * what this file proves: over the r2 corpus all five `unhandled` counters are 0
- * in both tracked runs (../test/pin-families.test.mjs pins that), so the
- * erasure-side routing has never fired on real data and nothing here claims it
- * has. The configguard side does fire on the tracked rows, and the last test
- * reads those rows rather than synthesising them.
+ * what this file proves: over the r2 corpus the five v2 `unhandled` counters are
+ * 0 in both tracked runs (../test/pin-families.test.mjs pins that) and the four
+ * v3 counters are carried by no tracked row at all, so the erasure-side routing
+ * has never fired on real data and nothing here claims it has. The configguard
+ * side does fire on the tracked rows, and the last test reads those rows rather
+ * than synthesising them.
  *
  * No compiler, no plugin, no file written.
  */
@@ -32,7 +33,7 @@ import {
   signalIndex, counterOccurrences, scenOccurrences, decisionFor, routeRun, renderRouting,
 } from '../lib/routing.mjs';
 import { CLAIM_IDS, shapeVerdicts } from '../lib/pin-families.mjs';
-import { UNHANDLED_KEYS } from '../lib/pin-record.mjs';
+import { UNHANDLED_KEYS, UNHANDLED_KEYS_V2 } from '../lib/pin-record.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LANE = path.resolve(HERE, '..');
@@ -60,7 +61,8 @@ test('the signal vocabulary is DERIVED from the table, and is what the table cur
   // The two claims that name a signal are claims the table's own reader knows.
   for (const c of Object.keys(SIGNAL_CLAIMS)) assert.ok(CLAIM_IDS.includes(c), `${c} is not a claim of pin-families.mjs`);
 
-  assert.deepEqual(ix.counters, ['atomicMemset', 'inlineWrapperMemset', 'libcallMemset', 'memsetChk', 'nonZeroFill'],
+  assert.deepEqual(ix.counters, ['atomicMemset', 'bzeroCall', 'inlineWrapperBzero', 'inlineWrapperMemset', 'libcallMemset', 'memsetChk',
+    'nonZeroFill', 'zeroGlobalCopy', 'zeroGlobalCopyCall'],
     'the counters the table names have changed; lib/routing.mjs reads them from the table, this pin says which they are now');
   assert.deepEqual(ix.scens, ['auditlog', 'boundscheck', 'debugdump', 'ratelimit', 'tlsverify']);
 
@@ -101,6 +103,23 @@ test('counterOccurrences sums every plugin record a row carries, and names what 
   assert.equal(got.totals.get('atomicMemset'), 0);
   assert.equal(got.records, 5, 'four valid records from the erasure rows plus the no-wipe one');
   assert.deepEqual(got.unknown, [], 'nothing unknown here');
+  // every one of the five valid records carries all nine counters here
+  for (const k of UNHANDLED_KEYS) assert.equal(got.carrying.get(k), 5, k);
+});
+
+test('counterOccurrences counts the records that CARRY a counter; a v2-era record carries five of the nine', () => {
+  const v2 = Object.fromEntries(UNHANDLED_KEYS_V2.map((k) => [k, 0]));
+  const rows = [
+    { id: 'old', kind: 'erasure', recordW: { ok: true, unhandled: { ...v2 } }, recordWo: { ok: true, unhandled: { ...v2 } } },
+    erasureRow('new', { bzeroCall: 2, zeroGlobalCopy: 1 }),
+  ];
+  const got = counterOccurrences(rows, [...UNHANDLED_KEYS]);
+  assert.equal(got.records, 4);
+  assert.equal(got.carrying.get('libcallMemset'), 4);
+  assert.equal(got.carrying.get('bzeroCall'), 2, 'only the v3 row\'s two records carry it');
+  assert.equal(got.totals.get('bzeroCall'), 2);
+  assert.equal(got.totals.get('zeroGlobalCopy'), 1);
+  assert.deepEqual(got.unknown, []);
 });
 
 test('scenOccurrences splits the configguard rows into repaired / not / undecided', () => {
@@ -163,6 +182,23 @@ test('decisionFor splits "a rule is named" by whether the rule\'s scope covers t
 
 // ---------------------------------------------------------------- a routed run ----
 
+test('every v3 counter is one the table names: a v3 record\'s nine counters route without an exception', () => {
+  // the four counters wipe-pin-v3 added, each firing once in its own synthetic run
+  const cellOf = { bzeroCall: 'bzero-call', inlineWrapperBzero: 'inline-wrapper-bzero',
+    zeroGlobalCopy: 'zero-global-copy', zeroGlobalCopyCall: 'zero-global-copy-call' };
+  for (const [counter, shape] of Object.entries(cellOf)) {
+    const rep = routeRun({ table: TABLE, rows: [erasureRow('a', { [counter]: 3 })], cc: 'clang-18' });
+    const cell = rep.cells.find((c) => c.shape === shape);
+    assert.ok(cell, `no routing cell for ${shape}`);
+    assert.equal(cell.signalObserved, true, counter);
+    assert.deepEqual(cell.signals.map((x) => [x.kind, x.name, x.occurrences, x.measured]), [['counter', counter, 3, true]]);
+    // the rule reads memset only, so each of these is a shape NEITHER side holds in this tree, and is printed loud
+    assert.equal(cell.decision, 'no-source-rule-covers-it', `${shape}: ${cell.decision}`);
+    assert.ok(rep.loud.includes(cell.cell));
+    assert.deepEqual(cell.routes.filter((r) => r.rule !== 'none').map((r) => [r.rule, r.appliesToThisShape]), [['VG-MEM-006', 'no']]);
+  }
+});
+
 test('a synthetic run in which a counter DOES fire routes that shape to its rule', () => {
   // libcallMemset is the shape "-fno-builtin left a memset call the pin does not
   // see". The table routes it to VG-MEM-006 with appliesToThisShape "yes".
@@ -195,10 +231,10 @@ test('every cell with no signal is COUNTED, with the reason, and the count adds 
   // nothing fired in this run: every cell is not-routed
   assert.equal(rep.counts['not-routed-no-signal'], cells);
   assert.equal(Object.values(rep.noSignal).reduce((a, b) => a + b, 0), cells);
-  // five counters read 0, and this run measured no configguard row either
-  assert.equal(rep.noSignal['zero-occurrences'], 10,
-    'five unhandled counters and five configguard scens, all read 0 in this synthetic run');
-  assert.equal(rep.noSignal['no-signal-defined'], cells - 10);
+  // nine counters read 0 (each its own cell), and this run measured no configguard row either
+  assert.equal(rep.noSignal['zero-occurrences'], 14,
+    'nine unhandled counters and five configguard scens, all read 0 in this synthetic run');
+  assert.equal(rep.noSignal['no-signal-defined'], cells - 14);
   assert.equal(rep.noSignal['not-measured'], 0);
   for (const k of NO_SIGNAL_REASONS) assert.ok(Number.isInteger(rep.noSignal[k]));
 
@@ -213,7 +249,7 @@ test('every cell with no signal is COUNTED, with the reason, and the count adds 
   // and the count is printed
   const txt = renderRouting(rep);
   assert.match(txt, new RegExp(`not-routed-no-signal\\s+${cells}`));
-  assert.match(txt, /zero-occurrences 10/);
+  assert.match(txt, /zero-occurrences 14/);
 });
 
 test('a plan-driven run says configguard was NOT MEASURED, in the runner\'s own words', () => {
@@ -228,7 +264,7 @@ test('a plan-driven run says configguard was NOT MEASURED, in the runner\'s own 
     assert.ok(c.why.includes(note), c.why);
   }
   assert.equal(rep.noSignal['not-measured'], 5);
-  assert.equal(rep.noSignal['zero-occurrences'], 5, 'the five counters were measured and read 0');
+  assert.equal(rep.noSignal['zero-occurrences'], 9, 'the nine counters were measured and read 0');
   assert.match(renderRouting(rep), /not measured in a plan-driven run/);
 });
 
@@ -261,11 +297,18 @@ test('over the TRACKED clang-18 rows the configguard side routes and the erasure
   // r2 corpus, so no erasure shape is routed from real data at all.
   assert.equal(rep.counts['route-to-source'], 0);
   assert.equal(rep.counts['no-source-rule-covers-it'], 0);
-  for (const c of ['libcallMemset', 'memsetChk', 'nonZeroFill', 'atomicMemset', 'inlineWrapperMemset']) {
+  // All nine counters, the four wipe-pin-v3 added included: since the v3 re-record
+  // (data/r2-v3-rerecord.json) every tracked record carries them, and each read 0.
+  // Before it, the four v3 cells were not-measured here -- no record carried them.
+  for (const c of UNHANDLED_KEYS) {
     assert.equal(rep.counterTotals[c], 0, `${c} is no longer 0 in the tracked rows; the routing README's caveat is stale`);
+    assert.equal(rep.counterRecords[c], rep.recordsRead, `${c}: every tracked record carries the nine v3 counters`);
+    const cell = rep.cells.find((x) => x.signals.some((sig) => sig.name === c));
+    assert.equal(cell.noSignalReason, 'zero-occurrences', `${c}: ${cell.noSignalReason}`);
   }
-  assert.equal(rep.noSignal['zero-occurrences'], 5);
+  assert.equal(rep.noSignal['zero-occurrences'], UNHANDLED_KEYS.length);
   assert.ok(rep.recordsRead > 3000, `only ${rep.recordsRead} records read`);
+  assert.equal(rep.noSignal['not-measured'], 0, 'every counter is carried, and the tracked run measured the configguard cells');
 
   // the cells the table still calls repairable are not miscounted as unhandled
   assert.deepEqual(rep.notRoutedButRepairable.sort(), [

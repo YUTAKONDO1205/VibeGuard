@@ -10,8 +10,12 @@ the observer's verdict, taken from the same record shape the optimisation matrix
 grades, on the same fixture, with the same effect-symbol list.
 
 The shape and stale cells are about WipePin's own account of itself: what its
-wipe-pin-v2 record and its stderr say for a source whose answer is known, and
+wipe-pin-v3 record and its stderr say for a source whose answer is known, and
 whether a record from an earlier compile can outlive a compile that wrote none.
+Every one of those cells, and every loop, lto and xtu cell, runs with the three
+v3 switches unset, and its record must say so (the three blocks not enabled)
+and must say the version handshake compared the module's clang with the build's
+(host.checked true).
 The lto cells are about the hosts where the pass cannot run at all: an LTO
 link with the plugin on its link line (full and thin, -O2 and thin at -O0) must
 say so, once, leave the linked output exactly as a stock link leaves it, and
@@ -28,6 +32,23 @@ through llvm-bcanalyzer-18 -dump, for the lto cells' objects as for the xtu
 cells' -- and from the executable, which linker from its .comment and which link
 from whether it still defines the helper, not from what the runner says it ran;
 so objdump and llvm-bcanalyzer-18 are required.
+
+The v3 cells are about what wipe-pin-v3 adds (../../schema/wipe-pin.md section
+14). For each call-shaped wipe a switch repairs, four executables linked from
+the same source with the same io.c and main.c -- stock, the switches off, the
+switch on, the switch on as a dry run -- disassembled here and read with the
+same objdump_fill.py as the xtu cells, beside the three records and pin.sh's
+exit codes; with --baseline on the runner, the switches-off -S output is also
+compared byte for byte with the v2 build's (--require-baseline makes its absence
+a disagreement). Then the cells run through pin.sh alone: the buffer barrier
+where it must not go or must not cover (initialisers, a variable-length array
+in a branch, a musttail call after the wipe, a lifetime end and a musttail call
+on two paths, a wipe loop bounded by a pointer comparison, a buffer declared in
+a loop body)
+and the inline zero copy, each read from its record, its stderr, its -S output
+and the IR verifier's exit status on its -S -emit-llvm output; pin.sh refusing
+switch values other than 0 and 1; and the version handshake on the trailing
+shape's front-end IR read back with -x ir.
 
 The expectations below were written from what each cell is for, before the
 cells were first run, with one exception that says so where it is defined:
@@ -55,7 +76,21 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "gcc-repair", "scripts"))
 import objdump_fill  # noqa: E402
 
-SCHEMA = "wipe-pin-v2"
+SCHEMA = "wipe-pin-v3"
+
+# wipe-pin.md section 14.1 and 14.3: the 20 top-level keys and the 9 counters.
+TOP_KEYS = sorted(["schemaVersion", "component", "module", "toolchain", "optLevel", "scope", "requested",
+                   "resolution", "dryRun", "pinned", "pinnedCount", "wouldPinCount", "seen", "unhandled",
+                   "barrierCalls", "zeroCopy", "bufferBarriers", "host", "evidenceDigest", "context"])
+UNHANDLED_KEYS = ["libcallMemset", "memsetChk", "nonZeroFill", "atomicMemset", "inlineWrapperMemset",
+                  "bzeroCall", "inlineWrapperBzero", "zeroGlobalCopy", "zeroGlobalCopyCall"]
+DEST_KINDS = ("alloca", "argument", "global", "other")
+# What bufferBarriers is when WPIN_BUFFER_BARRIER is off (section 14.6, C1).
+BUFFER_BARRIERS_OFF = {"enabled": False, "count": 0, "sites": []}
+# Section 14.6's site keys and value sets; WipePin's anchors (C7).
+BUFFER_SITE_KEYS = ["function", "buffer", "bytes", "reason", "anchor"]
+BUFFER_REASONS = ("memset", "loop-store", "zero-copy")
+BUFFER_ANCHORS = ("lifetime-end", "ret")
 
 # --------------------------------------------------------------- expectations
 #
@@ -353,7 +388,14 @@ for _f in XTU_FORMS:
                             "lines": [XTU_DRY_LINE]}
 XTU_ORDER = ["xtu-nolto"] + [f"xtu-{_f}-{_m}" for _f in XTU_FORMS for _m in ("stock", "pin", "dry")]
 
-NO_UNHANDLED = "libcallMemset=0 memsetChk=0 nonZeroFill=0 atomicMemset=0 inlineWrapperMemset=0"
+def unhandled_text(counts=None):
+    """The `unhandled in scope:` tail of WipePin's stderr lines: the nine
+    counters in section 14.3's order, `counts` giving the ones that are not 0."""
+    counts = counts or {}
+    return " ".join(f"{k}={counts.get(k, 0)}" for k in UNHANDLED_KEYS)
+
+
+NO_UNHANDLED = unhandled_text()
 
 
 def partial_line(pinned, followed, module, unhandled=NO_UNHANDLED):
@@ -427,9 +469,210 @@ def absolute_paths(node, where="$"):
     return out
 
 
-def v2_problems(pin):
-    """What every wipe-pin-v2 record must be, whatever the cell asked of it."""
+def is_count(v):
+    return isinstance(v, int) and not isinstance(v, bool) and v >= 0
+
+
+def is_count_or_null(v):
+    return v is None or is_count(v)
+
+
+def is_name(v):
+    return isinstance(v, str) and v != ""
+
+
+_IDENT_SPACE = " \t\n\r\f\v"
+
+
+def strip_ident(raw):
+    """wipe-pin.md section 14.7's `ident`: every parenthesised group (nested
+    ones included) and the whitespace directly before it removed, an unmatched
+    ')' removed, surrounding whitespace trimmed. Re-derived here, not shared
+    with the plugin."""
+    out, depth = [], 0
+    for ch in raw:
+        if ch == "(":
+            if depth == 0:
+                while out and out[-1] in _IDENT_SPACE:
+                    out.pop()
+            depth += 1
+            continue
+        if ch == ")":
+            if depth > 0:
+                depth -= 1
+            continue
+        if depth == 0:
+            out.append(ch)
+    return "".join(out).strip(_IDENT_SPACE)
+
+
+def ident_major(ident):
+    """The digits after the first `clang version ` that has digits after it, as
+    the readers re-derive identMajor (section 14.9 C6); None when there are none."""
+    m = re.search(r"clang version ([0-9]+)", ident) if isinstance(ident, str) else None
+    return int(m.group(1)) if m else None
+
+
+def _site_problems(block, site, keys, typed):
+    if not isinstance(site, dict) or sorted(site) != sorted(keys):
+        return [f"{block} site keys are not {sorted(keys)}: {site!r}"]
+    return [f"{block} site {k} is {site[k]!r}: {why}" for k, ok, why in typed(site) if not ok]
+
+
+def _barrier_site_types(s):
+    callee = s["callee"]
+    family = is_name(callee) and (callee in ("memset", "__memset_chk", "bzero")
+                                  or callee.startswith("memset.") or callee.startswith("bzero."))
+    return [("function", is_name(s["function"]), "not a non-empty string"),
+            ("callee", family, "not memset, __memset_chk, bzero, memset.* or bzero.* (C7)"),
+            ("lengthBytes", is_count_or_null(s["lengthBytes"]), "not an integer >= 0 or null"),
+            ("line", is_count_or_null(s["line"]), "not an integer >= 0 or null")]
+
+
+def _zero_copy_site_types(s):
+    form, callee = s["form"], s["callee"]
+    if form == "intrinsic":
+        paired = callee == "llvm.memcpy"
+    else:
+        paired = is_name(callee) and (callee in ("memcpy", "__memcpy_chk") or callee.startswith("memcpy."))
+    return [("function", is_name(s["function"]), "not a non-empty string"),
+            ("form", form in ("intrinsic", "call"), "not intrinsic or call (C7)"),
+            ("callee", paired, "not llvm.memcpy exactly for form intrinsic, else memcpy, __memcpy_chk or "
+                               "memcpy.* (C7)"),
+            ("source", isinstance(s["source"], str), "not a string"),
+            ("destKind", s["destKind"] in DEST_KINDS, f"not one of {DEST_KINDS}"),
+            ("lengthBytes", is_count_or_null(s["lengthBytes"]), "not an integer >= 0 or null"),
+            ("line", is_count_or_null(s["line"]), "not an integer >= 0 or null")]
+
+
+BARRIER_SITE_KEYS = ["function", "callee", "lengthBytes", "line"]
+ZERO_COPY_SITE_KEYS = ["function", "form", "callee", "source", "destKind", "lengthBytes", "line"]
+
+
+def block_problems(pin, name, done, would, site_keys, site_types):
+    """Section 14.9 S3/S4, then C1, C2/C3 and C5, for barrierCalls or zeroCopy."""
+    b = pin.get(name)
+    keys = sorted(["enabled", "sites", done, would])
+    if not isinstance(b, dict) or sorted(b) != keys:
+        return [f"{name} keys are not {keys}: {b!r}"]
     bad = []
+    if not isinstance(b["enabled"], bool):
+        bad.append(f"{name}.enabled is not a boolean")
+    if not isinstance(b["sites"], list):
+        return bad + [f"{name}.sites is not a list"]
+    for k in (done, would):
+        if not is_count(b[k]):
+            bad.append(f"{name}.{k} is not an integer >= 0")
+    for s in b["sites"]:
+        bad += _site_problems(name, s, site_keys, site_types)
+    if bad:
+        return bad
+    if not b["enabled"]:
+        if b["sites"] or b[done] or b[would]:
+            bad.append(f"{name} is not enabled, yet has sites or counts (C1)")
+    else:
+        if b[would] != len(b["sites"]):
+            bad.append(f"{name}.{would} {b[would]} is not the {len(b['sites'])} sites (C2/C3)")
+        want = 0 if pin.get("dryRun") is True else b[would]
+        if b[done] != want:
+            bad.append(f"{name}.{done} {b[done]}, expected {want} (C2/C3)")
+    if pin.get("scope") == "functions":
+        req = pin.get("requested") or []
+        bad += [f"{name} site in {s['function']!r}, which is not requested (C5)"
+                for s in b["sites"] if s["function"] not in req]
+    return bad
+
+
+def _buffer_site_types(s):
+    return [("function", is_name(s["function"]), "not a non-empty string"),
+            ("buffer", s["buffer"] is None or is_name(s["buffer"]), "not a non-empty string or null"),
+            ("bytes", is_count_or_null(s["bytes"]), "not an integer >= 0 or null"),
+            ("reason", s["reason"] in BUFFER_REASONS, f"not one of {BUFFER_REASONS}"),
+            ("anchor", s["anchor"] in BUFFER_ANCHORS, f"not one of {BUFFER_ANCHORS} (C7)")]
+
+
+def buffer_block_problems(pin):
+    """Section 14.9 S5, then C1, C4 and C5, for bufferBarriers (one count, no
+    would-count: in a dry run `count` is 0, otherwise the length of `sites`)."""
+    name = "bufferBarriers"
+    b = pin.get(name)
+    keys = sorted(["enabled", "count", "sites"])
+    if not isinstance(b, dict) or sorted(b) != keys:
+        return [f"{name} keys are not {keys}: {b!r}"]
+    bad = []
+    if not isinstance(b["enabled"], bool):
+        bad.append(f"{name}.enabled is not a boolean")
+    if not isinstance(b["sites"], list):
+        return bad + [f"{name}.sites is not a list"]
+    if not is_count(b["count"]):
+        bad.append(f"{name}.count is not an integer >= 0")
+    for s in b["sites"]:
+        bad += _site_problems(name, s, BUFFER_SITE_KEYS, _buffer_site_types)
+    if bad:
+        return bad
+    if not b["enabled"]:
+        if b != BUFFER_BARRIERS_OFF:
+            bad.append(f"{name} is not enabled, yet has sites or a count (C1)")
+    else:
+        want = 0 if pin.get("dryRun") is True else len(b["sites"])
+        if b["count"] != want:
+            bad.append(f"{name}.count {b['count']}, expected {want} (C4)")
+    if pin.get("scope") == "functions":
+        req = pin.get("requested") or []
+        bad += [f"{name} site in {s['function']!r}, which is not requested (C5)"
+                for s in b["sites"] if s["function"] not in req]
+    return bad
+
+
+HOST_KEYS = sorted(["ident", "identMajor", "builtMajor", "checked", "intrinsicsCompared"])
+
+
+def host_problems(pin):
+    """Section 14.9 S6 and C6, and this build's M6 check: intrinsicsCompared is
+    never null here, because this build compares its intrinsic numbering."""
+    h = pin.get("host")
+    if not isinstance(h, dict) or sorted(h) != HOST_KEYS:
+        return [f"host keys are not {HOST_KEYS}: {h!r}"]
+    bad = []
+    if not (h["ident"] is None or isinstance(h["ident"], str)):
+        bad.append(f"host.ident {h['ident']!r} is not a string or null")
+    if not (h["identMajor"] is None or (is_count(h["identMajor"]) and h["identMajor"] >= 1)):
+        bad.append(f"host.identMajor {h['identMajor']!r} is not an integer >= 1 or null")
+    if not (is_count(h["builtMajor"]) and h["builtMajor"] >= 1):
+        bad.append(f"host.builtMajor {h['builtMajor']!r} is not an integer >= 1")
+    if not isinstance(h["checked"], bool):
+        bad.append(f"host.checked {h['checked']!r} is not a boolean")
+    if not is_count(h["intrinsicsCompared"]):
+        bad.append(f"host.intrinsicsCompared {h['intrinsicsCompared']!r} is not an integer >= 0 "
+                   "(this build compares its intrinsic numbering, so it is never null)")
+    if bad:
+        return bad
+    if h["checked"] != (h["identMajor"] is not None):
+        bad.append(f"host.checked {h['checked']} with identMajor {h['identMajor']!r} (C6)")
+    if h["identMajor"] is not None and h["identMajor"] != h["builtMajor"]:
+        bad.append(f"host.identMajor {h['identMajor']} is not builtMajor {h['builtMajor']}: a mismatch must "
+                   "be a refusal with no record (C6)")
+    if h["identMajor"] != ident_major(h["ident"]):
+        bad.append(f"host.identMajor {h['identMajor']!r} does not re-derive from ident {h['ident']!r} (C6)")
+    if isinstance(h["ident"], str) and (("(" in h["ident"] or ")" in h["ident"])
+                                        or h["ident"] != h["ident"].strip(_IDENT_SPACE)):
+        bad.append(f"host.ident {h['ident']!r} is not stripped (C6)")
+    tc = (pin.get("toolchain") or {}).get("clang")
+    m = re.match(r"([0-9]+)\.", tc) if isinstance(tc, str) else None
+    if not m or int(m.group(1)) != h["builtMajor"]:
+        bad.append(f"host.builtMajor {h['builtMajor']} is not the major version of toolchain.clang {tc!r} (C6)")
+    return bad
+
+
+def record_problems(pin):
+    """What every wipe-pin-v3 record must be, whatever the cell asked of it."""
+    bad = []
+    if not isinstance(pin, dict):
+        return [f"the record is not an object: {pin!r}"]
+    if sorted(pin) != TOP_KEYS:
+        missing = [k for k in TOP_KEYS if k not in pin]
+        extra = [k for k in pin if k not in TOP_KEYS]
+        bad.append(f"top-level keys: missing {missing}, unknown {extra} (S1)")
     if pin.get("schemaVersion") != SCHEMA:
         bad.append(f"schemaVersion {pin.get('schemaVersion')!r}, expected {SCHEMA!r}")
     if pin.get("component") != "WipePin":
@@ -445,7 +688,9 @@ def v2_problems(pin):
                 isinstance(p, dict) and sorted(p) == ["name", "version"] for p in tc["packages"]):
             bad.append(f"toolchain.packages is not a list of {{name, version}}: {tc['packages']!r}")
     for site in pin.get("pinned") or []:
-        if "followedByUse" not in site or site["followedByUse"] not in (True, False, None):
+        # `is`, not `in`: 1, 0 and 1.0 compare equal to True and False
+        if "followedByUse" not in site or not (site["followedByUse"] is None or
+                                               isinstance(site["followedByUse"], bool)):
             bad.append(f"pinned site without a true/false/null followedByUse: {site}")
         if site.get("destKind") == "alloca" and site.get("followedByUse") is None:
             bad.append(f"alloca site with followedByUse null: {site}")
@@ -457,12 +702,43 @@ def v2_problems(pin):
                 bad.append(f"resolved name without a boolean exact and a string linkage: {r}")
         elif r.get("exact") is not None or r.get("linkage") is not None:
             bad.append(f"unresolved name with a non-null exact or linkage: {r}")
+    un = pin.get("unhandled")
+    if not isinstance(un, dict) or sorted(un) != sorted(UNHANDLED_KEYS):
+        bad.append(f"unhandled keys are not the nine of section 14.3: {un!r} (S2)")
+    else:
+        bad += [f"unhandled.{k} {un[k]!r} is not an integer >= 0 (S2)" for k in UNHANDLED_KEYS if not is_count(un[k])]
+    bad += block_problems(pin, "barrierCalls", "barrierCount", "wouldBarrierCount", BARRIER_SITE_KEYS,
+                          _barrier_site_types)
+    bad += block_problems(pin, "zeroCopy", "repairedCount", "wouldRepairCount", ZERO_COPY_SITE_KEYS,
+                          _zero_copy_site_types)
+    bad += buffer_block_problems(pin)
+    bad += host_problems(pin)
     if pin.get("evidenceDigest") != digest_of(pin):
         bad.append("evidenceDigest does not re-derive")
     leaks = absolute_paths({k: v for k, v in pin.items() if k != "context"})
     if leaks:
         bad.append(f"record carries an absolute path: {leaks}")
     return bad
+
+
+def compile_problems(pin, barrier=False, zero=False, checked=True, buffer=False):
+    """What this compile asked of the record (section 14.9 W1): which switches
+    the cell set, and whether the module named a clang version for the
+    handshake to compare."""
+    bad = []
+    for block, want in (("barrierCalls", barrier), ("zeroCopy", zero), ("bufferBarriers", buffer)):
+        got = (pin.get(block) or {}).get("enabled") if isinstance(pin.get(block), dict) else None
+        if got is not want:
+            bad.append(f"{block}.enabled is {got!r}, and the cell {'set' if want else 'did not set'} its "
+                       "switch (W1)")
+    got = (pin.get("host") or {}).get("checked") if isinstance(pin.get("host"), dict) else None
+    if got is not checked:
+        bad.append(f"host.checked is {got!r}, expected {checked}")
+    return bad
+
+
+def v3_problems(pin, barrier=False, zero=False, checked=True, buffer=False):
+    return record_problems(pin) + compile_problems(pin, barrier, zero, checked, buffer)
 
 
 def wipepin_lines(lines):
@@ -569,7 +845,7 @@ def grade(lab, registry_symbols):
                 if site.get("function") != "handle_request" or site.get("destKind") != "alloca" \
                         or site.get("lengthBytes") != 32 or site.get("followedByUse") is not False:
                     bad.append(f"WipePin pinned an unexpected site {site}")
-            bad += [f"WipePin {p}" for p in v2_problems(pin)]
+            bad += [f"WipePin {p}" for p in v3_problems(pin)]
 
             wl = wipepin_lines(stderr)
             if any(l.startswith("WipePin: partial:") for l in wl):
@@ -654,7 +930,7 @@ def grade_shapes(lab):
         except Incomplete as e:
             incomplete.append(f"{cell}: {e}")
             continue
-        bad = [f"record: {p}" for p in v2_problems(pin)]
+        bad = [f"record: {p}" for p in v3_problems(pin)]
         sites = pin.get("pinned") or []
         got_fbu = [s.get("followedByUse") for s in sites]
         res = pin.get("resolution") or []
@@ -742,7 +1018,7 @@ def grade_stale(lab):
                 rec = None
                 bad.append(f"the compile's record is not JSON: {e}")
             if rec is not None:
-                bad += [f"record: {p}" for p in v2_problems(rec)]
+                bad += [f"record: {p}" for p in v3_problems(rec)]
                 if rec.get("module") != "trailing.c" or rec.get("pinnedCount") != 1:
                     bad.append(f"record module={rec.get('module')} pinnedCount={rec.get('pinnedCount')}")
         if cell == "stale-dir" and not os.path.isfile(os.path.join(out, "keep.txt")):
@@ -763,7 +1039,7 @@ def is_bitcode(path):
 
 def trailing_record_problems(rec, opt="-O2"):
     """The trailing shape's record at `opt`, as the shape table expects it."""
-    bad = [f"record: {p}" for p in v2_problems(rec)]
+    bad = [f"record: {p}" for p in v3_problems(rec)]
     sites = rec.get("pinned") or []
     checks = [
         ("module", rec.get("module"), "trailing.c"),
@@ -895,7 +1171,7 @@ def grade_lto(lab, bcanalyzer=None):
 
 def xtu_record_problems(rec, exp):
     """What the record of an xtu cell's wipe.c compile must say."""
-    bad = [f"record: {p}" for p in v2_problems(rec)]
+    bad = [f"record: {p}" for p in v3_problems(rec)]
     checks = [
         ("module", rec.get("module"), "wipe.c"),
         ("scope", rec.get("scope"), "functions"),
@@ -1120,6 +1396,734 @@ def grade_xtu(lab, bcanalyzer=BCANALYZER):
     return rows, problems, incomplete
 
 
+# ------------------------------------------------------------------- v3 cells
+#
+# Written before the v3 cells were first run (2026-11-09; lab notes kept
+# outside this repository). Each
+# case is one source and one switch, target `handle`, -O2, no -g (so every
+# site's line is null), and four executables the runner links from it: stock,
+# off (pin.sh, switches unset), ext (pin.sh, the switch =1), dry (pin.sh, the
+# switch =1 and WPIN_DRY_RUN=1).
+#
+#   stock  the subject (handle's 32-byte wipe) ABSENT -- it is a dead store --
+#          except under -fno-builtin, where the call to memset is opaque and
+#          stays (PRESENT; the existing README measurement).
+#   off    the call or copy is not touched and is counted: its one unhandled
+#          counter is 1, every other is 0, the block is not enabled, nothing is
+#          pinned, the "nothing to pin" line names the counter, pin.sh exits 4.
+#          Its -S output is byte-identical to stock's: with the switches unset
+#          nothing in handle is a memset intrinsic, so nothing changes. With
+#          --baseline it is also byte-identical to the v2 build's.
+#   ext    one site in the switch's block, exactly the one in the table, done 1
+#          and would 1, every counter 0, no WipePin line, pin.sh exits 0, the
+#          -S output differs from stock's, and the subject is PRESENT.
+#   dry    the same site, done 0 and would 1, dryRun true, the dry-run line,
+#          pin.sh exits 4, and the -S output byte-identical to stock's.
+# In every executable the control (wipe_kept, a fill use() reads afterwards) is
+# PRESENT, or the reading is blind.
+
+V3_FILL_BYTES = 32
+V3_ARMS = ("off", "ext", "dry")
+V3_LINKED = ("stock", "off", "ext", "dry")
+V3_BARRIER_DRY = "WipePin: dry run: 1 zero-fill memset or bzero call(s) would get a barrier; none was changed"
+V3_ZERO_COPY_DRY = "WipePin: dry run: 1 copy(ies) from an all-zero constant would be repaired; none was changed"
+V3_RESOLUTION = [{"name": "handle", "resolution": "resolved", "exact": True, "linkage": "external"}]
+
+
+def _v3_barrier(source, cflags, callee, counter, stock="ABSENT"):
+    return {"source": source, "cflags": cflags, "switch": "WPIN_BARRIER_CALLS", "block": "barrierCalls",
+            "done": "barrierCount", "would": "wouldBarrierCount", "counter": counter, "stock": stock,
+            "site": {"function": "handle", "callee": callee, "lengthBytes": V3_FILL_BYTES, "line": None},
+            "dryLine": V3_BARRIER_DRY}
+
+
+def _v3_zero_copy(cflags, form, callee, counter):
+    return {"source": "zcopy.c", "cflags": cflags, "switch": "WPIN_ZERO_COPY", "block": "zeroCopy",
+            "done": "repairedCount", "would": "wouldRepairCount", "counter": counter, "stock": "ABSENT",
+            "site": {"function": "handle", "form": form, "callee": callee, "source": "vg_zeros",
+                     "destKind": "alloca", "lengthBytes": V3_FILL_BYTES, "line": None},
+            "dryLine": V3_ZERO_COPY_DRY}
+
+
+# The buffer barrier (section 14.6), on the wipe written as a loop of zero
+# stores (loop.c). Written before these cells were first run, from what the
+# landed switch is for and from the prototype's measured records (measured
+# outside this repository, on the tree this one's v3 came from): with the switch
+# off there is nothing at pipeline start to
+# pin or count -- no memset, no call -- so the off arm is "nothing to pin" with
+# every counter 0. The site's buffer is null without -g (the release clang
+# discards value names) and the variable's name with -g. `controlSame`: the
+# control function's -S text is the same in ext as in stock, i.e. the barrier
+# changed nothing outside the function in scope; compared without -g only,
+# where no module-wide .Ltmp numbering can shift it.
+V3_BUFFER_DRY = "WipePin: dry run: 1 buffer barrier(s) would be placed; none was changed"
+
+
+def _v3_buffer(cflags, buffer, control_same, source="loop.c"):
+    return {"source": source, "cflags": cflags, "switch": "WPIN_BUFFER_BARRIER", "block": "bufferBarriers",
+            "done": "count", "would": None, "counter": None, "stock": "ABSENT",
+            "site": {"function": "handle", "buffer": buffer, "bytes": V3_FILL_BYTES, "reason": "loop-store",
+                     "anchor": "lifetime-end"},
+            "dryLine": V3_BUFFER_DRY, "controlSame": control_same}
+
+
+# What reaches pipeline start (clang 18.1.3, glibc 2.39, measured in the lab
+# before these cells were written): memset under =2/=3 is a call of the
+# header's wrapper memset.inline; bzero under =2/=3 a call of bzero.inline
+# (without FORTIFY clang's front end lowers bzero to llvm.memset, which the
+# plain pin already covers, so that case is not here); __memset_chk through a
+# local pointer stays a call; -fno-builtin leaves a call of memset; a memcpy
+# from a static const all-zero array is llvm.memcpy, and under =2 a call of
+# memcpy.inline.
+V3 = {
+    "v3-fort2": _v3_barrier("memset.c", "-D_FORTIFY_SOURCE=2", "memset.inline", "inlineWrapperMemset"),
+    "v3-fort3": _v3_barrier("memset.c", "-D_FORTIFY_SOURCE=3", "memset.inline", "inlineWrapperMemset"),
+    "v3-bzero-fort2": _v3_barrier("bzero.c", "-D_FORTIFY_SOURCE=2", "bzero.inline", "inlineWrapperBzero"),
+    "v3-bzero-fort3": _v3_barrier("bzero.c", "-D_FORTIFY_SOURCE=3", "bzero.inline", "inlineWrapperBzero"),
+    "v3-chk": _v3_barrier("chk.c", "", "__memset_chk", "memsetChk"),
+    "v3-libcall": _v3_barrier("memset.c", "-fno-builtin", "memset", "libcallMemset", stock="PRESENT"),
+    "v3-zcopy": _v3_zero_copy("", "intrinsic", "llvm.memcpy", "zeroGlobalCopy"),
+    "v3-zcopy-fort2": _v3_zero_copy("-D_FORTIFY_SOURCE=2", "call", "memcpy.inline", "zeroGlobalCopyCall"),
+    "v3-loop": _v3_buffer("", None, True),
+    "v3-loop-g": _v3_buffer("-g", "key", False),
+    # The loop wipe through an advancing pointer (`*p++ = 0`). Written before
+    # the cell was first run, from the lab measurement that the pointer's
+    # stack slot is followed and the write-back is not a use of the buffer.
+    "v3-loop-ptr": _v3_buffer("", None, True, source="ptr.c"),
+}
+V3_ORDER = list(V3)
+
+# The buffer barrier on an initialiser (init.c: `= {0}`, derive, use; no
+# wipe), through pin.sh alone with WPIN_BUFFER_BARRIER=1. clang lowers `= {0}`
+# to a zero-fill llvm.memset, which is pinned as it is without the switch
+# (followedByUse true, the partial line). Every zero fill of the buffer is
+# followed by a use, so the buffer gets no barrier -- its last stores are the
+# secret, and a barrier would only keep them in memory -- and stderr counts
+# it. (Until the fix of 2026-11-09 this cell expected a barrier with reason
+# memset and the line "1 of 1 barrier site(s) are on buffers whose every zero
+# fill is followed by a later use".)
+V3_INIT = "v3-buffer-init"
+V3_INIT_BLOCK = {"enabled": True, "count": 0, "sites": []}
+V3_INITIALISER_LINE = ("WipePin: buffer barrier: 1 buffer(s) not barriered: every zero fill is followed by a "
+                       "later use (read as an initialiser; a wipe that later code still touches, even code the "
+                       "optimiser removes, is counted here too)")
+V3_NO_PLACE_LINE = ("WipePin: buffer barrier: 1 buffer(s) not barriered: the buffer does not dominate a return "
+                    "its wipe reaches, or there is no place (an alloca or variable-length array inside a branch "
+                    "or loop, or a function that does not return)")
+V3_INIT_LINES = [V3_INITIALISER_LINE]
+# The barrier asm as it appears in textual IR.
+V3_BARRIER_ASM = 'call void asm sideeffect "", "r,~{memory}"'
+
+
+def _single(source, setting, cflags, pinsh, block, lines, apps, same_stock, zero_site=None,
+            ir_barriers=None, musttail=False, no_memset=False):
+    """A v3single cell (pin.sh alone, -S and -S -emit-llvm, target handle).
+    `block` the expected bufferBarriers; `apps` the #APP count in handle's -S
+    (None: at least one); `ir_barriers` the barrier calls in handle's .ll
+    (checked at -O0 only, where the IR is the plugin's own output unoptimised);
+    `musttail` that the .ll's musttail call is directly followed by its ret."""
+    return {"source": source, "setting": setting, "cflags": cflags, "pinsh": pinsh, "block": block,
+            "lines": lines, "apps": apps, "sameStock": same_stock, "zeroSite": zero_site,
+            "irBarriers": ir_barriers, "musttail": musttail, "noMemset": no_memset}
+
+
+_BB = "WPIN_BUFFER_BARRIER=1"
+_NONE_BLOCK = {"enabled": True, "count": 0, "sites": []}
+
+
+def _one_site(source_bytes, anchor):
+    return {"enabled": True, "count": 1, "sites": [{"function": "handle", "buffer": None, "bytes": source_bytes,
+                                                   "reason": "loop-store", "anchor": anchor}]}
+
+
+def _sites(source_bytes, anchors):
+    return {"enabled": True, "count": len(anchors),
+            "sites": [{"function": "handle", "buffer": None, "bytes": source_bytes, "reason": "loop-store",
+                       "anchor": a} for a in anchors]}
+
+
+# Written in the lane's protocol before these cells were first run (2026-11-09):
+#   v3-vla-branch-*   a VLA in a branch dominates no return: no barrier, the
+#                     no-place line, nothing to pin (pin.sh 4), the IR verifies,
+#                     and the -S is stock's.
+#   v3-musttail-O0    the place is the return, so the barrier goes before the
+#                     musttail call: one site (no dead return counted), the
+#                     call still directly followed by its ret, the IR verifies.
+#   v3-vla-musttail-O2  the same at -O2 for a VLA (no lifetime markers at any
+#                     level): the backend does not fail, one site, bytes null.
+# Added 2026-11-10, after a refuter found that at -O1 and above the barrier of
+# musttail.c went before a lifetime end in a block no path reaches, was deleted
+# with it, and the record still counted it (pin.sh 0, -S byte-identical to
+# stock). Here the .ll is the optimised IR, so `irBarriers` asks that the
+# barriers the record counts are still there after the optimiser:
+#   v3-musttail-O2/-Os  one site, anchor ret, before the musttail call; one
+#                     barrier in the optimised IR; the -S differs from stock.
+#   v3-musttail-exits-O2  a return on one path (its lifetime end reachable) and
+#                     a musttail call on the other: two sites in instruction
+#                     order -- the call (its block comes first in clang's IR),
+#                     then the lifetime end -- and two barriers left. The return
+#                     path calls note() after its wipe: in a first probe without
+#                     it, the optimiser hoisted both wipes and both barriers
+#                     into the block before the branch, one barrier for two
+#                     sites, which still covers both paths but is not what
+#                     this count can check.
+#   v3-loop-ptrcmp-O2  `for (p = key; p < key + n; p++) *p = 0`: the address
+#                     comparison is not a later use, so a wipe: one site at the
+#                     lifetime end, one barrier left, no initialiser line.
+#   v3-exit-O2        the wipe only on a path that ends in exit(): no barrier,
+#                     the no-place line, nothing to pin (pin.sh 4), the -S is
+#                     stock's. Added after a reviewer found the build before
+#                     barrier the other path's lifetime end, where no wipe is,
+#                     and report the buffer repaired (record 1, pin.sh 0).
+#   v3-buffer-initloop  an initialiser written as a loop: no barrier, the
+#                     initialiser line, nothing to pin, the -S is stock's.
+#   v3-buffer-inloop  the buffer declared in a loop body and wiped each
+#                     iteration is a wipe: one site at its lifetime end, no
+#                     initialiser line.
+#   v3-zcopy-inline   __builtin_memcpy_inline from a zero constant, built
+#                     -ffreestanding: repaired with a volatile memset.inline, so
+#                     no call of memset appears in the -S.
+V3_SINGLE = {
+    "v3-vla-branch-O0": _single("vla.c", _BB, "-O0", "4", _NONE_BLOCK,
+                                [V3_NO_PLACE_LINE, "nothing:vla.c"], 0, True, ir_barriers=0),
+    "v3-vla-branch-O2": _single("vla.c", _BB, "-O2", "4", _NONE_BLOCK,
+                                [V3_NO_PLACE_LINE, "nothing:vla.c"], 0, True),
+    "v3-musttail-O0": _single("musttail.c", _BB, "-O0", "0", _one_site(V3_FILL_BYTES, "ret"), [], None, False,
+                              ir_barriers=1, musttail=True),
+    "v3-vla-musttail-O2": _single("vlamt.c", _BB, "-O2", "0", _one_site(None, "ret"), [], None, False,
+                                  musttail=True),
+    "v3-musttail-O2": _single("musttail.c", _BB, "-O2", "0", _one_site(V3_FILL_BYTES, "ret"), [], None, False,
+                              ir_barriers=1, musttail=True),
+    "v3-musttail-Os": _single("musttail.c", _BB, "-Os", "0", _one_site(V3_FILL_BYTES, "ret"), [], None, False,
+                              ir_barriers=1, musttail=True),
+    "v3-musttail-exits-O2": _single("mtexit.c", _BB, "-O2", "0", _sites(V3_FILL_BYTES, ["ret", "lifetime-end"]),
+                                    [], None, False, ir_barriers=2, musttail=True),
+    "v3-loop-ptrcmp-O2": _single("ptrcmp.c", _BB, "-O2", "0", _one_site(V3_FILL_BYTES, "lifetime-end"), [], None,
+                                 False, ir_barriers=1),
+    "v3-exit-O2": _single("exit.c", _BB, "-O2", "4", _NONE_BLOCK, [V3_NO_PLACE_LINE, "nothing:exit.c"], 0, True,
+                          ir_barriers=0),
+    "v3-buffer-initloop": _single("initloop.c", _BB, "-O2", "4", _NONE_BLOCK,
+                                  [V3_INITIALISER_LINE, "nothing:initloop.c"], 0, True),
+    "v3-buffer-inloop": _single("inloop.c", _BB, "-O2", "0", _one_site(V3_FILL_BYTES, "lifetime-end"), [], None,
+                                False),
+    "v3-zcopy-inline": _single("zinline.c", "WPIN_ZERO_COPY=1", "-O2 -ffreestanding", "0",
+                               {"enabled": False, "count": 0, "sites": []}, [], 0, False,
+                               zero_site={"function": "handle", "form": "intrinsic", "callee": "llvm.memcpy",
+                                          "source": "vg_zeros", "destKind": "alloca",
+                                          "lengthBytes": V3_FILL_BYTES, "line": None},
+                               no_memset=True),
+}
+V3_SINGLE_ORDER = list(V3_SINGLE)
+
+
+def ir_function(lines, fn):
+    """The lines of `define ... @fn(` up to its closing brace in textual IR;
+    None when there is no such definition."""
+    for i, line in enumerate(lines):
+        if line.startswith("define ") and f"@{fn}(" in line:
+            body = []
+            for m in lines[i:]:
+                body.append(m)
+                if m == "}":
+                    return body
+            return body
+    return None
+
+
+def musttail_followed_by_ret(body):
+    """Every musttail call in `body` is directly followed by a ret (an
+    optional bitcast in between is not produced by these sources); False when
+    there is none."""
+    seen = False
+    for i, line in enumerate(body):
+        if "musttail call" in line:
+            seen = True
+            nxt = body[i + 1].strip() if i + 1 < len(body) else ""
+            if not nxt.startswith("ret "):
+                return False
+    return seen
+
+
+def clang_asm_function(text, fn):
+    """The lines of `fn` in a clang -S listing, from its label to its
+    .Lfunc_end label; None when the listing has no such function."""
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        if re.match(rf"^{re.escape(fn)}:", line):
+            body = []
+            for m in lines[i + 1:]:
+                if re.match(r"^\.Lfunc_end\d+:", m):
+                    return body
+                body.append(m)
+            return body
+    return None
+
+# pin.sh with a switch value the plugin must refuse: exit 3, no record, clang
+# rc 0, and exactly the refusal line of section 14.2.
+V3_REFUSE = {
+    "v3-refuse-barrier2": ("WPIN_BARRIER_CALLS=2",
+                           "WipePin: refusing to install: WPIN_BARRIER_CALLS='2' is neither 0 nor 1"),
+    "v3-refuse-zerocopy-true": ("WPIN_ZERO_COPY=true",
+                                "WipePin: refusing to install: WPIN_ZERO_COPY='true' is neither 0 nor 1"),
+    "v3-refuse-buffer2": ("WPIN_BUFFER_BARRIER=2",
+                          "WipePin: refusing to install: WPIN_BUFFER_BARRIER='2' is neither 0 nor 1"),
+}
+V3_REFUSE_ORDER = list(V3_REFUSE)
+
+# The handshake (section 14.7), on the trailing shape's front-end IR compiled
+# back with -x ir -S, through pin.sh and stock:
+#   v3-ident-same   llvm.ident as clang wrote it: a record, host.ident the
+#                   stripped ident, identMajor = builtMajor = the compiler's
+#                   major, checked true, intrinsicsCompared the number of
+#                   llvm.* declarations in the input that the plugin's table
+#                   knows (re-counted here from the .ll); the trailing memset
+#                   pinned (pin.sh 0), no WipePin line, -S not the stock one.
+#   v3-ident-other  llvm.ident rewritten to the next major version: refused --
+#                   exactly the refusal line, no record, pin.sh 3 -- and the -S
+#                   output byte-identical to stock's: nothing was changed.
+#   v3-ident-none   no llvm.ident: not refused. A record with ident null,
+#                   identMajor null, checked false, intrinsicsCompared as above;
+#                   exactly the "names no clang version (absent)" line; pinned
+#                   as in v3-ident-same (pin.sh 0).
+V3_IDENT = {"v3-ident-same": "ident-fe.ll", "v3-ident-other": "ident-other.ll", "v3-ident-none": "ident-none.ll"}
+V3_IDENT_ORDER = list(V3_IDENT)
+
+# The intrinsic table the plugin compares (src/WipePin.cpp, IntrinsicTable),
+# copied so that intrinsicsCompared can be re-counted from the input IR.
+INTRINSIC_BASES = ("memset", "memset.inline", "memset.element.unordered.atomic", "memcpy", "memcpy.inline",
+                   "memcpy.element.unordered.atomic", "lifetime.start", "lifetime.end", "dbg.declare",
+                   "dbg.value", "dbg.label")
+_DECLARE = re.compile(r"^declare\b.*?@(llvm\.[A-Za-z0-9_.]+)\(")
+
+
+def table_declarations(ll_lines):
+    """How many llvm.* declarations in textual IR have a name the table knows:
+    the name is llvm.<base>, or begins with llvm.<base>. for some base."""
+    n = 0
+    for line in ll_lines:
+        m = _DECLARE.match(line)
+        if m and any(m.group(1) == "llvm." + b or m.group(1).startswith("llvm." + b + ".")
+                     for b in INTRINSIC_BASES):
+            n += 1
+    return n
+
+
+def module_ident(ll_lines):
+    """The first operand of !llvm.ident in textual IR, as written, or None."""
+    node = None
+    for line in ll_lines:
+        m = re.match(r"^!llvm\.ident = !\{!(\d+)", line)
+        if m:
+            node = m.group(1)
+    if node is None:
+        return None
+    for line in ll_lines:
+        m = re.match(r"^!" + node + r' = !\{!"((?:[^"\\]|\\.)*)"', line)
+        if m:
+            return m.group(1)
+    return None
+
+
+def nothing_to_pin_line(module, counts):
+    return (f"WipePin: nothing to pin in scope in {module} (zero-fill llvm.memset in scope: 0; "
+            f"unhandled in scope: {unhandled_text(counts)})")
+
+
+def grade_v3(lab, require_baseline=False):
+    rows, problems, incomplete = [], [], []
+    d = os.path.join(lab, "v3")
+    for cell in V3_ORDER:
+        exp = V3[cell]
+        base = os.path.join(d, cell)
+        try:
+            kv = load_kv(base + ".kv")
+            recs = {a: load_json(f"{base}-{a}.json") for a in V3_ARMS}
+            mans = {a: load_kv(f"{base}-{a}.manifest.kv") for a in V3_ARMS}
+            errs = {a: wipepin_lines(load_lines(f"{base}-{a}.stderr.txt")) for a in V3_ARMS}
+            shas = {a: sha_file(f"{base}-{a}.s") for a in V3_LINKED + ("orig",)}
+            for a in V3_LINKED:
+                if shas[a] is None:
+                    raise Incomplete(f"v3/{cell}-{a}.s: no -S output")
+            texts = {}
+            for a in V3_LINKED:
+                prog = f"{base}-{a}.prog"
+                if not os.path.isfile(prog):
+                    raise Incomplete(f"v3/{cell}-{a}.prog: no executable")
+                try:
+                    texts[a] = objdump_fill.disassemble(prog)
+                except RuntimeError as e:
+                    raise Incomplete(f"v3/{cell}-{a}.prog: {e}")
+        except Incomplete as e:
+            incomplete.append(f"{cell}: {str(e).replace(lab, '<lab>')}")
+            continue
+
+        bad = []
+        if (kv.get("source"), kv.get("switch"), kv.get("cflags")) != (exp["source"], exp["switch"], exp["cflags"]):
+            bad.append(f"runner ran source={kv.get('source')} switch={kv.get('switch')} cflags={kv.get('cflags')!r}")
+        steps = ["ioRc", "mainRc", "stockRc"] + [f"{a}{s}" for a in V3_LINKED for s in ("AsmRc", "LinkRc")]
+        failed = [f"{k}={kv.get(k)}" for k in steps if kv.get(k) != "0"]
+        if failed:
+            bad.append(f"a step failed: {' '.join(failed)}")
+        want_rc = {"off": "4", "ext": "0", "dry": "4"}
+        for a in V3_ARMS:
+            if kv.get(f"{a}PinShRc") != want_rc[a]:
+                bad.append(f"{a}: pin.sh exited {kv.get(a + 'PinShRc')}, expected {want_rc[a]}")
+
+        for a in V3_ARMS:
+            rec, man, on, dry = recs[a], mans[a], a != "off", a == "dry"
+            bad += [f"{a} record: {p}" for p in v3_problems(rec, barrier=on and exp["block"] == "barrierCalls",
+                                                            zero=on and exp["block"] == "zeroCopy",
+                                                            buffer=on and exp["block"] == "bufferBarriers")]
+            counts = {exp["counter"]: 1} if a == "off" and exp["counter"] else {}
+            checks = [
+                ("module", rec.get("module"), exp["source"]),
+                ("scope", rec.get("scope"), "functions"),
+                ("requested", rec.get("requested"), ["handle"]),
+                ("resolution", rec.get("resolution"), V3_RESOLUTION),
+                ("dryRun", rec.get("dryRun"), dry),
+                ("optLevel", rec.get("optLevel"), {"speedup": 2, "size": 0}),
+                ("pinned", rec.get("pinned"), []),
+                ("pinnedCount", rec.get("pinnedCount"), 0),
+                ("wouldPinCount", rec.get("wouldPinCount"), 0),
+                ("seen.zeroFillMemsetInScope", (rec.get("seen") or {}).get("zeroFillMemsetInScope"), 0),
+                ("unhandled", rec.get("unhandled"), {k: counts.get(k, 0) for k in UNHANDLED_KEYS}),
+            ]
+            if on:
+                blk = rec.get(exp["block"]) if isinstance(rec.get(exp["block"]), dict) else {}
+                checks += [
+                    (f"{exp['block']}.sites", blk.get("sites"), [exp["site"]]),
+                    (f"{exp['block']}.{exp['done']}", blk.get(exp["done"]), 0 if dry else 1),
+                ]
+                if exp["would"]:
+                    checks.append((f"{exp['block']}.{exp['would']}", blk.get(exp["would"]), 1))
+            for name, got, want in checks:
+                if got != want:
+                    bad.append(f"{a} record {name} = {got!r}, expected {want!r}")
+            want_lines = {"off": [nothing_to_pin_line(exp["source"], counts)], "ext": [],
+                          "dry": [exp["dryLine"]]}[a]
+            if errs[a] != want_lines:
+                bad.append(f"{a}: WipePin lines {errs[a]}, expected {want_lines}")
+            mchecks = [("rc", "0"), ("status", want_rc[a]), ("repairCount", "1" if a == "ext" else "0"),
+                       ("pinnedCount", "0"), ("hostChecked", "true"), ("recordError", "")]
+            for k, want in mchecks:
+                if man.get(k) != want:
+                    bad.append(f"{a}: pin.sh manifest {k}={man.get(k)!r}, expected {want!r}")
+
+        if shas["dry"] != shas["stock"]:
+            bad.append("dry: the -S output differs from stock's, in the arm told to change nothing")
+        if shas["off"] != shas["stock"]:
+            bad.append("off: the -S output differs from stock's, with the switches unset")
+        if shas["ext"] == shas["stock"]:
+            bad.append("ext: the -S output is byte-identical to stock's: the switch changed nothing")
+        orig = "-"
+        if kv.get("baseline") == "present":
+            if kv.get("origRc") != "0":
+                bad.append(f"orig: the v2 build's compile exited {kv.get('origRc')}")
+            if shas["orig"] is None:
+                orig = "?"
+                bad.append("orig: no -S output from the v2 build")
+            else:
+                orig = "yes" if shas["off"] == shas["orig"] else "NO"
+                if orig != "yes":
+                    bad.append("off: the -S output differs from the v2 build's with the switches unset")
+        elif require_baseline:
+            orig = "not run"
+            bad.append("no --baseline on the runner: the switches-off output was not compared with the v2 build's")
+        else:
+            orig = "not run"
+
+        readings = {}
+        for a in V3_LINKED:
+            subj = objdump_fill.wipe_reading(texts[a], "handle", None, V3_FILL_BYTES)
+            ctl = objdump_fill.wipe_reading(texts[a], "wipe_kept", None, V3_FILL_BYTES)
+            readings[a] = subj
+            want = "PRESENT" if a == "ext" else exp["stock"]
+            if subj["verdict"] != want:
+                bad.append(f"{a}: subject {objdump_fill.describe(subj)}, expected {want}")
+            if ctl["verdict"] != "PRESENT":
+                bad.append(f"{a}: control {objdump_fill.describe(ctl)}: the reading is blind in this executable")
+
+        if exp.get("controlSame"):
+            try:
+                with open(f"{base}-stock.s", encoding="utf-8", errors="replace") as f:
+                    ctl_stock = clang_asm_function(f.read(), "wipe_kept")
+                with open(f"{base}-ext.s", encoding="utf-8", errors="replace") as f:
+                    ctl_ext = clang_asm_function(f.read(), "wipe_kept")
+            except OSError as e:
+                ctl_stock = ctl_ext = None
+                bad.append(f"the control's -S text could not be read: {e.__class__.__name__}")
+            if ctl_stock is None or ctl_ext is None:
+                bad.append("wipe_kept is missing from the stock or the ext -S output")
+            elif ctl_stock != ctl_ext:
+                bad.append("ext: the control wipe_kept's -S text differs from stock's: the barrier changed a "
+                           "function outside the scope")
+
+        ext_blk = recs["ext"].get(exp["block"]) if isinstance(recs["ext"].get(exp["block"]), dict) else {}
+        site = (ext_blk.get("sites") or [{}])[0] if ext_blk.get("sites") else {}
+        rows.append((cell, exp["cflags"] or "-", exp["switch"], site.get("callee") or site.get("reason", "-"),
+                     "/".join(kv.get(f"{a}PinShRc", "?") for a in V3_ARMS),
+                     "/".join(readings[a]["verdict"] for a in V3_LINKED),
+                     "yes" if shas["dry"] == shas["stock"] else "NO",
+                     "yes" if shas["off"] == shas["stock"] else "NO", orig,
+                     "ok" if not bad else "DISAGREES"))
+        problems += [f"{cell}: {b}" for b in bad]
+
+    cell = V3_INIT
+    try:
+        kv = load_kv(os.path.join(d, cell + ".kv"))
+        man = load_kv(os.path.join(d, cell + ".manifest.kv"))
+        wl = wipepin_lines(load_lines(os.path.join(d, cell + ".stderr.txt")))
+        rec = load_json(os.path.join(d, cell + ".json"))
+        s_pin = sha_file(os.path.join(d, cell + ".s"))
+        s_stock = sha_file(os.path.join(d, cell + "-stock.s"))
+        if s_pin is None or s_stock is None:
+            raise Incomplete(f"v3/{cell}: no -S output (pin.sh {s_pin is not None}, stock {s_stock is not None})")
+    except Incomplete as e:
+        incomplete.append(f"{cell}: {str(e).replace(lab, '<lab>')}")
+    else:
+        bad = []
+        if (kv.get("source"), kv.get("setting")) != ("init.c", "WPIN_BUFFER_BARRIER=1"):
+            bad.append(f"runner ran source={kv.get('source')} setting={kv.get('setting')}")
+        if kv.get("stockRc") != "0":
+            bad.append(f"stockRc={kv.get('stockRc')}")
+        if kv.get("pinShRc") != "0":
+            bad.append(f"pin.sh exited {kv.get('pinShRc')}, expected 0")
+        bad += [f"record: {p}" for p in v3_problems(rec, buffer=True)]
+        sites = rec.get("pinned") or []
+        for name, got, want in (("module", rec.get("module"), "init.c"),
+                                ("requested", rec.get("requested"), ["handle"]),
+                                ("pinnedCount", rec.get("pinnedCount"), 1),
+                                ("followedByUse per site", [s.get("followedByUse") for s in sites], [True]),
+                                ("bufferBarriers", rec.get("bufferBarriers"), V3_INIT_BLOCK)):
+            if got != want:
+                bad.append(f"record {name} = {got!r}, expected {want!r}")
+        want_lines = V3_INIT_LINES + [partial_line(1, 1, "init.c")]
+        if wl != want_lines:
+            bad.append(f"WipePin lines {wl}, expected {want_lines}")
+        for k, want in (("rc", "0"), ("status", "0"), ("repairCount", "1"), ("pinnedCount", "1"),
+                        ("bufferBarrierCount", "0"), ("followedByUseCount", "1"), ("recordError", "")):
+            if man.get(k) != want:
+                bad.append(f"pin.sh manifest {k}={man.get(k)!r}, expected {want!r}")
+        try:
+            with open(os.path.join(d, cell + ".s"), encoding="utf-8", errors="replace") as f:
+                body = clang_asm_function(f.read(), "handle")
+        except OSError:
+            body = None
+        if body is None:
+            bad.append("handle is missing from the -S output")
+        elif any("#APP" in l for l in body):
+            bad.append("handle's -S has a barrier (#APP) on a buffer that is only initialised")
+        rows.append((cell, "-", kv.get("setting"), "memset (initialiser), no barrier", kv.get("pinShRc"), "-", "-",
+                     "-", "-", "ok" if not bad else "DISAGREES"))
+        problems += [f"{cell}: {b}" for b in bad]
+
+    for cell in V3_SINGLE_ORDER:
+        exp = V3_SINGLE[cell]
+        base = os.path.join(d, cell)
+        try:
+            kv = load_kv(base + ".kv")
+            recs = {k: load_json(f"{base}{sfx}.json") for k, sfx in (("s", ""), ("ll", "-ll"))}
+            mans = {k: load_kv(f"{base}{sfx}.manifest.kv") for k, sfx in (("s", ""), ("ll", "-ll"))}
+            errs = {k: wipepin_lines(load_lines(f"{base}{sfx}.stderr.txt")) for k, sfx in (("s", ""), ("ll", "-ll"))}
+            s_text = "\n".join(load_lines(base + ".s"))
+            stock_text = "\n".join(load_lines(base + "-stock.s"))
+            ll = load_lines(base + ".ll")
+        except Incomplete as e:
+            incomplete.append(f"{cell}: {str(e).replace(lab, '<lab>')}")
+            continue
+        bad = []
+        if (kv.get("source"), kv.get("setting"), kv.get("cflags")) != (exp["source"], exp["setting"], exp["cflags"]):
+            bad.append(f"runner ran source={kv.get('source')} setting={kv.get('setting')} "
+                       f"cflags={kv.get('cflags')!r}")
+        if kv.get("stockRc") != "0":
+            bad.append(f"stockRc={kv.get('stockRc')}")
+        for k in ("pinShRc", "llPinShRc"):
+            if kv.get(k) != exp["pinsh"]:
+                bad.append(f"{k}={kv.get(k)}, expected {exp['pinsh']}")
+        if kv.get("verifyRc") != "0":
+            bad.append(f"the IR verifier ({kv.get('opt')}) exited {kv.get('verifyRc')} on the .ll the plugin left")
+        buffer_on = exp["setting"] == _BB
+        zero_on = exp["setting"] == "WPIN_ZERO_COPY=1"
+        nothing = [nothing_to_pin_line(l.split(":", 1)[1], {}) if l.startswith("nothing:") else l
+                   for l in exp["lines"]]
+        for k in ("s", "ll"):
+            rec, man = recs[k], mans[k]
+            bad += [f"{k} record: {p}" for p in v3_problems(rec, zero=zero_on, buffer=buffer_on)]
+            checks = [("module", rec.get("module"), exp["source"]), ("requested", rec.get("requested"), ["handle"]),
+                      ("pinnedCount", rec.get("pinnedCount"), 0), ("unhandled", rec.get("unhandled"),
+                                                                     {u: 0 for u in UNHANDLED_KEYS}),
+                      ("bufferBarriers", rec.get("bufferBarriers"), exp["block"])]
+            if exp["zeroSite"]:
+                checks.append(("zeroCopy", rec.get("zeroCopy"),
+                               {"enabled": True, "sites": [exp["zeroSite"]], "repairedCount": 1,
+                                "wouldRepairCount": 1}))
+            for name, got, want in checks:
+                if got != want:
+                    bad.append(f"{k} record {name} = {got!r}, expected {want!r}")
+            if errs[k] != nothing:
+                bad.append(f"{k}: WipePin lines {errs[k]}, expected {nothing}")
+            # pin.sh's repairCount is every repair the record counts: here the
+            # buffer barriers placed, plus the one zero copy where there is one.
+            repairs = str(exp["block"]["count"] + (1 if exp["zeroSite"] else 0))
+            for mk, want in (("rc", "0"), ("status", exp["pinsh"]), ("repairCount", repairs), ("recordError", "")):
+                if man.get(mk) != want:
+                    bad.append(f"{k}: pin.sh manifest {mk}={man.get(mk)!r}, expected {want!r}")
+        if recs["s"].get("evidenceDigest") != recs["ll"].get("evidenceDigest"):
+            bad.append("the -S and the -S -emit-llvm compiles wrote different records")
+        body = clang_asm_function(s_text, "handle")
+        if body is None:
+            bad.append("handle is missing from the -S output")
+        else:
+            apps = sum(1 for l in body if "#APP" in l)
+            if (exp["apps"] is None and apps < 1) or (exp["apps"] is not None and apps != exp["apps"]):
+                bad.append(f"handle's -S has {apps} barrier(s) (#APP), expected "
+                           f"{'at least 1' if exp['apps'] is None else exp['apps']}")
+        same = s_text == stock_text
+        if same != exp["sameStock"]:
+            bad.append("the -S output " + ("is byte-identical to" if same else "differs from") + " stock's, expected "
+                       + ("the same" if exp["sameStock"] else "a difference"))
+        ir = ir_function(ll, "handle")
+        if ir is None:
+            bad.append("handle is missing from the .ll")
+        else:
+            if exp["irBarriers"] is not None:
+                n = sum(1 for l in ir if V3_BARRIER_ASM in l)
+                if n != exp["irBarriers"]:
+                    bad.append(f"handle's .ll has {n} barrier call(s), expected {exp['irBarriers']}")
+            if exp["musttail"] and not musttail_followed_by_ret(ir):
+                bad.append("handle's musttail call is not directly followed by its ret")
+        if exp["noMemset"]:
+            for what, text in (("the plugin's", s_text), ("stock's", stock_text)):
+                if re.search(r"\bmemset\b", text):
+                    bad.append(f"{what} -S calls memset, in a -ffreestanding build of __builtin_memcpy_inline")
+        blk = recs["s"].get("bufferBarriers") if isinstance(recs["s"].get("bufferBarriers"), dict) else {}
+        summary = (f"count={blk.get('count')} " + ",".join(s.get("anchor", "?") for s in blk.get("sites") or [])
+                   if buffer_on else "zeroCopy " + str((recs["s"].get("zeroCopy") or {}).get("repairedCount")))
+        rows.append((cell, exp["cflags"], exp["setting"], summary.strip(), kv.get("pinShRc"),
+                     f"IR verify rc {kv.get('verifyRc')}", "-", "-S=stock" if same else "-S!=stock", "-",
+                     "ok" if not bad else "DISAGREES"))
+        problems += [f"{cell}: {b}" for b in bad]
+
+    for cell in V3_REFUSE_ORDER:
+        setting, line = V3_REFUSE[cell]
+        try:
+            kv = load_kv(os.path.join(d, cell + ".kv"))
+            man = load_kv(os.path.join(d, cell + ".manifest.kv"))
+            wl = wipepin_lines(load_lines(os.path.join(d, cell + ".stderr.txt")))
+            console = load_lines(os.path.join(d, cell + ".console.txt"))
+        except Incomplete as e:
+            incomplete.append(f"{cell}: {str(e).replace(lab, '<lab>')}")
+            continue
+        bad = []
+        if kv.get("setting") != setting:
+            bad.append(f"runner set {kv.get('setting')!r}, expected {setting!r}")
+        if kv.get("pinShRc") != "3":
+            bad.append(f"pin.sh exited {kv.get('pinShRc')}, expected 3")
+        if man.get("rc") != "0":
+            bad.append(f"clang rc {man.get('rc')}, expected 0: a refusal leaves the compile's status alone")
+        if man.get("record") != "" or os.path.exists(os.path.join(d, cell + ".json")):
+            bad.append("a record exists")
+        if not any("no WipePin record was written" in l for l in console):
+            bad.append("pin.sh did not say that no record was written")
+        if wl != [line]:
+            bad.append(f"WipePin lines {wl}, expected exactly [{line!r}]")
+        rows.append((cell, "-", setting, "-", kv.get("pinShRc"), "-", "-", "-", "-",
+                     "ok" if not bad else "DISAGREES"))
+        problems += [f"{cell}: {b}" for b in bad]
+
+    built = None
+    for cell in V3_IDENT_ORDER:
+        ll_name = V3_IDENT[cell]
+        try:
+            kv = load_kv(os.path.join(d, cell + ".kv"))
+            man = load_kv(os.path.join(d, cell + ".manifest.kv"))
+            wl = wipepin_lines(load_lines(os.path.join(d, cell + ".stderr.txt")))
+            console = load_lines(os.path.join(d, cell + ".console.txt"))
+            ll = load_lines(os.path.join(d, ll_name))
+            s_pin = sha_file(os.path.join(d, cell + ".s"))
+            s_stock = sha_file(os.path.join(d, cell + "-stock.s"))
+            if s_pin is None or s_stock is None:
+                raise Incomplete(f"v3/{cell}: no -S output (pin.sh {s_pin is not None}, stock {s_stock is not None})")
+            rec = load_json(os.path.join(d, cell + ".json")) if cell != "v3-ident-other" else None
+        except Incomplete as e:
+            incomplete.append(f"{cell}: {str(e).replace(lab, '<lab>')}")
+            continue
+        bad = []
+        if kv.get("input") != ll_name:
+            bad.append(f"runner compiled {kv.get('input')!r}, expected {ll_name!r}")
+        for k in ("frontEndRc", "stockRc"):
+            if kv.get(k) != "0":
+                bad.append(f"{k}={kv.get(k)}")
+        try:
+            cc_major = int(kv.get("ccMajor", ""))
+        except ValueError:
+            cc_major = None
+            bad.append(f"runner did not record the compiler's major version: ccMajor={kv.get('ccMajor')!r}")
+        raw = module_ident(ll)
+        declared = table_declarations(ll)
+        host = rec.get("host") if isinstance(rec, dict) and isinstance(rec.get("host"), dict) else {}
+        if cell == "v3-ident-same":
+            built = host.get("builtMajor")
+        want_built = built if built is not None else cc_major
+
+        if cell == "v3-ident-other":
+            want_ident = f"clang version {cc_major + 1}.1.1" if cc_major is not None else None
+            if raw != want_ident:
+                bad.append(f"the input's llvm.ident is {raw!r}, expected {want_ident!r}")
+            line = (f"WipePin: refusing to install: the module was produced by clang {ident_major(raw)} "
+                    f"(llvm.ident \"{strip_ident(raw or '')}\") and this plugin was built against LLVM {want_built}")
+            if kv.get("pinShRc") != "3":
+                bad.append(f"pin.sh exited {kv.get('pinShRc')}, expected 3")
+            if man.get("rc") != "0":
+                bad.append(f"clang rc {man.get('rc')}, expected 0")
+            if man.get("record") != "" or os.path.exists(os.path.join(d, cell + ".json")):
+                bad.append("a record exists after a refusal")
+            if not any("no WipePin record was written" in l for l in console):
+                bad.append("pin.sh did not say that no record was written")
+            if wl != [line]:
+                bad.append(f"WipePin lines {wl}, expected exactly [{line!r}]")
+            if s_pin != s_stock:
+                bad.append("the refused compile's -S output differs from stock's: the IR was changed")
+            summary = "refused"
+        else:
+            none = cell == "v3-ident-none"
+            if none:
+                if raw is not None or any(l.startswith("!llvm.ident") for l in ll):
+                    bad.append("the input still has an llvm.ident")
+            elif raw is None or ident_major(raw) != cc_major:
+                bad.append(f"the input's llvm.ident {raw!r} does not name clang {cc_major}")
+            bad += [f"record: {p}" for p in v3_problems(rec, checked=not none)]
+            want_host = {"ident": None if none else strip_ident(raw or ""),
+                         "identMajor": None if none else cc_major, "builtMajor": cc_major,
+                         "checked": not none, "intrinsicsCompared": declared}
+            if host != want_host:
+                bad.append(f"record host = {host!r}, expected {want_host!r}")
+            if declared < 1:
+                bad.append("the input declares no intrinsic the table knows: intrinsicsCompared shows nothing")
+            sites = rec.get("pinned") or []
+            checks = [("module", rec.get("module"), ll_name), ("requested", rec.get("requested"), ["handle"]),
+                      ("pinnedCount", rec.get("pinnedCount"), 1),
+                      ("followedByUse per site", [s.get("followedByUse") for s in sites], [False])]
+            for name, got, want in checks:
+                if got != want:
+                    bad.append(f"record {name} = {got!r}, expected {want!r}")
+            want_lines = ([f"WipePin: the module's llvm.ident names no clang version (absent); the host compiler "
+                           f"was not checked against LLVM {want_built}"] if none else [])
+            if wl != want_lines:
+                bad.append(f"WipePin lines {wl}, expected {want_lines}")
+            if kv.get("pinShRc") != "0":
+                bad.append(f"pin.sh exited {kv.get('pinShRc')}, expected 0")
+            if man.get("hostChecked") != ("false" if none else "true"):
+                bad.append(f"pin.sh manifest hostChecked={man.get('hostChecked')!r}")
+            if s_pin == s_stock:
+                bad.append("the -S output is byte-identical to stock's: the pin changed nothing")
+            summary = f"checked={str(host.get('checked')).lower()} compared={host.get('intrinsicsCompared')}"
+        rows.append((cell, "-x ir", raw if raw is not None else "(no llvm.ident)", summary, kv.get("pinShRc"),
+                     "-", "-", "-", "-", "ok" if not bad else "DISAGREES"))
+        problems += [f"{cell}: {b}" for b in bad]
+    return rows, problems, incomplete
+
+
 def digest_check_can_fail(lab):
     """A digest check that cannot fail checks nothing: alter a real record and
     confirm the re-derivation notices."""
@@ -1151,6 +2155,9 @@ def main():
     ap.add_argument("--lab", required=True, help="the directory run-fixture-loop.sh wrote into")
     ap.add_argument("--bcanalyzer", default=BCANALYZER,
                     help=f"the llvm-bcanalyzer that reads the -flto objects' summaries, lto and xtu cells (default {BCANALYZER})")
+    ap.add_argument("--require-baseline", action="store_true",
+                    help="a v3 cell whose switches-off output was not compared with the v2 build's (the runner "
+                         "had no --baseline) disagrees, rather than printing 'not run'")
     args = ap.parse_args()
     lab = os.path.abspath(args.lab)
 
@@ -1168,8 +2175,9 @@ def main():
     trow, tprob, tinc = grade_stale(lab)
     lrow, lprob, linc, lforms = grade_lto(lab, args.bcanalyzer)
     xrow, xprob, xinc = grade_xtu(lab, args.bcanalyzer)
-    problems += pprob + sprob + tprob + lprob + xprob
-    incomplete += pinc + sinc + tinc + linc + xinc
+    vrow, vprob, vinc = grade_v3(lab, args.require_baseline)
+    problems += pprob + sprob + tprob + lprob + xprob + vprob
+    incomplete += pinc + sinc + tinc + linc + xinc + vinc
 
     table(("cell", "opt", "WipePin", "verdict", "effect pre->post", "firstZero", "ctl held",
            "volatile@post", "pinned/would/mode/res", "followedByUse", "obj!=base", "pin.sh", ""), rows)
@@ -1195,6 +2203,11 @@ def main():
           f"full FULL_LTO_GLOBALVAL_SUMMARY_BLOCK ({os.path.basename(args.bcanalyzer)} -dump, "
           f"{bcanalyzer_version(args.bcanalyzer)}); linker = the executable's .comment; secure_wipe = "
           "whether the executable still defines it")
+    print()
+    table(("v3 (-O2, target handle)", "cflags", "switch / setting", "ext callee / host", "pin.sh off/ext/dry",
+           "subject stock/off/ext/dry", "dry==stock", "off==stock", "off==v2", ""), vrow)
+    print("v3: subject = handle's 32-byte wipe, read from each linked executable as the xtu cells are; "
+          "dry==stock, off==stock, off==v2 compare the -S output byte for byte (v2 = the runner's --baseline build)")
 
     if incomplete:
         print("\nINCOMPLETE -- these cells could not be graded:")
@@ -1216,7 +2229,7 @@ def main():
         for p in problems:
             print("  " + p)
         return 2
-    n = len(rows) + len(prow) + len(srow) + len(trow) + len(lrow) + len(xrow)
+    n = len(rows) + len(prow) + len(srow) + len(trow) + len(lrow) + len(xrow) + len(vrow)
     print(f"\nall {n} cells as expected")
     return 0
 

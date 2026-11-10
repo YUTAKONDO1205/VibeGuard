@@ -73,10 +73,14 @@ test('a pinned file that is not there is a mismatch of its own kind', { skip: li
 
 test('a version disagreement is a mismatch even when every digest matches', { skip: liveBuildSkipReason() }, () => {
   const pin = makePin();
+  // the live clang's version, read the way the pin reads it -- not a literal:
+  // the runner image moved clang-18 from 18.1.3 to 18.1.8 under this test
+  const observed = pin.clang;
+  assert.notEqual(observed, '17.0.6');
   pin.clang = '17.0.6';
   const v = verifyPin(pin, { ccPath: CLANG });
   assert.equal(v.status, 'mismatch');
-  assert.equal(v.mismatches.find((m) => m.kind === 'version').actual, '18.1.3');
+  assert.equal(v.mismatches.find((m) => m.kind === 'version').actual, observed);
 });
 
 test('the digested pinned set carries no path', { skip: liveBuildSkipReason() }, () => {

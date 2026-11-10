@@ -17,6 +17,7 @@ one, is measured in README.md ("The checker was shown to fail").
 import copy
 import importlib.util
 import os
+import shutil
 import struct
 import sys
 import tempfile
@@ -83,6 +84,265 @@ class Tables(unittest.TestCase):
         self.assertEqual(chk.OPT_LEVELS, {"-O0": (0, 0), "-O1": (1, 0), "-O2": (2, 0),
                                           "-O3": (3, 0), "-Os": (2, 1)})
 
+    def test_every_switch_value_the_plugin_must_refuse_has_a_cell(self):
+        for cell, var in (("badbarrier-O2", "WPIN_BARRIER_CALLS='2'"), ("badzerocopy-O2", "WPIN_ZERO_COPY='2'"),
+                          ("badbuffer-O2", "WPIN_BUFFER_BARRIER='2'")):
+            exp = chk.ALONE[cell]
+            self.assertEqual((exp["pinShRc"], exp["record"]), (3, False), cell)
+            self.assertEqual(exp["lines"], [f"WipePinGcc: refusing to install: {var} is neither 0 nor 1"])
+        # WPIN_BUFFER_BARRIER=1 is implemented: no alone cell expects it refused.
+        self.assertNotIn("bufferon-O2", chk.ALONE)
+        self.assertFalse(any("not implemented" in l for exp in chk.ALONE.values() for l in exp["lines"]))
+
+
+class SwitchTables(unittest.TestCase):
+    def test_every_shape_has_one_switch_and_one_counter(self):
+        self.assertEqual(sorted(chk.SWITCH_ORDER), sorted(chk.SWITCH))
+        for shape, exp in chk.SWITCH.items():
+            self.assertIn(exp["switch"], ("barrierCalls", "zeroCopy"), shape)
+            self.assertIn(exp["counter"], chk.UNHANDLED_ORDER, shape)
+            self.assertEqual(exp["stock"], "ABSENT", shape)  # each cell can show a repair
+            self.assertEqual(exp["site"]["function"], "handle", shape)
+            self.assertEqual("zeroSymbol" in exp, exp["switch"] == "zeroCopy", shape)
+
+    def test_the_off_cell_counts_and_changes_nothing(self):
+        for shape in chk.SWITCH_ORDER:
+            w = chk.switch_cell_expectation(shape, "off")
+            self.assertEqual(w["expect"], chk.SWITCHES_OFF)
+            self.assertEqual(w["blockValue"]["sites"], [], shape)
+            self.assertEqual(w["unhandled"][chk.SWITCH[shape]["counter"]], 1, shape)
+            self.assertEqual((w["pinShRc"], w["repairCount"], w["sameAsStock"], w["wipe"]), (4, 0, True, "ABSENT"))
+            self.assertEqual(len(w["lines"]), 1)
+            self.assertTrue(w["lines"][0].startswith("WipePinGcc: nothing to pin"), shape)
+
+    def test_the_on_cell_repairs_once_and_the_dry_cell_does_not(self):
+        for shape in chk.SWITCH_ORDER:
+            blk = chk.SWITCH[shape]["switch"]
+            done, would = chk.wpr.BLOCK_COUNTS[blk]
+            on = chk.switch_cell_expectation(shape, "on")
+            dry = chk.switch_cell_expectation(shape, "dry")
+            self.assertIs(on["expect"][blk], True)
+            self.assertEqual((on["blockValue"][done], on["blockValue"][would]), (1, 1), shape)
+            self.assertEqual((dry["blockValue"][done], dry["blockValue"][would]), (0, 1), shape)
+            self.assertEqual(sum(on["unhandled"].values()), 0, shape)
+            self.assertEqual((on["pinShRc"], on["repairCount"], on["sameAsStock"], on["wipe"], on["lines"]),
+                             (0, 1, False, "PRESENT", []))
+            self.assertEqual((dry["pinShRc"], dry["repairCount"], dry["sameAsStock"], dry["wipe"], dry["dryRun"]),
+                             (4, 0, True, "ABSENT", True))
+            self.assertEqual(len(dry["lines"]), 1)
+
+    def test_the_expected_records_are_ones_the_reader_accepts(self):
+        # Build each cell's record from its expectation and hold the reader to it.
+        for shape in chk.SWITCH_ORDER:
+            for mode in chk.SWITCH_MODES:
+                w = chk.switch_cell_expectation(shape, mode)
+                rec = good_record(module=chk.SWITCH[shape]["module"], requested=["handle"],
+                                  resolution=[{"name": "handle", "resolution": "resolved", "exact": True,
+                                               "linkage": "external"}],
+                                  pinned=[], pinnedCount=0, wouldPinCount=0, dryRun=w["dryRun"],
+                                  seen={"zeroFillMemsetInScope": 0, "zeroFillMemsetInModule": 0},
+                                  unhandled=w["unhandled"], **{w["block"]: w["blockValue"]})
+                self.assertEqual(chk.wpr.validate(rec, w["expect"]), [], f"{shape}-{mode}")
+                self.assertEqual(chk.wpr.repair_count(rec), w["repairCount"], f"{shape}-{mode}")
+
+    def test_the_previous_group_covers_every_plugin_compile_with_the_switches_off(self):
+        ids = chk.previous_ids()
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertEqual(len(ids), 4 * len(chk.LEVELS) + len(chk.SHAPE_ORDER) + len(chk.SWITCH_ORDER) + 1)
+        self.assertEqual(ids[-1], "buffer-loopbar-off")
+        for o in chk.LEVELS:
+            for k in ("pin", "dry", "wrongname", "nothing"):
+                self.assertIn(k + o, ids)
+        self.assertNotIn("base-O2", ids)
+        self.assertTrue(all(not i.endswith(("-on", "-dry")) for i in ids if i.startswith("switch-")))
+
+
+class PreviousGroup(unittest.TestCase):
+    """grade_previous on a synthetic lab: every pair the same bytes, the staged
+    plugins the ones named in given.kv. Nothing is compiled."""
+
+    def lab(self, plugin_sha, previous_sha):
+        root = tempfile.mkdtemp(prefix="gcc-prev-")
+        self.addCleanup(shutil.rmtree, root, True)
+        d = os.path.join(root, "previous")
+        os.makedirs(os.path.join(d, "this"))
+        os.makedirs(os.path.join(d, "prev"))
+        with open(os.path.join(d, "given.kv"), "w", encoding="utf-8") as f:
+            f.write(f"pluginSha256={plugin_sha}\npreviousSha256={previous_sha}\nccVersion=13.3.0\n")
+        ids = chk.previous_ids()
+        with open(os.path.join(d, "cells.txt"), "w", encoding="utf-8") as f:
+            f.write("\n".join(ids) + "\n")
+        for cid in ids:
+            with open(os.path.join(d, cid + ".kv"), "w", encoding="utf-8") as f:
+                f.write(f"thisRc=0\nprevRc=0\nthisStagedSha256={plugin_sha}\nprevStagedSha256={previous_sha}\n")
+            for which in ("this", "prev"):
+                with open(os.path.join(d, which, cid + ".s"), "w", encoding="utf-8") as f:
+                    f.write(f"\t.file\t\"{cid}\"\n")
+        return root
+
+    def test_two_plugins_with_the_same_listings_pass(self):
+        rows, problems, incomplete, given = chk.grade_previous(self.lab("a" * 64, "b" * 64))
+        self.assertTrue(given)
+        self.assertEqual((problems, incomplete), ([], []))
+        self.assertEqual(len(rows), len(chk.previous_ids()))
+
+    def test_the_same_plugin_given_twice_is_a_problem(self):
+        # Every pair is the same bytes and every staged sha256 matches its name,
+        # so only the comparison of the two names can catch it.
+        rows, problems, incomplete, given = chk.grade_previous(self.lab("c" * 64, "c" * 64))
+        self.assertTrue(given)
+        self.assertEqual(incomplete, [])
+        self.assertEqual(len(problems), 1)
+        self.assertIn("the previous plugin is this plugin", problems[0])
+        self.assertIn("c" * 64, problems[0])
+
+
+class BufferTables(unittest.TestCase):
+    def test_every_buffer_shape_has_an_expectation(self):
+        self.assertEqual(sorted(chk.BUFFER_ORDER), sorted(chk.BUFFER))
+        self.assertEqual(chk.BUFFER["loopbar"]["modes"], ("off", "on", "dry"))
+        self.assertEqual(chk.BUFFER_SITE, {"function": "handle", "buffer": "key", "bytes": 32,
+                                           "reason": "loop-store", "anchor": "clobber"})
+
+    def test_off_counts_nothing_on_places_one_dry_places_none(self):
+        off = chk.buffer_cell_expectation("loopbar", "off")
+        on = chk.buffer_cell_expectation("loopbar", "on")
+        dry = chk.buffer_cell_expectation("loopbar", "dry")
+        self.assertEqual(off["blockValue"], {"enabled": False, "count": 0, "sites": []})
+        self.assertEqual((off["pinShRc"], off["sameAsStock"], off["wipe"]), (4, True, "ABSENT"))
+        self.assertEqual(off["lines"], [chk.nothing_line("loop.c")])
+        self.assertEqual(on["blockValue"], {"enabled": True, "count": 1, "sites": [chk.BUFFER_SITE]})
+        self.assertEqual((on["pinShRc"], on["repairCount"], on["sameAsStock"], on["wipe"], on["lines"],
+                          on["controlSame"]), (0, 1, False, "PRESENT", [], True))
+        self.assertEqual(dry["blockValue"], {"enabled": True, "count": 0, "sites": [chk.BUFFER_SITE]})
+        self.assertEqual((dry["pinShRc"], dry["sameAsStock"], dry["wipe"], dry["dryRun"]), (4, True, "ABSENT", True))
+        self.assertEqual(dry["lines"], [chk.dry_buffer_line(1)])
+        self.assertEqual(chk.dry_buffer_line(1),
+                         "WipePinGcc: dry run: 1 buffer barrier(s) would be placed; none was changed")
+
+    def test_the_initialiser_gets_no_barrier_on_gcc(self):
+        w = chk.buffer_cell_expectation("initbar", "on")
+        self.assertEqual(w["blockValue"], {"enabled": True, "count": 0, "sites": []})
+        self.assertEqual((w["pinShRc"], w["repairCount"], w["sameAsStock"], w["wipe"]), (4, 0, True, None))
+        self.assertEqual(w["lines"], [chk.nothing_line("init.c")])
+
+    def test_a_buffer_wiped_in_every_iteration_gets_its_barrier_and_no_initialiser_line(self):
+        # The next iteration's uses come after the buffer's clobber: another
+        # lifetime, so the wipe is a wipe and nothing is printed.
+        w = chk.buffer_cell_expectation("inloop", "on")
+        self.assertEqual(chk.BUFFER["inloop"]["modes"], ("on",))
+        self.assertEqual(w["blockValue"], {"enabled": True, "count": 1, "sites": [chk.BUFFER_SITE]})
+        self.assertEqual((w["pinShRc"], w["repairCount"], w["sameAsStock"], w["wipe"], w["controlSame"]),
+                         (0, 1, False, "PRESENT", True))
+        self.assertEqual(w["lines"], [])
+
+    def test_an_initialiser_only_buffer_gets_no_barrier_and_one_line(self):
+        w = chk.buffer_cell_expectation("initzero", "on")
+        self.assertEqual(w["blockValue"], {"enabled": True, "count": 0, "sites": []})
+        self.assertEqual((w["pinShRc"], w["repairCount"], w["sameAsStock"], w["wipe"], w["controlSame"]),
+                         (4, 0, True, None, False))
+        self.assertEqual(w["lines"], [chk.not_barriered_line(1), chk.nothing_line("initzero.c")])
+        # The line the plugin prints, word for word (WipePin's wording, with
+        # this plugin's prefix).
+        self.assertEqual(chk.not_barriered_line(1),
+                         "WipePinGcc: buffer barrier: 1 buffer(s) not barriered: every zero fill is followed "
+                         "by a later use (read as an initialiser; a wipe that later code still touches, even "
+                         "code the optimiser removes, is counted here too)")
+        # The line the earlier rule printed for a barrier it did place is not
+        # expected anywhere any more.
+        for shape in chk.BUFFER_ORDER:
+            for mode in chk.BUFFER[shape]["modes"]:
+                for line in chk.buffer_cell_expectation(shape, mode)["lines"]:
+                    self.assertNotIn("barrier site(s) are on buffers", line, f"{shape}-{mode}")
+
+    def test_the_expected_records_are_ones_the_reader_accepts(self):
+        for shape in chk.BUFFER_ORDER:
+            for mode in chk.BUFFER[shape]["modes"]:
+                w = chk.buffer_cell_expectation(shape, mode)
+                rec = good_record(module=chk.BUFFER[shape]["module"], requested=["handle"],
+                                  resolution=[{"name": "handle", "resolution": "resolved", "exact": True,
+                                               "linkage": "external"}],
+                                  pinned=[], pinnedCount=0, wouldPinCount=0, dryRun=w["dryRun"],
+                                  seen={"zeroFillMemsetInScope": 0, "zeroFillMemsetInModule": 0},
+                                  bufferBarriers=w["blockValue"])
+                self.assertEqual(chk.wpr.validate(rec, w["expect"]), [], f"{shape}-{mode}")
+                self.assertEqual(chk.wpr.repair_count(rec), w["repairCount"], f"{shape}-{mode}")
+
+    def test_labels_are_renumbered_in_order_of_appearance(self):
+        a = ["\tjne\t.L7", ".L7:", "\tjmp\t.L9", ".L9:"]
+        b = ["\tjne\t.L3", ".L3:", "\tjmp\t.L4", ".L4:"]
+        self.assertEqual(chk.canonical_labels(a), chk.canonical_labels(b))
+        self.assertNotEqual(chk.canonical_labels(a), chk.canonical_labels(["\tjne\t.L3", ".L4:", "\tjmp\t.L4", ".L3:"]))
+        # .LFB/.LFE and .LC are not plain numbered labels and stay as they are.
+        self.assertEqual(chk.canonical_labels([".LFB0:", "\tleaq\t.LC0(%rip), %rdi"]), [".LFB0:", "\tleaq\t.LC0(%rip), %rdi"])
+
+
+# The handle of switch/zcopyhdr-on.s, copied from a measured run (README.md,
+# the switch cells; the .cfi lines cut): the copy from vg_zeros the barrier
+# keeps. `other` is made up, to show the reading stops at the .size.
+ZCOPY_ON = """\
+handle:
+.LFB14:
+\t.cfi_startproc
+\tendbr64
+\tpushq\t%rbx
+\tsubq\t$48, %rsp
+\tmovq\t%rsp, %rbx
+\tmovq\t%rbx, %rdi
+\tcall\tderive@PLT
+\tmovl\t$32, %esi
+\tmovq\t%rbx, %rdi
+\tcall\tuse@PLT
+\tmovdqa\tvg_zeros(%rip), %xmm0
+\tmovdqa\t16+vg_zeros(%rip), %xmm1
+\tmovaps\t%xmm0, (%rsp)
+\tmovaps\t%xmm1, 16(%rsp)
+\taddq\t$48, %rsp
+\tpopq\t%rbx
+\tret
+\t.cfi_endproc
+.LFE14:
+\t.size\thandle, .-handle
+other:
+\tmovdqa\tvg_zeros(%rip), %xmm0
+\tmovaps\t%xmm0, (%rdi)
+\t.size\tother, .-other
+"""
+ZCOPY_STOCK = ZCOPY_ON.replace("\tmovdqa\tvg_zeros(%rip), %xmm0\n\tmovdqa\t16+vg_zeros(%rip), %xmm1\n"
+                               "\tmovaps\t%xmm0, (%rsp)\n\tmovaps\t%xmm1, 16(%rsp)\n", "", 1)
+
+
+class ZcopyReading(unittest.TestCase):
+    def test_the_kept_copy_is_two_loads_and_two_stores(self):
+        self.assertEqual(chk.zcopy_reading(ZCOPY_ON, "handle", "vg_zeros"), {"loads": 2, "stores": 2, "calls": 0})
+
+    def test_the_stock_listing_has_none_and_the_next_function_is_not_read(self):
+        self.assertEqual(chk.zcopy_reading(ZCOPY_STOCK, "handle", "vg_zeros"), {"loads": 0, "stores": 0, "calls": 0})
+        self.assertEqual(chk.zcopy_reading(ZCOPY_STOCK, "other", "vg_zeros")["stores"], 1)
+        self.assertIsNone(chk.zcopy_reading(ZCOPY_ON, "nosuch", "vg_zeros"))
+
+    def test_a_store_of_a_register_not_loaded_from_the_constant_is_not_a_copy(self):
+        text = ZCOPY_ON.replace("\tmovaps\t%xmm1, 16(%rsp)\n", "\tmovaps\t%xmm2, 16(%rsp)\n")
+        self.assertEqual(chk.zcopy_reading(text, "handle", "vg_zeros")["stores"], 1)
+        # Another symbol's load does not count.
+        self.assertEqual(chk.zcopy_reading(ZCOPY_ON, "handle", "zeros2"), {"loads": 0, "stores": 0, "calls": 0})
+
+    def test_a_memcpy_call_counts_only_with_the_constants_address(self):
+        call = "\tleaq\tvg_zeros(%rip), %rsi\n\tmovq\t%rbx, %rdi\n\tmovl\t$32, %edx\n\tcall\tmemcpy@PLT\n"
+        text = ZCOPY_STOCK.replace("\tcall\tuse@PLT\n", "\tcall\tuse@PLT\n" + call, 1)
+        self.assertEqual(chk.zcopy_reading(text, "handle", "vg_zeros")["calls"], 1)
+        text = text.replace("leaq\tvg_zeros(%rip)", "leaq\tother(%rip)")
+        self.assertEqual(chk.zcopy_reading(text, "handle", "vg_zeros")["calls"], 0)
+
+    def test_either_reading_makes_the_wipe_present(self):
+        absent = {"subject": {"verdict": "ABSENT", "via": "oracle"}}
+        present = {"subject": {"verdict": "PRESENT", "via": "oracle"}}
+        self.assertEqual(chk.wipe_reading(absent, ZCOPY_ON, "vg_zeros")[:2], ("PRESENT", "zcopy"))
+        self.assertEqual(chk.wipe_reading(absent, ZCOPY_STOCK, "vg_zeros")[0], "ABSENT")
+        self.assertEqual(chk.wipe_reading(present, ZCOPY_STOCK, "vg_zeros")[:2], ("PRESENT", "oracle"))
+        # A barrier-call cell is the oracle's reading alone.
+        self.assertEqual(chk.wipe_reading(absent, ZCOPY_ON, None), ("ABSENT", "oracle", None))
+
 
 class Lines(unittest.TestCase):
     def test_every_expected_line_and_nothing_else(self):
@@ -94,14 +354,28 @@ class Lines(unittest.TestCase):
         self.assertIn("unexpected", extra[0])
 
     def test_the_line_formats_are_the_plugins(self):
-        # Copied from a measured stderr (README.md, the shapes).
+        # Copied from measured stderr (README.md, the shapes and the switch
+        # cells): the wipe-pin-v3 plugin lists all nine unhandled counters.
         self.assertEqual(
             chk.partial_line(2, 1, "initwipe.c"),
             "WipePinGcc: partial: pinned 2 site(s) in initwipe.c; 1 followed by a later use of the same "
             "buffer (initialiser-like, not a wipe); unhandled in scope: libcallMemset=0 memsetChk=0 "
-            "nonZeroFill=0 atomicMemset=0 inlineWrapperMemset=0")
+            "nonZeroFill=0 atomicMemset=0 inlineWrapperMemset=0 bzeroCall=0 inlineWrapperBzero=0 "
+            "zeroGlobalCopy=0 zeroGlobalCopyCall=0")
         self.assertEqual(chk.dry_line(1),
                          "WipePinGcc: dry run: 1 zero-fill memset site(s) would be pinned; none was changed")
+        self.assertEqual(chk.dry_zero_copy_line(1),
+                         "WipePinGcc: dry run: 1 copy(ies) from an all-zero constant would get a barrier; "
+                         "none was changed")
+        self.assertEqual(
+            chk.nothing_line("chkvar.c", chk.unhandled_text(memsetChk=1)),
+            "WipePinGcc: nothing to pin in scope in chkvar.c (zero-fill memset in scope: 0; unhandled in scope: "
+            "libcallMemset=0 memsetChk=1 nonZeroFill=0 atomicMemset=0 inlineWrapperMemset=0 bzeroCall=0 "
+            "inlineWrapperBzero=0 zeroGlobalCopy=0 zeroGlobalCopyCall=0)")
+
+    def test_the_unhandled_list_is_the_records(self):
+        self.assertEqual(set(chk.UNHANDLED_ORDER), chk.wpr.UNHANDLED_KEYS)
+        self.assertEqual(len(chk.UNHANDLED_ORDER), 9)
 
     def test_only_plugin_lines_are_compared(self):
         self.assertEqual(chk.plugin_lines(["cc1: note", "WipePinGcc: x", ""]), ["WipePinGcc: x"])

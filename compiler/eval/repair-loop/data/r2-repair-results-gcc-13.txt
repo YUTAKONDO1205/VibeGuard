@@ -2,7 +2,7 @@ repair-loop results (run-repair-loop.mjs)
 
 compiler        gcc-13  (gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0)
 vendor          gcc: plugin WipePinGcc, loaded with -fplugin=<so>
-plugin sha256   a023b047abcafdbb824f627d227861e0ae0556072c9e4ba87e102b2c9747ba1b
+plugin sha256   ea3e8c7e8e58d6a2278b9c76420cf9d2b215d6371df3bfaf7a37bda2efeaedf9
 _FORTIFY_SOURCE -O0 (not defined), -O1 3, -O2 3, -O3 3, -Os 3  (predefined by the compiler with FLAGS; FLAGS does not set it)
 scope           functions
 dry run         false
@@ -87,6 +87,10 @@ plugin records (plugin-on compiles)
   unhandled.nonZeroFill          0
   unhandled.atomicMemset         0
   unhandled.inlineWrapperMemset  0
+  unhandled.bzeroCall            0
+  unhandled.inlineWrapperBzero   0
+  unhandled.zeroGlobalCopy       0
+  unhandled.zeroGlobalCopyCall   0
   no-wipe files with pinnedCount > 0     0/195
   helper resolved in w, not-in-module in wo (its only call was the ablated wipe; tolerated, not broken): 616 cell(s)
   listed sites (pinned[], already-volatile included) the plugin flags followedByUse (initialiser-like; a hint that can over-approximate): 290
@@ -350,7 +354,7 @@ pin changed a listing where the find step reported no loss (ALREADY_SURVIVED, w 
   -Os  49: with a hidden elimination 23, without 26
 
 pin plan (pin-plan.json in the lab directory): 131 file(s)
-  eliminations reversed / found: gcc-13 432/432 (this run), clang-18 401/401 (tracked repair rows compiler/eval/repair-loop/data/r2-repair-rows.json, sha256 05d1240efd7322543625e83158139739429f65eeb5c7c1d4f57e7d87c912ce96, a full --write-data run), total 833/833
+  eliminations reversed / found: gcc-13 432/432 (this run), clang-18 401/401 (tracked repair rows compiler/eval/repair-loop/data/r2-repair-rows.json, sha256 f71652ac06969cb74644075000c10fff9f93dfe4fdbc47933dea0505569b68fe, a full --write-data run), total 833/833
 
 baseline WIPE_ELIMINATED cells that are not RETAINED: 0
 

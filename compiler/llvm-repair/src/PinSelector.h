@@ -8,6 +8,35 @@
 //   WPIN_SCOPE        "module": every defined function  } required; the first
 //                                                          wins if both are set
 //   WPIN_DRY_RUN      "1": write the record as if pinning, change nothing
+//   WPIN_BARRIER_CALLS "1": also repair a zero-fill memset that reaches
+//                     pipeline start as a call rather than the intrinsic --
+//                     the -D_FORTIFY_SOURCE wrapper (memset.inline),
+//                     __memset_chk, or a libcall memset -- by putting an
+//                     opaque read of its destination right after it (see
+//                     WipePin.cpp), and bzero / bzero.<suffix> likewise.
+//                     Unset or "0": off; such calls are only counted.
+//   WPIN_ZERO_COPY    "1": also repair a wipe written as a
+//                     copy from an all-zero constant global -- memcpy(p,
+//                     zeros, n) with `static const unsigned char zeros[N];`.
+//                     The llvm.memcpy is replaced by a volatile llvm.memset
+//                     of the same destination and length; a call to memcpy,
+//                     __memcpy_chk or memcpy.<suffix> (the -D_FORTIFY_SOURCE
+//                     wrapper) gets the same barrier as WPIN_BARRIER_CALLS.
+//                     Unset or "0": off; such copies are only counted.
+//   WPIN_BUFFER_BARRIER "1": for every stack buffer of a function in scope
+//                     that is the destination of a zero fill -- a zero-fill
+//                     memset or memset-shaped call, a store of a zero constant
+//                     inside a loop (an aggregate buffer only), or a copy from
+//                     an all-zero constant global -- put an opaque read of the
+//                     buffer directly before each of its llvm.lifetime.end
+//                     calls, or before every `ret` when it has none (see
+//                     WipePin.cpp, "the buffer barrier";
+//                     ../schema/wipe-pin.md section 14.6). Unset or "0": off.
+//
+// The three switches are read after WPIN_DRY_RUN, in that order, and anything
+// but unset, empty, "0" or "1" is refused (wipe-pin-v3). With all three off the
+// plugin changes the code exactly as the v2 plugin did; the record says which
+// were on as barrierCalls.enabled, zeroCopy.enabled, bufferBarriers.enabled.
 //
 // Every way of getting this wrong is loud. A plugin that quietly declines to
 // install leaves a build that succeeded and looks, in every other respect, like
@@ -39,6 +68,12 @@ struct Config {
   /// The names asked for, in the order given, duplicates dropped.
   std::vector<std::string> Requested;
   bool DryRun = false;
+  /// WPIN_BARRIER_CALLS=1.
+  bool BarrierCalls = false;
+  /// WPIN_ZERO_COPY=1.
+  bool ZeroCopy = false;
+  /// WPIN_BUFFER_BARRIER=1.
+  bool BufferBarrier = false;
 
   bool Valid = false;
   /// The tail of the refusal line when !Valid. The line printed is exactly

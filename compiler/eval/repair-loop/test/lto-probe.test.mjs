@@ -118,6 +118,10 @@ test('readRecordFields: three fields, read strictly, matched to the compile that
   assert.deepEqual(readRecordFields(t(good), { dryRun: true }).problems, ['dryRun-false-expected-true']);
   assert.deepEqual(readRecordFields(t({ ...good, dryRun: true }), { dryRun: true }).problems, ['dry-run-pinned']);
   assert.equal(readRecordFields(t({ ...good, dryRun: true, pinnedCount: 0 }), { dryRun: true, module: 'a.w.c' }).ok, true);
+  // a wipe-pin-v3 record is read the same way: the three fields are unchanged in v3 (wipe-pin.md §14.1), and the
+  // probe sets no WPIN_BARRIER_CALLS or WPIN_ZERO_COPY, so pinnedCount is still the whole of the repair (§14.8)
+  const v3 = { ...good, schemaVersion: 'wipe-pin-v3', barrierCalls: { enabled: false, sites: [], barrierCount: 0, wouldBarrierCount: 0 } };
+  assert.deepEqual(readRecordFields(t(v3), { dryRun: false, module: 'a.w.c' }), { ok: true, problems: [], dryRun: false, pinnedCount: 1, module: 'a.w.c' });
 });
 
 test('ltoOutcome: NOT_LTO is first, ahead of everything a non-LTO cell could otherwise read as', () => {
@@ -167,6 +171,8 @@ test('linkPluginState: sentinel kept, removed, a record, or something else', () 
   assert.equal(linkPluginState({ exists: false, text: null }), 'removed');
   assert.equal(linkPluginState({ exists: true, text: JSON.stringify({ schemaVersion: 'wipe-pin-v1', pinnedCount: 0 }) }), 'record-written');
   assert.equal(linkPluginState({ exists: true, text: JSON.stringify({ schemaVersion: 'wipe-pin-v2' }) }), 'record-written');
+  // v3 is a record too: on the link line any record at all is the failure (ii) looks for, whatever its version
+  assert.equal(linkPluginState({ exists: true, text: JSON.stringify({ schemaVersion: 'wipe-pin-v3', pinnedCount: 0 }) }), 'record-written');
   assert.equal(linkPluginState({ exists: true, text: '{"schemaVersion": 3}' }), 'other-file');
   assert.equal(linkPluginState({ exists: true, text: '' }), 'other-file');
 });

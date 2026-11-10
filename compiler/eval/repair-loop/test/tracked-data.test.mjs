@@ -92,24 +92,54 @@ test('the tracked rows are full --write-data runs, one compiler each', () => {
   }
 });
 
+/**
+ * The README section of the latest re-record, from its heading to the next
+ * heading of the same level or higher.
+ */
+const REMEASURED_V3 = '### Re-measured with the `wipe-pin-v3` plugins — 2026-11-09';
+function readmeSection(readme, heading) {
+  const i = readme.indexOf(heading);
+  assert.ok(i >= 0, `the README no longer has the section "${heading}"; this test reads the digests from it`);
+  const rest = readme.slice(i + heading.length);
+  const j = rest.search(/\n#{1,3} /);
+  return j < 0 ? rest : rest.slice(0, j);
+}
+
 test('the README quotes the plugin digests the results texts carry, and the rows digest the gcc-13 text reads', () => {
   const readme = readFileSync(README, 'utf8');
+  const rerecord = JSON.parse(readFileSync(path.join(DATA, 'r2-v3-rerecord.json'), 'utf8'));
+  const replaced = (cc) => rerecord.plugins[cc].replaces;
+  const replacedRows = (cc) => rerecord.runs.find((r) => r.cc === cc).before.sha256;
   const pluginOf = (cc) => {
     const m = /^plugin sha256[ \t]+([0-9a-f]{64})[ \t]*$/m.exec(readResults(cc));
     assert.ok(m, `${dataFileNames(cc).results} prints no plugin sha256`);
     return m[1];
   };
-  const quote = (re, what) => {
-    const m = re.exec(readme);
-    assert.ok(m, `the README no longer quotes ${what}; this test pins that sentence, so change both together`);
-    return m[1];
-  };
-  const clangPlugin = quote(/`libWipePin\.so` sha256 `([0-9a-f]+…[0-9a-f]+)`/, 'the WipePin build of its clang-18 results');
-  assert.ok(abbreviates(clangPlugin, pluginOf('clang-18')), `README WipePin ${clangPlugin}, results ${pluginOf('clang-18')}`);
-  const gccPlugin = quote(/`libWipePinGcc\.so` sha256 `([0-9a-f]+…[0-9a-f]+)`/, 'the WipePinGcc build of its gcc-13 results');
-  assert.ok(abbreviates(gccPlugin, pluginOf('gcc-13')), `README WipePinGcc ${gccPlugin}, results ${pluginOf('gcc-13')}`);
-  const clangRows = quote(/from the tracked clang-18 rows, sha256 `([0-9a-f]+…[0-9a-f]+)`/, 'the clang-18 rows the gcc-13 results read');
-  assert.ok(abbreviates(clangRows, sha256(readFileSync(rowsFile('clang-18')))), `README clang-18 rows ${clangRows}`);
+  const SENTENCES = [
+    { re: /`libWipePin\.so` sha256 `([0-9a-f]+…[0-9a-f]+)`/g, what: 'the WipePin build of its clang-18 results',
+      now: () => pluginOf('clang-18'), before: () => replaced('clang-18') },
+    { re: /`libWipePinGcc\.so` sha256 `([0-9a-f]+…[0-9a-f]+)`/g, what: 'the WipePinGcc build of its gcc-13 results',
+      now: () => pluginOf('gcc-13'), before: () => replaced('gcc-13') },
+    { re: /from the tracked clang-18 rows, sha256 `([0-9a-f]+…[0-9a-f]+)`/g, what: 'the clang-18 rows the gcc-13 results read',
+      now: () => sha256(readFileSync(rowsFile('clang-18'))), before: () => replacedRows('clang-18') },
+  ];
+  // The re-record's section quotes what is tracked now ...
+  const section = readmeSection(readme, REMEASURED_V3);
+  for (const s of SENTENCES) {
+    const m = [...section.matchAll(s.re)];
+    assert.ok(m.length > 0, `the re-record's section no longer quotes ${s.what}; this test pins that sentence, so change both together`);
+    for (const x of m) assert.ok(abbreviates(x[1], s.now()), `README (${REMEASURED_V3}) ${s.what}: ${x[1]}, tracked ${s.now()}`);
+  }
+  // ... and anywhere else the README quotes one of these, it is either what is
+  // tracked now or what the re-record says it replaced (the Results sections
+  // describe the run that first wrote the rows, whose counts the re-record left
+  // unchanged), never a third digest.
+  for (const s of SENTENCES) {
+    for (const x of readme.matchAll(s.re)) {
+      assert.ok(abbreviates(x[1], s.now()) || abbreviates(x[1], s.before()),
+        `README ${s.what}: ${x[1]} is neither the tracked ${s.now().slice(0, 8)}… nor the replaced ${s.before().slice(0, 8)}…`);
+    }
+  }
 });
 
 test('abbreviates: prefix and suffix must both match, and the form is hex … hex', () => {

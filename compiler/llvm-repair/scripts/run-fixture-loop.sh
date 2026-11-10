@@ -3,10 +3,15 @@
 # (compiler/llvm-pass, IrCheckpoints) watching the erasure fixture with and
 # without the repair plugin loaded in the SAME clang invocation.
 #
-#   run-fixture-loop.sh --lab DIR --observer libIrCheckpoints.so --wipepin libWipePin.so
+#   run-fixture-loop.sh --lab DIR --observer libIrCheckpoints.so --wipepin libWipePin.so \
+#                       [--baseline libWipePin-v2.so]
 #
-# (or WPIN_LAB / IRCK_PLUGIN / WPIN_PLUGIN in the environment). There are no
-# default paths: where the lab and the builds live is the caller's business.
+# (or WPIN_LAB / IRCK_PLUGIN / WPIN_PLUGIN / WPIN_BASELINE_PLUGIN in the
+# environment). There are no default paths: where the lab and the builds live
+# is the caller's business. --baseline is a WipePin built from 22e7222, the last
+# wipe-pin-v2 writer; with it, the v3 cells also compare this build's -S output
+# with the switches off against that build's, and without it they say they did
+# not.
 #
 # Reads:   the fixtures written by compiler/llvm-pass/tools/make-fixtures.sh,
 #          generated into <lab>/fixtures on every run -- never into the repo.
@@ -25,10 +30,13 @@
 #          <lab>/xtu/                    four units generated into xtu/src,
 #                                        each cell's objects, stderr, record and
 #                                        linked executable in xtu/<cell>/
+#          <lab>/v3/                     sources generated into v3/src, each
+#                                        case's -S output, record, pin.sh files
+#                                        and linked executable per arm
 # Decides: nothing. check-fixture-loop.py grades, so the code that produces a
 #          number is not the code that says whether it is the right one.
 #
-# Five groups of cells:
+# Six groups of cells:
 #
 #   loop    observer, or observer + WipePin, on the erasure fixture. Every
 #           observer+pin cell is also run through pin.sh with the same WPIN_*
@@ -68,6 +76,34 @@
 #           compile of wipe.c only, and the same as a dry run. The loss here is
 #           one only the LTO link can create, by inlining the helper; the
 #           checker reads the executable itself.
+#   v3      what wipe-pin-v3 adds. For each call-shaped wipe a switch repairs --
+#           memset under -D_FORTIFY_SOURCE=2 and =3 (memset.inline), bzero under
+#           both (bzero.inline), __memset_chk, a libcall memset (-fno-builtin),
+#           a copy from an all-zero constant global without FORTIFY (llvm.memcpy)
+#           and under =2 (memcpy.inline) -- four arms, each linked with the
+#           same io.c and main.c into an executable the checker disassembles:
+#           stock (no plugin), off (WipePin, switches unset), ext (the switch
+#           set) and dry (the switch set, WPIN_DRY_RUN=1), and with --baseline
+#           a fifth, orig (the v2 build, same target). The same four arms for
+#           the buffer barrier: a wipe written as a loop of zero stores
+#           (WPIN_BUFFER_BARRIER), without and with -g, and the same loop
+#           through an advancing pointer; and, through pin.sh alone, the
+#           buffer barrier where it must not go or must not cover: a buffer
+#           whose only zero fill is an `= {0}` initialiser, or an initialiser
+#           loop; a variable-length array in a branch (-O0, -O2); a musttail
+#           call after the wipe (-O0, -O2, -Os, and a variable-length array at
+#           -O2); a lifetime end on one path and a musttail call on another
+#           (-O2); a wipe only on a path that ends in exit() (-O2); a wipe
+#           loop bounded by a pointer comparison (-O2); a
+#           buffer declared in a loop body and wiped each iteration; and
+#           __builtin_memcpy_inline from a zero constant built -ffreestanding
+#           (WPIN_ZERO_COPY). Those are compiled -S and -S -emit-llvm, and the
+#           IR is read by opt-<N> -passes=verify (WPIN_OPT names another opt).
+#           Then pin.sh refusing switch values other than 0 and 1, and the
+#           version handshake: the trailing shape's front-end IR read back with
+#           -x ir as clang wrote it, with its llvm.ident rewritten to the next
+#           major version (clang 19.1.1 for clang-18), and with no llvm.ident,
+#           each -S through pin.sh and stock.
 #
 # The observer's -fpass-plugin comes FIRST on the command line and WipePin's
 # second. Both register at the pipeline-start extension point, callbacks run in
@@ -86,11 +122,12 @@ COMPILER=$(cd "$HERE/../.." && pwd)
 LAB=${WPIN_LAB:-}
 OBSERVER=${IRCK_PLUGIN:-}
 WIPEPIN=${WPIN_PLUGIN:-}
+BASELINE=${WPIN_BASELINE_PLUGIN:-}
 CC=${WPIN_CC:-clang-18}
 PINSH="$HERE/pin.sh"
 
 usage() {
-  echo "usage: run-fixture-loop.sh --lab DIR --observer libIrCheckpoints.so --wipepin libWipePin.so" >&2
+  echo "usage: run-fixture-loop.sh --lab DIR --observer libIrCheckpoints.so --wipepin libWipePin.so [--baseline libWipePin-v2.so]" >&2
   exit 3
 }
 
@@ -99,11 +136,12 @@ while [ $# -gt 0 ]; do
     --lab) LAB=${2:-}; shift 2 || usage ;;
     --observer) OBSERVER=${2:-}; shift 2 || usage ;;
     --wipepin) WIPEPIN=${2:-}; shift 2 || usage ;;
+    --baseline) BASELINE=${2:-}; shift 2 || usage ;;
     *) usage ;;
   esac
 done
 [ -n "$LAB" ] && [ -n "$OBSERVER" ] && [ -n "$WIPEPIN" ] || usage
-for so in "$OBSERVER" "$WIPEPIN"; do
+for so in "$OBSERVER" "$WIPEPIN" ${BASELINE:+"$BASELINE"}; do
   [ -f "$so" ] || { echo "run-fixture-loop.sh: no plugin at $so" >&2; exit 3; }
 done
 mkdir -p "$LAB"
@@ -128,9 +166,9 @@ IRCK_LAB="$LAB" bash "$COMPILER/llvm-pass/tools/make-fixtures.sh" >/dev/null
 FX="$LAB/fixtures/erasure"
 [ -f "$FX/target.c" ] || { echo "run-fixture-loop.sh: fixture generation failed" >&2; exit 3; }
 
-rm -rf "$LAB/pinsh" "$LAB/shapes" "$LAB/stale" "$LAB/lto" "$LAB/xtu"
+rm -rf "$LAB/pinsh" "$LAB/shapes" "$LAB/stale" "$LAB/lto" "$LAB/xtu" "$LAB/v3"
 mkdir -p "$LAB/wipepin" "$LAB/cells" "$LAB/stderr" "$LAB/pinsh" "$LAB/shapes/src" "$LAB/stale" "$LAB/lto" \
-         "$LAB/xtu/src"
+         "$LAB/xtu/src" "$LAB/v3/src"
 OBS_SHA=$(sha256sum "$OBSERVER" | cut -d' ' -f1)
 PIN_SHA=$(sha256sum "$WIPEPIN" | cut -d' ' -f1)
 
@@ -147,7 +185,7 @@ pinsh() {
   local envs=()
   while [ $# -gt 0 ] && [ "$1" != -- ]; do envs+=("$1"); shift; done
   [ $# -gt 0 ] && shift
-  env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN WPIN_CC="$CC" \
+  env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN -u WPIN_BARRIER_CALLS -u WPIN_ZERO_COPY -u WPIN_BUFFER_BARRIER WPIN_CC="$CC" \
       "${envs[@]+"${envs[@]}"}" \
       bash "$PINSH" "$WIPEPIN" "$dir/$id.json" "$@" > /dev/null 2> "$dir/$id.console.txt"
   echo $?
@@ -170,7 +208,7 @@ cell() {
   # env -u: nothing from the caller's environment may configure WipePin in a
   # cell that did not ask for it, and nothing may leak from one cell into the
   # next (the reason run-matrix.sh uses env rather than prefix assignments).
-  env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN \
+  env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN -u WPIN_BARRIER_CALLS -u WPIN_ZERO_COPY -u WPIN_BUFFER_BARRIER \
       IRCK_LAB="$LAB" IRCK_PLUGIN="$OBSERVER" IRCK_CC="$CC" \
       OBS_EXTRACTOR=ir.wipe-effect \
       OBS_PROPERTY_ID=erasure.wipe \
@@ -455,7 +493,7 @@ stale() {
   local envs=()
   while [ $# -gt 0 ] && [ "$1" != -- ]; do envs+=("$1"); shift; done
   [ $# -gt 0 ] && shift
-  env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN \
+  env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN -u WPIN_BARRIER_CALLS -u WPIN_ZERO_COPY -u WPIN_BUFFER_BARRIER \
       WPIN_OUT="$out" "${envs[@]+"${envs[@]}"}" \
       "$CC" -fpass-plugin="$WIPEPIN" "$@" > /dev/null 2> "$LAB/stale/$id.stderr.txt"
   local rc=$?
@@ -507,13 +545,13 @@ lto() {
   local cstate_before=absent
   if [ "$what" = nopasses-ir ]; then
     obj="$LTOD/$id.ll"
-    env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN \
+    env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN -u WPIN_BARRIER_CALLS -u WPIN_ZERO_COPY -u WPIN_BUFFER_BARRIER \
         WPIN_OUT="$out" WPIN_TARGET_FNS=handle \
         "$CC" "$opt" -Xclang -disable-llvm-passes -fpass-plugin="$WIPEPIN" \
         -S -emit-llvm "$SRC/trailing.c" -o "$obj" \
         > /dev/null 2> "$LTOD/$id.compile.stderr.txt"
   else
-    env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN \
+    env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN -u WPIN_BARRIER_CALLS -u WPIN_ZERO_COPY -u WPIN_BUFFER_BARRIER \
         WPIN_OUT="$out" WPIN_TARGET_FNS=handle \
         "$CC" "$opt" "$cflag" -fpass-plugin="$WIPEPIN" -c "$SRC/trailing.c" -o "$obj" \
         > /dev/null 2> "$LTOD/$id.compile.stderr.txt"
@@ -533,11 +571,11 @@ lto() {
       bstate=absent
       [ -d "$out" ] && bstate=dir
       [ -f "$out" ] && bstate=file
-      env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN \
+      env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN -u WPIN_BARRIER_CALLS -u WPIN_ZERO_COPY -u WPIN_BUFFER_BARRIER \
           "$CC" "$opt" "${lflags[@]}" -fuse-ld=lld -shared "$obj" -o "$LTOD/$id.stock.so" \
           > /dev/null 2> "$LTOD/$id.stock.stderr.txt"
       src_rc=$?
-      env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN \
+      env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN -u WPIN_BARRIER_CALLS -u WPIN_ZERO_COPY -u WPIN_BUFFER_BARRIER \
           WPIN_OUT="$out" WPIN_TARGET_FNS=handle \
           "$CC" "$opt" "${lflags[@]}" -fuse-ld=lld -shared -Wl,--load-pass-plugin="$WIPEPIN" \
           "$obj" -o "$LTOD/$id.plugin.so" \
@@ -658,7 +696,7 @@ xtu() {
     dry) pinenv=(WPIN_OUT="$rec" WPIN_TARGET_FNS=secure_wipe WPIN_DRY_RUN=1); pinflags=(-fpass-plugin="$WIPEPIN") ;;
     *) echo "run-fixture-loop.sh: xtu: unknown mode $mode" >&2; exit 3 ;;
   esac
-  local clean=(env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN)
+  local clean=(env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN -u WPIN_BARRIER_CALLS -u WPIN_ZERO_COPY -u WPIN_BUFFER_BARRIER)
   local u rcs=()
   for u in main use; do
     "${clean[@]}" "$CC" -O2 "${cflags[@]+"${cflags[@]}"}" -c "$XSRC/$u.c" -o "$d/$u.o" 2> "$d/$u.stderr.txt"
@@ -695,6 +733,455 @@ for F in full thin; do
   xtu "xtu-$F-pin"   "$F" pin
   xtu "xtu-$F-dry"   "$F" dry
 done
+
+# ------------------------------------------------------------ v3
+# Sources written here on every run, never into the repository. Each holds the
+# subject handle() -- a 32-byte local filled by derive(), read by use(), then
+# wiped as its last use -- and the control wipe_kept(), whose fill use() reads
+# afterwards, so no build may remove it. io.c and main.c are compiled once,
+# stock, and linked into every executable: derive() and use() stay opaque.
+V3D="$LAB/v3"
+VSRC="$V3D/src"
+V3HDR='void derive(unsigned char *k);
+void use(const unsigned char *k, unsigned long n);'
+
+cat > "$VSRC/memset.c" <<V3_EOF
+#include <string.h>
+$V3HDR
+void handle(void) {
+  unsigned char key[32];
+  derive(key);
+  use(key, sizeof key);
+  memset(key, 0, sizeof key);
+}
+void wipe_kept(void) {
+  unsigned char buf[32];
+  derive(buf);
+  memset(buf, 0, sizeof buf);
+  use(buf, sizeof buf);
+}
+V3_EOF
+
+cat > "$VSRC/bzero.c" <<V3_EOF
+#include <strings.h>
+$V3HDR
+void handle(void) {
+  unsigned char key[32];
+  derive(key);
+  use(key, sizeof key);
+  bzero(key, sizeof key);
+}
+void wipe_kept(void) {
+  unsigned char buf[32];
+  derive(buf);
+  bzero(buf, sizeof buf);
+  use(buf, sizeof buf);
+}
+V3_EOF
+
+# The object size through a local pointer is not folded by the front end, so
+# the call reaches pipeline start as __memset_chk (measured, clang 18.1.3).
+cat > "$VSRC/chk.c" <<V3_EOF
+$V3HDR
+void handle(void) {
+  unsigned char key[32];
+  unsigned char *p = key;
+  derive(key);
+  use(key, sizeof key);
+  __builtin___memset_chk(p, 0, sizeof key, __builtin_object_size(p, 0));
+}
+void wipe_kept(void) {
+  unsigned char buf[32];
+  unsigned char *q = buf;
+  derive(buf);
+  __builtin___memset_chk(q, 0, sizeof buf, __builtin_object_size(q, 0));
+  use(buf, sizeof buf);
+}
+V3_EOF
+
+cat > "$VSRC/zcopy.c" <<V3_EOF
+#include <string.h>
+static const unsigned char vg_zeros[64];
+$V3HDR
+void handle(void) {
+  unsigned char key[32];
+  derive(key);
+  use(key, sizeof key);
+  memcpy(key, vg_zeros, sizeof key);
+}
+void wipe_kept(void) {
+  unsigned char buf[32];
+  derive(buf);
+  memcpy(buf, vg_zeros, sizeof buf);
+  use(buf, sizeof buf);
+}
+V3_EOF
+
+# The wipe written as a loop of zero stores, the buffer's last use: no memset
+# and no call at pipeline start, so nothing but WPIN_BUFFER_BARRIER reaches it.
+# The control zeroes its buffer the same way and then reads it.
+cat > "$VSRC/loop.c" <<V3_EOF
+$V3HDR
+void handle(void) {
+  unsigned char key[32];
+  derive(key);
+  use(key, sizeof key);
+  for (unsigned i = 0; i < sizeof key; i++) key[i] = 0;
+}
+void wipe_kept(void) {
+  unsigned char buf[32];
+  derive(buf);
+  for (unsigned i = 0; i < sizeof buf; i++) buf[i] = 0;
+  use(buf, sizeof buf);
+}
+V3_EOF
+
+# The loop wipe written through an advancing pointer, `*p++ = 0`: at pipeline
+# start the pointer lives in a stack slot that each iteration reloads, advances
+# and stores back. The control does the same and then reads its buffer.
+cat > "$VSRC/ptr.c" <<V3_EOF
+$V3HDR
+void handle(void) {
+  unsigned char key[32];
+  derive(key);
+  use(key, sizeof key);
+  unsigned char *p = key;
+  unsigned long n = sizeof key;
+  while (n--) *p++ = 0;
+}
+void wipe_kept(void) {
+  unsigned char buf[32];
+  derive(buf);
+  unsigned char *q = buf;
+  unsigned long n = sizeof buf;
+  while (n--) *q++ = 0;
+  use(buf, sizeof buf);
+}
+V3_EOF
+
+# An initialiser and no wipe: the buffer's one zero fill is followed by a use.
+cat > "$VSRC/init.c" <<V3_EOF
+$V3HDR
+void handle(void) {
+  unsigned char key[32] = {0};
+  derive(key);
+  use(key, sizeof key);
+}
+V3_EOF
+
+# The same with the initialiser written as a loop of zero stores: no memset,
+# so nothing for the pin either.
+cat > "$VSRC/initloop.c" <<V3_EOF
+$V3HDR
+void handle(void) {
+  unsigned char key[32];
+  for (unsigned i = 0; i < sizeof key; i++) key[i] = 0;
+  derive(key);
+  use(key, sizeof key);
+}
+V3_EOF
+
+# A buffer declared in a loop body and wiped at the end of every iteration:
+# the next iteration's derive() and use() are uses of another lifetime of the
+# same alloca, not of the one the wipe ends.
+cat > "$VSRC/inloop.c" <<V3_EOF
+$V3HDR
+void handle(int m) {
+  for (int j = 0; j < m; j++) {
+    unsigned char key[32];
+    derive(key);
+    use(key, sizeof key);
+    for (unsigned i = 0; i < sizeof key; i++) key[i] = 0;
+  }
+}
+V3_EOF
+
+# A variable-length array inside a branch, wiped by a loop: no lifetime
+# markers at any level, and an alloca that dominates none of the returns.
+cat > "$VSRC/vla.c" <<'V3_EOF'
+void fillv(unsigned char *k, unsigned long n);
+void usev(const unsigned char *k, unsigned long n);
+void handle(unsigned long n, int c) {
+  if (c) {
+    unsigned char v[n];
+    fillv(v, n);
+    usev(v, n);
+    for (unsigned long i = 0; i < n; i++) v[i] = 0;
+  }
+}
+V3_EOF
+
+# A loop wipe followed by a musttail call. At -O0 there are no lifetime
+# markers, so the barrier's place is the return, and nothing may stand between
+# a musttail call and its ret.
+cat > "$VSRC/musttail.c" <<V3_EOF
+$V3HDR
+int next(int x);
+int handle(int x) {
+  unsigned char key[32];
+  derive(key);
+  use(key, sizeof key);
+  for (unsigned i = 0; i < sizeof key; i++) key[i] = 0;
+  __attribute__((musttail)) return next(x);
+}
+V3_EOF
+
+# Two exits from the buffer's lifetime: a return on one path, where clang ends
+# the lifetime (-O1 and above), and a musttail call on the other, where clang
+# puts the lifetime end after the call and its ret, in a block no path reaches.
+# Both are places: the musttail call, and the lifetime end. The call to note()
+# keeps the two paths from starting with the same code, which the optimiser
+# would hoist into one block, the two barriers with it.
+cat > "$VSRC/mtexit.c" <<V3_EOF
+$V3HDR
+void note(int c);
+int next(int x, int c);
+int handle(int x, int c) {
+  unsigned char key[32];
+  derive(key);
+  use(key, sizeof key);
+  if (c) {
+    for (unsigned i = 0; i < sizeof key; i++) key[i] = 0;
+    note(c);
+    return 0;
+  }
+  for (unsigned i = 0; i < sizeof key; i++) key[i] = 0;
+  __attribute__((musttail)) return next(x, c);
+}
+V3_EOF
+
+# A wipe only on the path that ends in exit(): that path leaves the buffer's
+# lifetime at no ret and no lifetime end, so it cannot be covered, and the
+# buffer gets no barrier at all -- not one on the other path's lifetime end,
+# which would protect no wipe and let the record say "repaired".
+cat > "$VSRC/exit.c" <<V3_EOF
+$V3HDR
+void exit(int);
+int handle(int bad, int s) {
+  unsigned char key[32];
+  derive(key);
+  use(key, sizeof key);
+  if (bad) {
+    for (unsigned i = 0; i < sizeof key; i++) key[i] = 0;
+    exit(s);
+  }
+  return 0;
+}
+V3_EOF
+
+# A wipe loop that walks a pointer up to the buffer's end. The comparison of
+# the address reads no byte of the buffer: a wipe, not an initialiser.
+cat > "$VSRC/ptrcmp.c" <<V3_EOF
+$V3HDR
+void handle(void) {
+  unsigned char key[32];
+  derive(key);
+  use(key, sizeof key);
+  for (unsigned char *p = key; p < key + sizeof key; p++) *p = 0;
+}
+V3_EOF
+
+# A variable-length array in a block, wiped by a loop, then a musttail call:
+# the return is the place at every level.
+cat > "$VSRC/vlamt.c" <<'V3_EOF'
+void fillv(unsigned char *k, unsigned long n);
+void usev(const unsigned char *k, unsigned long n);
+int next(int x, unsigned long m);
+int handle(int x, unsigned long m) {
+  {
+    unsigned char v[m];
+    fillv(v, m);
+    usev(v, m);
+    for (unsigned long i = 0; i < m; i++) v[i] = 0;
+  }
+  __attribute__((musttail)) return next(x, m);
+}
+V3_EOF
+
+# A copy from an all-zero constant written with __builtin_memcpy_inline, built
+# -ffreestanding: llvm.memcpy.inline, which promises no library call.
+cat > "$VSRC/zinline.c" <<V3_EOF
+static const unsigned char vg_zeros[64];
+$V3HDR
+void handle(void) {
+  unsigned char key[32];
+  derive(key);
+  use(key, sizeof key);
+  __builtin_memcpy_inline(key, vg_zeros, sizeof key);
+}
+V3_EOF
+
+cat > "$VSRC/main.c" <<'V3_EOF'
+void handle(void);
+void wipe_kept(void);
+int main(void) {
+  handle();
+  wipe_kept();
+  return 0;
+}
+V3_EOF
+
+cat > "$VSRC/io.c" <<'V3_EOF'
+volatile unsigned char sink;
+void derive(unsigned char *k) {
+  for (unsigned i = 0; i < 32; i++) k[i] = (unsigned char)(i * 7u + 1u);
+}
+void use(const unsigned char *k, unsigned long n) {
+  for (unsigned long i = 0; i < n; i++) sink ^= k[i];
+}
+V3_EOF
+
+V3CLEAN=(env -u WPIN_OUT -u WPIN_TARGET_FNS -u WPIN_SCOPE -u WPIN_DRY_RUN -u WPIN_BARRIER_CALLS -u WPIN_ZERO_COPY -u WPIN_BUFFER_BARRIER)
+"${V3CLEAN[@]}" "$CC" -O2 -c "$VSRC/io.c" -o "$V3D/io.o" 2> "$V3D/io.stderr.txt"
+V3IO_RC=$?
+"${V3CLEAN[@]}" "$CC" -O2 -c "$VSRC/main.c" -o "$V3D/main.o" 2> "$V3D/main.stderr.txt"
+V3MAIN_RC=$?
+
+# v3link <prefix>: assemble <prefix>.s and link it with io.o and main.o into
+# <prefix>.prog. Prints "asmRc linkRc".
+v3link() {
+  local pre=$1 arc lrc
+  "${V3CLEAN[@]}" "$CC" -c "$pre.s" -o "$pre.o" 2> "$pre.as.stderr.txt"
+  arc=$?
+  "${V3CLEAN[@]}" "$CC" "$pre.o" "$V3D/io.o" "$V3D/main.o" -o "$pre.prog" 2> "$pre.link.stderr.txt"
+  lrc=$?
+  echo "$arc $lrc"
+}
+
+# v3case <id> <source> <switch> <cflags...>
+#   the arms, each -O2 -S of <source> with <cflags>, target handle:
+#   stock  no plugin                                    <id>-stock.s
+#   orig   the --baseline (v2) build, clang directly    <id>-orig.s     (only with --baseline)
+#   off    WipePin through pin.sh, switches unset       <id>-off.{s,json,manifest.kv,stderr.txt}
+#   ext    the same with <switch>=1                     <id>-ext.*
+#   dry    the same with <switch>=1 WPIN_DRY_RUN=1      <id>-dry.*
+# Written down, not judged: each step's rc.
+v3case() {
+  local id=$1 src=$2 sw=$3
+  shift 3
+  local base="$V3D/$id" rcs=() r
+  "${V3CLEAN[@]}" "$CC" -O2 "$@" -S "$VSRC/$src" -o "$base-stock.s" 2> "$base-stock.stderr.txt"
+  rcs+=("stockRc=$?")
+  if [ -n "$BASELINE" ]; then
+    "${V3CLEAN[@]}" WPIN_OUT="$base-orig.json" WPIN_TARGET_FNS=handle \
+        "$CC" -O2 "$@" -fpass-plugin="$BASELINE" -S "$VSRC/$src" -o "$base-orig.s" 2> "$base-orig.stderr.txt"
+    rcs+=("origRc=$?")
+  else
+    rcs+=("origRc=not-run")
+  fi
+  r=$(pinsh "$V3D" "$id-off" WPIN_TARGET_FNS=handle -- -O2 "$@" -S "$VSRC/$src" -o "$base-off.s")
+  rcs+=("offPinShRc=$r")
+  r=$(pinsh "$V3D" "$id-ext" WPIN_TARGET_FNS=handle "$sw=1" -- -O2 "$@" -S "$VSRC/$src" -o "$base-ext.s")
+  rcs+=("extPinShRc=$r")
+  r=$(pinsh "$V3D" "$id-dry" WPIN_TARGET_FNS=handle "$sw=1" WPIN_DRY_RUN=1 -- -O2 "$@" -S "$VSRC/$src" -o "$base-dry.s")
+  rcs+=("dryPinShRc=$r")
+  local arm lk
+  for arm in stock off ext dry; do
+    lk=$(v3link "$base-$arm")
+    rcs+=("${arm}AsmRc=${lk% *}" "${arm}LinkRc=${lk#* }")
+  done
+  kv "$V3D/$id.kv" "cellId=$id" "source=$src" "switch=$sw" "cflags=$*" "baseline=${BASELINE:+present}" \
+     "baselineSha256=$([ -n "$BASELINE" ] && sha256sum "$BASELINE" | cut -d' ' -f1)" \
+     "ioRc=$V3IO_RC" "mainRc=$V3MAIN_RC" "${rcs[@]}" "wipepinSha256=$PIN_SHA"
+  echo "$id"
+}
+v3case v3-fort2       memset.c WPIN_BARRIER_CALLS -D_FORTIFY_SOURCE=2
+v3case v3-fort3       memset.c WPIN_BARRIER_CALLS -D_FORTIFY_SOURCE=3
+v3case v3-bzero-fort2 bzero.c  WPIN_BARRIER_CALLS -D_FORTIFY_SOURCE=2
+v3case v3-bzero-fort3 bzero.c  WPIN_BARRIER_CALLS -D_FORTIFY_SOURCE=3
+v3case v3-chk         chk.c    WPIN_BARRIER_CALLS
+v3case v3-libcall     memset.c WPIN_BARRIER_CALLS -fno-builtin
+v3case v3-zcopy       zcopy.c  WPIN_ZERO_COPY
+v3case v3-zcopy-fort2 zcopy.c  WPIN_ZERO_COPY -D_FORTIFY_SOURCE=2
+v3case v3-loop        loop.c   WPIN_BUFFER_BARRIER
+v3case v3-loop-g      loop.c   WPIN_BUFFER_BARRIER -g
+v3case v3-loop-ptr    ptr.c    WPIN_BUFFER_BARRIER
+
+# The buffer barrier on an initialiser: pin.sh alone, -O2 -S, target handle,
+# WPIN_BUFFER_BARRIER=1, beside a stock -S of the same source.
+"${V3CLEAN[@]}" "$CC" -O2 -S "$VSRC/init.c" -o "$V3D/v3-buffer-init-stock.s" 2> "$V3D/v3-buffer-init-stock.stderr.txt"
+V3INIT_STOCK_RC=$?
+V3INIT_RC=$(pinsh "$V3D" v3-buffer-init WPIN_TARGET_FNS=handle WPIN_BUFFER_BARRIER=1 -- -O2 -S "$VSRC/init.c" \
+              -o "$V3D/v3-buffer-init.s")
+kv "$V3D/v3-buffer-init.kv" "cellId=v3-buffer-init" "source=init.c" "setting=WPIN_BUFFER_BARRIER=1" \
+   "stockRc=$V3INIT_STOCK_RC" "pinShRc=$V3INIT_RC" "wipepinSha256=$PIN_SHA"
+echo v3-buffer-init
+
+# Where a barrier must not go and what it must not cover, and the inline copy.
+# Each through pin.sh alone, target handle, twice -- -S, which runs the
+# backend, and -S -emit-llvm, whose output the IR verifier then reads (a
+# release clang does not verify the IR the plugin leaves) -- beside a stock -S.
+V3OPT=${WPIN_OPT:-opt-$("$CC" -dumpversion 2>/dev/null | cut -d. -f1)}
+# v3single <id> <source> [VAR=VAL ...] -- <clang flags...>
+v3single() {
+  local id=$1 src=$2 envs=() rc llrc stockrc vrc
+  shift 2
+  while [ $# -gt 0 ] && [ "$1" != -- ]; do envs+=("$1"); shift; done
+  [ $# -gt 0 ] && shift
+  "${V3CLEAN[@]}" "$CC" "$@" -S "$VSRC/$src" -o "$V3D/$id-stock.s" 2> "$V3D/$id-stock.stderr.txt"
+  stockrc=$?
+  rc=$(pinsh "$V3D" "$id" WPIN_TARGET_FNS=handle "${envs[@]}" -- "$@" -S "$VSRC/$src" -o "$V3D/$id.s")
+  llrc=$(pinsh "$V3D" "$id-ll" WPIN_TARGET_FNS=handle "${envs[@]}" -- "$@" -S -emit-llvm "$VSRC/$src" -o "$V3D/$id.ll")
+  if [ -s "$V3D/$id.ll" ]; then
+    "$V3OPT" -passes=verify -disable-output "$V3D/$id.ll" > "$V3D/$id.verify.txt" 2>&1
+    vrc=$?
+  else
+    vrc=no-ll
+  fi
+  kv "$V3D/$id.kv" "cellId=$id" "source=$src" "setting=${envs[*]}" "cflags=$*" "stockRc=$stockrc" \
+     "pinShRc=$rc" "llPinShRc=$llrc" "verifyRc=$vrc" "opt=$V3OPT" "wipepinSha256=$PIN_SHA"
+  echo "$id"
+}
+v3single v3-vla-branch-O0   vla.c      WPIN_BUFFER_BARRIER=1 -- -O0
+v3single v3-vla-branch-O2   vla.c      WPIN_BUFFER_BARRIER=1 -- -O2
+v3single v3-musttail-O0     musttail.c WPIN_BUFFER_BARRIER=1 -- -O0
+v3single v3-vla-musttail-O2 vlamt.c    WPIN_BUFFER_BARRIER=1 -- -O2
+v3single v3-musttail-O2     musttail.c WPIN_BUFFER_BARRIER=1 -- -O2
+v3single v3-musttail-Os     musttail.c WPIN_BUFFER_BARRIER=1 -- -Os
+v3single v3-musttail-exits-O2 mtexit.c WPIN_BUFFER_BARRIER=1 -- -O2
+v3single v3-loop-ptrcmp-O2  ptrcmp.c   WPIN_BUFFER_BARRIER=1 -- -O2
+v3single v3-exit-O2         exit.c     WPIN_BUFFER_BARRIER=1 -- -O2
+v3single v3-buffer-initloop initloop.c WPIN_BUFFER_BARRIER=1 -- -O2
+v3single v3-buffer-inloop   inloop.c   WPIN_BUFFER_BARRIER=1 -- -O2
+v3single v3-zcopy-inline    zinline.c  WPIN_ZERO_COPY=1 -- -O2 -ffreestanding
+
+# pin.sh where the configuration must be refused: no record, exit 3.
+v3refuse() {
+  local id=$1 setting=$2 rc
+  rc=$(pinsh "$V3D" "$id" WPIN_TARGET_FNS=handle "$setting" -- -O2 -c "$VSRC/memset.c" -o "$V3D/$id.o")
+  kv "$V3D/$id.kv" "cellId=$id" "setting=$setting" "pinShRc=$rc" "wipepinSha256=$PIN_SHA"
+  echo "$id"
+}
+v3refuse v3-refuse-barrier2      WPIN_BARRIER_CALLS=2
+v3refuse v3-refuse-zerocopy-true WPIN_ZERO_COPY=true
+v3refuse v3-refuse-buffer2       WPIN_BUFFER_BARRIER=2
+
+# The handshake. The trailing shape's front-end IR (-O2, no LLVM passes) is
+# compiled back with -x ir: as written, with its !llvm.ident rewritten to name
+# the next major version of clang (19.1.1 when $CC is clang-18), and with
+# !llvm.ident removed. Only the metadata differs. Each is compiled -S twice:
+# through pin.sh, and stock, so that the checker can see that a refused module
+# was left exactly as a stock compile leaves it.
+"${V3CLEAN[@]}" "$CC" -O2 -Xclang -disable-llvm-passes -S -emit-llvm "$SRC/trailing.c" -o "$V3D/ident-fe.ll" \
+    2> "$V3D/ident-fe.stderr.txt"
+V3FE_RC=$?
+V3CC_MAJOR=$("$CC" -dumpversion 2>/dev/null | cut -d. -f1)
+V3OTHER="$(( ${V3CC_MAJOR:-0} + 1 )).1.1"
+sed -e 's/^\(![0-9]* = !{!"\)[^"]*clang version [^"]*"/\1clang version '"$V3OTHER"'"/' "$V3D/ident-fe.ll" \
+    > "$V3D/ident-other.ll"
+grep -v '^!llvm.ident' "$V3D/ident-fe.ll" > "$V3D/ident-none.ll"
+v3ident() {
+  local id=$1 ll=$2 rc src
+  "${V3CLEAN[@]}" "$CC" -O2 -x ir -S "$V3D/$ll" -o "$V3D/$id-stock.s" 2> "$V3D/$id-stock.stderr.txt"
+  src=$?
+  rc=$(pinsh "$V3D" "$id" WPIN_TARGET_FNS=handle -- -O2 -x ir -S "$V3D/$ll" -o "$V3D/$id.s")
+  kv "$V3D/$id.kv" "cellId=$id" "input=$ll" "frontEndRc=$V3FE_RC" "stockRc=$src" "pinShRc=$rc" \
+     "ccMajor=$V3CC_MAJOR" "identLines=$(grep -c '^!llvm.ident' "$V3D/$ll")" "wipepinSha256=$PIN_SHA"
+  echo "$id"
+}
+v3ident v3-ident-same  ident-fe.ll
+v3ident v3-ident-other ident-other.ll
+v3ident v3-ident-none  ident-none.ll
 
 if [ $failed -ne 0 ]; then
   echo "run-fixture-loop.sh: at least one cell did not produce its records" >&2
