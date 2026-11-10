@@ -494,9 +494,9 @@ a reason rather than a backlog.
 | harness | gated? | file:line |
 |---|---|---|
 | `compiler/eval/ai-generated/lib/build-analyze.mjs` | **yes** | import `:37`, gate `:118`, `process.exit(3)` `:123` — refuses to write rows |
-| `compiler/eval/repair-loop/run-repair-loop.mjs` | **yes** | import `:82`, gate `:359`, `die(2)` `:364` for `--write-data`, `die(3)` `:367` |
+| `compiler/eval/repair-loop/run-repair-loop.mjs` | **yes** | import `:82`, gate `:361`, `die(2)` `:366` for `--write-data`, `die(3)` `:369` |
 | `compiler/eval/repair-loop/tools/lto-probe.mjs` | **yes** | import `:58`, gate `:289`, `die(3)` `:293` — no LTO cell run |
-| `compiler/eval/repair-loop/tools/lto-probe-gcc.mjs` | **yes** | import `:61`, gate `:320`, `die(3)` `:324` — no LTO cell run |
+| `compiler/eval/repair-loop/tools/lto-probe-gcc.mjs` | **yes** | import `:61`, gate `:324`, `die(3)` `:328` — no LTO cell run |
 | `compiler/pass-instrumentation/observer/scripts/run-all.sh` | **yes, 2026-09-12** | `:80-92` — the observer channel on the plugin it just built, before the five harnesses, exiting with this lane's own code |
 | `compiler/eval/calibration/run-all.sh` | **no, and correctly not** | a different instrument — `libIrCheckpoints.so` (`scripts/run-battery.sh:59`). See the three rows below the table |
 | `compiler/eval/second-vendor` | **no, and correctly not** | a different instrument — `lib/asm-oracle.mjs` |

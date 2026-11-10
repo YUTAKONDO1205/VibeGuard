@@ -34,12 +34,17 @@
  *               flag on every field but pinned[].line (context and
  *               evidenceDigest aside)
  *
- * --reader: records are read by lib/pin-record.mjs, which accepts wipe-pin-v2
+ * --reader: records are read by lib/pin-record.mjs, which accepts wipe-pin-v3
  * only. A plugin built from an older commit writes an older schema; to measure
- * it (the wipe-pin-v1 control), pass the lib/pin-record.mjs of that commit,
- * extracted with the files it imports. Every record is still read strictly, by
- * the reader of the schema that wrote it, and the results name that reader's
- * schemaVersion and sha256.
+ * it (the wipe-pin-v1 control, or a wipe-pin-v2 build such as the one at
+ * 22e7222), pass the lib/pin-record.mjs of that commit, extracted with the
+ * files it imports (compiler/schema/wipe-pin.md §14.10: a record is read with
+ * the reader of the commit that wrote it). Every record is still read
+ * strictly, by the reader of the schema that wrote it, and the results name
+ * that reader's schemaVersion and sha256. The compiles set none of
+ * WPIN_BARRIER_CALLS, WPIN_ZERO_COPY and WPIN_BUFFER_BARRIER, and say so to the
+ * reader (a v3 reader compares them, wipe-pin.md §14.9 W1; an older one
+ * ignores the three keys).
  *
  * Lab output only, under --out, which must lie outside the repository: the
  * records, fbu-rows.json (one row per site: its line, followedByUse and
@@ -83,6 +88,8 @@ const GEN = join(AIGEN, 'generated-corpus', 'r2');
 const SCEN_PATH = join(AIGEN, 'scenarios.json');
 const CELL_PATH = join(AIGEN, 'lib', 'ablation-cell.mjs');
 const DEFAULT_READER = join(LANE, 'lib', 'pin-record.mjs');
+/** The three v3 switches, none of which this tool sets (every WPIN_* is removed from the compile's environment). */
+const NO_SWITCHES = Object.freeze({ barrierCalls: false, zeroCopy: false, bufferBarriers: false });
 const ALL_OPTS = ['-O0', '-O1', '-O2', '-O3', '-Os'];
 
 const USAGE = `usage: node fbu-levels.mjs --plugin <so> --out <dir> [options]
@@ -235,7 +242,7 @@ async function main() {
     rmSync(recordPath, { force: true });
     const argv = [...cell.FLAGS, opt, ...(withLine ? lineArgs : []), vc.pluginArg, '-o', devNull, src];
     const r = await tool(args.cc, argv, wpinEnv(recordPath));
-    const rr = reader.readPinRecord(recordPath, { component, scope: 'module', dryRun: true, opt, module: basename(src) });
+    const rr = reader.readPinRecord(recordPath, { component, scope: 'module', dryRun: true, opt, module: basename(src), ...NO_SWITCHES });
     const lines = r.stderr.split('\n').filter((l) => l.trim() !== '');
     const problems = [...(r.rc !== 0 ? [`compile rc ${r.rc}`] : []), ...rr.problems];
     return {

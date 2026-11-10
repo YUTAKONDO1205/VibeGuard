@@ -148,7 +148,7 @@ const COMPILER_DIR_URL = 'https://github.com/YUTAKONDO1205/VibeGuard/tree/main/c
  *     linkTimeAttributions is 1 at -O2/-O3/-Os and 0 at -O1, of cells 15, with
  *     unsupported 3 at every level. One cell, one fixture.
  *   - "the plugin marks the erasing store" described only clang.
- *     llvm-repair/src/WipePin.cpp:681 calls setVolatile; the gcc twin instead
+ *     llvm-repair/src/WipePin.cpp:1637 calls setVolatile; the gcc twin instead
  *     INSERTS `__asm__ __volatile__("" : : "g"(dest) : "memory")` after the
  *     memset (gcc-repair/README.md:32). Added code, not a mark.
  *   - "the three flags" as the method. The attribution comes from an

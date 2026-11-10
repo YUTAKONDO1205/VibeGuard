@@ -82,6 +82,8 @@ import { corpusFiles, erasureFamily } from './lib/corpus.mjs';
 import { runSpikeGate, summarise as summariseSpikeGate } from '../spike/lib/gate.mjs';
 
 const run = promisify(execFile);
+/** The three v3 switches, none of which this runner sets (wipe-pin.md §14.9 W1). */
+const NO_SWITCHES = Object.freeze({ barrierCalls: false, zeroCopy: false, bufferBarriers: false });
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
 const AIGEN = resolve(HERE, '..', 'ai-generated');
@@ -388,7 +390,7 @@ async function main() {
     // pass plugin as a GCC plugin, and clang cannot load a GCC plugin as a pass
     // plugin, so the compile fails and the run stops before any cell.
     if (!pre.loads) die(5, `the plugin did not load into ${ccName} (loaded with ${pluginArg.split('=')[0]}=, as a ${component} plugin); first lines of stderr:\n${pre.loadStderr}`);
-    const rA = readPinRecord(recA, { component, scope: 'module', dryRun: args.dryRun, opt: '-O2', module: basename(src) });
+    const rA = readPinRecord(recA, { component, scope: 'module', dryRun: args.dryRun, opt: '-O2', module: basename(src), ...NO_SWITCHES });
     pre.recordOnModuleScope = rA.ok ? 'valid' : rA.problems.join(', ');
     // Contract: WPIN_OUT set but no target -> no record.
     const envB = { ...BASE_ENV, WPIN_OUT: recB };
@@ -501,7 +503,12 @@ async function main() {
 
   const recDir = (id) => { const d = join(args.out, 'records', id); mkdirSync(d, { recursive: true }); return d; };
   const asmPath = (id, opt, side, mode) => join(BUILD, `${id}.${ccName}${opt}.${side}.${mode}.s`);
-  const baseExpect = { scope: args.scope, dryRun: args.dryRun };
+  // The runner sets none of the three v3 switches (every inherited WPIN_* is
+  // removed above, and pluginEnv adds none), and says so to the reader: a
+  // record that reports one on was made in another environment than this one
+  // (compiler/schema/wipe-pin.md §14.9 W1). With all three off, pinnedCount is
+  // the whole of what the plugin repaired (§14.8), which is what outcomeOf reads.
+  const baseExpect = { scope: args.scope, dryRun: args.dryRun, ...NO_SWITCHES };
 
   // ---- the four-compile cell -------------------------------------------------
   const rows = [];
@@ -635,7 +642,7 @@ async function main() {
       const aOff = await cell.compile(args.cc, ['-O2'], p, asmPath(t.id, '-O2', 'default', 'off'));
       const aOn = await cell.compile(args.cc, ['-O2', pluginArg], p, asmPath(t.id, '-O2', 'default', 'on'), { env: pluginEnv(rec, [], 'module') });
       const aEn = await cell.compile(args.cc, ['-O2', ...t.macros.map((m) => `-D${m}=1`)], p, asmPath(t.id, '-O2', 'enabled', 'off'));
-      const rr = readPinRecord(rec, { component, scope: 'module', dryRun: args.dryRun, opt: '-O2', module: basename(p) });
+      const rr = readPinRecord(rec, { component, scope: 'module', dryRun: args.dryRun, opt: '-O2', module: basename(p), ...NO_SWITCHES });
       cfgRows.push(configguardRow(t, {
         bodyDefaultOff: aOff ? cell.bodyOf(aOff, t.fn) : null,
         bodyDefaultOn: aOn ? cell.bodyOf(aOn, t.fn) : null,
@@ -925,7 +932,13 @@ function renderResults({ args, ccName, ccVersion, pluginSha, pre, rows, authz, c
   L.push(`  pinned sites (sum of pinnedCount)      ${valid.reduce((n, x) => n + x.pinnedCount, 0)}`);
   L.push(`  would-pin sites (sum of wouldPinCount) ${valid.reduce((n, x) => n + x.wouldPinCount, 0)}`);
   for (const k of SEEN_KEYS) L.push(`  seen.${pad(k, 24)} ${sum(k, 'seen')}`);
-  for (const k of UNHANDLED_KEYS) L.push(`  unhandled.${pad(k, 20)} ${sum(k, 'unhandled')}`);
+  // A counter no valid record carries is printed as not measured rather than 0:
+  // rows written by the v2 reader carry five of the nine (wipe-pin.md §14.10).
+  for (const k of UNHANDLED_KEYS) {
+    const carrying = valid.filter((x) => x.unhandled && k in x.unhandled).length;
+    L.push(`  unhandled.${pad(k, 20)} ${carrying ? sum(k, 'unhandled') : 'not measured (no record carries it)'}`
+      + `${carrying && carrying < valid.length ? ` (carried by ${carrying} of ${valid.length})` : ''}`);
+  }
   L.push(`  no-wipe files with pinnedCount > 0     ${none.filter((r) => (r.pinnedCount ?? 0) > 0).length}/${none.length}`);
   const absent = er.filter((r) => r.absentAfterAblation.length);
   L.push(`  helper resolved in w, not-in-module in wo (its only call was the ablated wipe; tolerated, not broken): ${absent.length} cell(s)`);

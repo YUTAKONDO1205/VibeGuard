@@ -6,8 +6,8 @@ compiler        gcc-13  (gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0)
 opts            -O0 -O1 -O2 -O3 -Os
 file subset     (all 155 multi-span files)
 tracked rows    (default) sha256 cb93551fe438256985fd30533fe0dbef51b51739f4d8c0de5ce5eef7e674bed9
-repair rows     clang-18 (default) sha256 05d1240efd7322543625e83158139739429f65eeb5c7c1d4f57e7d87c912ce96
-repair rows     gcc-13 (default) sha256 cd999c151a27599e200c32be6152bfb13df7edb4b5649e198f1d5e8d6748ba9e
+repair rows     clang-18 (default) sha256 f71652ac06969cb74644075000c10fff9f93dfe4fdbc47933dea0505569b68fe
+repair rows     gcc-13 (default) sha256 ce05300453cf9bdcb030ae2cbc9d46fde74c36eba5f55c8bed6c058899958264
 cells           1550 (770 measured; the rest have no removable span to ablate alone)
 per-span verdicts 1670
 

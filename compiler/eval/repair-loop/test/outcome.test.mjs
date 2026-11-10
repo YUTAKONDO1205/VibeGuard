@@ -21,14 +21,20 @@ function rec({ pinnedCount = 1, wouldPinCount = pinnedCount, dryRun = false, sco
     ok: true,
     problems: [],
     record: {
-      // outcomeOf takes records pin-record.mjs already accepted; the shape is v1's,
+      // outcomeOf takes records pin-record.mjs already accepted; the shape is v3's
+      // (the repair loop sets no switch, so the three switched blocks are off),
       // but the lists are not filled in because nothing here reads them.
-      schemaVersion: 'wipe-pin-v1', component: 'WipePin', module: 'x.w.c', optLevel: { speedup: 2, size: 0 },
+      schemaVersion: 'wipe-pin-v3', component: 'WipePin', module: 'x.w.c', optLevel: { speedup: 2, size: 0 },
       scope, requested: resolution.map((r) => r.name), resolution, dryRun,
       pinned: [], pinnedCount, wouldPinCount,
       seen: { zeroFillMemsetInScope: 2, zeroFillMemsetInModule: 3 },
-      unhandled: { libcallMemset: 0, memsetChk: 0, nonZeroFill: 0, atomicMemset: 0, inlineWrapperMemset: 0 },
+      unhandled: { libcallMemset: 0, memsetChk: 0, nonZeroFill: 0, atomicMemset: 0, inlineWrapperMemset: 0,
+        bzeroCall: 0, inlineWrapperBzero: 0, zeroGlobalCopy: 0, zeroGlobalCopyCall: 0 },
       toolchain: { digest: '', clang: '', packages: [] },
+      barrierCalls: { enabled: false, sites: [], barrierCount: 0, wouldBarrierCount: 0 },
+      zeroCopy: { enabled: false, sites: [], repairedCount: 0, wouldRepairCount: 0 },
+      bufferBarriers: { enabled: false, count: 0, sites: [] },
+      host: { ident: 'Ubuntu clang version 18.1.3', identMajor: 18, builtMajor: 18, checked: true, intrinsicsCompared: null },
     },
   };
 }

@@ -56,31 +56,61 @@ counted by `tableCensus()` beside it:
 
 | provenance | rows | where the number comes from |
 |---|---|---|
-| `recomputed` | 22 | tracked evidence with a cite: `test/pin-families.test.mjs` recomputes the ratio from the rows in `data/` (or from the corpus text) on every run, and fails on drift |
-| `lab-run` | 3 | one real run, typed in by hand and recomputed by nothing. The gate is re-run over it and its quote is checked against the file it names; the numbers inside its prose are not evidence in this lane's sense |
-| `no-number` | 2 | there is no reading to check: an instrument nobody has run yet, or an argument about where in the pipeline the repair sits |
+| `recomputed` | 26 | tracked evidence with a cite: `test/pin-families.test.mjs` recomputes the ratio from the rows in `data/` (or from the corpus text) on every run, and fails on drift |
+| `lab-run` | 10 | one real run, typed in by hand and recomputed by nothing. The gate is re-run over it and its quote, where it has one, is checked against the file it names; the numbers inside its prose are not evidence in this lane's sense |
+| `no-number` | 3 | there is no reading to check: an instrument nobody has run yet, or an argument about where in the pipeline the repair sits |
 
-That is 27 rows in total, over 7 properties and 18 (property, shape) groups.
+That is 39 rows in total, over 7 properties and 22 (property, shape) groups.
 
-The five rows that are **not** recomputed are the ones a reader must not take for
-measurements, so they are named here rather than only counted:
+The thirteen rows that are **not** recomputed are the ones a reader must not take
+for measurements, so they are named here rather than only counted:
 
-- `lab-run` — `dead-store-memset-intrinsic` / `pass-delete/attributed-position`
-  (the `-O2` intervention below), `backend-drop-after-ir-pipeline` /
-  `pass-delete/attributed-position` (the `-O1` run), and
-  `wipe-in-a-helper-in-another-translation-unit` /
+- `lab-run`, in this tree's instruments — `dead-store-memset-intrinsic` /
+  `pass-delete/attributed-position` (the `-O2` intervention below),
+  `backend-drop-after-ir-pipeline` / `pass-delete/attributed-position` (the
+  `-O1` run), and `wipe-in-a-helper-in-another-translation-unit` /
   `wipe-pin/pin-the-helper-by-name` (measured on another lane's fixture loop,
   not here).
+- `lab-run`, quoted from this tree's plugin READMEs — `wipe-written-as-stores` /
+  `wipe-pin/buffer-barrier-at-lifetime-end` and `wipe-written-as-stores` /
+  `wipe-pin-gcc/buffer-barrier-at-clobber`: the buffer barrier
+  (`WPIN_BUFFER_BARRIER`) landed in both plugins on 2026-11-09, and the only
+  reading of it is the lab run their *Measured* sections report, over
+  machine-made rewrites of 52 files of another corpus (*The v3 candidates*
+  below). The quote is checked against the README; the run's notes are outside
+  this repository.
+- `lab-run`, outside this tree — five rows whose only reading is a lab run
+  whose notes and data are not in the repository, so their `labObservation`
+  names its source as *lab notes outside this repository* and carries no quote
+  for the test to check (`test/pin-families.test.mjs` holds them to exactly
+  that, and to `unmeasured`). Four read the switched candidates of
+  `../../schema/wipe-pin.md` §14 (*The v3 candidates* below):
+  `memset-chk` / `wipe-pin/asm-barrier-after-call`, `memset-chk` /
+  `wipe-pin-gcc/asm-barrier-after-call`, `inline-wrapper-memset` /
+  `wipe-pin/asm-barrier-after-call` and `zero-global-copy` /
+  `wipe-pin-gcc/asm-barrier-after-zero-copy`. The fifth is
+  `backend-drop-after-ir-pipeline` / `pass-delete/every-dse-leaf`, a replay with
+  every dead-store pass removed. Four more rows carry the same kind of lab run —
+  the ones whose `wipe-pin-v3` counter the tracked rows carry since the
+  2026-11-09 re-record, `bzero-call`, `inline-wrapper-bzero`, `zero-global-copy`
+  and `zero-global-copy-call` with their switched candidate — but their count is
+  recomputed, so they are counted with the `recomputed` rows below.
 - `no-number` — `dead-store-builtin-memset-gimple` / `gcc/fdisable-tree-pass`
-  (**driven, not yet run**) and `wipe-written-as-stores` / `none`
-  (`by-construction`).
+  (**driven, not yet run**), `libcall-memset` /
+  `wipe-pin/asm-barrier-after-call` and `bzero-call` /
+  `wipe-pin/asm-barrier-after-call` (**written, not yet run on this shape** in
+  any corpus run: both need `-fno-builtin`, which no corpus run used; the clang
+  plugin's fixture cell `v3-libcall` builds a library `memset` with
+  `-fno-builtin` and shows the barrier placed, but stock `-O2` keeps that opaque
+  call too, so it shows no wipe kept that would otherwise be lost).
 
-6 of the 22 `recomputed` rows also carry a hand-typed `labObservation` beside
-their recomputed count: the six zero-instance shapes, whose counts are recomputed
-(`0/3200` from the tracked records in `data/`, `0/720` from the corpus text) and
-whose sentence about what the plugin does with the shape is quoted from another
-README. The count is recomputed; the sentence is checked only for still being in
-the file it is attributed to.
+10 of the 26 `recomputed` rows also carry a hand-typed `labObservation` beside
+their recomputed count: the ten zero-instance rows, whose counts are recomputed
+(`0/3200` from the tracked records in `data/`, `0/720` from the corpus text).
+For six of them the sentence about what the plugin does with the shape is quoted
+from another README, and is checked only for still being in the file it is
+attributed to; the other four are the `wipe-pin-v3` counters' rows, whose lab
+run outside this tree is typed in and checked by nothing.
 
 Every ratio in the two tables below, and the `0/712` in the
 `survive.authorization-check` section, is `recomputed`. Three numbers in this
@@ -103,13 +133,13 @@ both were wrong.
 
 | shape | candidate | status | measured |
 |---|---|---|---|
-| dead-store memset intrinsic (clang) | `wipe-pin/volatile-memset` | `measured-retained` | **401/401** cell eliminations reversed |
+| dead-store memset intrinsic (clang) | `wipe-pin/volatile-memset` | `measured-retained` | **401/401** cell eliminations reversed (by the find step's verdicts; seven `-O1` cells it reads as surviving are eliminations the pin also reversed, read by hand 2026-11-10, so 408/408 counted that way — `README.md`, *What this does not claim*) |
 | dead-store memset intrinsic (clang) | `pass-delete/attributed-position` | `not-repairable-in-compiler` (one lab run) | the property never came back; see below |
 | dead-store `__builtin_memset` on GIMPLE (gcc) | `wipe-pin-gcc/volatile-asm-barrier` | `measured-retained` | **432/432** |
 | dead-store `__builtin_memset` on GIMPLE (gcc) | `gcc/fdisable-tree-pass` | `unmeasured` | **driven, not yet run** — `tools/intervene.mjs --cc gcc-13` |
 | hidden span elimination (clang) | `wipe-pin/volatile-memset` | `measured-retained` | **63/63** |
 | hidden span elimination (gcc) | `wipe-pin-gcc/volatile-asm-barrier` | `measured-retained` | **92/92** |
-| dropped by the backend, after the IR pipeline | `wipe-pin/volatile-memset` | `measured-retained` | **62/62** at `-O1` |
+| dropped by the backend, after the IR pipeline | `wipe-pin/volatile-memset` | `measured-retained` | **62/62** at `-O1` (69/69 with the seven cells above) |
 | dropped by the backend, after the IR pipeline | `pass-delete/attributed-position` | `unmeasured` | there is no middle-end position to delete |
 | wipe in a helper in another translation unit | `wipe-pin/pin-the-helper-by-name` | `unmeasured` | no cell here; measured on another instrument |
 | `libcall-memset` (`-fno-builtin`) | `wipe-pin/volatile-memset` | `unmeasured` | 0 occurrences in 3200 records |
@@ -118,11 +148,29 @@ both were wrong.
 | `non-zero-fill` | `wipe-pin/volatile-memset` | `unmeasured` | 0 occurrences in 3200 records |
 | `atomic-memset` | `wipe-pin/volatile-memset` | `unmeasured` | 0 occurrences in 3200 records |
 | `bzero` through the fortifying header (gcc) | `wipe-pin-gcc/volatile-asm-barrier` | `unmeasured` | 0 plain `bzero(` calls in 720 corpus files |
-| wipe written as stores (a zeroing loop) | none | `not-repairable-in-compiler` (by construction) | the loop is still a loop where both plugins run |
+| wipe written as stores (a zeroing loop) | `wipe-pin/buffer-barrier-at-lifetime-end` | `unmeasured` | lab run over rewrites (50/50 kept on clang-18), quoted from `../../llvm-repair/README.md` |
+| wipe written as stores (a zeroing loop) | `wipe-pin-gcc/buffer-barrier-at-clobber` | `unmeasured` | lab run over rewrites (51/51 kept on gcc-13), quoted from `../../gcc-repair/README.md` |
+| dropped by the backend, after the IR pipeline | `pass-delete/every-dse-leaf` | `unmeasured` | lab run outside this tree: a replay without dse, not a repair |
+| `libcall-memset` (`-fno-builtin`) | `wipe-pin/asm-barrier-after-call` | `unmeasured` | **written, not yet run on this shape** |
+| `memset-chk` | `wipe-pin/asm-barrier-after-call` | `unmeasured` | lab run outside this tree, over rewrites |
+| `memset-chk` | `wipe-pin-gcc/asm-barrier-after-call` | `unmeasured` | lab run outside this tree, over rewrites |
+| `inline-wrapper-memset` (`_FORTIFY_SOURCE`) | `wipe-pin/asm-barrier-after-call` | `unmeasured` | lab run outside this tree |
+| `bzero-call` (v3 counter `bzeroCall`) | `wipe-pin-gcc/asm-barrier-after-call` | `unmeasured` | 0 occurrences in 3200 records; lab run outside this tree, over rewrites |
+| `bzero-call` (v3 counter `bzeroCall`) | `wipe-pin/asm-barrier-after-call` | `unmeasured` | **written, not yet run on this shape** |
+| `inline-wrapper-bzero` (v3 counter `inlineWrapperBzero`) | `wipe-pin/asm-barrier-after-call` | `unmeasured` | 0 occurrences in 3200 records; lab run outside this tree, over rewrites |
+| `zero-global-copy` (v3 counter `zeroGlobalCopy`) | `wipe-pin/zero-copy-to-volatile-memset` | `unmeasured` | 0 occurrences in 3200 records; lab run outside this tree, over rewrites |
+| `zero-global-copy` (v3 counter `zeroGlobalCopy`) | `wipe-pin-gcc/asm-barrier-after-zero-copy` | `unmeasured` | lab run outside this tree, over rewrites |
+| `zero-global-copy-call` (v3 counter `zeroGlobalCopyCall`) | `wipe-pin/zero-copy-to-volatile-memset` | `unmeasured` | 0 occurrences in 3200 records; lab run outside this tree, over rewrites |
 
-Six of the rows above carry a count of 0, and that count is the honest part
-(the seventh shape with nothing measured, the zeroing loop, has no count to
-carry: nothing was run for it at all). `0` occurrences is a reason for
+Ten of the rows above carry a count of 0, and that count is the honest part
+(the zeroing loop has no count to carry: no tracked cell puts a loop wipe in
+front of either buffer-barrier candidate, and their rows hold a lab run over
+rewrites, nothing more). Four of the ten are the counters `wipe-pin-v3` added:
+the tracked rows carry them since they were re-recorded with the v3 plugins on
+2026-11-09 (`README.md`, *Re-measured with the `wipe-pin-v3` plugins*). Before
+that, the rows were summarised from `wipe-pin-v2` records, which do not have
+those counters, and their cites were `tracked: false` and recomputed to `0/0`,
+not measured, never a count of none (`../../schema/wipe-pin.md` §14.10). `0` occurrences is a reason for
 `unmeasured`, and the table refuses to let it become `measured-not-retained`:
 nobody put that shape in front of the repair, so nothing is known about what the
 repair would have done with it.
@@ -183,16 +231,20 @@ the 95.6%, so the table keeps the integers it can check and quotes the later
 percentage as text; the test asserts both sentences are still in the files they
 are attributed to.
 
-Four rows route to `VG-MEM-006` with `appliesToThisShape: "no"`, and those are
+Eight rows route to `VG-MEM-006` with `appliesToThisShape: "no"`, and those are
 the ones worth reading twice:
 
 - **a plain `bzero(` wipe** (`bzero-through-the-fortifying-header`) — the rule's
   scope is `memset` only, and `explicit_bzero` is what it recommends as the
-  *fix*. The gcc plugin cannot see the shape either (the fortifying header's
-  `bzero` wrapper is not a memset and has no counter). Neither side covers it.
-  The corpus contains 0 such calls, so nothing here is measured about it at all.
+  *fix*. The gcc plugin does not pin the shape either (the fortifying header's
+  `bzero` wrapper is not a memset; v2 had no counter for it, v3 counts it as
+  `unhandled.bzeroCall`). Neither side covers it in this tree. The corpus
+  contains 0 such calls, so nothing here is measured about it at all.
 - **a wipe written as a zeroing loop** (`wipe-written-as-stores`) — no memset for
-  the rule to match and no site for either plugin to pin.
+  the rule to match, and no memset or call for the pin or the barriers after a
+  call. The buffer barrier (`WPIN_BUFFER_BARRIER=1`) reaches it in a lab run
+  over machine-made rewrites only (*The v3 candidates*), so neither side holds
+  it in anything this table recomputes.
 - **a non-zero fill** (`non-zero-fill`) — out of scope on both sides, and
   deliberately: overwriting a secret with `0xAA` is a different act from
   clearing it.
@@ -200,11 +252,107 @@ the ones worth reading twice:
   cannot spell that intrinsic, so there is no source text for a lexical rule to
   match, and the pin is written for the ordinary `llvm.memset`. The corpus holds
   0 of them, so nothing is measured about this one either.
+- **a `bzero` call the plugins count** (`bzero-call`, v3's `bzeroCall`) — the
+  same calls as the first bullet, read from the plugin's counter rather than the
+  corpus text. The rule does not read `bzero`; the barrier candidate has a lab
+  run over rewrites outside this tree and nothing here.
+- **the fortifying `bzero` wrapper on clang** (`inline-wrapper-bzero`, v3's
+  `inlineWrapperBzero`) — the source spells `bzero(...)`, outside the rule; the
+  barrier candidate has the same kind of lab run and nothing here.
+- **a copy from an all-zero constant** (`zero-global-copy`, v3's
+  `zeroGlobalCopy`) — `memcpy(p, zeros, n)` is a wipe the rule does not read,
+  and before v3 neither plugin even counted it.
+- **the same copy through a call** (`zero-global-copy-call`, v3's
+  `zeroGlobalCopyCall`) — the fortifying `memcpy.inline` on clang, a checked or
+  library `memcpy` on gcc; outside the rule for the same reason.
 
-This list is four bullets and not three because `atomic-memset` belongs in it:
-the prose said *three* until `tableCensus()` started recomputing the count. It
-is the same kind of error the table's `measured-*` rows are built to make
-impossible, in the one place no test was looking.
+This list held four bullets before the v3 counters, and it was three until
+`tableCensus()` started recomputing the count, because `atomic-memset` had been
+left out. It is the same kind of error the table's `measured-*` rows are built to
+make impossible, in the one place no test was looking.
+
+## The v3 candidates: switched repairs, counted shapes, and lab runs only
+
+`../../schema/wipe-pin.md` §14 gives both plugins two switches, each off by
+default: `WPIN_BARRIER_CALLS=1` puts a barrier after the zero-fill calls they
+used to only count (`memset.inline`, `__memset_chk`, a library `memset`,
+`bzero`, `bzero.<suffix>` on clang; a zero-fill `BUILT_IN_MEMSET_CHK` and
+`bzero` on gcc), and `WPIN_ZERO_COPY=1` repairs a copy from an all-zero
+constant. It also adds four `unhandled` counters, which give four shapes a
+signal they did not have: `bzero-call`, `inline-wrapper-bzero`,
+`zero-global-copy` and `zero-global-copy-call`. The candidates are
+`wipe-pin/asm-barrier-after-call`, `wipe-pin-gcc/asm-barrier-after-call`,
+`wipe-pin/zero-copy-to-volatile-memset` and
+`wipe-pin-gcc/asm-barrier-after-zero-copy`.
+
+Every one of their rows is `unmeasured`, and that is the rule this table keeps,
+not modesty: the readings are one lab run of the patches the switches land from,
+made outside this tree, over machine-made rewrites (each wipe of 52 files of
+another corpus rewritten as `bzero`, as `__builtin___memset_chk`, or as a copy
+from a 64 KiB `static const` zero array) and over that corpus's `_FORTIFY_SOURCE`
+builds. The rows carry what that run reported -- for example 51/51 of the
+eliminated wipes kept by the patched plugin where the unpatched one kept 0/51;
+its one patched arm set both switches, so no row separates what each switch
+did --
+as `labObservation`, which the validator refuses to let carry a `measured-*`
+word. The rewrites were made after each gap had been seen, so they show the gap
+closed, not strength on forms nobody wrote down. Two rows have no number at all:
+the library `memset` and the plain `bzero` call on clang both need
+`-fno-builtin`, which no corpus run used. The clang plugin's fixture loop has
+one `-fno-builtin` cell, `v3-libcall` (`../../llvm-repair/README.md`): with
+`WPIN_BARRIER_CALLS=1` the library `memset` gets its barrier (`libcallMemset` 1
+with the switch off, 0 and one barrier with it on), but stock `-O2` keeps the
+opaque call too, so the cell shows the barrier placed and no repair. No
+measured case reaches a plain `bzero` call on clang: without `_FORTIFY_SOURCE`
+clang 18 lowers it to `llvm.memset`.
+
+The four new counters are counted over this corpus since the tracked rows were
+re-recorded with the v3 plugins on 2026-11-09, every switch off (`README.md`,
+*Re-measured with the `wipe-pin-v3` plugins*): each reads 0 in the 3200
+accepted erasure-cell records of each vendor. Their rows were promoted in the
+same change from `tracked: false` (the claim recomputed to `0/0`: a counter a
+row does not carry is not measured for that row, never 0) to `tracked: true`
+with `0/3200`, and they stay `unmeasured` for the reason the five v2 counters'
+rows do: a count of none means the corpus never put the shape in front of the
+repair.
+
+`backend-drop-after-ir-pipeline` gains a row of the same kind:
+`pass-delete/every-dse-leaf`, a lab replay outside this tree with every dead-store
+pass removed from the pipeline clang printed. The wipe was still eliminated in
+35 of 51 files of another corpus and 70 of this corpus's 113 clang-18 `-O2`
+eliminations, at instruction selection, and removing `llvm.lifetime.end` kept
+all of them. The function named for it, `DAGCombiner::visitLIFETIME_END`, is
+**an inference** from upstream source matched to the measured properties, not an
+observation of the build; and these are counts of a replay without dse, not of a
+repair at `-O2` as written.
+
+`wipe-written-as-stores` gains two rows of the same kind, and loses one. A
+third switch, `WPIN_BUFFER_BARRIER=1` (§14.6, landed in both plugins on
+2026-11-09), puts the barrier at the other end of a buffer's life — before each
+`llvm.lifetime.end` on clang, before each end-of-scope clobber on gcc — for
+every stack buffer of a function in scope that a zero fill writes, a store of
+zero inside a loop included. That needs no memset and no call, so the row that
+called this shape `not-repairable-in-compiler` by construction (candidate
+`none`: no site at the position either plugin runs) is gone, and
+`wipe-pin/buffer-barrier-at-lifetime-end` and
+`wipe-pin-gcc/buffer-barrier-at-clobber` stand in its place, both `unmeasured`.
+Their `labObservation` is a lab run with the builds of this tree of the
+morning of 2026-11-10 (clang-18 `8f2bd520…`, gcc-13 `10fc7a00…`; the builds of
+the current source, `7c9d11f2…` and `ea3e8c7e…`, which recorded the tracked
+rows that evening, gave the same rows in the same runs) over E3 v2 — 52 machine-made rewrites of another corpus's files,
+each wipe rewritten as a loop of zero stores — at `-O2` in three
+`_FORTIFY_SOURCE` settings: stock deleted the wipe in 50 (clang-18) and 51
+(gcc-13) of the 52 in each setting, the other two switches kept none of those,
+and the buffer barrier kept 50/50 and 51/51, with `verdictOf`, the zero-store
+count and the count difference agreeing. The quote each row carries is that
+table row of its plugin's README. The same run with the builds of that morning for
+clang-15 to 20 and gcc-10 to 14 gave 49/49 on clang-15, 50/50 on clang-16 to
+20, and 50/50, 50/50, 51/51, 51/51 and 50/50 on gcc-10 to 14, typed into the
+same `labObservation`; the builds before the 2026-11-09 fixes had given the
+same counts. It is a gap closed
+on rewrites made after the gap was seen: nothing here is measured on a loop a
+model wrote, or at a level other than `-O2`. A loop into an argument's memory,
+a global or the heap gets no barrier.
 
 ## The intervention tool, and what it found
 
@@ -498,10 +646,12 @@ path and was not written.
   checkpoint words either — and, deliberately, not clang's `firstLossPass` or
   this tool's `attribution.pass`, which name a different kind of reading
   altogether (`../../second-vendor/run-gcc-dump-probe.mjs`).
-- **The `unmeasured` rows are the honest majority.** Nine of the sixteen
-  `survive.secure-wipe` rows are `unmeasured`, six of them because the corpus
-  contains zero instances of the shape. The table is mostly a map of what has
-  not been measured, and that is what it is for.
+- **The `unmeasured` rows are the honest majority.** 22 of the 28
+  `survive.secure-wipe` rows are `unmeasured`, ten of them because the corpus
+  contains zero instances of the shape (four of those ten counts are new in
+  `wipe-pin-v3` and were first read when the rows were re-recorded with it).
+  The table is mostly a map of what has not been measured, and that is
+  what it is for.
 
 ## Edits requested in files this lane does not own
 
@@ -587,10 +737,11 @@ The honest split, because the automation is new and the corpus is old:
   `route-to-source-unverified` (`VG-AUTH-001`, `survive.input-validation`).
   `../test/routing.test.mjs` asserts exactly that against the tracked file.
 - **Not measured. Synthetic rows only.** Every `survive.secure-wipe` group the
-  routing could reach. All five `unhandled` counters read 0 in both tracked
-  runs — the pin two sections above — so over the r2 corpus no erasure-side
-  signal has ever fired, and the routing reports those five groups as
-  `zero-occurrences`. That the routing sends them to `VG-MEM-006` when a
+  routing could reach. All nine `unhandled` counters read 0 in both tracked
+  runs (the four `wipe-pin-v3` added since the rows were re-recorded on
+  2026-11-09) — the pin two sections above — so over the r2 corpus no
+  erasure-side signal has ever fired, and the routing reports those nine groups
+  as `zero-occurrences`. That the routing sends them to `VG-MEM-006` when a
   counter *does* fire is shown by synthetic rows in `../test/routing.test.mjs`
   and by nothing else. It has not been observed on a compiler.
 - **~~Not exercised end to end.~~ Run on 2026-09-12**, three times with

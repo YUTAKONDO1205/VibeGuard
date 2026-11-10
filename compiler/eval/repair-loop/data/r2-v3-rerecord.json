@@ -1,0 +1,514 @@
+{
+  "schemaVersion": "repair-rerecord/1",
+  "readMeFirst": "The tracked repair-loop rows were written by the wipe-pin-v2 plugins (db3298cf… for clang-18, a023b047… for gcc-13) and last compared on 2026-09-12 (data/r2-regate.json). This file is the re-record with the wipe-pin-v3 plugins built from this tree (compiler/schema/wipe-pin.md §14), every v3 switch off, as run-repair-loop.mjs always runs them. The rows were rewritten with --write-data, and the rows they replaced were compared with the new ones row by row before the rewrite was kept. The only change found is the one the schema change makes: each valid record summary carries the nine unhandled counters instead of five.",
+  "question": "with the wipe-pin-v3 plugins (every switch off), do the tracked repair-loop rows differ from the wipe-pin-v2 rows in anything but the four unhandled counters v3 adds to each record summary?",
+  "answer": "no, on both vendors: every row is equal to the row it replaced once those four keys are removed; outcome, baseline, repaired, listings and every other field are unchanged, and the four counters read 0 in every valid record summary",
+  "measuredOn": "2026-11-10",
+  "toolchain": {
+    "cc": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+    "gcc": "gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "node": "v18.19.1",
+    "host": "Linux 6.6.87.2-microsoft-standard-WSL2 x86_64"
+  },
+  "plugins": {
+    "clang-18": {
+      "file": "libWipePin.so",
+      "schema": "wipe-pin-v3",
+      "builtFrom": "compiler/llvm-repair",
+      "sha256": "7c9d11f2053182eb66497f14a6ea07115de43ae09f333a51e1facdd9c9609b99",
+      "warnings": 0,
+      "replaces": "db3298cfb30d14200fe0822261eaa1c35aa51aed4aef869a0edd3151f073a4c8"
+    },
+    "gcc-13": {
+      "file": "libWipePinGcc.so",
+      "schema": "wipe-pin-v3",
+      "builtFrom": "compiler/gcc-repair",
+      "sha256": "ea3e8c7e8e58d6a2278b9c76420cf9d2b215d6371df3bfaf7a37bda2efeaedf9",
+      "warnings": 0,
+      "replaces": "a023b047abcafdbb824f627d227861e0ae0556072c9e4ba87e102b2c9747ba1b"
+    }
+  },
+  "switches": {
+    "WPIN_BARRIER_CALLS": "unset",
+    "WPIN_ZERO_COPY": "unset",
+    "WPIN_BUFFER_BARRIER": "unset"
+  },
+  "order": "clang-18 --write-data, gcc-13 --write-data, clang-18 --write-data again (so that its results text names the gcc-13 rows written in between), then gcc-13 once more into the lab only. One run at a time.",
+  "runs": [
+    {
+      "cc": "clang-18",
+      "trackedFile": "data/r2-repair-rows.json",
+      "resultsFile": "data/r2-repair-results.txt",
+      "wroteTrackedRows": true,
+      "erasureFiles": 360,
+      "wipeCells": 1605,
+      "noWipeCells": 195,
+      "perSpanCompilePairs": 835,
+      "invocations": [
+        {
+          "order": 1,
+          "writeData": true,
+          "exit": 0,
+          "wallClockSeconds": 129,
+          "gate": {
+            "established": true,
+            "configurations": {
+              "num": 5,
+              "den": 5
+            },
+            "discriminating": {
+              "num": 4,
+              "den": 5
+            },
+            "injectionHeld": true
+          },
+          "rowsSha256": "f71652ac06969cb74644075000c10fff9f93dfe4fdbc47933dea0505569b68fe",
+          "resultsSha256": "ceebbacfa296891c121d6181bbb17f6f3284fe76d57e2857d02dd8b87bc8404d"
+        },
+        {
+          "order": 3,
+          "writeData": true,
+          "exit": 0,
+          "wallClockSeconds": 126,
+          "gate": {
+            "established": true,
+            "configurations": {
+              "num": 5,
+              "den": 5
+            },
+            "discriminating": {
+              "num": 4,
+              "den": 5
+            },
+            "injectionHeld": true
+          },
+          "rowsSha256": "f71652ac06969cb74644075000c10fff9f93dfe4fdbc47933dea0505569b68fe",
+          "resultsSha256": "ceebbacfa296891c121d6181bbb17f6f3284fe76d57e2857d02dd8b87bc8404d"
+        }
+      ],
+      "before": {
+        "sha256": "05d1240efd7322543625e83158139739429f65eeb5c7c1d4f57e7d87c912ce96",
+        "rows": 1881,
+        "resultsSha256": "beb739c3b27b968aa2216892b678b9175c1fece2367b239488ab2d6641e3eb1d"
+      },
+      "after": {
+        "sha256": "f71652ac06969cb74644075000c10fff9f93dfe4fdbc47933dea0505569b68fe",
+        "rows": 1881,
+        "resultsSha256": "ceebbacfa296891c121d6181bbb17f6f3284fe76d57e2857d02dd8b87bc8404d"
+      },
+      "comparison": {
+        "rowsCompared": 1881,
+        "sameRowCount": true,
+        "sameCellSequence": true,
+        "identicalRows": 81,
+        "equalAfterRemovingTheFourV3Counters": 1881,
+        "otherDifferences": 0,
+        "everyValidSummaryCarriesTheNineCounters": true,
+        "validSummaries": 3395,
+        "invalidSummaries": 10,
+        "addedPaths": {
+          "recordW.unhandled.bzeroCall": 1605,
+          "recordW.unhandled.inlineWrapperBzero": 1605,
+          "recordW.unhandled.zeroGlobalCopy": 1605,
+          "recordW.unhandled.zeroGlobalCopyCall": 1605,
+          "recordWo.unhandled.bzeroCall": 1595,
+          "recordWo.unhandled.inlineWrapperBzero": 1595,
+          "recordWo.unhandled.zeroGlobalCopy": 1595,
+          "recordWo.unhandled.zeroGlobalCopyCall": 1595,
+          "record.unhandled.bzeroCall": 195,
+          "record.unhandled.inlineWrapperBzero": 195,
+          "record.unhandled.zeroGlobalCopy": 195,
+          "record.unhandled.zeroGlobalCopyCall": 195
+        },
+        "fieldsEqual": {
+          "outcome": {
+            "num": 1686,
+            "den": 1686
+          },
+          "outcomeReason": {
+            "num": 1605,
+            "den": 1605
+          },
+          "baseline": {
+            "num": 1605,
+            "den": 1605
+          },
+          "repaired": {
+            "num": 1605,
+            "den": 1605
+          },
+          "baselineControl": {
+            "num": 1605,
+            "den": 1605
+          },
+          "repairedControl": {
+            "num": 1605,
+            "den": 1605
+          },
+          "listings": {
+            "num": 1800,
+            "den": 1800
+          },
+          "spans": {
+            "num": 1605,
+            "den": 1605
+          },
+          "hiddenElimination": {
+            "num": 1605,
+            "den": 1605
+          },
+          "hiddenRetained": {
+            "num": 1605,
+            "den": 1605
+          },
+          "pinDelta": {
+            "num": 1605,
+            "den": 1605
+          },
+          "trackedVerdict": {
+            "num": 1686,
+            "den": 1686
+          },
+          "baselineMatchesTracked": {
+            "num": 1800,
+            "den": 1800
+          },
+          "verdict": {
+            "num": 195,
+            "den": 195
+          },
+          "recordOk": {
+            "num": 81,
+            "den": 81
+          },
+          "pinnedCount": {
+            "num": 276,
+            "den": 276
+          },
+          "controlUntouched": {
+            "num": 1800,
+            "den": 1800
+          },
+          "noPinNoChangeW": {
+            "num": 1605,
+            "den": 1605
+          },
+          "noPinNoChangeWo": {
+            "num": 1605,
+            "den": 1605
+          },
+          "noPinNoChange": {
+            "num": 195,
+            "den": 195
+          },
+          "ablatedUnchanged": {
+            "num": 1605,
+            "den": 1605
+          },
+          "effectW": {
+            "num": 1605,
+            "den": 1605
+          },
+          "effectWRepStos": {
+            "num": 1605,
+            "den": 1605
+          }
+        },
+        "compareRows": {
+          "identical": 81,
+          "only_in_a": 1800,
+          "only_in_b": 1800,
+          "equal": false,
+          "paired_by_cell": 1800,
+          "unpaired_only_in_a": 0,
+          "unpaired_only_in_b": 0,
+          "differing_fields": {
+            "recordW": 1605,
+            "recordWo": 1595,
+            "record": 195
+          },
+          "verdict_transitions": {}
+        }
+      },
+      "v3Counters": {
+        "bzeroCall": {
+          "total": 0,
+          "records": 3395
+        },
+        "inlineWrapperBzero": {
+          "total": 0,
+          "records": 3395
+        },
+        "zeroGlobalCopy": {
+          "total": 0,
+          "records": 3395
+        },
+        "zeroGlobalCopyCall": {
+          "total": 0,
+          "records": 3395
+        }
+      },
+      "resultsText": {
+        "linesBefore": 218,
+        "linesAfter": 222,
+        "removed": {
+          "plugin sha256": 1,
+          "cross-vendor coverage line": 1
+        },
+        "added": {
+          "plugin sha256": 1,
+          "unhandled counter line": 4,
+          "cross-vendor coverage line": 1
+        }
+      },
+      "determinism": {
+        "what": "the rows of invocation 1 and invocation 3",
+        "byteIdentical": true
+      }
+    },
+    {
+      "cc": "gcc-13",
+      "trackedFile": "data/r2-repair-rows-gcc-13.json",
+      "resultsFile": "data/r2-repair-results-gcc-13.txt",
+      "wroteTrackedRows": true,
+      "erasureFiles": 360,
+      "wipeCells": 1605,
+      "noWipeCells": 195,
+      "perSpanCompilePairs": 835,
+      "invocations": [
+        {
+          "order": 2,
+          "writeData": true,
+          "exit": 0,
+          "wallClockSeconds": 116,
+          "gate": {
+            "established": true,
+            "configurations": {
+              "num": 5,
+              "den": 5
+            },
+            "discriminating": {
+              "num": 4,
+              "den": 5
+            },
+            "injectionHeld": true
+          },
+          "rowsSha256": "ce05300453cf9bdcb030ae2cbc9d46fde74c36eba5f55c8bed6c058899958264",
+          "resultsSha256": "1e4ea251897c2453a3cb04422671b985e5626d7d84ea3ae5d7d2ee4fc50e616e"
+        },
+        {
+          "order": 4,
+          "writeData": false,
+          "exit": 0,
+          "wallClockSeconds": 82,
+          "gate": {
+            "established": true,
+            "configurations": {
+              "num": 5,
+              "den": 5
+            },
+            "discriminating": {
+              "num": 4,
+              "den": 5
+            },
+            "injectionHeld": true
+          },
+          "rowsSha256": "ce05300453cf9bdcb030ae2cbc9d46fde74c36eba5f55c8bed6c058899958264",
+          "resultsSha256": "1e4ea251897c2453a3cb04422671b985e5626d7d84ea3ae5d7d2ee4fc50e616e"
+        }
+      ],
+      "before": {
+        "sha256": "cd999c151a27599e200c32be6152bfb13df7edb4b5649e198f1d5e8d6748ba9e",
+        "rows": 1883,
+        "resultsSha256": "8c8a0fac117465cd19d648e303de59255ebe6e6be1e686956f9b06f5f0dcaca2"
+      },
+      "after": {
+        "sha256": "ce05300453cf9bdcb030ae2cbc9d46fde74c36eba5f55c8bed6c058899958264",
+        "rows": 1883,
+        "resultsSha256": "1e4ea251897c2453a3cb04422671b985e5626d7d84ea3ae5d7d2ee4fc50e616e"
+      },
+      "comparison": {
+        "rowsCompared": 1883,
+        "sameRowCount": true,
+        "sameCellSequence": true,
+        "identicalRows": 83,
+        "equalAfterRemovingTheFourV3Counters": 1883,
+        "otherDifferences": 0,
+        "everyValidSummaryCarriesTheNineCounters": true,
+        "validSummaries": 3395,
+        "invalidSummaries": 10,
+        "addedPaths": {
+          "recordW.unhandled.bzeroCall": 1605,
+          "recordW.unhandled.inlineWrapperBzero": 1605,
+          "recordW.unhandled.zeroGlobalCopy": 1605,
+          "recordW.unhandled.zeroGlobalCopyCall": 1605,
+          "recordWo.unhandled.bzeroCall": 1595,
+          "recordWo.unhandled.inlineWrapperBzero": 1595,
+          "recordWo.unhandled.zeroGlobalCopy": 1595,
+          "recordWo.unhandled.zeroGlobalCopyCall": 1595,
+          "record.unhandled.bzeroCall": 195,
+          "record.unhandled.inlineWrapperBzero": 195,
+          "record.unhandled.zeroGlobalCopy": 195,
+          "record.unhandled.zeroGlobalCopyCall": 195
+        },
+        "fieldsEqual": {
+          "outcome": {
+            "num": 1688,
+            "den": 1688
+          },
+          "outcomeReason": {
+            "num": 1605,
+            "den": 1605
+          },
+          "baseline": {
+            "num": 1605,
+            "den": 1605
+          },
+          "repaired": {
+            "num": 1605,
+            "den": 1605
+          },
+          "baselineControl": {
+            "num": 1605,
+            "den": 1605
+          },
+          "repairedControl": {
+            "num": 1605,
+            "den": 1605
+          },
+          "listings": {
+            "num": 1800,
+            "den": 1800
+          },
+          "spans": {
+            "num": 1605,
+            "den": 1605
+          },
+          "hiddenElimination": {
+            "num": 1605,
+            "den": 1605
+          },
+          "hiddenRetained": {
+            "num": 1605,
+            "den": 1605
+          },
+          "pinDelta": {
+            "num": 1605,
+            "den": 1605
+          },
+          "trackedVerdict": {
+            "num": 1688,
+            "den": 1688
+          },
+          "baselineMatchesTracked": {
+            "num": 1800,
+            "den": 1800
+          },
+          "verdict": {
+            "num": 195,
+            "den": 195
+          },
+          "recordOk": {
+            "num": 83,
+            "den": 83
+          },
+          "pinnedCount": {
+            "num": 278,
+            "den": 278
+          },
+          "controlUntouched": {
+            "num": 1800,
+            "den": 1800
+          },
+          "noPinNoChangeW": {
+            "num": 1605,
+            "den": 1605
+          },
+          "noPinNoChangeWo": {
+            "num": 1605,
+            "den": 1605
+          },
+          "noPinNoChange": {
+            "num": 195,
+            "den": 195
+          },
+          "ablatedUnchanged": {
+            "num": 1605,
+            "den": 1605
+          },
+          "effectW": {
+            "num": 1605,
+            "den": 1605
+          },
+          "effectWRepStos": {
+            "num": 1605,
+            "den": 1605
+          }
+        },
+        "compareRows": {
+          "identical": 83,
+          "only_in_a": 1800,
+          "only_in_b": 1800,
+          "equal": false,
+          "paired_by_cell": 1800,
+          "unpaired_only_in_a": 0,
+          "unpaired_only_in_b": 0,
+          "differing_fields": {
+            "recordW": 1605,
+            "recordWo": 1595,
+            "record": 195
+          },
+          "verdict_transitions": {}
+        }
+      },
+      "v3Counters": {
+        "bzeroCall": {
+          "total": 0,
+          "records": 3395
+        },
+        "inlineWrapperBzero": {
+          "total": 0,
+          "records": 3395
+        },
+        "zeroGlobalCopy": {
+          "total": 0,
+          "records": 3395
+        },
+        "zeroGlobalCopyCall": {
+          "total": 0,
+          "records": 3395
+        }
+      },
+      "resultsText": {
+        "linesBefore": 367,
+        "linesAfter": 371,
+        "removed": {
+          "plugin sha256": 1,
+          "cross-vendor coverage line": 1
+        },
+        "added": {
+          "plugin sha256": 1,
+          "unhandled counter line": 4,
+          "cross-vendor coverage line": 1
+        }
+      },
+      "determinism": {
+        "what": "the rows and results text of invocation 2 and invocation 4",
+        "byteIdentical": true
+      }
+    }
+  ],
+  "notMeasuredHere": [
+    "Any v3 switch. run-repair-loop.mjs sets none of WPIN_BARRIER_CALLS, WPIN_ZERO_COPY and WPIN_BUFFER_BARRIER and tells the reader so (wipe-pin.md §14.9 W1), so these rows say what the v3 plugins do with every switch off and nothing about a switch turned on. The switched candidates are lab observations in pin-families.json.",
+    "The plan-driven run, the two red controls and the LTO probes. They write no tracked rows, so nothing of theirs was rewritten; the numbers the README quotes for them are the v2 plugins' (data/lto-regate.json for the probes).",
+    "Any other compiler or version: clang-18 18.1.3 and gcc-13 13.3.0 only, as before.",
+    "The comparison itself is not recomputed by a test: the replaced rows are no longer in the working tree (they are in the history, at the commit data/r2-regate.json describes, by the sha256 under before). What a test does recompute from the rows here now is listed under provenance."
+  ],
+  "provenance": {
+    "comparison": "lab-run -- compare-rows.mjs and a row-by-row comparison in the lab, before the rewrite was kept; the replaced rows are the ones data/r2-regate.json pins by sha256",
+    "afterDigests": "recomputed -- test/regate.test.mjs recomputes both rows files' and both results texts' sha256 and row counts and holds this record to them",
+    "v3Counters": "recomputed -- test/regate.test.mjs re-sums the four counters and re-counts the valid summaries and their key sets from the rows here now",
+    "gate": "lab-run -- read from the first line of each run's log",
+    "wallClockSeconds": "lab-run -- the runs shared the machine with other work, and are expected to differ elsewhere"
+  }
+}

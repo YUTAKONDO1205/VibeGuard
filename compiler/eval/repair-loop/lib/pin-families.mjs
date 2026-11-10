@@ -149,6 +149,15 @@ export const CLAIMS = Object.freeze({
    * strict reader accepted in this lane's tracked run. `num` 0 with a positive
    * `den` is "this corpus contains no instance of the shape", which is a reason
    * for `unmeasured` and never a reason for `measured-*`.
+   *
+   * Only a record that CARRIES the counter is in the denominator. The tracked
+   * rows were summarised from wipe-pin-v2 records, which have five of the nine
+   * v3 counters (compiler/schema/wipe-pin.md §14.10): for the other four a row
+   * says nothing, and reading its silence as 0 would put a count of none in the
+   * table for a shape no record was asked about. Such a counter recomputes to
+   * {num: 0, den: 0} -- not measured -- until the rows are re-measured with a v3
+   * writer, and ../test/pin-families.test.mjs holds the rows that cite it to
+   * exactly that.
    */
   'unhandled-shape-occurrences': ({ rows, counter }) => {
     let num = 0, den = 0;
@@ -156,9 +165,9 @@ export const CLAIMS = Object.freeze({
       if (r.kind !== 'erasure') continue;
       for (const key of ['recordW', 'recordWo']) {
         const rec = r[key];
-        if (!rec || rec.ok !== true) continue;
+        if (!rec || rec.ok !== true || !rec.unhandled || !(counter in rec.unhandled)) continue;
         den++;
-        num += rec.unhandled?.[counter] ?? 0;
+        num += rec.unhandled[counter];
       }
     }
     return { num, den };
@@ -328,6 +337,17 @@ function checkRowEvidence(r, at) {
   if (r.evidence) {
     const e = r.evidence;
     if (typeof e.tracked !== 'boolean') p(`${at}: evidence.tracked must be a boolean`);
+    // An untracked cite names the signal a row stands for before the tracked
+    // rows measure it (a v3 counter the v2-era rows do not carry). It names the
+    // claim, says why it is not tracked, and carries no number: a {num, den}
+    // beside `tracked: false` would read as a count nobody recomputes.
+    if (e.tracked === false && e.cite) {
+      if (!CLAIM_IDS.includes(e.cite.claim)) p(`${at}: evidence.cite.claim is not one of ${CLAIM_IDS.join(', ')}`);
+      if (typeof e.notTrackedWhy !== 'string' || e.notTrackedWhy === '') {
+        p(`${at}: an untracked cite must say why the tracked rows do not measure it (evidence.notTrackedWhy)`);
+      }
+      if ('value' in e) p(`${at}: an untracked cite carries no evidence.value -- there is nothing to recompute it from`);
+    }
     if (e.tracked === true) {
       if (!e.cite || !CLAIM_IDS.includes(e.cite.claim)) {
         p(`${at}: evidence.cite.claim is not one of ${CLAIM_IDS.join(', ')}`);

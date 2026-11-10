@@ -221,24 +221,33 @@ test('gradeLinkPluginGcc: every (ii) link refused twice, cleared WPIN_OUT, and m
   assert.match(vac.violations[0], /vacuous/);
 });
 
-// ---- records: a sealed wipe-pin-v2 record, as the plugins write it ---------------
+// ---- records: a sealed wipe-pin-v3 record, as the plugins write it ---------------
 function toolchainOf(key, version) {
   const packages = [{ name: key === 'clang' ? 'llvm' : key, version }];
   return { [key]: version, packages, digest: sha256Hex(canonicalJsonRaw({ [key]: version, packages })) };
 }
 function sealed(over = {}) {
   const rec = {
-    schemaVersion: 'wipe-pin-v2', component: 'WipePinGcc', module: 'fable_N_aeskey_r1.w.c', optLevel: { speedup: 2, size: 0 },
+    schemaVersion: 'wipe-pin-v3', component: 'WipePinGcc', module: 'fable_N_aeskey_r1.w.c', optLevel: { speedup: 2, size: 0 },
     scope: 'functions', requested: ['encrypt_blob'],
     resolution: [{ name: 'encrypt_blob', resolution: 'resolved', exact: true, linkage: 'external' }],
     dryRun: false,
     pinned: [{ function: 'encrypt_blob', index: 0, lengthBytes: 32, destKind: 'alloca', alreadyVolatile: false, line: 41, followedByUse: false }],
     pinnedCount: 1, wouldPinCount: 1,
     seen: { zeroFillMemsetInScope: 1, zeroFillMemsetInModule: 2 },
-    unhandled: { libcallMemset: 0, memsetChk: 0, nonZeroFill: 0, atomicMemset: 0, inlineWrapperMemset: 0 },
+    unhandled: { libcallMemset: 0, memsetChk: 0, nonZeroFill: 0, atomicMemset: 0, inlineWrapperMemset: 0,
+      bzeroCall: 0, inlineWrapperBzero: 0, zeroGlobalCopy: 0, zeroGlobalCopyCall: 0 },
     toolchain: toolchainOf('gcc', '13.3.0'),
+    barrierCalls: { enabled: false, sites: [], barrierCount: 0, wouldBarrierCount: 0 },
+    zeroCopy: { enabled: false, sites: [], repairedCount: 0, wouldRepairCount: 0 },
+    bufferBarriers: { enabled: false, count: 0, sites: [] },
+    host: { ident: '13.3.0', identMajor: 13, builtMajor: 13, checked: true, intrinsicsCompared: null },
     ...over,
   };
+  // each writer reads its own compiler: a WipePin record carries a clang host
+  if (rec.component === 'WipePin' && !('host' in over)) {
+    rec.host = { ident: 'Ubuntu clang version 18.1.3', identMajor: 18, builtMajor: 18, checked: true, intrinsicsCompared: null };
+  }
   rec.evidenceDigest = evidenceDigest(rec);
   rec.context = { generatedAt: 1, sourceDateEpoch: null, timeSource: 'wall-clock' };
   return rec;

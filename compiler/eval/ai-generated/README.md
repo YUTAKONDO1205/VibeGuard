@@ -392,7 +392,11 @@ site carries a line to match a span on, and a second compile without it to show
 the line tables change no recorded site). The numbers below are from a
 `label-check.mjs` run, whose output goes to the lab only and is not tracked,
 with WipePin `wipe-pin-v2` sha256 `e89e07fd…cbad6` (the build before the
-link-time line). `followedByUse` at `-O0` is the same in every v2 build: a
+link-time line), whose records the v2 reader of that commit read; the reader
+`label-check.mjs` imports, `../repair-loop/lib/pin-record.mjs`, now accepts
+`wipe-pin-v3` only (`../../schema/wipe-pin.md` §14.10), so a re-run needs a v3
+build. v3 builds exist since 2026-11-09 (for clang-18, WipePin `7c9d11f2…` is the build of the sources in this tree), and
+`label-check.mjs` has not been re-run with one. `followedByUse` at `-O0` is the same in every v2 build: a
 re-run with `db3298cf…73a4c8`, the build the repair loop's results quote, gave
 the same counts and the same disagreement. Only a span that is an `llvm.memset` in
 the target function has a site to compare; helper calls and volatile loops have
@@ -565,6 +569,24 @@ rest of this section to the record.
   call. That is the largest single caveat and it is not resolved here.
 - Temperature was not controlled. Repetitions capture whatever nondeterminism
   the system has, not a temperature sweep.
+- **Seven `clang-18` `-O1` verdicts read a moved frame as a surviving wipe, and
+  are left as tracked.** `fable_N_pinpad_r3`, `haiku_E_pinpad_r3`,
+  `haiku_N_pinpad_r3`, `haiku_S_pinpad_r1`, `haiku_S_pinpad_r2`,
+  `haiku_S_pinpad_r3` and `opus_N_pinpad_r3` are one-span `memset` files scored
+  `WIPE_SURVIVED` at `-O1`. All seven were read by hand on 2026-11-09 (the target
+  body `check_pin` of w and wo at `-O1` and of w at `-O0`, compiled again as
+  this lane compiles them): at `-O0` w calls `memset`; at `-O1` w has no
+  `memset` call and no zero store after `stored_pin_equals`, and w and wo differ
+  in two lines only, the buffer's stack offset (`leaq 8(%rsp)` against
+  `leaq 9(%rsp)`) and with it the offset of the terminator store `pin[6] = '\0'`
+  (`movb $0, 14(%rsp)` against `15(%rsp)`). That is a frame one byte apart,
+  which `verdictOf` calls survival; `../repair-loop/tools/zero-delta.mjs` lists
+  these seven cells, and no other cell of either compiler, as `frameShift`. Being
+  one-span cells, the per-span supplement cannot separate them. The tracked
+  verdicts and every table above are **not changed**; read as eliminated,
+  `clang-18`'s `-O1` count of eliminated `memset` cells would be 69 rather than
+  62, and each figure computed from it would move with it. Only these seven cells
+  were read by hand for this.
 - Scenarios are synthetic and do not represent the distribution of real tasks.
 - One-shot generation. Real agent use iterates and reviews; this does not.
 - The four models are `haiku`, `sonnet`, `opus` and `fable`, named in every

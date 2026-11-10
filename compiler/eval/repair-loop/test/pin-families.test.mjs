@@ -40,6 +40,7 @@ import {
   parsePipeline, renderPipeline, leaves, withoutLeaf, prefixLeaves,
 } from '../lib/pin-families.mjs';
 import { absolutePathHits } from '../lib/provenance.mjs';
+import { UNHANDLED_KEYS, UNHANDLED_KEYS_V2 } from '../lib/pin-record.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LANE = path.resolve(HERE, '..');
@@ -78,10 +79,24 @@ test('the status words are exactly the four, and nothing else is used', () => {
 
 test('EVERY measured claim recomputes from the tracked rows, and drift fails here', () => {
   let checked = 0;
+  let untracked = 0;
   for (const r of TABLE.rows) {
     for (const block of [r.evidence, r.control]) {
       if (!block?.cite) continue;
       const got = recompute(block.cite, DATA);
+      // An untracked cite names a signal the tracked rows do not carry yet (a v3
+      // counter in rows written by the v2 reader). It must recompute to an empty
+      // denominator -- not measured -- and carry no number. When the rows are
+      // re-measured with a v3 writer the denominator stops being 0, this goes red,
+      // and the row is promoted to tracked with its {num, den} in the same change.
+      if (block === r.evidence && block.tracked === false) {
+        assert.deepEqual(got, { num: 0, den: 0 },
+          `${r.shape} / ${r.candidate}: the untracked cite ${block.cite.counter ?? block.cite.claim} now recomputes to ${ratio(got)} `
+          + 'from the tracked rows; promote the row to tracked: true with that value');
+        assert.ok(!('value' in block), `${r.shape} / ${r.candidate}: an untracked cite carries a value`);
+        untracked++;
+        continue;
+      }
       assert.deepEqual(got, block.value,
         `${r.property} / ${r.shape} / ${r.candidate}: the table says ${ratio(block.value)} for ${block.cite.claim}`
         + `${block.cite.cc ? ` (${block.cite.cc}` : ''}${block.cite.opt ? ` ${block.cite.opt}` : ''}`
@@ -93,6 +108,10 @@ test('EVERY measured claim recomputes from the tracked rows, and drift fails her
   }
   // A vacuous pass would be a table with no cited claims at all.
   assert.ok(checked >= 20, `only ${checked} claims were recomputed; the table should cite far more`);
+  // Since the v3 re-record (data/r2-v3-rerecord.json) the tracked rows carry all
+  // nine counters, so no cite is untracked: one that is names a counter the rows
+  // carry, and has to be promoted with its {num, den}.
+  assert.equal(untracked, 0, 'an untracked cite names a counter the tracked rows carry now; promote it');
 });
 
 test('every measured-* row is tracked, and no lab run carries a measured word', () => {
@@ -382,6 +401,45 @@ test('the unhandled counters are 0 in BOTH tracked runs, which is why those rows
   }
 });
 
+test('the four v3 counters are carried by the tracked rows since the v3 re-record, and read 0 in BOTH', () => {
+  const v3Only = UNHANDLED_KEYS.filter((k) => !UNHANDLED_KEYS_V2.includes(k));
+  assert.deepEqual(v3Only, ['bzeroCall', 'inlineWrapperBzero', 'zeroGlobalCopy', 'zeroGlobalCopyCall']);
+  for (const counter of v3Only) {
+    for (const cc of ['clang-18', 'gcc-13']) {
+      const got = CLAIMS['unhandled-shape-occurrences']({ rows: rowsByCc[cc], counter });
+      assert.equal(got.num, 0, `${cc} ${counter}: ${got.num} occurrences now, so the row that says the corpus has none is stale`);
+      // a denominator of 0 would be "no record carries it" -- not measured, never a count of 0
+      assert.ok(got.den > 3000, `${cc} ${counter}: only ${got.den} records carry it`);
+    }
+    // and the table has one row whose cite names it, promoted to tracked, and still
+    // unmeasured: 0 occurrences is a reason for that, never for measured-*
+    const citing = TABLE.rows.filter((r) => r.evidence?.cite?.counter === counter);
+    assert.equal(citing.length, 1, `${counter}: ${citing.length} rows cite it`);
+    assert.equal(citing[0].evidence.tracked, true);
+    assert.equal(citing[0].status, 'unmeasured');
+  }
+  // the claim reads a record that carries the counter as it always did, and skips one that does not
+  const rows = [
+    { kind: 'erasure', recordW: { ok: true, unhandled: { bzeroCall: 2 } }, recordWo: { ok: true, unhandled: { libcallMemset: 0 } } },
+    { kind: 'erasure', recordW: { ok: false }, recordWo: { ok: true, unhandled: { bzeroCall: 0 } } },
+  ];
+  assert.deepEqual(CLAIMS['unhandled-shape-occurrences']({ rows, counter: 'bzeroCall' }), { num: 2, den: 2 });
+  assert.deepEqual(CLAIMS['unhandled-shape-occurrences']({ rows, counter: 'libcallMemset' }), { num: 0, den: 1 });
+});
+
+test('a lab observation from outside this tree says so, and carries no quote this test could not check', () => {
+  let outside = 0;
+  for (const r of TABLE.rows) {
+    const lo = r.labObservation;
+    if (!lo || !/outside this repository/.test(lo.source ?? '')) continue;
+    outside++;
+    assert.ok(!lo.quote, `${r.shape} / ${r.candidate}: a quote from a file outside the tree cannot be checked`);
+    assert.equal(r.status, 'unmeasured', `${r.shape} / ${r.candidate}: a lab run outside the tree is labObservation only`);
+    assert.deepEqual([...absolutePathHits(lo.source), ...absolutePathHits(lo.what)], [], `${r.shape}: the lab observation names a machine path`);
+  }
+  assert.ok(outside >= 8, `only ${outside} rows carry an outside-the-tree lab observation`);
+});
+
 test('the claim definitions are the ones the table may cite, and each one is exercised', () => {
   const cited = new Set();
   for (const r of TABLE.rows) for (const b of [r.evidence, r.control]) if (b?.cite) cited.add(b.cite.claim);
@@ -441,6 +499,27 @@ test('the validator refuses the shapes it exists to refuse', () => {
   const t6 = clone();
   t6.rows.find((r) => r.evidence?.tracked === true).channel = { state: 'x', driver: 'y', why: 'z' };
   assert.ok(hasProblem(t6, /a second, weaker answer/));
+
+  // an untracked cite names its claim, says why it is untracked, and carries no
+  // number. No row of the table is untracked since the v3 re-record, so one is
+  // made here from a counter row, the shape the four v3 rows had before it.
+  const untrack = (t) => {
+    const r = t.rows.find((x) => x.evidence?.tracked === true && x.evidence.cite?.claim === 'unhandled-shape-occurrences');
+    r.evidence = { tracked: false, cite: { ...r.evidence.cite }, notTrackedWhy: 'made untracked by this test' };
+    return r;
+  };
+  const t6b = clone();
+  untrack(t6b);
+  assert.deepEqual(validateTable(t6b), [], 'a well-formed untracked cite is accepted');
+  const t7 = clone();
+  delete untrack(t7).evidence.notTrackedWhy;
+  assert.ok(hasProblem(t7, /must say why the tracked rows do not measure it/));
+  const t8 = clone();
+  untrack(t8).evidence.value = { num: 0, den: 3200 };
+  assert.ok(hasProblem(t8, /an untracked cite carries no evidence\.value/));
+  const t9 = clone();
+  untrack(t9).evidence.cite.claim = 'no-such-claim';
+  assert.ok(hasProblem(t9, /evidence\.cite\.claim is not one of/));
 
   assert.deepEqual(NOT_REPAIRABLE_BASES.filter((b) => !['measured-here', 'one-lab-run', 'by-construction'].includes(b)), []);
 });

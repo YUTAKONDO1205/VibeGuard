@@ -10,8 +10,9 @@ Its twin for gcc-13 and WipePinGcc, `lto-probe-gcc.mjs`, has its own section
 below (*gcc-13*); everything before that section is about clang.
 
 > **Every figure in this file was measured before the gate.** Both probes have
-> called `compiler/eval/spike`'s gate since 2026-09-12 (`lto-probe.mjs:278`,
-> `lto-probe-gcc.mjs:312`); this file's last content change was earlier the same
+> called `compiler/eval/spike`'s gate since 2026-09-12 (in each, the block under
+> the comment `spike/recovery gate, before the preflight`); this file's last
+> content change was earlier the same
 > day, so the code was gated and the prose was not — the same split
 > `../data/r2-regate.json` records for the tracked rows, and the one it named the
 > LTO probes as *not* covering.
@@ -607,6 +608,16 @@ are compiled three times each:
   one pinned in the plugin-on object, with both controls read. Any failure exits
   5: a reader that reads nothing would report every wipe gone before the link.
 - **Records through `pin-record.mjs` only**, with component `WipePinGcc`.
+  Since `wipe-pin-v3` (`../../../schema/wipe-pin.md` §14) that reader accepts
+  v3 only and is told that none of `WPIN_BARRIER_CALLS`, `WPIN_ZERO_COPY` and
+  `WPIN_BUFFER_BARRIER` was set (§14.9 W1). Every gcc figure in this file was
+  measured with a `wipe-pin-v2` build and read by the v2 reader of its commit;
+  re-running the gcc probe needs a v3 build (a v2 build's records are now
+  refused, by design). v3 builds exist since 2026-11-09 (for gcc-13,
+  WipePinGcc `ea3e8c7e…` is the build of the sources in this tree), and the gcc
+  probe has not been re-run with one. The
+  clang probe's three-field reader reads any `wipe-pin-*` record and is
+  unaffected. Not re-measured with a v3 build.
 - **Nothing inherited, lab only.** As in the clang probe: every `WPIN_*`
   variable is removed before the first compile, record paths and cell
   directories are deleted before they are used, `--out` inside the repository
