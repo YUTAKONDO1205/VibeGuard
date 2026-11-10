@@ -1,0 +1,724 @@
+#!/usr/bin/env python3
+"""vgpin-cc -- compile one translation unit with a pinned repair plugin
+(WipePin for clang, WipePinGcc for gcc) loaded, and withhold the output when
+the plugin's own record does not show the repair installed.
+
+    CC=/path/to/vgpin-clang-18 make        # a symlink named vgpin-<compiler>
+    VG_PIN_CC=gcc-13 CC=/path/to/vgpin-cc make
+
+Which plugin, which sha256 it must have, and which compiler major version it
+was built for are read from the JSON file named by VGPIN_PINS. Nothing about a
+particular machine is written in this file. README.md beside it has the pins
+format, the exit codes, what is refused, and what was measured.
+
+Python 3 standard library only. It runs the compiler and reads local files,
+nothing else.
+"""
+
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+TAG = 'vgpin'
+PINS_SCHEMA = 'vgpin-pins-v1'
+# The record versions this wrapper reads. Anything else is "no usable record".
+# v3 only, as compiler/schema/wipe-pin.md section 14.10 has every reader do: the
+# v3 writers have landed in both plugins, and a v2 record carries no `host` block,
+# so the only version check left on it would be toolchain.<compiler>. A plugin
+# built from a commit that writes v2 (22e7222 and earlier) is refused: build the
+# plugins from this tree.
+RECORD_VERSIONS = ('wipe-pin-v3',)
+
+EXIT_UNCONFIRMED = 3  # compiled, but the record does not show the repair; output withheld (strict)
+EXIT_PIN = 4          # configuration or pin mismatch; the compiler was not run
+EXIT_SHAPE = 5        # a command line this wrapper does not verify; the compiler was not run
+
+FAMILIES = {
+    'clang': {'flag': '-fpass-plugin=', 'component': 'WipePin'},
+    'gcc': {'flag': '-fplugin=', 'component': 'WipePinGcc'},
+}
+
+# Counters in `unhandled` that do not stop a compile unless the pins file says
+# otherwise. memsetChk: in module scope it counts the __memset_chk inside the
+# fortifying wrapper's own body (clang's memset.inline, gcc's memset wrapper),
+# so it is non-zero in compiles whose wipe survived (gcc-13 at its default
+# _FORTIFY_SOURCE=3: memsetChk 1 in 51/51 files whose wipe survived, see
+# README "Measured"). nonZeroFill: a fill that is not zero is not a wipe.
+# Every other counter, including one this file has never heard of, stops it.
+DEFAULT_UNHANDLED_IGNORE = ('memsetChk', 'nonZeroFill')
+
+# The wrapper sets these itself; a pin may not, and the caller's are removed.
+OWNED_WPIN = ('WPIN_OUT', 'WPIN_SCOPE', 'WPIN_TARGET_FNS', 'WPIN_DRY_RUN')
+
+# A switch a pin turns on, and the top-level record object a plugin that
+# implements the switch writes. A plugin that does not know the switch ignores
+# the variable, and the missing object is how that becomes audible.
+SWITCH_RECORD_KEY = {
+    'WPIN_BARRIER_CALLS': 'barrierCalls',
+    'WPIN_ZERO_COPY': 'zeroCopy',
+    'WPIN_BUFFER_BARRIER': 'bufferBarriers',
+}
+
+# Repairs other than pinnedCount, as (record object, done count, would count).
+REPAIR_OBJECTS = (
+    ('barrierCalls', 'barrierCount', 'wouldBarrierCount'),
+    ('zeroCopy', 'repairedCount', 'wouldRepairCount'),
+    ('bufferBarriers', 'count', None),
+)
+
+# Options whose value is the next argument, so that value is never read as an
+# input file. A value missing from this list is harmless unless it looks like a
+# source file.
+VALUE_OPTS = frozenset({
+    '-o', '--output', '-x', '--language', '-MF', '-MT', '-MQ', '-MJ',
+    '-include', '-imacros', '-include-pch', '-idirafter', '-isystem', '-isystem-after',
+    '-iquote', '-iprefix', '-iwithprefix', '-iwithprefixbefore', '-imultilib', '-isysroot',
+    '--sysroot', '-cxx-isystem', '-ivfsoverlay', '-I', '-L', '-l', '-D', '-U', '-A', '-B',
+    '-F', '-T', '-u', '-e', '-z', '-Xlinker', '-Xclang', '-Xassembler', '-Xpreprocessor',
+    '-Xopenmp-target', '-mllvm', '--param', '-target', '--target', '-arch', '-aux-info',
+    '-dumpbase', '-dumpbase-ext', '-dumpdir', '-wrapper', '-serialize-diagnostics',
+    '-resource-dir', '--include-directory', '--define-macro', '--undefine-macro',
+})
+
+# Print-and-exit flags measured to produce no object even with a source and
+# `-c -o` beside them (clang-18 and gcc-13, README "Measured"). `-v` is not one:
+# with a source it compiles.
+INFO_FLAGS = frozenset({'--version', '-dumpversion', '-dumpmachine', '-###', '--help'})
+
+# Flags that stop before code generation. Measured: with either plugin loaded
+# they leave no record, so they are passed through rather than refused.
+NO_CODEGEN_FLAGS = frozenset({'-E', '-M', '-MM', '-fsyntax-only'})
+
+COMPILABLE_EXT = frozenset({
+    '.c', '.i', '.cc', '.cp', '.cxx', '.cpp', '.CPP', '.c++', '.C', '.ii',
+    '.m', '.mi', '.mm', '.M', '.mii', '.ll', '.bc',
+})
+ASM_EXT = frozenset({'.s', '.S', '.sx'})
+HEADER_EXT = frozenset({'.h', '.hh', '.hpp', '.hxx', '.H', '.h++', '.tcc'})
+
+MAX_RESPONSE_DEPTH = 16
+MAX_RESPONSE_TOKENS = 200000
+
+
+class Refusal(Exception):
+    """Stop before running the compiler, with an exit code and a reason."""
+
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def say(msg):
+    sys.stderr.write(f'{TAG}: {msg}\n')
+    sys.stderr.flush()
+
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for block in iter(lambda: f.read(1 << 20), b''):
+            h.update(block)
+    return h.hexdigest()
+
+
+def switch(name, default='0'):
+    """A 0/1 switch. Anything else is a configuration error: a misspelt value
+    read as off would turn a check off silently."""
+    value = os.environ.get(name, '')
+    if value == '':
+        value = default
+    if value not in ('0', '1'):
+        raise Refusal(EXIT_PIN, f"{name}='{value}' is neither 0 nor 1")
+    return value == '1'
+
+
+def pin_mode():
+    value = os.environ.get('VG_PIN_MODE', '') or 'strict'
+    if value not in ('strict', 'warn'):
+        raise Refusal(EXIT_PIN, f"VG_PIN_MODE='{value}' is neither strict nor warn")
+    return value
+
+
+# --- response files ---------------------------------------------------------
+
+def tokenize_response_file(text):
+    """Whitespace separates, single quotes group literally, double quotes group
+    with backslash escapes, a bare backslash escapes the next character: the
+    rules compiler/driver/lib/cmdline.mjs uses, after llvm::cl's GNU tokenizer."""
+    tokens, cur, has, i, n = [], [], False, 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch.isspace():
+            if has:
+                tokens.append(''.join(cur))
+                cur, has = [], False
+            i += 1
+        elif ch == '\\':
+            if i + 1 < n:
+                cur.append(text[i + 1])
+                has = True
+            i += 2
+        elif ch == "'":
+            i += 1
+            has = True
+            while i < n and text[i] != "'":
+                cur.append(text[i])
+                i += 1
+            i += 1
+        elif ch == '"':
+            i += 1
+            has = True
+            while i < n and text[i] != '"':
+                if text[i] == '\\' and i + 1 < n:
+                    cur.append(text[i + 1])
+                    i += 2
+                else:
+                    cur.append(text[i])
+                    i += 1
+            i += 1
+        else:
+            cur.append(ch)
+            has = True
+            i += 1
+    if has:
+        tokens.append(''.join(cur))
+    return tokens
+
+
+def expand_response_files(args, cwd):
+    """Expand @file arguments, for classifying the command line only. The
+    compiler always gets the caller's arguments as written. Returns the
+    expanded list and a list of problems (unreadable, a cycle, too deep, too
+    large); any problem means the line could not be classified."""
+    out, problems = [], []
+
+    def walk(tokens, base, depth, chain):
+        for tok in tokens:
+            if not tok.startswith('@') or len(tok) == 1:
+                out.append(tok)
+                continue
+            target = os.path.normpath(os.path.join(base, tok[1:]))
+            if depth >= MAX_RESPONSE_DEPTH:
+                problems.append(f'{tok}: nesting exceeds {MAX_RESPONSE_DEPTH}')
+                continue
+            if target in chain:
+                problems.append(f'{tok}: the response file includes itself')
+                continue
+            try:
+                with open(target, encoding='utf-8', errors='surrogateescape') as f:
+                    text = f.read()
+            except OSError as e:
+                problems.append(f'{tok}: cannot be read ({e.__class__.__name__})')
+                continue
+            inner = tokenize_response_file(text)
+            if len(out) + len(inner) > MAX_RESPONSE_TOKENS:
+                problems.append(f'{tok}: expands to more than {MAX_RESPONSE_TOKENS} arguments')
+                continue
+            walk(inner, os.path.dirname(target), depth + 1, chain + [target])
+
+    walk(args, cwd, 0, [])
+    return out, problems
+
+
+# --- the command line ---------------------------------------------------------
+
+def input_kind(path, lang):
+    if lang and lang != 'none':
+        if 'assembler' in lang:
+            return 'asm'
+        if lang.endswith('-header'):
+            return 'header'
+        return 'source'
+    if path == '-':
+        return 'source'  # gcc and clang need -x for stdin; whatever it is, it is compiled
+    ext = os.path.splitext(path)[1]
+    if ext in COMPILABLE_EXT:
+        return 'source'
+    if ext in ASM_EXT:
+        return 'asm'
+    if ext in HEADER_EXT:
+        return 'header'
+    return 'other'  # objects, archives, linker scripts: linker inputs
+
+
+def classify(args):
+    """Read an expanded argument list into what the wrapper needs to decide."""
+    info = {'sources': [], 'asm': [], 'headers': [], 'others': [], 'output': None,
+            'stop': 'link', 'emit_llvm': False, 'lto': False, 'info': [], 'no_codegen': []}
+    lang = None
+    saw_c = saw_s = saw_e = False
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in VALUE_OPTS:
+            value = args[i + 1] if i + 1 < len(args) else None
+            if a in ('-o', '--output'):
+                info['output'] = value
+            elif a in ('-x', '--language'):
+                lang = value
+            i += 2
+            continue
+        if a.startswith('--output='):
+            info['output'] = a[len('--output='):]
+        elif a.startswith('-o') and len(a) > 2 and not a.startswith(('-objcmt-', '-object')):
+            info['output'] = a[2:]
+        elif a.startswith('--language='):
+            lang = a[len('--language='):]
+        elif a.startswith('-x') and len(a) > 2:
+            lang = a[2:]
+        elif a in INFO_FLAGS:
+            info['info'].append(a)
+        elif a in NO_CODEGEN_FLAGS:
+            info['no_codegen'].append(a)
+            if a in ('-E', '-M', '-MM'):
+                saw_e = True
+        elif a == '-c':
+            saw_c = True
+        elif a == '-S':
+            saw_s = True
+        elif a == '-emit-llvm':
+            info['emit_llvm'] = True
+        elif a == '-flto' or a.startswith('-flto='):
+            info['lto'] = True
+        elif a == '-fno-lto':
+            info['lto'] = False
+        elif a == '-' or not a.startswith('-'):
+            kind = input_kind(a, lang)
+            {'source': info['sources'], 'asm': info['asm'], 'header': info['headers'],
+             'other': info['others']}[kind].append(a)
+        i += 1
+    # The earliest stop wins, as in both drivers: -E, then -S, then -c.
+    info['stop'] = 'pre' if saw_e else 'asm' if saw_s else 'obj' if saw_c else 'link'
+    return info
+
+
+def default_output(src, stop, emit_llvm):
+    stem = '-' if src == '-' else os.path.splitext(os.path.basename(src))[0]
+    if stop == 'obj':
+        return stem + ('.bc' if emit_llvm else '.o')
+    if stop == 'asm':
+        return stem + ('.ll' if emit_llvm else '.s')
+    return 'a.out'
+
+
+def decide(info):
+    """('pass', why) | ('compile', None), or raise Refusal(EXIT_SHAPE, ...) for a
+    line this wrapper does not verify. The vendor-specific refusal (an -flto
+    line that also links, on gcc) is made later, once the compiler is known."""
+    if info['info']:
+        return 'pass', 'prints and exits: ' + ' '.join(info['info'])
+    if info['no_codegen']:
+        return 'pass', 'stops before code generation: ' + ' '.join(info['no_codegen'])
+    if not info['sources']:
+        return 'pass', 'no C/C++ source on the line (a link, an assembly, or nothing to compile)'
+    # Assembler and header inputs count too: each is another compiler process
+    # that may load the plugin, and a plugin removes the record at WPIN_OUT
+    # when it loads.
+    units = info['sources'] + info['asm'] + info['headers']
+    if len(units) > 1:
+        raise Refusal(EXIT_SHAPE, f'{len(units)} inputs to compile on one command line '
+                      f'({", ".join(units[:4])}). Each compile overwrites the record, so only the last '
+                      'unit could be checked (measured: llvm-repair and gcc-repair READMEs). '
+                      'Compile one source per line with -c.')
+    if info['output'] == '-':
+        raise Refusal(EXIT_SHAPE, 'the output goes to standard output, where it cannot be withheld. '
+                      'Name an output file with -o.')
+    return 'compile', None
+
+
+# --- the compiler -------------------------------------------------------------
+
+def compiler_name(argv0):
+    cc = os.environ.get('VG_PIN_CC', '')
+    if not cc:
+        base = os.path.basename(argv0)
+        if base.startswith('vgpin-') and len(base) > len('vgpin-'):
+            cc = base[len('vgpin-'):]
+    if not cc:
+        raise Refusal(EXIT_PIN, 'no compiler to run: call this as vgpin-<compiler> (a symlink) or set VG_PIN_CC')
+    return cc
+
+
+def resolve_compiler(cc):
+    path = cc if os.sep in cc else shutil.which(cc)
+    if not path or not os.path.isfile(path) or not os.access(path, os.X_OK):
+        raise Refusal(EXIT_PIN, f'the compiler {cc!r} was not found or is not executable')
+    if os.path.realpath(path) == os.path.realpath(os.path.abspath(__file__)):
+        raise Refusal(EXIT_PIN, f'{cc!r} resolves to this wrapper; set VG_PIN_CC to the real compiler')
+    return path
+
+
+def compiler_env():
+    """The caller's environment minus every WPIN_* variable: the wrapper owns
+    the plugin's configuration, and a WPIN_OUT or WPIN_DRY_RUN from outside
+    must never reach a compile (or a link: an LTO link that loads the plugin
+    removes the file at WPIN_OUT, llvm-repair README "The link-time line")."""
+    return {k: v for k, v in os.environ.items() if not k.startswith('WPIN_')}
+
+
+def identify(text):
+    """(family, major) from `<compiler> --version`, or None."""
+    m = re.search(r'\bclang version (\d+)\.\d+', text)
+    if m:
+        return 'clang', int(m.group(1))
+    lines = text.strip().splitlines()
+    first = lines[0] if lines else ''
+    looks_gcc = ('Free Software Foundation' in text
+                 or re.match(r'^\S*(?:gcc|g\+\+|cc|c\+\+)(?:-[0-9.]+)?\s+\(', first) is not None)
+    m = re.search(r'\)\s+(\d+)\.\d+', first)
+    if looks_gcc and m:
+        return 'gcc', int(m.group(1))
+    return None
+
+
+def compiler_identity(cc, path):
+    try:
+        r = subprocess.run([cc, '--version'], executable=path, env=dict(compiler_env(), LC_ALL='C'),
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise Refusal(EXIT_PIN, f'cannot run {cc} --version ({e.__class__.__name__})') from None
+    text = r.stdout.decode('utf-8', 'replace')
+    found = identify(text) if r.returncode == 0 else None
+    if not found:
+        first = (text.strip().splitlines() or [''])[0][:120]
+        raise Refusal(EXIT_PIN, f'cannot read the family and major version from {cc} --version '
+                      f'(rc {r.returncode}, first line {first!r})')
+    return found
+
+
+# --- the pins -----------------------------------------------------------------
+
+def load_pins(path):
+    """Read and check the pins file. Every key is checked and an unknown key is
+    refused: a misspelt key that was silently ignored would change what the
+    wrapper accepts without anyone deciding it."""
+    def bad(msg):
+        return Refusal(EXIT_PIN, f'pins file {path}: {msg}')
+
+    try:
+        with open(path, 'rb') as f:
+            doc = json.loads(f.read().decode('utf-8'))
+    except OSError as e:
+        raise bad(f'cannot be read ({e.__class__.__name__})') from None
+    except (UnicodeDecodeError, ValueError) as e:
+        raise bad(f'is not JSON ({e.__class__.__name__})') from None
+    if not isinstance(doc, dict):
+        raise bad('is not a JSON object')
+    unknown = sorted(set(doc) - {'schemaVersion', 'pins', 'unhandledIgnore', 'comment'})
+    if unknown:
+        raise bad(f'unknown key(s) {unknown}')
+    if doc.get('schemaVersion') != PINS_SCHEMA:
+        raise bad(f'schemaVersion is {doc.get("schemaVersion")!r}, expected {PINS_SCHEMA!r}')
+    ignore = doc.get('unhandledIgnore', list(DEFAULT_UNHANDLED_IGNORE))
+    if (not isinstance(ignore, list) or not all(isinstance(k, str) and k for k in ignore)
+            or len(set(ignore)) != len(ignore)):
+        raise bad('unhandledIgnore must be a list of distinct non-empty strings')
+    pins = doc.get('pins')
+    if not isinstance(pins, list) or not pins:
+        raise bad('pins must be a non-empty list')
+    base = os.path.dirname(os.path.abspath(path))
+    seen, out = set(), []
+    for n, p in enumerate(pins):
+        where = f'pins[{n}]'
+        if not isinstance(p, dict):
+            raise bad(f'{where} is not an object')
+        unknown = sorted(set(p) - {'family', 'compilerMajor', 'plugin', 'sha256', 'env', 'comment'})
+        if unknown:
+            raise bad(f'{where}: unknown key(s) {unknown}')
+        fam, major, plugin, digest = p.get('family'), p.get('compilerMajor'), p.get('plugin'), p.get('sha256')
+        if fam not in FAMILIES:
+            raise bad(f'{where}.family is {fam!r}, expected one of {sorted(FAMILIES)}')
+        if not isinstance(major, int) or isinstance(major, bool) or major < 1:
+            raise bad(f'{where}.compilerMajor must be a positive integer')
+        if not isinstance(plugin, str) or not plugin:
+            raise bad(f'{where}.plugin must be a non-empty path')
+        if not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest):
+            raise bad(f'{where}.sha256 must be 64 lowercase hex digits')
+        env = p.get('env', {})
+        if not isinstance(env, dict):
+            raise bad(f'{where}.env must be an object')
+        for k, v in env.items():
+            if not k.startswith('WPIN_') or k in OWNED_WPIN:
+                raise bad(f'{where}.env: {k} is not a plugin switch a pin may set '
+                          f'(WPIN_* other than {", ".join(OWNED_WPIN)})')
+            if v not in ('0', '1'):
+                raise bad(f'{where}.env: {k} must be "0" or "1" (the plugins refuse anything else)')
+        if (fam, major) in seen:
+            raise bad(f'{where}: a second pin for {fam} {major}')
+        seen.add((fam, major))
+        out.append({'family': fam, 'compilerMajor': major, 'sha256': digest, 'env': dict(env),
+                    'plugin': plugin if os.path.isabs(plugin) else os.path.normpath(os.path.join(base, plugin))})
+    return out, list(ignore)
+
+
+def select_pin(pins, fam, major, cc):
+    same = [p for p in pins if p['family'] == fam]
+    if not same:
+        raise Refusal(EXIT_PIN, f'{cc} is {fam} {major}, and the pins file has no {fam} pin')
+    for p in same:
+        if p['compilerMajor'] == major:
+            return p
+    held = ', '.join(str(p['compilerMajor']) for p in same)
+    raise Refusal(EXIT_PIN, f'{cc} reports {fam} major version {major}, and the pins hold {fam} {held}. '
+                  'A plugin built for another major version is not loaded: across versions it can crash '
+                  'the compiler, not terminate, or run and pin nothing.')
+
+
+def check_plugin(pin):
+    path = pin['plugin']
+    if not os.path.isfile(path):
+        raise Refusal(EXIT_PIN, f'the pinned plugin is not a file: {path}')
+    try:
+        got = sha256_file(path)
+    except OSError as e:
+        raise Refusal(EXIT_PIN, f'cannot read the pinned plugin {path} ({e.__class__.__name__})') from None
+    if got != pin['sha256']:
+        raise Refusal(EXIT_PIN, f'the plugin at {path} has sha256 {got[:16]}..., the pin says '
+                      f'{pin["sha256"][:16]}...')
+
+
+# --- the record ---------------------------------------------------------------
+
+def _count(v):
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None
+
+
+def _major_of(version):
+    m = re.match(r'\s*(\d+)', version) if isinstance(version, str) else None
+    return int(m.group(1)) if m else None
+
+
+def check_record(rec, fam, major, pin_env, ignore, require_repair):
+    """Return (problems, summary). An empty problem list means the record shows
+    the repair installed for everything it counted. It accepts wipe-pin-v3
+    only (RECORD_VERSIONS), and within it reads loosely on purpose: it looks
+    only at the fields its decision needs, so a key added later does not break
+    it; a field it needs that is missing or of the wrong type is a problem,
+    never a pass."""
+    problems = []
+    summary = {}
+    if not isinstance(rec, dict):
+        return ['the record is not a JSON object'], summary
+    version = rec.get('schemaVersion')
+    if version not in RECORD_VERSIONS:
+        return [f'the record is {version!r}, not one of {", ".join(RECORD_VERSIONS)}'], summary
+    summary['schemaVersion'] = version
+    want = FAMILIES[fam]['component']
+    if rec.get('component') != want:
+        problems.append(f'the record was written by {rec.get("component")!r}, not {want}')
+    if rec.get('scope') != 'module':
+        problems.append(f'the record says scope {rec.get("scope")!r}, not module')
+    if rec.get('dryRun') is not False:
+        problems.append(f'the record says dryRun {rec.get("dryRun")!r}: nothing was changed')
+
+    toolchain = rec.get('toolchain')
+    built = _major_of(toolchain.get(fam)) if isinstance(toolchain, dict) else None
+    if built is None:
+        problems.append(f'the record has no toolchain.{fam} version to compare with the compiler')
+    elif built != major:
+        problems.append(f'the plugin says it was built against {fam} {toolchain.get(fam)}, and the '
+                        f'compiler is {fam} {major}')
+    # wipe-pin-v3 `host` (compiler/schema/wipe-pin.md section 14.7): the major
+    # version the plugin read from the module (`identMajor`, null when there
+    # was nothing to read -- not a refusal, D26) and the one it was built for
+    # (`builtMajor`). Every v3 record carries the block, so a missing one is a
+    # problem.
+    host = rec.get('host')
+    if not isinstance(host, dict):
+        problems.append('the record has no host object' if host is None else 'the record field host is not an object')
+    else:
+        for key in ('identMajor', 'builtMajor'):
+            value = host.get(key)
+            if value is not None and value != major:
+                problems.append(f'the record says host.{key} {value!r}, and the compiler is {fam} {major}')
+        summary['hostChecked'] = host.get('checked')
+
+    pinned, would = _count(rec.get('pinnedCount')), _count(rec.get('wouldPinCount'))
+    if pinned is None or would is None:
+        problems.append('the record has no usable pinnedCount/wouldPinCount')
+        pinned = would = 0
+    elif would > pinned:
+        problems.append(f'{would - pinned} eligible site(s) were not pinned (wouldPinCount {would}, '
+                        f'pinnedCount {pinned})')
+    repaired = pinned
+    for key, done_key, would_key in REPAIR_OBJECTS:
+        obj = rec.get(key)
+        if obj is None:
+            continue
+        if not isinstance(obj, dict):
+            problems.append(f'the record field {key} is not an object')
+            continue
+        done = _count(obj.get(done_key))
+        if done is None:
+            problems.append(f'the record field {key}.{done_key} is not a count')
+            continue
+        repaired += done
+        summary[key] = done
+        if would_key is not None and would_key in obj:
+            w = _count(obj.get(would_key))
+            if w is None:
+                problems.append(f'the record field {key}.{would_key} is not a count')
+            elif w > done:
+                problems.append(f'{w - done} site(s) in {key} were not repaired ({would_key} {w}, {done_key} {done})')
+    for name, key in SWITCH_RECORD_KEY.items():
+        if pin_env.get(name) != '1':
+            continue
+        obj = rec.get(key)
+        if not isinstance(obj, dict):
+            problems.append(f'the pin turns on {name}=1 and the record has no {key}: this plugin does not '
+                            'implement the switch, and the variable was ignored')
+        elif obj.get('enabled') is False:
+            problems.append(f'the pin turns on {name}=1 and the record says {key}.enabled false')
+
+    unhandled = rec.get('unhandled')
+    if not isinstance(unhandled, dict) or not all(_count(v) is not None for v in unhandled.values()):
+        problems.append('the record has no usable unhandled counters')
+        unhandled = {}
+    blocking = {k: v for k, v in sorted(unhandled.items()) if v > 0 and k not in ignore}
+    if blocking:
+        problems.append('zero-fill shape(s) the plugin counted and left alone: '
+                        + ', '.join(f'{k}={v}' for k, v in blocking.items()))
+    if require_repair and repaired == 0:
+        problems.append('nothing was repaired in this unit (VG_PIN_REQUIRE_REPAIR=1)')
+
+    pinned_list = rec.get('pinned') if isinstance(rec.get('pinned'), list) else []
+    summary.update({'pinnedCount': pinned, 'repaired': repaired, 'unhandled': dict(unhandled),
+                    'followedByUse': sum(1 for s in pinned_list if isinstance(s, dict) and s.get('followedByUse') is True)})
+    return problems, summary
+
+
+def withhold(out):
+    """Strict: never leave an unverified output at the path the build expects.
+    Renamed rather than deleted, so the bytes stay inspectable; the suffix keeps
+    it out of `*.o`-style globs, and make sees the target missing and rebuilds.
+    Only a regular file or a symlink (the link itself) is moved: `-o /dev/null`
+    is a configure-script idiom, and a wrapper running as root must not move a
+    device node."""
+    if not os.path.lexists(out):
+        say(f'no output at {out} to withhold')
+        return
+    if not (os.path.islink(out) or os.path.isfile(out)):
+        say(f'the output {out} is not a regular file; left as it is')
+        return
+    target = out + '.vgpin-rejected'
+    try:
+        os.replace(out, target)
+        say(f'renamed the output to {target} so the build cannot use it')
+        return
+    except OSError as e:
+        why = e.__class__.__name__
+    try:
+        os.remove(out)
+        say(f'removed the output {out} (renaming it failed: {why})')
+    except OSError as e:
+        say(f'could not rename or remove the output {out} ({why}, {e.__class__.__name__}); do not use it')
+
+
+# --- main ---------------------------------------------------------------------
+
+def passthrough(cc, path, args):
+    try:
+        os.execve(path, [cc] + args, compiler_env())
+    except OSError as e:
+        raise Refusal(EXIT_PIN, f'cannot run {cc} ({e.__class__.__name__})') from None
+
+
+def run(argv):
+    args = argv[1:]
+    cc = compiler_name(argv[0])
+    path = resolve_compiler(cc)
+    expanded, rsp_problems = expand_response_files(args, os.getcwd())
+    if rsp_problems:
+        raise Refusal(EXIT_SHAPE, 'a response file could not be expanded, so the command line could not be '
+                      'classified: ' + '; '.join(rsp_problems))
+    info = classify(expanded)
+    action, why = decide(info)
+    if action == 'pass':
+        if os.environ.get('VG_PIN_VERBOSE') == '1':
+            say(f'passed through without the plugin: {why}')
+        passthrough(cc, path, args)
+        return 0  # not reached
+
+    mode = pin_mode()
+    verbose = switch('VG_PIN_VERBOSE')
+    require_repair = switch('VG_PIN_REQUIRE_REPAIR')
+    pins_path = os.environ.get('VGPIN_PINS', '')
+    if not pins_path:
+        raise Refusal(EXIT_PIN, 'VGPIN_PINS is not set (the path of the pins JSON file)')
+    pins, ignore = load_pins(pins_path)
+    fam, major = compiler_identity(cc, path)
+    pin = select_pin(pins, fam, major, cc)
+    if fam == 'gcc' and info['lto'] and info['stop'] == 'link':
+        raise Refusal(EXIT_SHAPE, 'an -flto line that also links: gcc loads the plugin into lto1 too, where it '
+                      'refuses and removes the record the compile wrote (measured). Compile with -c, then link.')
+    check_plugin(pin)
+
+    src = info['sources'][0]
+    out = info['output'] or default_output(src, info['stop'], info['emit_llvm'])
+    tmp = tempfile.mkdtemp(prefix='vgpin-')
+    try:
+        rec_path = os.path.join(tmp, 'wipe-pin.json')
+        env = compiler_env()
+        env.update(pin['env'])
+        env['WPIN_OUT'] = rec_path
+        env['WPIN_SCOPE'] = 'module'
+        try:
+            r = subprocess.run([cc, FAMILIES[fam]['flag'] + pin['plugin']] + args, executable=path, env=env)
+        except OSError as e:
+            raise Refusal(EXIT_PIN, f'cannot run {cc} ({e.__class__.__name__})') from None
+        if r.returncode != 0:
+            return r.returncode if r.returncode > 0 else 128 - r.returncode
+
+        rec = None
+        if not os.path.isfile(rec_path):
+            problems = ['the plugin wrote no record: it refused to install (its line is above), its pass never '
+                        'ran, or the record could not be written']
+            summary = {}
+        else:
+            try:
+                with open(rec_path, 'rb') as f:
+                    rec = json.loads(f.read().decode('utf-8'))
+                problems, summary = check_record(rec, fam, major, pin['env'], ignore, require_repair)
+            except Exception as e:  # noqa: BLE001 -- any surprise in the record is a problem, never a crash
+                # that leaves the unverified output where the build expects it
+                problems, summary = [f'the record cannot be read ({e.__class__.__name__})'], {}
+            record_dir = os.environ.get('VG_PIN_RECORD_DIR', '')
+            if record_dir:
+                try:
+                    os.makedirs(record_dir, exist_ok=True)
+                    shutil.copyfile(rec_path, os.path.join(record_dir, os.path.basename(out) + '.wipe-pin.json'))
+                except OSError as e:
+                    say(f'could not copy the record to VG_PIN_RECORD_DIR ({e.__class__.__name__})')
+        if verbose:
+            say(f'{src}: {fam} {major}, record {summary.get("schemaVersion")}, pinned {summary.get("pinnedCount")}, '
+                f'repaired {summary.get("repaired")}, followedByUse {summary.get("followedByUse")}, '
+                f'unhandled {summary.get("unhandled")}, host checked {summary.get("hostChecked")}')
+        if not problems:
+            return 0
+        for p in problems:
+            say(f'{src}: {p}')
+        if mode == 'warn':
+            say('VG_PIN_MODE=warn: the output was kept, and the repair is not confirmed')
+            return 0
+        withhold(out)
+        return EXIT_UNCONFIRMED
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def main(argv=None):
+    try:
+        return run(sys.argv if argv is None else argv)
+    except Refusal as e:
+        say(e.message)
+        return e.code
+
+
+if __name__ == '__main__':
+    sys.exit(main())

@@ -479,7 +479,10 @@ jobs:
         run: |
           set -u
           for t in compiler/eval/metamorphic/test/test_check_meta_survival_axis.py \
-                   compiler/eval/metamorphic/test/test_run_all_projection.py; do
+                   compiler/eval/metamorphic/test/test_run_all_projection.py \
+                   compiler/pin-wrapper/test/test_vgpin_parse.py \
+                   compiler/pin-wrapper/test/test_vgpin_cc.py \
+                   compiler/llvm-repair/test/test_check_fixture_loop.py; do
             [ -s "$t" ] || { echo "::error::no test file, or an empty one, at $t"; exit 1; }
             echo "--- $t"
             if out=$(python3 "$t" 2>&1); then rc=0; else rc=$?; fi

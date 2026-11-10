@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "vgpin-pins-v1",
+  "comment": "Copy this file, replace every <...> value, and point VGPIN_PINS at the copy. As it stands vgpin-cc refuses it (exit 4): the sha256 values are placeholders. A relative plugin path is read against the directory of this file.",
+  "pins": [
+    {
+      "family": "clang",
+      "compilerMajor": 18,
+      "plugin": "<path to libWipePin.so built against LLVM 18>",
+      "sha256": "<sha256 of that file: 64 lowercase hex digits>",
+      "env": {}
+    },
+    {
+      "family": "gcc",
+      "compilerMajor": 13,
+      "plugin": "<path to libWipePinGcc.so built by g++-13>",
+      "sha256": "<sha256 of that file: 64 lowercase hex digits>",
+      "env": {}
+    }
+  ],
+  "unhandledIgnore": ["memsetChk", "nonZeroFill"]
+}
