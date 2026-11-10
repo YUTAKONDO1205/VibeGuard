@@ -102,6 +102,41 @@ Config loadConfig() {
     return C;
   }
 
+  // Refused for the same reason as WPIN_DRY_RUN: a misspelt "on" read as off
+  // would leave the fortified wipe exactly as removable as before, silently.
+  const std::string Barrier = envOrEmpty("WPIN_BARRIER_CALLS");
+  if (Barrier.empty() || Barrier == "0") {
+    C.BarrierCalls = false;
+  } else if (Barrier == "1") {
+    C.BarrierCalls = true;
+  } else {
+    C.Rejected = "WPIN_BARRIER_CALLS='" + Barrier + "' is neither 0 nor 1";
+    return C;
+  }
+
+  // Refused on anything but 0 and 1, like the two above.
+  const std::string ZeroCopy = envOrEmpty("WPIN_ZERO_COPY");
+  if (ZeroCopy.empty() || ZeroCopy == "0") {
+    C.ZeroCopy = false;
+  } else if (ZeroCopy == "1") {
+    C.ZeroCopy = true;
+  } else {
+    C.Rejected = "WPIN_ZERO_COPY='" + ZeroCopy + "' is neither 0 nor 1";
+    return C;
+  }
+
+  // The barrier at the end of a buffer's lifetime. Refused on anything but 0
+  // and 1, like the two above.
+  const std::string Buffer = envOrEmpty("WPIN_BUFFER_BARRIER");
+  if (Buffer.empty() || Buffer == "0") {
+    C.BufferBarrier = false;
+  } else if (Buffer == "1") {
+    C.BufferBarrier = true;
+  } else {
+    C.Rejected = "WPIN_BUFFER_BARRIER='" + Buffer + "' is neither 0 nor 1";
+    return C;
+  }
+
   C.Valid = true;
   return C;
 }

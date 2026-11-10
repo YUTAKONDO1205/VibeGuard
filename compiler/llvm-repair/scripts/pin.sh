@@ -7,6 +7,8 @@
 #   pin.sh <plugin.so> <out.json> <clang args...>
 #
 #   WPIN_TARGET_FNS / WPIN_SCOPE / WPIN_DRY_RUN   passed through to the plugin
+#   WPIN_BARRIER_CALLS / WPIN_ZERO_COPY /
+#   WPIN_BUFFER_BARRIER                           passed through to the plugin
 #   WPIN_CC                                       compiler (default clang-18)
 #
 # WPIN_OUT is set to <out.json> by this script. Give clang ONE source file: the
@@ -19,22 +21,26 @@
 # <out.json> without its .json suffix.
 #
 # Exit codes follow compiler/schema/interfaces.md section 7, plus 4:
-#   0  clang succeeded, a wipe-pin-v2 record was written, it pinned at least one
-#      site, and every requested name resolved. This is NOT "the wipe survived"
-#      -- only the stock observation, re-run with the plugin, can say that -- and
-#      not even "the wipe was pinned": a pinned `= {0}` initialiser counts too.
+#   0  clang succeeded, a wipe-pin-v3 record was written, it made at least one
+#      repair -- pinnedCount + barrierCalls.barrierCount + zeroCopy.repairedCount
+#      + bufferBarriers.count > 0 (compiler/schema/wipe-pin.md section 14.8) --
+#      and every requested name resolved. This is NOT "the wipe survived" --
+#      only the stock observation, re-run with the plugin, can say that -- and
+#      not even "the wipe was repaired": a pinned `= {0}` initialiser counts too.
 #      The manifest's followedByUseCount, and the plugin's "partial" line on
 #      stderr, are where that shows.
 #   1  clang failed (its diagnostics pass through)
 #   3  clang succeeded and no usable record was written -- the plugin refused to
 #      install, or its pass never ran (-Xclang -disable-llvm-passes), or the
-#      record could not be written, or what was written is not a wipe-pin-v2
-#      record python3 can read. Never reported as 0: a build that loaded a
-#      repair plugin which did nothing is indistinguishable, by rc alone, from
-#      one that was repaired.
-#   4  clang succeeded and a record was written, but nothing was repaired: its
-#      pinnedCount is 0 (a dry run, a misspelt name, nothing eligible in scope)
-#      or a requested name did not resolve. A record alone is not a repair.
+#      record could not be written, or what was written is not a wipe-pin-v3
+#      record python3 can read (a v2 record from an older build is one), or the
+#      plugin refused the module in its version handshake. Never reported as 0:
+#      a build that loaded a repair plugin which did nothing is
+#      indistinguishable, by rc alone, from one that was repaired.
+#   4  clang succeeded and a record was written, but nothing was repaired: the
+#      sum above is 0 (a dry run, a misspelt name, nothing eligible in scope, a
+#      call-shaped wipe with WPIN_BARRIER_CALLS off) or a requested name did not
+#      resolve. A record alone is not a repair.
 #
 # Requires python3 to read the record (no jq).
 set -u
@@ -65,7 +71,8 @@ sanitise() { sed -e "s#$HOME#~#g"; }
 # Two source files on one clang line each write WPIN_OUT and the last one wins,
 # with nothing from the plugin to say so. Measured on clang 18.1.3 with
 # `-c a.c b.c`: rc 0, no warning, one record naming b.c. The count below is a
-# heuristic over the operands, so it warns rather than refuses.
+# heuristic over the operands, so it warns rather than refuses. An IR input
+# (.ll, .bc, as in `-x ir`) is a source here too: it is one module.
 SOURCES=0
 prev=
 for a in "$@"; do
@@ -75,7 +82,7 @@ for a in "$@"; do
   prev=$a
   case "$a" in
     -*) ;;
-    *.c|*.cc|*.cpp|*.cxx|*.c++|*.i|*.ii|*.m|*.mm) SOURCES=$((SOURCES + 1)) ;;
+    *.c|*.cc|*.cpp|*.cxx|*.c++|*.i|*.ii|*.m|*.mm|*.ll|*.bc) SOURCES=$((SOURCES + 1)) ;;
   esac
 done
 if [ "$SOURCES" -ne 1 ]; then
@@ -88,7 +95,9 @@ rc=$?
 cat "$ERRFILE" >&2
 
 # What the record says it did, as key=value lines. Anything that is not a
-# well-formed wipe-pin-v2 record makes this print one `error=` line instead.
+# well-formed wipe-pin-v3 record -- as far as the fields read here go --
+# makes this print one `error=` line instead. The full reader is
+# ../../eval/repair-loop/lib/pin-record.mjs.
 read_record() {
   python3 - "$1" <<'PY'
 import json, sys
@@ -104,17 +113,27 @@ except (OSError, ValueError) as e:
     fail("unreadable: %s" % type(e).__name__)
 if not isinstance(rec, dict):
     fail("not an object")
-if rec.get("schemaVersion") != "wipe-pin-v2":
-    fail("schemaVersion %r is not wipe-pin-v2" % (rec.get("schemaVersion"),))
+if rec.get("schemaVersion") != "wipe-pin-v3":
+    fail("schemaVersion %r is not wipe-pin-v3" % (rec.get("schemaVersion"),))
 
-def count(key):
-    v = rec.get(key)
+def count(key, block=None):
+    holder = rec if block is None else rec.get(block)
+    if not isinstance(holder, dict):
+        fail("%s is not an object" % block)
+    v = holder.get(key)
     if not isinstance(v, int) or isinstance(v, bool) or v < 0:
-        fail("%s is not a non-negative integer" % key)
+        fail("%s is not a non-negative integer" % (key if block is None else block + "." + key))
     return v
 
 pinned_count = count("pinnedCount")
 would_pin = count("wouldPinCount")
+# wipe-pin.md section 14.8: what counts as a repair is the sum of four counts.
+barrier_count = count("barrierCount", "barrierCalls")
+repaired_count = count("repairedCount", "zeroCopy")
+buffer_count = count("count", "bufferBarriers")
+host = rec.get("host")
+if not isinstance(host, dict) or not isinstance(host.get("checked"), bool):
+    fail("host.checked is not a boolean")
 sites = rec.get("pinned")
 res = rec.get("resolution")
 if not isinstance(sites, list) or not isinstance(res, list):
@@ -135,6 +154,11 @@ for r in res:
         exact_all = False
 print("pinnedCount=%d" % pinned_count)
 print("wouldPinCount=%d" % would_pin)
+print("barrierCount=%d" % barrier_count)
+print("zeroCopyRepairedCount=%d" % repaired_count)
+print("bufferBarrierCount=%d" % buffer_count)
+print("repairCount=%d" % (pinned_count + barrier_count + repaired_count + buffer_count))
+print("hostChecked=" + ("true" if host["checked"] else "false"))
 print("followedByUseCount=%d" % followed)
 print("unresolved=" + ",".join(unresolved))
 print("exactAll=" + ("true" if exact_all else "false"))
@@ -172,11 +196,16 @@ fi
 field() { printf '%s\n' "$REC_KV" | sed -n "s/^$1=//p"; }
 PINNED=$(field pinnedCount)
 WOULD=$(field wouldPinCount)
+BARRIERED=$(field barrierCount)
+ZCOPIED=$(field zeroCopyRepairedCount)
+BUFFERED=$(field bufferBarrierCount)
+REPAIRS=$(field repairCount)
+HOST_CHECKED=$(field hostChecked)
 FOLLOWED=$(field followedByUseCount)
 UNRESOLVED=$(field unresolved)
 EXACT_ALL=$(field exactAll)
 
-if [ $status -eq 0 ] && { [ "$PINNED" = 0 ] || [ -n "$UNRESOLVED" ]; }; then
+if [ $status -eq 0 ] && { [ "$REPAIRS" = 0 ] || [ -n "$UNRESOLVED" ]; }; then
   status=4
 fi
 
@@ -192,12 +221,20 @@ fi
   echo "recordError=$REC_ERR"
   echo "pinnedCount=$PINNED"
   echo "wouldPinCount=$WOULD"
+  echo "barrierCount=$BARRIERED"
+  echo "zeroCopyRepairedCount=$ZCOPIED"
+  echo "bufferBarrierCount=$BUFFERED"
+  echo "repairCount=$REPAIRS"
+  echo "hostChecked=$HOST_CHECKED"
   echo "followedByUseCount=$FOLLOWED"
   echo "unresolved=$UNRESOLVED"
   echo "exactAll=$EXACT_ALL"
   echo "wpinTargetFns=${WPIN_TARGET_FNS-}"
   echo "wpinScope=${WPIN_SCOPE-}"
   echo "wpinDryRun=${WPIN_DRY_RUN-}"
+  echo "wpinBarrierCalls=${WPIN_BARRIER_CALLS-}"
+  echo "wpinZeroCopy=${WPIN_ZERO_COPY-}"
+  echo "wpinBufferBarrier=${WPIN_BUFFER_BARRIER-}"
   printf 'argvB64=%s\n' "$(printf '%s\n' "$@" | sanitise | base64 -w0)"
   printf 'stderrB64=%s\n' "$( [ -s "$ERRFILE" ] && head -c 4000 "$ERRFILE" | sanitise | base64 -w0 )"
 } > "$MANIFEST"
@@ -212,7 +249,7 @@ case $status in
     fi ;;
   4)
     why=
-    [ "$PINNED" = 0 ] && why="pinnedCount 0 (wouldPinCount $WOULD)"
+    [ "$REPAIRS" = 0 ] && why="pinnedCount 0 (wouldPinCount $WOULD), barrierCalls.barrierCount 0, zeroCopy.repairedCount 0 and bufferBarriers.count 0"
     if [ -n "$UNRESOLVED" ]; then
       [ -n "$why" ] && why="$why; "
       why="${why}not resolved: $UNRESOLVED"
