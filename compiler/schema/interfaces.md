@@ -42,8 +42,12 @@ invasive experiment plugin), `IntentGate` (Clang AST plugin), `IrCheckpoints`
 plugin under `compiler/llvm-repair/`; it changes the object file on purpose, so
 the non-invasiveness claims made for the observers are measured without it),
 `WipePinGcc` (its GCC twin under `compiler/gcc-repair/`, a GCC plugin that is
-deliberately invasive in the same way and writes the same `wipe-pin-v2` record).
-The `wipe-pin-v2` record both write is described field by field in `wipe-pin.md`.
+deliberately invasive in the same way and writes the same record).
+Both write `wipe-pin-v3` since 2026-11-09, described in `wipe-pin.md` §14 as
+its differences from `wipe-pin-v2`, the record they wrote before, which
+`wipe-pin.md` §1–§13 describe field by field. v3's top-level `host` block is
+the compiler version handshake, digested, and is not the `context.host` of
+section 5.
 
 ## 1. Where things live
 
