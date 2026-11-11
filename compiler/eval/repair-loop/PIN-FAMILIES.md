@@ -58,7 +58,7 @@ counted by `tableCensus()` beside it:
 |---|---|---|
 | `recomputed` | 26 | tracked evidence with a cite: `test/pin-families.test.mjs` recomputes the ratio from the rows in `data/` (or from the corpus text) on every run, and fails on drift |
 | `lab-run` | 10 | one real run, typed in by hand and recomputed by nothing. The gate is re-run over it and its quote, where it has one, is checked against the file it names; the numbers inside its prose are not evidence in this lane's sense |
-| `no-number` | 3 | there is no reading to check: an instrument nobody has run yet, or an argument about where in the pipeline the repair sits |
+| `no-number` | 3 | there is no reading to check: an instrument nobody has run yet, an instrument run once on one fixture that gives no ratio, or an argument about where in the pipeline the repair sits |
 
 That is 39 rows in total, over 7 properties and 22 (property, shape) groups.
 
@@ -96,7 +96,7 @@ for measurements, so they are named here rather than only counted:
   and `zero-global-copy-call` with their switched candidate — but their count is
   recomputed, so they are counted with the `recomputed` rows below.
 - `no-number` — `dead-store-builtin-memset-gimple` / `gcc/fdisable-tree-pass`
-  (**driven, not yet run**), `libcall-memset` /
+  (**run once, the wipe never came back**), `libcall-memset` /
   `wipe-pin/asm-barrier-after-call` and `bzero-call` /
   `wipe-pin/asm-barrier-after-call` (**written, not yet run on this shape** in
   any corpus run: both need `-fno-builtin`, which no corpus run used; the clang
@@ -136,7 +136,7 @@ both were wrong.
 | dead-store memset intrinsic (clang) | `wipe-pin/volatile-memset` | `measured-retained` | **401/401** cell eliminations reversed (by the find step's verdicts; seven `-O1` cells it reads as surviving are eliminations the pin also reversed, read by hand 2026-11-10, so 408/408 counted that way — `README.md`, *What this does not claim*) |
 | dead-store memset intrinsic (clang) | `pass-delete/attributed-position` | `not-repairable-in-compiler` (one lab run) | the property never came back; see below |
 | dead-store `__builtin_memset` on GIMPLE (gcc) | `wipe-pin-gcc/volatile-asm-barrier` | `measured-retained` | **432/432** |
-| dead-store `__builtin_memset` on GIMPLE (gcc) | `gcc/fdisable-tree-pass` | `unmeasured` | **driven, not yet run** — `tools/intervene.mjs --cc gcc-13` |
+| dead-store `__builtin_memset` on GIMPLE (gcc) | `gcc/fdisable-tree-pass` | `unmeasured` | **run once, the wipe never came back** — `tools/intervene.mjs --cc gcc-13` |
 | hidden span elimination (clang) | `wipe-pin/volatile-memset` | `measured-retained` | **63/63** |
 | hidden span elimination (gcc) | `wipe-pin-gcc/volatile-asm-barrier` | `measured-retained` | **92/92** |
 | dropped by the backend, after the IR pipeline | `wipe-pin/volatile-memset` | `measured-retained` | **62/62** at `-O1` (69/69 with the seven cells above) |
@@ -452,7 +452,7 @@ Anything short of that is `NOT_ENOUGH_EVIDENCE`, which is a result and not an
 error. The table's validator re-runs the gate over every `intervention` block it
 holds, so a row cannot assert a verdict the gate would not give.
 
-### gcc — driven, not yet run
+### gcc — run once, the wipe never came back
 
 `-fdisable-tree-<pass>` is the same idea on the other vendor, and
 `tools/intervene.mjs --cc gcc-13` now drives it. gcc prints no pass pipeline and
@@ -467,6 +467,19 @@ GIMPLE pass out:
 2. rebuild with `-fdisable-tree-<that pass>`, then at a second position — where
    the walk says the loss moved to once the first pass was gone — and finally
    with both disabled at once. The gate decides the verdict, as on clang.
+
+**The run (2026-11-11, gcc 13.3.0, `-O2`, `irck/fixtures/erasure`, one span
+deleted).** The four channel controls held: gcc announced each disable in both
+units, the misspelled `-fdisable-tree-cddce1xx` failed the build (exit 1,
+`unknown pass tree-cddce1xx`), both positive controls stayed PRESENT, and the
+walk compared 186 dumps, 181 of which held the target function in both units.
+The walk located `043t.cddce1`. Disabling `cddce1`, then `ccp2` (where the walk
+said the loss had moved), then both: the wipe was deleted every time, so the
+report's verdict is `NEVER_CAME_BACK` (2 positions tried, both channels read).
+The row stays `unmeasured`: one fixture is not a {num, den}, and what the run
+shows is that, on this fixture, the dump the walk locates is not a pass whose
+removal keeps the wipe. The report and the dumps are lab notes kept outside
+this repository.
 
 #### Three words, three oracles, and why this channel does not borrow one
 
@@ -668,7 +681,7 @@ own index. They are in the README now, and the `tools/intervene.mjs` and
 | `lib/gcc-disable-tree.mjs` | the gcc channel's pure half: gcc's dump-file ordering, the differential reading of one dump, `firstIndifferentDump` and the whole walk beside it, the walk's own positive control (at least one dump must have held the function in both units), the dump-set comparison, the stderr controls (the disable must be announced in both units, a misspelled pass must fail the build, a refusal counts only when both units refused) and the named reasons this channel refuses to produce a reading; pure |
 | `test/pin-families.test.mjs` | recomputes every measured number in `pin-families.json` from the tracked rows, re-runs the intervention gate over every claim that uses it, and reads the gcc channel's state back out of the prose |
 | `test/gcc-disable-tree.test.mjs` | the gcc channel's decisions, without a compiler: the walk and its positive control, the two gcc messages quoted verbatim, the rule that a build which succeeded without the disable note is `no-note` and fatal, and that `PIN-FAMILIES.md` names every refusal reason the code can give |
-| `test/intervene-gcc-driver.test.mjs` | the gcc DRIVER's fail-closed guards, over scripted readings and no compiler: each guard has a case that goes red when the guard is deleted (`PIN-FAMILIES.md`, *gcc — driven, not yet run*) |
+| `test/intervene-gcc-driver.test.mjs` | the gcc DRIVER's fail-closed guards, over scripted readings and no compiler: each guard has a case that goes red when the guard is deleted (`PIN-FAMILIES.md`, *gcc — run once, the wipe never came back*) |
 ```
 
 **2. Nothing is requested in `compiler/schema/`.** It is worth recording why,

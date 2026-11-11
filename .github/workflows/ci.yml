@@ -482,6 +482,7 @@ jobs:
                    compiler/eval/metamorphic/test/test_run_all_projection.py \
                    compiler/pin-wrapper/test/test_vgpin_parse.py \
                    compiler/pin-wrapper/test/test_vgpin_cc.py \
+                   compiler/wipe-witness/test/test_witness_check.py \
                    compiler/llvm-repair/test/test_check_fixture_loop.py; do
             [ -s "$t" ] || { echo "::error::no test file, or an empty one, at $t"; exit 1; }
             echo "--- $t"
@@ -644,6 +645,23 @@ jobs:
           cmake -S compiler/gcc-repair -B "$RUNNER_TEMP/build/gcc-repair" -G Ninja
           ninja -C "$RUNNER_TEMP/build/gcc-repair"
 
+      # WipeWitness only reads the IR (compiler/wipe-witness/README.md). It is
+      # its own CMake project, so building it cannot change libWipePin.so.
+      - name: Build WipeWitness (wipe-witness)
+        run: |
+          set -u
+          cmake -S compiler/wipe-witness -B "$RUNNER_TEMP/build/wipe-witness" -G Ninja -DLLVM_DIR="$(llvm-config-18 --cmakedir)"
+          ninja -C "$RUNNER_TEMP/build/wipe-witness"
+
+      # Its GCC twin is built by the GCC it loads into, like WipePinGcc.
+      - name: Build WipeWitnessGcc (wipe-witness/gcc)
+        env:
+          CXX: g++-13
+        run: |
+          set -u
+          cmake -S compiler/wipe-witness/gcc -B "$RUNNER_TEMP/build/wipe-witness-gcc" -G Ninja
+          ninja -C "$RUNNER_TEMP/build/wipe-witness-gcc"
+
       # Built only (see the job comment). clang-plugin needs Clang's CMake
       # package as well as LLVM's, from libclang-18-dev.
       - name: Build the other C++ components (build only)
@@ -667,6 +685,8 @@ jobs:
                    "$RUNNER_TEMP/build/llvm-repair/libWipePin.so" \
                    "$RUNNER_TEMP/build/gcc-repair/libWipePinGcc.so" \
                    "$RUNNER_TEMP/build/gcc-repair/canon-vectors" \
+                   "$RUNNER_TEMP/build/wipe-witness/libWipeWitness.so" \
+                   "$RUNNER_TEMP/build/wipe-witness-gcc/libWipeWitnessGcc.so" \
                    "$RUNNER_TEMP/build/clang-plugin/libIntentGate.so" \
                    "$RUNNER_TEMP/build/pi-observer-rq2/libSyntheticGroundTruth.so" \
                    "$RUNNER_TEMP/build/pi-marker/libMarkerPass.so" \
@@ -700,6 +720,18 @@ jobs:
           bash compiler/gcc-repair/scripts/run-gcc-fixture-loop.sh --lab "$lab" \
                --plugin "$RUNNER_TEMP/build/gcc-repair/libWipePinGcc.so"
           python3 compiler/gcc-repair/scripts/check-gcc-fixture-loop.py --lab "$lab"
+
+      # Exit 0 only when every cell's witness_check.py exit code is the one
+      # written in the script before the cell first ran, every compile exits 0,
+      # and loading the witness leaves the -S byte-identical.
+      - name: WipeWitness check (clang-18 and gcc-13 cells)
+        run: |
+          set -u
+          bash compiler/wipe-witness/scripts/run-witness-check.sh --lab "$RUNNER_TEMP/lab/wipe-witness" \
+               --wipepin "$RUNNER_TEMP/build/llvm-repair/libWipePin.so" \
+               --witness "$RUNNER_TEMP/build/wipe-witness/libWipeWitness.so" \
+               --wipepin-gcc "$RUNNER_TEMP/build/gcc-repair/libWipePinGcc.so" \
+               --witness-gcc "$RUNNER_TEMP/build/wipe-witness-gcc/libWipeWitnessGcc.so"
 
       # WipePinGcc cannot link libLLVM, so it has a second writer of the
       # canonical record text; the shared vectors are what keep the two
