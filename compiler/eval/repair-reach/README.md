@@ -10,7 +10,8 @@ named in `../../llvm-repair/README.md` and `../../gcc-repair/README.md`
 with the other versions' builds listed there.
 
 Setting, unless a section says otherwise: x86-64, Ubuntu 24.04 under WSL,
-clang 18.1.3 and gcc 13.3.0, `_FORTIFY_SOURCE` undefined. The scripts, the
+clang 18.1.3 and gcc 13.3.0, `_FORTIFY_SOURCE` undefined (`-U_FORTIFY_SOURCE`,
+which matters on gcc 13: it defines 3 by default when optimising). The scripts, the
 expectations written before each run, the listings and the generated sources
 are lab notes kept outside this repository, like every other measurement under
 `compiler/`.
@@ -27,13 +28,13 @@ delete cannot be repaired). The arms:
 | stock | nothing |
 | off | the repair plugin, every switch off |
 | ext | the plugin with the switches the repair loop's `ext` arm sets |
-| xb | the plugin with `WPIN_BUFFER_BARRIER=1` |
-| dry | `WPIN_DRY_RUN=1` (records, changes nothing) |
+| xb | ext, plus `WPIN_BUFFER_BARRIER=1` |
+| dry | ext, plus `WPIN_DRY_RUN=1` (records, changes nothing); xbdry is xb with it |
 
 ## Optimisation levels
 
-The r4 L files (52; at `-O2` stock deletes 51 of them, the files the plugin
-READMEs measure), E3 v2 (52 machine-made rewrites of the same wipes as loops of
+52 files of the r4 L corpus (its stack-wipe files; at `-O2` stock deletes 51
+of them, the files the plugin READMEs measure), E3 v2 (52 machine-made rewrites of the same wipes as loops of
 zero stores), and two controls that no level should delete: E5 v8
 (`explicit_bzero`) and E5 v10 (`memset` through a volatile function pointer).
 
@@ -68,13 +69,18 @@ zero stores), and two controls that no level should delete: E5 v8
   count-down loop, which `verdictOf` also reads as *kept*; 7 is the number
   `verdictOf` reports, not the number of loops whose stores were deleted. Both
   are the differential reading's known blind spot (a difference that is not a
-  wipe), read by hand in the lab notes.
-- The ext arm keeps none of E3 v2 at any level: it pins `memset`, and a loop of
-  stores has none. Only the buffer barrier keeps a loop.
+  wipe). A corrected classification in the lab notes counts 34 and 50 deleted,
+  all kept by the same arms as in the table; it is not `verdictOf`, and it is not
+  re-checked here.
+- At `-O1` gcc also deletes the one r4 L wipe it keeps at `-O2`, hence 52.
+- Within the table's denominators the ext arm keeps none of E3 v2: it pins
+  `memset`, and a loop of stores has none. Only the buffer barrier keeps a
+  loop.
 
 Not measured: the other nine versions at `-O1`, `-O3` and `-Os` (started, not
 finished); `-Og` and `-Oz`; the same table with `-D_FORTIFY_SOURCE=2` and `3`
-(run, not summarised here).
+(run, not summarised here); by `verdictOf`, the repair arms on the six clang
+`-O1` files and on the gcc `-O1` loops it reads as kept under stock.
 
 ## Loops a model wrote
 
@@ -106,9 +112,10 @@ a loop wipe unprompted.
 ## C++
 
 Fifteen one-unit sources, compiled with clang++ 18 (WipePin) and g++ 13
-(WipePinGcc), the plugin told the function's name. At `-O2` stock deleted 12 of
-the 15 wipes on clang and 11 on gcc; off and ext kept 7 and 6, xb kept 8 and 7.
-`-O1`, `-O3` and `-Os` give the same pattern.
+(WipePinGcc), the plugin told the function's name, `_FORTIFY_SOURCE` undefined.
+At `-O2` stock deleted 12 of the 15 wipes on clang and 11 on gcc; off and ext
+kept 7 and 6, xb kept 8 and 7. `-O3` and `-Os` give the same counts. At `-O1`
+stock deleted 10 on clang (off and ext kept 5, xb 6) and 8 on gcc (6, 6 and 6).
 
 | shape | stock | kept by |
 |---|---|---|
@@ -117,6 +124,7 @@ the 15 wipes on clang and 11 on gcc; off and ext kept 7 and 6, xb kept 8 and 7.
 | a loop of zero stores in a function template | deleted | xb |
 | `memset` before the `std::vector<unsigned char>` is freed | deleted by clang, kept by gcc | off, ext, xb (clang) |
 | `std::fill` (`int`), `std::fill` (`unsigned char`), `std::fill_n`, `std::array::fill` | deleted | **none** |
+| `memset` through its own declaration with `-fno-builtin` and a cleanup (an `invoke`), and the same with `-fno-exceptions` (a `call`) | kept | — |
 | `explicit_bzero` (control) | kept | — |
 
 - The four `fill` shapes are not repaired by any arm. For `std::fill` on
@@ -138,12 +146,15 @@ the 15 wipes on clang and 11 on gcc; off and ext kept 7 and 6, xb kept 8 and 7.
   linked binary.
 
 Not measured: more than one unit outside that link-order case; other C++
-standard libraries; exceptions thrown at run time.
+standard libraries; exceptions thrown at run time; compilers other than
+clang++ 18 and g++ 13; the witness and the run-time readout on C++.
 
 ## LTO, with the v3 switches
 
-The plugin on the compile step only, the link plain (a plugin on the link line
-removes the record), read in the linked executable with `objdump`.
+`-O2`, `_FORTIFY_SOURCE` undefined, the plugin on the compile step only and the
+link plain (a plugin on the link line removes the record). The verdict is
+`verdictOf` on the link's output; an `objdump` reading of the linked executable
+was taken beside it.
 
 | set | compiler, form | stock deleted | kept by off | ext | xb | dry = stock |
 |---|---|---|---|---|---|---|
@@ -155,7 +166,12 @@ removes the record), read in the linked executable with `objdump`.
 | E3 v2 52 | clang 18, `-flto=thin` | 50 | 0 | 0 | 50 | 52 / 52 |
 
 Every row agrees, file by file, with the same arm without LTO; the control was
-PRESENT in all 52 files of every row.
+PRESENT in all 52 files of every row. Each file is one unit, so no wipe helper
+was inlined across units at link time.
+
+Not measured: levels other than `-O2`; `_FORTIFY_SOURCE` 2 and 3; versions other
+than clang 18 and gcc 13; a wipe helper in another unit; the plugin on the link
+line; the run-time readout of LTO builds; C++ with LTO.
 
 ## Reading the secret back, on more versions
 
@@ -171,7 +187,9 @@ r4 L files and their 20 E5 v7 rewrites) and on 20 E3 v2 files:
 | r4 L + E5 v7 (40) | read back in 40 | 0 | 0 |
 | E3 v2 (20) | read back in 20 | 20 | 0 |
 
-The same on every one of the seven versions. One of the 20 r4 L files is the
+The same on every one of the seven versions. A 0 means the secret's bytes were
+not found in that frame; registers and other copies were not examined. One of
+the 20 r4 L files is the
 one whose wipe `verdictOf` reads as kept on clang (`../repair-loop/README.md`);
 its secret is read back nonetheless.
 
@@ -181,20 +199,20 @@ same as without, 40 of 40 runs each. `verdictOf` was not: it changed from
 *deleted* to *kept* on 26 of 40 rows on clang and 4 of 40 on gcc. Do not read
 `-g` builds with `verdictOf`.
 
-Not measured: the readout at levels other than `-O2`, and on the loops a model
-wrote.
+Not measured: the readout at levels other than `-O2`, on the loops a model
+wrote, on C++ and on LTO builds.
 
 ## A real build through the wrapper
 
 QuickJS 2020-11-08, built with `CC` set to `../../pin-wrapper/vgpin-cc` for
 clang 18 and gcc 13, with the repair's switches off (`wrap`) and on (`all`), in
 `warn` and `strict` mode: every build compiled and linked (14 wrapper
-invocations, 0 refused), and the 11 scripts of `make test` exit 0 in every
-build, as in the stock build. The `qjs` binary's `.text` is
-96 bytes larger than stock's with clang 18 and 96 bytes smaller with gcc 13, the
-same in all four arms. QuickJS has no secret wipe this repairs; what this
-measures is that the wrapper builds a real project and refuses nothing it
-should not.
+invocations per build, 0 refused), and the 11 scripts of `make test` exit 0 in
+every build, as in the stock build. The `qjs` binary's `.text` is 96 bytes larger
+than stock's with clang 18 and 96 bytes smaller with gcc 13, the same in all
+four arms; why was not read, and neither was the number of repairs placed, so
+this is not a measurement of the repair's cost. What it measures is that the
+wrapper builds this project and its tests pass.
 
 Not measured: libsodium (started, not finished), build time, run time.
 

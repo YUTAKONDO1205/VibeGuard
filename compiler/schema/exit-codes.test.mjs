@@ -288,7 +288,17 @@ test('the set of exit sites this fence cannot resolve has not silently grown', (
   //     component. No test sets FAKECC_RC, so it exits 0.
   //
   // Every code the five can produce is in section 7.
-  const BASELINE = 143;
+  //
+  // 143 -> 144 on 2026-11-11, read rather than bumped. The new site is
+  // `sys.exit(main())` in compiler/wipe-witness/scripts/witness_check.py, whose
+  // `main()` returns 0 (nothing gone), 2 (a repair gone: SILENT), 3 (cannot
+  // judge) or 4 (WipePin placed nothing, so there is nothing to judge); argparse
+  // exits 2 on a bad argument. Every number is in section 7, but the 4 is not
+  // section 7's meaning: there 4 is an integrity or invocation failure. It was
+  // kept rather than folded into 3 because the witness's own runner tells the
+  // two apart by code, and its README's measurements were taken with it.
+  // Recorded here, not blessed -- as with the 69 above.
+  const BASELINE = 144;
   const files = execFileSync('git', ['ls-files', 'compiler'], { cwd: REPO, encoding: 'utf8', maxBuffer: 1 << 28 })
     .split('\n')
     .filter((f) => /\.(mjs|js|cjs|ts|py|sh|c|cc|cpp)$/.test(f))

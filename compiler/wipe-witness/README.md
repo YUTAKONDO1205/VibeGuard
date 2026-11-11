@@ -14,7 +14,10 @@ tree since; `../llvm-repair/README.md`, *2026-11-10, later*) put a buffer
 barrier before a lifetime end in a block no path reaches; the optimiser deleted
 the block, and the record still said `count` 1, `pin.sh` still exited 0, and
 the `-S` was byte-identical with stock's. This plugin reports that shape
-(measured below on the build that had the error).
+(measured below on the build that had the error). Of WipePin's three past
+placement errors it reports that one; it does not report the wipe only before
+`exit()` (measured below); the third (a barrier on an initialiser, and invalid
+IR after `musttail` and VLAs) was not measured on a build that had it.
 
 What it reports is narrow: **a function WipePin's record says it placed a
 repair in, which is still a definition at the end of the optimisation pipeline,
@@ -187,6 +190,22 @@ a callee's barriers into its caller (measured below: the `inline` source).
   by a clone under another name (`.cold`, `.constprop.N`, …) is *not judged*
   if the original is gone, and a barrier in the clone does not count for the
   original.
+- **Inlined repairs.** A function whose repair was inlined into its callers is
+  *not judged*, and the copies in the callers are not matched back to it, so a
+  copy the optimiser deleted in one caller is not reported. On the corpus run
+  below, 62 of the 192 clang functions with a placement were not judged. A run
+  in which every placed function was inlined exits 0 with only *not judged*
+  lines.
+- **Part of a function's repairs.** The rule asks whether at least one barrier
+  or volatile zero memset is left in the function, not whether each one is: a
+  function with two repairs and one gone is `ok`.
+- **That the two records come from the same compile.** The pair is checked by
+  module name, producer and versions. The optimisation level and the switches
+  are not compared, so records from two different compiles of the same file are
+  judged as one.
+- **GCC after GIMPLE.** The GCC twin's end count is taken after the `optimized`
+  pass, before RTL expansion; every RTL pass, RTL dead-store elimination
+  included, runs after it.
 - **LTO.** A link that runs the end extension point without pipeline start
   writes no record (one line on stderr); and, as with WipePin, the file at
   `WWIT_OUT` is removed when the plugin loads into the link. The link is not
@@ -313,7 +332,8 @@ and WipePinGcc left that memset alone (`alreadyVolatile`), so nothing was
 placed; with `"r"`, `otherMemoryAsm`.
 
 **A corpus.** Every file of the r4 L corpus (1,295 generated C files; the
-WipePin README's measurements use 51 of them), `-O2`, `WPIN_SCOPE=module` with
+WipePin README measures its 52 stack-wipe files, 51 of which stock deletes at
+`-O2`), `-O2`, `WPIN_SCOPE=module` with
 the three switches on, clang 18 with WipePin (`_FORTIFY_SOURCE` not defined)
 and gcc 13 with WipePinGcc (its default at `-O2`, `_FORTIFY_SOURCE=3`). 66
 files (clang) and 43 (gcc) do not compile, stock included, and are left out.
@@ -339,8 +359,9 @@ corpora beyond the one run above (the E3 and E5 rewrites, other levels,
 `_FORTIFY_SOURCE` settings and versions), builds loaded into a
 compiler of another major version beyond the one pair above (the GCC twin
 relies on `plugin_default_version_check`, as WipePinGcc does), the GCC twin
-against an older WipePinGcc build, and any claim about the object file beyond
-the `-S` comparisons above.
+against an older WipePinGcc build, the third past placement error (above) on a
+build that had it, and any claim about the object file beyond the `-S`
+comparisons above.
 
 ## Files
 

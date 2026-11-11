@@ -468,7 +468,10 @@ glibc 2.39, target `handle`, `-O2`; *Measured*).
 
 An **invoke** (a call that can unwind, in C++ with exceptions) of any of these
 is counted and never repaired, switch or not: the barrier is placed only after
-a plain call. No fixture has one: not measured.
+a plain call. No fixture has one. A one-unit C++ probe (2026-11-11,
+`../eval/repair-reach/README.md`) produced one only with a declaration that is
+not `noexcept`, `-fno-builtin` and a cleanup together, and the record counted it
+as `libcallMemset` with nothing placed.
 
 The *all-zero constant global* is read from the IR: `getUnderlyingObject` of
 the source is a `GlobalVariable` that is constant, has a definitive initializer
@@ -951,7 +954,9 @@ either script.
 v3 switches, the run-time readout on clang 16, 17 and 19, loops a model was
 asked to write, and a QuickJS build through `../pin-wrapper/vgpin-cc` were
 measured with the builds of *2026-11-10, later*, without changing this
-plugin's source: `../eval/repair-reach/README.md`. What is left of the repairs
+plugin's source: `../eval/repair-reach/README.md`. Not everything there is
+repaired: four libstdc++ `fill` shapes are not, a template's repaired copy can be
+dropped at link time, and one of 44 deleted model-written loops is not kept. What is left of the repairs
 at the end of the pipeline is read by a separate plugin, `../wipe-witness/`.
 
 clang 18.1.3, Ubuntu 24.04 (WSL), plugin built with g++ 13.3.0, 2026-09-11.

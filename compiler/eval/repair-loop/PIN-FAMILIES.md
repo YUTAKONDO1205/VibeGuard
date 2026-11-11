@@ -58,7 +58,7 @@ counted by `tableCensus()` beside it:
 |---|---|---|
 | `recomputed` | 26 | tracked evidence with a cite: `test/pin-families.test.mjs` recomputes the ratio from the rows in `data/` (or from the corpus text) on every run, and fails on drift |
 | `lab-run` | 10 | one real run, typed in by hand and recomputed by nothing. The gate is re-run over it and its quote, where it has one, is checked against the file it names; the numbers inside its prose are not evidence in this lane's sense |
-| `no-number` | 3 | there is no reading to check: an instrument nobody has run yet, or an argument about where in the pipeline the repair sits |
+| `no-number` | 3 | there is no reading to check: an instrument nobody has run yet, an instrument run once on one fixture that gives no ratio, or an argument about where in the pipeline the repair sits |
 
 That is 39 rows in total, over 7 properties and 22 (property, shape) groups.
 

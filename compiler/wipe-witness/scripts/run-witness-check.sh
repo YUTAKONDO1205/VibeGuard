@@ -89,6 +89,9 @@ command -v python3 > /dev/null || { echo "run-witness-check.sh: python3 not foun
 HERE=$(cd "$(dirname "$0")" && pwd)
 CHECK="$HERE/witness_check.py"
 
+case "$LAB" in
+  ''|/) echo "run-witness-check.sh: refusing to use '$LAB' as the lab" >&2; exit 3 ;;
+esac
 rm -rf "$LAB"
 mkdir -p "$LAB/src" || exit 3
 S="$LAB/src"
