@@ -141,7 +141,7 @@
       "candidate": "gcc/fdisable-tree-pass",
       "status": "unmeasured",
       "channel": {
-        "state": "driven, not yet run",
+        "state": "run once, the wipe never came back",
         "driver": "tools/intervene.mjs --cc gcc-13",
         "why": "the channel is implemented and carries its own four controls -- gcc must announce every disable on stderr in both units, a misspelled pass name must fail the build, both positive controls must stay PRESENT, and the walk must have read the target function in at least one dump -- and its fail-closed guards are pinned by test/intervene-gcc-driver.test.mjs. No run of it exists anywhere in this tree or beside it. Implementing an instrument is not measuring with it, and neither is unit-testing it, so the row stays unmeasured and carries no ratio."
       },

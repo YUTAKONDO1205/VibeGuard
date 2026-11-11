@@ -947,6 +947,13 @@ either script.
 
 ## Measured
 
+**Since this section (2026-11-11):** `-O1`, `-O3` and `-Os`, C++, LTO with the
+v3 switches, the run-time readout on clang 16, 17 and 19, loops a model was
+asked to write, and a QuickJS build through `../pin-wrapper/vgpin-cc` were
+measured with the builds of *2026-11-10, later*, without changing this
+plugin's source: `../eval/repair-reach/README.md`. What is left of the repairs
+at the end of the pipeline is read by a separate plugin, `../wipe-witness/`.
+
 clang 18.1.3, Ubuntu 24.04 (WSL), plugin built with g++ 13.3.0, 2026-09-11.
 Every number below was copied from a run, not from reasoning.
 

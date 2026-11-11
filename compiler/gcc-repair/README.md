@@ -769,6 +769,13 @@ form, the linker and the link).
 
 ## Measured
 
+**Since this section (2026-11-11):** `-O1`, `-O3` and `-Os`, C++ (g++ 13), LTO
+with the v3 switches, the run-time readout on gcc 10, 11, 12 and 14, loops a
+model was asked to write, and a QuickJS build through
+`../pin-wrapper/vgpin-cc` were measured with the builds of *2026-11-10, later*,
+without changing this plugin's source: `../eval/repair-reach/README.md`. A GCC
+twin of the end-of-pipeline witness is in `../wipe-witness/gcc/`.
+
 Every number in this section was copied from a run, not from reasoning.
 
 ### 2026-11-10, later: the not-barriered line reworded
