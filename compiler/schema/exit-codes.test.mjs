@@ -298,7 +298,27 @@ test('the set of exit sites this fence cannot resolve has not silently grown', (
   // kept rather than folded into 3 because the witness's own runner tells the
   // two apart by code, and its README's measurements were taken with it.
   // Recorded here, not blessed -- as with the 69 above.
-  const BASELINE = 144;
+  //
+  // 144 -> 148 on 2026-11-23, read rather than bumped. The four arrived with
+  // compiler/claude-code/, files copied byte for byte from the copies a measurement
+  // used, so their codes were kept rather than translated:
+  //
+  //   compiler/claude-code/hook/vg_wipe_hook.py  `sys.exit(main())`: 0 or 2 and
+  //     nothing else. Its 2 means "show stderr to the model" -- Claude Code's
+  //     PostToolUse contract, the only code whose stderr reaches the model -- and it
+  //     covers both a deleted wipe and a check that could not be made, which section
+  //     7 would split into 2 and 3.
+  //   compiler/claude-code/hook/wipe_core.py  `sys.exit(res['exit'])`: 0 kept or no
+  //     wipe, 1 deleted, 2 compile error, 3 undecided (argparse: 2). Section 7's 1
+  //     and 2 swapped: here 1 is the finding and 2 the tool's failure.
+  //   compiler/claude-code/hook/check_wipe.py and
+  //   compiler/claude-code/skill/secret-wipe-c/scripts/check_wipe.py (the same
+  //     file)  `sys.exit(code)`: 0 kept, 1 deleted, 2 no wipe, not found, compile
+  //     error or undecided (argparse: 2). 1 is the finding here too.
+  //
+  // Every number is in section 7; the meanings of 1 and 2 are not section 7's, and
+  // compiler/claude-code/README.md says so. Recorded, not blessed.
+  const BASELINE = 148;
   const files = execFileSync('git', ['ls-files', 'compiler'], { cwd: REPO, encoding: 'utf8', maxBuffer: 1 << 28 })
     .split('\n')
     .filter((f) => /\.(mjs|js|cjs|ts|py|sh|c|cc|cpp)$/.test(f))

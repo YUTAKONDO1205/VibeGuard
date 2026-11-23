@@ -93,6 +93,13 @@ clang-18,gcc-13] [--opt -O2]` prints one JSON object (`"schema":
 "wipe-core-v1"`) and exits 0 `SURVIVED`/`NO_WIPE`, 1 `ELIMINATED`, 2
 `COMPILE_ERROR`, 3 `UNDECIDED`.
 
+None of the three uses the exit codes of `../schema/interfaces.md` §7 with
+their meanings, and they were kept as measured: the hook's 2 is Claude Code's
+"show stderr" and covers both a deletion and a check not made (§7's 2 and 3);
+`wipe_core.py` and `check_wipe.py` use 1 for a deletion, where §7's 1 is the
+underlying tool failing (`../schema/exit-codes.test.mjs` records the four
+sites).
+
 ### Windows and Linux
 
 On Windows (`os.name == 'nt'`) the scan of step 2 runs in the Windows
