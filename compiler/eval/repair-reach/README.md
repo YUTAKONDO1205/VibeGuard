@@ -2,7 +2,9 @@
 
 The repair plugins' READMEs measure them at `-O2`, in C, without LTO, on the
 files the corpora already held, and list what they did not measure. This file
-records a day of measurement aimed at that list. It changes no plugin:
+records a day of measurement aimed at that list, and two additions of
+2026-11-23 (the census of the model-written files, summarised in full, and
+the libsodium build). It changes no plugin:
 `../../llvm-repair/src/WipePin.cpp` and `../../gcc-repair/src/WipePinGcc.cpp`
 are the sources of `7c9d11f2…` (clang 18) and `ea3e8c7e…` (gcc 13), the builds
 named in `../../llvm-repair/README.md` and `../../gcc-repair/README.md`
@@ -399,7 +401,11 @@ counts what the wrapper does to a project, not repairs.
   constant global, `zeroGlobalCopy`, which the switches off leave unhandled;
   with them on, strict builds the library and passes 101/101.
 
-Not measured: why the clang wrapper arms are 80 and 2,380 bytes larger.
+Not measured: why the clang wrapper arms are 80 and 2,380 bytes larger; the
+build time and run time of either project (a measurement was designed and
+started on 2026-11-23 and stopped after its first build: the host machine was
+not idle, and under WSL2 the time the host takes counts as the guest's CPU
+time, so its numbers would not have been the repair's cost).
 
 ## The gcc pass-disable channel
 

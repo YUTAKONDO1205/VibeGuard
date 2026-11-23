@@ -255,8 +255,12 @@ because the translation unit is the granularity, and so does this wrapper.
   through `CC`.
 - **Cost.** `WPIN_SCOPE=module` also pins initialisers (`= {0}`); the buffer
   barrier, when the pin turns it on, is not placed on a buffer that is only
-  initialised (`../schema/wipe-pin.md` §14.6). The effect on speed or size was
-  not measured.
+  initialised (`../schema/wipe-pin.md` §14.6). The effect on speed was not
+  measured. On size, two real builds (`../eval/repair-reach/README.md`, *A real
+  build through the wrapper*): QuickJS's `qjs` `.text` 96 bytes larger with
+  clang 18 and 96 smaller with gcc 13; `libsodium.a` 80 bytes larger with the
+  switches off and 2,380 with them on with clang 18, 191 with gcc 13. Why was
+  not read.
 
 ## Tests
 
@@ -437,4 +441,8 @@ loop rewrites; measured since, with the final builds, 2026-11-10 above);
 the v3 plugins for compilers other than clang-18 and gcc-13 through the
 wrapper; C++; any compiler other than those named; the cost of
 `WPIN_SCOPE=module`; files whose wipe was not deleted (how often the wrapper
-stops a compile that did not need stopping); a real project's build.
+stops a compile that did not need stopping); a real project's build. The last
+two were measured since, in `../eval/repair-reach/README.md`: the census reads
+the stop rule over 4,619 model-written files (*How often the shapes occur*),
+and QuickJS and libsodium were built through the wrapper (*A real build
+through the wrapper*). The cost in time is still not measured.
