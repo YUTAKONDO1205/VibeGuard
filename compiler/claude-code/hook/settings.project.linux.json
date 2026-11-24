@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/vg_wipe/vg_wipe_hook.py"],
+            "timeout": 120,
+            "statusMessage": "VibeGuard: 消去処理を -O2 で確かめている"
+          }
+        ]
+      }
+    ]
+  }
+}

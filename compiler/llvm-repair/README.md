@@ -1512,7 +1512,9 @@ re-run with the current builds).
 
 Not measured: the cost of the barrier or of the handshake in compile time or
 in code; an `invoke`; `bzero` reaching pipeline start as a plain call; how
-often any v3 shape occurs in code that was not written for these cells.
+often any v3 shape occurs in code that was not written for these cells (measured
+since, over 4,619 model-written files: `../eval/repair-reach/README.md`, *How
+often the shapes occur*; an `invoke` there in C++ only, *C++*).
 
 ### The buffer barrier (`WPIN_BUFFER_BARRIER`)
 

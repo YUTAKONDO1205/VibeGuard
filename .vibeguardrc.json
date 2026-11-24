@@ -29,6 +29,11 @@
       "paths": ["compiler/**"],
       "rules": ["VG-CRYPTO-003", "VG-INJ-007"],
       "reason": "Same standing as scripts/** above, for the same reason: the toolchain under compiler/ is research code that sits outside the npm workspaces and ships in no artifact. Both rules fire on its shape rather than on a vulnerability — draft-07 $schema identifiers, which are http:// URLs by JSON Schema's own spec and are never fetched, and os.path.join over names the script itself enumerated. VG-SMELL-003 is deliberately NOT on this list: it fired on three long dispatchers here and all three were split rather than silenced, so the rule is live over this directory and the next one that grows will report."
+    },
+    {
+      "paths": ["compiler/claude-code/test/cases/**"],
+      "rules": ["VG-MEM-006"],
+      "reason": "Inputs of the Claude Code hook's tests (compiler/claude-code/README.md). Several of them clear a key with a plain memset on purpose — the hook exists to report that -O2 deleted such a memset; the tests assert that it reports the deleted ones, says nothing about the one under a false #ifdef, and reports the broken file — so VG-MEM-006 is right about each finding (medium, five findings, measured 2026-11-23). Named rather than wildcarded and limited to that one directory, so the same memset anywhere else, the hook's own sources included, still reports."
     }
   ]
 }

@@ -2,7 +2,9 @@
 
 The repair plugins' READMEs measure them at `-O2`, in C, without LTO, on the
 files the corpora already held, and list what they did not measure. This file
-records a day of measurement aimed at that list. It changes no plugin:
+records a day of measurement aimed at that list, and two additions of
+2026-11-23 (the census of the model-written files, summarised in full, and
+the libsodium build). It changes no plugin:
 `../../llvm-repair/src/WipePin.cpp` and `../../gcc-repair/src/WipePinGcc.cpp`
 are the sources of `7c9d11f2…` (clang 18) and `ea3e8c7e…` (gcc 13), the builds
 named in `../../llvm-repair/README.md` and `../../gcc-repair/README.md`
@@ -109,6 +111,153 @@ all 120 command lines and inputs).
 This counts a shape the request asked for. It is not how often a model writes
 a loop wipe unprompted.
 
+## How often the shapes occur: a census of the model-written files
+
+Measured 2026-11-11; summarised and checked 2026-11-23. The plugin READMEs show
+what each v3 shape does on sources written for it, and say they did not measure
+how often a shape occurs in code nobody wrote for it
+(`../../llvm-repair/README.md`, *Not measured: … how often any v3 shape occurs*).
+This counts them in every model-written C file at hand. What it counts are
+**zero-fill sites**, not wipes: an initialiser (`= {0}`, a clear before a fill)
+is a site too.
+
+**Files.** 6,283, in eleven groups: the r4 corpus (1,476); r4 L (1,295); a
+regeneration of r4 L that came back byte-identical (1,295, so measured as r4 L);
+seven later generations that vary the prompt (1,377 together: r4 L's prompt
+again; with an OpenSSF example; naming SEI CERT C and CWE; "you are an expert";
+asking for `explicit_bzero`; for Linux and Windows; and the four conditions of
+`../../claude-code/README.md`); and `../ai-generated/generated-corpus/` (840).
+A file whose content and target function repeat another's is measured once:
+**4,619 unique files**. clang 18 at `-O2` compiles 4,485 of them with
+`_FORTIFY_SOURCE` undefined; 134 do not compile (mostly an undeclared `NULL`,
+`SIZE_MAX`, `errno` or `PATH_MAX`, or a missing Windows header — the source's
+fault) and are left out of everything below. gcc 13 compiles 4,488.
+
+**Arms**, on every unique file, both compilers, `_FORTIFY_SOURCE` undefined and
+2 (gcc with `-U_FORTIFY_SOURCE` first): stock; the plugin in module scope as a
+dry run (`WPIN_SCOPE=module WPIN_DRY_RUN=1`), every switch off, and again with
+the three switches on — the census is read from these two records; at 2, the
+same dry run limited to the file's own functions (`WPIN_TARGET_FNS`), which
+tells the inline wrappers' bodies (clang's `memset.inline`, glibc's `memset`)
+apart; and, on clang, an independent count over the IR before any pass
+(`-disable-llvm-passes`), written from this README's and the schema's words, not
+from WipePin's source. Where the file has a wipe, the deletion reading:
+`verdictOf` on the file with and without its wipe, and on every file stock
+deleted, the xb arm read the same way.
+
+**Checks.**
+
+- The dry run changes nothing: the `-S` of every dry compile is byte-identical
+  with stock's, 35,900 of 35,900 (the own-functions arm, 8,974 of 8,974).
+- Every record is accepted: 35,900 of 35,900 by
+  `../repair-loop/lib/pin-record.mjs`, and gcc's 24,095 of 24,095 by
+  `../../gcc-repair/scripts/wpin_gcc_record.py`.
+- Closure: nineteen comparisons between WipePin's record and the independent IR
+  count — zero `llvm.memset` against `pinned`, each kind of call against its
+  `unhandled` key, the barrier switches, the zero-filled stack buffers, the
+  *not a stack buffer* lines. **Every comparison agrees in all 4,485 and 4,487
+  clang cells.** gcc has no IR to count.
+- The known values came out first: the 1,605 + 195 rows of
+  `../repair-loop/data/r2-repair-rows.json` and its gcc twin, field for field
+  (the `unhandled` sum is 0 in all 3,200 records of each compiler), the 251 and
+  250 sites and the 209 of 360 of the plugin READMEs, and the earlier `-O2`
+  deletion verdicts of ten of the eleven groups (4,734 of 4,748 the same; the
+  other 14 are seven files both measurements could not read, under two names).
+
+**Counts.** Unique files, `-O2`; "deleted" is the number of those files whose
+wipe stock deleted (the six files of the next paragraph excluded).
+
+| shape (record or IR count) | clang 18 | gcc 13 |
+|---|---|---|
+| a zero fill the plugin would pin, `_FORTIFY_SOURCE` undefined | 838 (deleted 412) | 705 (deleted 407) |
+| the same at 2 (clang's fortified `memset` is a call, not the intrinsic) | 73 | 705 |
+| a pinned site followed by a use of the buffer (initialiser-like), undefined | 334 | 259 |
+| a fill whose destination is not a stack buffer of the function (heap) | 151 (deleted 31) | 147 (deleted 31) |
+| a buffer the buffer barrier would cover, filled by `memset` / by a loop | 439 / 1 | 440 / 1 |
+| at 2, `__memset_chk` (`memsetChk`) | 879 | 881 |
+| at 2, a call to `memset.inline` (`inlineWrapperMemset`), switches off / on | 772 / 1 | 0 / 0 |
+| a zeroing loop through a helper's pointer argument | 7 (deleted 0) | |
+| a zeroing loop into the heap; an `invoke` | 0; 0 | |
+| not counted by the plugin: zero stores outside a loop into a stack aggregate | 799 | |
+| not counted: a zeroing loop over a scalar, through a volatile pointer | 998, 937 | |
+| not counted: a copy from a writable zero global; a `memmove` or `mempcpy` from a zero global; a copy from a non-zero constant global | 1; 0; 132 | |
+
+- `memsetChk` is the wrappers' bodies, all of it: 879 files in module scope, 0
+  in the own-functions arm, and the IR holds no `__memset_chk` in any user
+  function. `inlineWrapperMemset` is none of it (772 in both
+  arms). On gcc, `memsetChk` is 881 in module scope and 0 in the
+  own-functions arm.
+- The 799 files with zero stores outside a loop are mostly string terminators
+  (`pin[6] = '\0';`). Stock deleted the wipe of 106 of them on clang, and in
+  each of five read the deleted wipe is a `memset`, not one of the stores.
+- The one copy from a writable zero global is not a wipe (`auth = g_auth;`,
+  a global holding an authorisation token).
+- Of the four copies `../../llvm-repair/README.md` lists as not counted (from
+  a writable zero global, from a local zero array, `memmove`, `mempcpy`), only
+  the first occurs, once.
+
+**The deletion reading, and the six files the repair "did not keep".** Of the
+2,312 unique files with a wipe that clang 18 compiles, stock deleted the wipe
+of 418 (gcc 13: 413 of 2,315); 2,173 files have no wipe. The xb arm read *kept*
+in 412 of the 418 and 407 of the 413, with `_FORTIFY_SOURCE` undefined and at 2.
+The other six are the same six files in all four cells, and in each the wipe
+sits in a preprocessor branch this target does not compile: five inside
+`#ifdef _WIN32` (four `SecureZeroMemory` calls and one `memset` that initialises
+a `STARTUPINFO`), one inside `#if defined(VG_DEBUG_DUMP_SENSITIVE)`. Their text is
+in the source once and in the `-E` output of either compiler zero times. With
+and without it the program is the same, and `verdictOf` reads that as
+*deleted*: a defect of finding the wipe in the text, not a deletion. **Without
+those six, stock deleted 412 (clang) and 407 (gcc) of these files' compiled
+wipes, and the xb arm kept every one.** The xb arm names the function and its
+helpers (`WPIN_TARGET_FNS`); it is not the wrapper's module scope.
+
+The reading is wrong the other way too. `verdictOf` and a count of zero writes
+in the w-only lines disagree on 90 files on clang (95 on gcc) with
+`_FORTIFY_SOURCE` undefined, and on 629 (608) at 2. Every one was classified by
+rule and a stratified 30 per cell read by hand, the two agreeing; a second
+classifier written apart from the first gave the same classes. Almost all are
+wipes the count cannot see and `verdictOf` reads right — an indirect call through a volatile function pointer, to `memset` in
+all but one file (86, 92), and at 2 the
+`__explicit_bzero_chk` that glibc's fortified `explicit_bzero` calls (539, 513),
+a name the zero-write count's call pattern misses. On clang, two files (one of
+r4 L, one of `../ai-generated/`) read *kept* although their wipe is gone in the
+build with it too, and gcc reads both *deleted*; so clang's 418 is short by at
+least those two. It also holds at least one deletion that is not of a wipe: a
+`memset` just before a `strncpy` into the same buffer, an initialisation, which
+gcc reads as *kept*. Outside the disagreements neither kind was looked for.
+
+The 39 files with a wipe whose build without it does not compile are, in 37
+cases (classified by rule, 15 read by hand), the same kind of defect: the target function itself taken as a wipe
+helper so that its header is cut out (26), a `(void)` cast left without its
+operand (6), the same span replaced twice (4), nested spans (1).
+
+**How often the wrapper stops a compile that needed no stopping.** Read from
+the dry-run records with `vgpin-cc`'s own rule (an `unhandled` key above 0 and
+not in `unhandledIgnore`, which defaults to `memsetChk` and `nonZeroFill`), over
+the files whose wipe stock did not delete or that have none: **clang 18 at
+`_FORTIFY_SOURCE=2` with the switches off stops 348 of 4,030** (8.6%; all on
+`inlineWrapperMemset`), with the switches on 1. Undefined, and gcc 13 at either
+setting: 0. The one with the switches on wipes nothing: a non-zero `memset`,
+counted as `nonZeroFill` without FORTIFY and as `inlineWrapperMemset` under it,
+because the fill reaches the plugin as a call to `memset.inline` — the same
+shape as libsodium's below. 181 compiles of 41 distinct files were run through
+the real `vgpin-cc` in strict mode and matched the reading, exit 3 or 0, in
+all 181.
+
+**`_FORTIFY_SOURCE=3` and `-g`.** At 3 every number above is the same as at 2
+(418 and 413 deleted, the same six, closure 0 in all 4,487 clang cells). With
+`-g`, the dry run's `-S` matches stock's on clang in every file, and on gcc in
+none: gcc writes its command line into `DW_AT_producer`, and the dry run's
+contains `-fplugin=`. In all 8,976 gcc pairs the code and data before the first
+`.debug_` section are byte-identical, and with ` -fplugin=…` taken out of the
+producer string the two listings hold the same lines. Comparing gcc `-g`
+listings byte for byte needs `-gno-record-gcc-switches`.
+
+Not measured: levels other than `-O2`; versions other than clang 18 and gcc 13;
+the wrapper's module scope on the deletion reading (the xb arm names functions);
+the run-time readout of these files; the deletion reading under `-g`; why two
+files compile only with `_FORTIFY_SOURCE=2`.
+
 ## C++
 
 Fifteen one-unit sources, compiled with clang++ 18 (WipePin) and g++ 13
@@ -214,7 +363,49 @@ four arms; why was not read, and neither was the number of repairs placed, so
 this is not a measurement of the repair's cost. What it measures is that the
 wrapper builds this project and its tests pass.
 
-Not measured: libsodium (started, not finished), build time, run time.
+libsodium 1.0.22, measured 2026-11-23 the same way (`./configure
+--disable-shared`, whose own flags are `-O3` and `-D_FORTIFY_SOURCE=3`, then
+`make` and `make check`, which compiles 101 test programs as well). libsodium
+wipes through its own `sodium_memzero`; it is not a repair target, so this
+counts what the wrapper does to a project, not repairs.
+
+| compiler | arm | builds | `make check` | `libsodium.a` `.text` | stopped |
+|---|---|---|---|---|---|
+| clang 18 | stock | yes | 101/101 | 478,108 | — |
+| clang 18 | wrap, warn | yes | 101/101 | 478,188 | 0 |
+| clang 18 | wrap, strict | no | — | — | 79 (40 library, 39 test) |
+| clang 18 | all, warn | yes | 101/101 | 480,488 | 0 |
+| clang 18 | all, strict | no | — | — | 33 (8 library, 25 test) |
+| gcc 13 | stock | yes | 101/101 | 442,463 | — |
+| gcc 13 | wrap, warn | yes | 101/101 | 442,654 | 0 |
+| gcc 13 | wrap, strict | library yes | test build fails | 442,654 | 1 (test) |
+| gcc 13 | all, warn / strict | yes | 101/101 | 442,654 | 0 |
+
+- The four gcc wrapper arms produce the same `libsodium.a`, byte for byte.
+  The clang stock and *wrap, warn* builds, and the stops of *wrap, strict*, are
+  those of a first run on 2026-11-11 (stopped there after three arms), to the
+  byte.
+- **clang 18's strict stops are all `inlineWrapperMemset`**, and with every
+  switch on most of them are not wipes. Of the 33 compiles still stopped, 28
+  count exactly as many calls as the file has `memset` calls with a non-zero
+  constant value (HMAC's pads, `memset(pad, 0x36, 64)` and `0x5c`, among them);
+  four more call `memset` with a variable fill (`argon2-core.h`,
+  `memset(b->v, in, …)`).
+  Under clang's FORTIFY such a call reaches the plugin as a call to
+  `memset.inline`, which the record counts in `inlineWrapperMemset`, not in
+  `nonZeroFill`, so `unhandledIgnore` cannot pass it and strict stops a file
+  that has nothing left to repair. The census above finds the same shape once.
+  The 33rd (`aead_aes256gcm_aesni.c`, three zero `memset` calls, six barriers,
+  `inlineWrapperMemset` 2 left) was not read.
+- gcc 13's one stop is a test (`core_keccak1600.c`): a copy from a zero
+  constant global, `zeroGlobalCopy`, which the switches off leave unhandled;
+  with them on, strict builds the library and passes 101/101.
+
+Not measured: why the clang wrapper arms are 80 and 2,380 bytes larger; the
+build time and run time of either project (a measurement was designed and
+started on 2026-11-23 and stopped after its first build: the host machine was
+not idle, and under WSL2 the time the host takes counts as the guest's CPU
+time, so its numbers would not have been the repair's cost).
 
 ## The gcc pass-disable channel
 

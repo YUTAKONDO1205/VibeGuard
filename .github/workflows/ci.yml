@@ -483,6 +483,7 @@ jobs:
                    compiler/pin-wrapper/test/test_vgpin_parse.py \
                    compiler/pin-wrapper/test/test_vgpin_cc.py \
                    compiler/wipe-witness/test/test_witness_check.py \
+                   compiler/claude-code/test/test_hook_static.py \
                    compiler/llvm-repair/test/test_check_fixture_loop.py; do
             [ -s "$t" ] || { echo "::error::no test file, or an empty one, at $t"; exit 1; }
             echo "--- $t"
@@ -757,6 +758,26 @@ jobs:
             [ "$rc" -eq 0 ] || { echo "::error::$t exited $rc"; exit 1; }
             ran=$(printf '%s\n' "$out" | sed -n 's/^Ran \([0-9][0-9]*\) tests\{0,1\} in .*/\1/p' | tail -n 1)
             [ -n "$ran" ] && [ "$ran" -gt 0 ] || { echo "::error::$t ran no test (no \"Ran N tests\" with N > 0)"; exit 1; }
+            echo "$t: $ran test(s) ran"
+          done
+
+      # The Claude Code hook and the skill's check script, run against clang-18
+      # and gcc-13 (compiler/claude-code/README.md). Same rigour as the step
+      # above, plus one more: the suite skips itself on a platform that is not
+      # POSIX, and a run in which a test was skipped is a run in which the hook
+      # did not compile, so "skipped=" in the output fails the step.
+      - name: Claude Code hook and skill Python tests (need clang-18 and gcc-13)
+        run: |
+          set -u
+          for t in compiler/claude-code/test/test_hook_clang_gcc.py; do
+            [ -s "$t" ] || { echo "::error::no test file, or an empty one, at $t"; exit 1; }
+            echo "--- $t"
+            if out=$(python3 "$t" 2>&1); then rc=0; else rc=$?; fi
+            printf '%s\n' "$out"
+            [ "$rc" -eq 0 ] || { echo "::error::$t exited $rc"; exit 1; }
+            ran=$(printf '%s\n' "$out" | sed -n 's/^Ran \([0-9][0-9]*\) tests\{0,1\} in .*/\1/p' | tail -n 1)
+            [ -n "$ran" ] && [ "$ran" -gt 0 ] || { echo "::error::$t ran no test (no \"Ran N tests\" with N > 0)"; exit 1; }
+            if printf '%s\n' "$out" | grep -q 'skipped='; then echo "::error::$t skipped a test"; exit 1; fi
             echo "$t: $ran test(s) ran"
           done
 
